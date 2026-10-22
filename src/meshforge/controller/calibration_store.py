@@ -32,6 +32,33 @@
   is remembered (logged once, planned without calibration) and not re-read
   every tick.
 
+**D319 (V0.14 G4): the regret check.** When the D306 error check accepts a
+new version, the refresh also asks the evaluator
+(:mod:`meshforge.controller.planner_eval.regret_gate`) whether the version
+makes the planner *pick* worse on the same held-out slice: the labelled
+benchmark groups of the slice's jobs, calibrated ``cost_model`` with the new
+vs the active version, paired. Mean regret above the active one's x 1.05 ->
+``rejected`` with the reason; fewer than 10 such groups -> the check is
+``skipped`` and the row's ``reason`` says so (the error check alone decided).
+Its numbers are in ``fit_inputs`` (``regret_check``, ``regret_groups``,
+``holdout_regret_new`` / ``_active``; no new column). A database failure in
+the check fails the refresh like any other (nothing written).
+
+**The slow part runs before the lock** (G4 fix round 1, reviewer N2): the
+refresh first reads the matched runs and the active version **without** the
+lock, fits, gates and runs the D319 check (label reads + replays, the
+expensive part). Then, under the lock, it re-reads both; when the matched-run
+set, the fit settings and the active version are unchanged - the normal case
+- the prepared result is stored as is. If anything changed in between
+(another refresh activated a version, new runs finished), it refits and
+re-checks under the lock, so the stored row is always judged against what is
+active when it is written; the one-active invariant is unchanged.
+Not re-checked: the D319 labels (``load_for_jobs``) may change between the
+prepare and the store; they were never under the lock, so this is no new
+race. The re-check path opens a second pooled session for the label reads
+while the locked transaction holds its connection, so the pool needs at
+least 2 connections (the default pool is larger).
+
 **The matched runs** (one bounded read): ``dispatched`` decisions joined to
 their attempt (``done``, ``ended_at`` set), the attempt's run record (workload
 family, fingerprint) and the job (fingerprint when the record is not written
@@ -42,6 +69,7 @@ yet), newest first; then their phases in one ``IN`` read. The pure
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import datetime as dt
 import hashlib
 from collections.abc import Mapping, Sequence
@@ -60,13 +88,23 @@ from meshforge.controller.planner.calibration import (
     CalibrationConfig,
     CalibrationError,
     DecisionOutcome,
+    GateResult,
     MatchedRun,
     Refit,
     calibration_from_json,
     calibration_json,
     match,
     refit,
+    split_holdout,
 )
+
+# V0.14 G4 (D319): the regret check of a new version
+from meshforge.controller.planner_eval.loader import (
+    EvalLoadError,
+    EvalTooLargeError,
+    load_for_jobs,
+)
+from meshforge.controller.planner_eval.regret_gate import RegretCheck, regret_check
 from meshforge.controller.store.engine import create_session_factory
 from meshforge.controller.store.models.calibration import (
     MAX_CALIBRATION_REASON_CHARS,
@@ -75,6 +113,7 @@ from meshforge.controller.store.models.calibration import (
 from meshforge.controller.store.models.job import Attempt, AttemptPhaseRow, Job
 from meshforge.controller.store.models.plan import PlanDecision
 from meshforge.controller.store.models.telemetry import RunRecord
+from meshforge.controller.telemetry.export import MAX_EXPORT_ROWS
 
 __all__ = [
     "MAX_RUNS_READ",
@@ -175,6 +214,26 @@ def _same_inputs(previous: Mapping[str, Any], current: Mapping[str, Any]) -> boo
     )
 
 
+def _fit_set(runs: Sequence[MatchedRun], config: CalibrationConfig) -> dict[str, Any]:
+    """The matched-run set and fit settings of one refresh (``fit_inputs``)."""
+    return {
+        **run_set(runs),
+        "window": config.window_runs,
+        "k": config.shrink_k,
+        "clamp": list(config.clamp),
+    }
+
+
+@dataclass(frozen=True, slots=True)
+class _Prepared:
+    """G4 fix round 1 (N2): a refresh's result computed before the lock."""
+
+    inputs: dict[str, Any]
+    active_version: int | None
+    result: Refit | None
+    note: str | None
+
+
 def _match_all(outcomes: Sequence[DecisionOutcome]) -> list[MatchedRun]:
     return [m for o in outcomes if (m := match(o)) is not None]
 
@@ -255,9 +314,113 @@ async def _outcomes(db: AsyncSession, limit: int) -> list[DecisionOutcome]:
 class CalibrationStore:
     """See module docstring."""
 
-    def __init__(self, engine: AsyncEngine) -> None:
+    def __init__(
+        self,
+        engine: AsyncEngine,
+        *,
+        regret_check: bool = True,
+        max_label_rows: int = MAX_EXPORT_ROWS,
+    ) -> None:
+        self._engine = engine
         self._sessions: async_sessionmaker[AsyncSession] = create_session_factory(
             engine
+        )
+        # V0.14 G4 (D319)
+        self._regret_check = regret_check
+        self._max_label_rows = max_label_rows
+
+    async def matched_runs(self, config: CalibrationConfig) -> list[MatchedRun]:
+        """V0.14 G4 (D316): the matched runs a refresh would read (newest
+        first, the same bound), for the evaluator's held-out refits.
+        :class:`CalibrationStoreError` when the database fails."""
+        limit = min(MAX_RUNS_READ, config.window_runs * RUNS_PER_WINDOW)
+        try:
+            async with self._sessions() as db:
+                outcomes = await _outcomes(db, max(1, limit))
+        except _DB_ERRORS as exc:
+            raise CalibrationStoreError(
+                "the calibration read failed in the database",
+                details={"cause": type(exc).__name__},
+            ) from exc
+        return await asyncio.to_thread(_match_all, outcomes)
+
+    async def _with_regret_check(
+        self,
+        result: Refit,
+        runs: Sequence[MatchedRun],
+        active: Calibration | None,
+    ) -> tuple[Refit, str | None]:
+        """V0.14 G4 (D319): ``result`` after the regret check (module
+        docstring) and the note for an accepted row (the skip reason)."""
+        _fit, held = split_holdout(runs)
+        ids = sorted({run.decision_id for run in held})
+        jobs: set[str] = set()
+        if ids:
+            async with self._sessions() as db:
+                jobs = set(
+                    await db.scalars(
+                        select(PlanDecision.job_id).where(PlanDecision.id.in_(ids))
+                    )
+                )
+        try:
+            inputs = await load_for_jobs(
+                self._engine, jobs, max_rows=self._max_label_rows
+            )
+        except EvalLoadError as exc:
+            raise CalibrationStoreError(
+                "the calibration regret check's read failed in the database",
+                details={"cause": exc.details.get("cause")},
+            ) from exc
+        except EvalTooLargeError:
+            check = RegretCheck(
+                "skipped", 0, None, None, "regret check skipped (campaign too large)"
+            )
+        else:
+            check = await asyncio.to_thread(
+                regret_check, inputs.groups, inputs.records, result.calibration, active
+            )
+        checked = dataclasses.replace(
+            result, fit_inputs={**result.fit_inputs, **check.fit_inputs()}
+        )
+        if check.status == "rejected":
+            return dataclasses.replace(
+                checked, gate=GateResult(False, check.reason)
+            ), None
+        return checked, check.reason
+
+    async def _fit_and_check(
+        self,
+        runs: Sequence[MatchedRun],
+        config: CalibrationConfig,
+        active: Calibration | None,
+    ) -> tuple[Refit | None, str | None]:
+        """Fit + D306 gate (worker thread) + the D319 check when accepted."""
+        result = await asyncio.to_thread(refit, runs, config, active)
+        note: str | None = None
+        if result is not None and result.gate.accepted and self._regret_check:
+            result, note = await self._with_regret_check(result, runs, active)
+        return result, note
+
+    async def _prepare(self, config: CalibrationConfig, limit: int) -> _Prepared:
+        """G4 fix round 1 (N2): the refresh's work done **without** the lock
+        (module docstring)."""
+        async with self._sessions() as db:
+            outcomes = await _outcomes(db, limit)
+            current = (
+                await db.scalars(
+                    select(PlannerCalibration).where(
+                        PlannerCalibration.status == "active"
+                    )
+                )
+            ).first()
+        runs = await asyncio.to_thread(_match_all, outcomes)
+        active = None if current is None else _row(current).calibration
+        result, note = await self._fit_and_check(runs, config, active)
+        return _Prepared(
+            inputs=_fit_set(runs, config),
+            active_version=None if current is None else int(current.version),
+            result=result,
+            note=note,
         )
 
     async def refresh(
@@ -266,20 +429,18 @@ class CalibrationStore:
         """Fit, gate and store one new version (module docstring).
         :class:`CalibrationStoreError` when the database fails (nothing is
         written then: one transaction)."""
-        limit = max_runs or min(MAX_RUNS_READ, config.window_runs * RUNS_PER_WINDOW)
+        limit = max(
+            1, max_runs or min(MAX_RUNS_READ, config.window_runs * RUNS_PER_WINDOW)
+        )
         try:
+            prepared = await self._prepare(config, limit)  # no lock held
             async with self._sessions() as db, db.begin():
                 await db.execute(_LOCK)
-                outcomes = await _outcomes(db, max(1, limit))
+                outcomes = await _outcomes(db, limit)
                 # pure CPU work off the event loop; the lock stays held (the
                 # transaction is this coroutine's), nothing else uses ``db``
                 runs = await asyncio.to_thread(_match_all, outcomes)
-                inputs = {
-                    **run_set(runs),
-                    "window": config.window_runs,
-                    "k": config.shrink_k,
-                    "clamp": list(config.clamp),
-                }
+                inputs = _fit_set(runs, config)
                 newest = (
                     await db.scalars(
                         select(PlannerCalibration)
@@ -302,8 +463,15 @@ class CalibrationStore:
                         .with_for_update()
                     )
                 ).first()
-                active = None if current is None else _row(current).calibration
-                result = await asyncio.to_thread(refit, runs, config, active)
+                active_version = None if current is None else int(current.version)
+                if (
+                    prepared.inputs == inputs
+                    and prepared.active_version == active_version
+                ):
+                    result, note = prepared.result, prepared.note
+                else:  # something changed while unlocked: judge it again
+                    active = None if current is None else _row(current).calibration
+                    result, note = await self._fit_and_check(runs, config, active)
                 if result is None:
                     skipped = (
                         "too_few_runs" if len(runs) < MIN_RUNS else "nothing_to_fit"
@@ -311,7 +479,9 @@ class CalibrationStore:
                     return RefreshResult(
                         matched_runs=len(runs), row=None, skipped=skipped
                     )
-                return await self._store(db, result, current, len(runs), inputs)
+                return await self._store(
+                    db, result, current, len(runs), inputs, note=note
+                )
         except _DB_ERRORS as exc:
             raise CalibrationStoreError(
                 "the calibration refresh failed in the database",
@@ -325,14 +495,19 @@ class CalibrationStore:
         current: PlannerCalibration | None,
         matched: int,
         inputs: Mapping[str, Any],
+        *,
+        note: str | None = None,
     ) -> RefreshResult:
+        """``note`` (V0.14 G4, D319): why an accepted row's regret check was
+        skipped - stored as its ``reason`` (a rejected row's reason is the
+        gate's)."""
         accepted = result.gate.accepted
         superseded: int | None = None
         if accepted and current is not None:
             current.status = "superseded"
             superseded = int(current.version)
             await db.flush()  # the index allows one active row at a time
-        reason = result.gate.reason
+        reason = result.gate.reason if not accepted else note
         item = PlannerCalibration(
             status="active" if accepted else "rejected",
             factors=calibration_json(result.calibration),

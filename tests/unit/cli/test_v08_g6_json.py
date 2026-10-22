@@ -107,7 +107,12 @@ def _commands_with_json() -> set[str]:
 
 def test_every_json_command_is_documented_and_every_row_has_json() -> None:
     documented = {
-        " ".join(w for w in c.split() if not w.isupper() and w != "--revoke")
+        " ".join(
+            w
+            for w in c.split()
+            # V0.14 G4: `planner eval` needs its --campaign option to run
+            if not w.isupper() and w not in ("--revoke", "--campaign")
+        )
         for c, _s, _f in ROWS
     }
     assert _commands_with_json() == documented

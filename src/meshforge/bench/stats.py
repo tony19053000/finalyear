@@ -19,7 +19,14 @@ labels (:mod:`meshforge.controller.telemetry.labels`) and by the quality report
   75 %, 87.5 %, 93.75 %); ``n >= 6`` -> the **tightest** such interval (the
   largest ``k``) whose coverage is still >= :data:`CI_COVERAGE` (90 %). The
   achieved coverage is reported, never assumed.
-* :func:`summarize` - all of the above for one metric.
+* :func:`summarize` - all of the above for one metric;
+* :func:`bootstrap_mean_ci` - V0.14 G4 (D317): a **seeded** percentile
+  bootstrap confidence interval of the mean (the planner evaluator's regret
+  CIs over benchmark groups). The resampling stream is
+  :class:`random.Random` seeded with an integer, drawing only with
+  ``random()`` - the one part of :mod:`random` Python guarantees to give the
+  same sequence for the same seed on every version - so the same values, seed
+  and resample count give the same interval, bit for bit.
 
 Why order statistics and not mean +- t * s / sqrt(n): benchmark timings are
 skewed (a cold cache, a background job) and three to ten repetitions say
@@ -30,18 +37,23 @@ nothing about normality; the order-statistic interval needs no such assumption
 from __future__ import annotations
 
 import math
+import random
 from collections.abc import Sequence
 from dataclasses import dataclass
 from fractions import Fraction
 from typing import Final
 
 __all__ = [
+    "BOOTSTRAP_LEVEL",
+    "BOOTSTRAP_RESAMPLES",
     "CI_COVERAGE",
     "MAD_SCALE",
     "MAD_THRESHOLD",
     "SMALL_N",
+    "BootstrapCI",
     "MedianCI",
     "Summary",
+    "bootstrap_mean_ci",
     "cv",
     "mad",
     "mad_outliers",
@@ -60,6 +72,10 @@ MAD_SCALE: Final = 1.4826
 """MAD -> standard deviation of a normal distribution (consistency constant)."""
 MAD_THRESHOLD: Final = 3.5
 """Outlier rule: more than this many scaled MADs from the median."""
+BOOTSTRAP_RESAMPLES: Final = 10_000
+"""V0.14 D317: resamples of :func:`bootstrap_mean_ci` by default."""
+BOOTSTRAP_LEVEL: Final = 0.95
+"""V0.14 D317: the bootstrap interval's nominal coverage by default."""
 
 type Number = int | float
 
@@ -204,4 +220,69 @@ def summarize(values: Sequence[Number]) -> Summary | None:
         ci_high=ci.high,
         ci_coverage=ci.coverage,
         outliers=len(mad_outliers(xs)),
+    )
+
+
+# --- V0.14 G4 (D317): seeded bootstrap CI of a mean ---------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class BootstrapCI:
+    """Percentile bootstrap interval of the mean of ``n`` values."""
+
+    mean: float
+    low: float
+    high: float
+    n: int
+    resamples: int
+    seed: int
+    level: float
+
+
+def bootstrap_mean_ci(
+    values: Sequence[Number],
+    *,
+    seed: int,
+    resamples: int = BOOTSTRAP_RESAMPLES,
+    level: float = BOOTSTRAP_LEVEL,
+) -> BootstrapCI:
+    """The percentile bootstrap ``level`` interval of the mean of ``values``.
+
+    The values are sorted first (the answer does not depend on their order);
+    each of ``resamples`` resamples draws ``n`` values with replacement
+    (index ``int(u * n)`` for ``u`` from ``random.Random(seed).random()``)
+    and takes their :func:`math.fsum` mean; the interval is the
+    ``floor((1 - level) / 2 x R)``-th and the ``ceil((1 + level) / 2 x R) - 1``-th
+    smallest resample mean (0-based), so it always holds resample means that
+    exist. ``n == 1`` -> ``[x, x]``. Deterministic for the same
+    ``(values, seed, resamples, level)``. :class:`ValueError` for no values,
+    ``resamples < 1``, ``level`` outside ``(0, 1)`` or a ``bool`` / negative
+    seed."""
+    xs = _sorted(values)
+    n = len(xs)
+    if n == 0:
+        raise ValueError("the interval of no values")
+    if isinstance(resamples, bool) or not isinstance(resamples, int) or resamples < 1:
+        raise ValueError("resamples must be a positive integer")
+    if isinstance(seed, bool) or not isinstance(seed, int) or seed < 0:
+        raise ValueError("seed must be a non-negative integer")
+    if not 0.0 < level < 1.0:
+        raise ValueError("level must be in (0, 1)")
+    centre = math.fsum(xs) / n
+    if n == 1:
+        return BootstrapCI(centre, xs[0], xs[0], 1, resamples, seed, level)
+    draw = random.Random(seed).random  # noqa: S311 - statistics, not security
+    means = sorted(
+        math.fsum(xs[int(draw() * n)] for _ in range(n)) / n for _ in range(resamples)
+    )
+    lo_index = math.floor((1.0 - level) / 2.0 * resamples)
+    hi_index = min(resamples - 1, math.ceil((1.0 + level) / 2.0 * resamples) - 1)
+    return BootstrapCI(
+        mean=centre,
+        low=means[max(0, lo_index)],
+        high=means[max(lo_index, hi_index)],
+        n=n,
+        resamples=resamples,
+        seed=seed,
+        level=level,
     )

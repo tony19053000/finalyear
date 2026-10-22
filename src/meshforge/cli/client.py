@@ -394,6 +394,39 @@ class ControllerClient:
         params = {} if version is None else {"version": str(version)}
         return self._get("/v1/planner/calibration", params=params)
 
+    # V0.14 G4 (D297/D318): the offline evaluator
+    def planner_eval(
+        self,
+        *,
+        campaign_ids: list[str],
+        holdout: str | None = None,
+        allow_leak: bool = False,
+    ) -> Mapping[str, Any]:
+        """``POST /v1/planner/eval-reports`` (admin): evaluate + store. It
+        replays every record under every policy, so it may take a while:
+        the transfer timeout applies."""
+        body: dict[str, Any] = {"campaign_ids": campaign_ids, "allow_leak": allow_leak}
+        if holdout is not None:
+            body["holdout"] = holdout
+        return self._request(
+            "POST",
+            "/v1/planner/eval-reports",
+            json_body=body,
+            timeout=_TRANSFER_TIMEOUT_S,
+        )
+
+    def planner_eval_reports(self, *, limit: int = 50) -> Mapping[str, Any]:
+        """``GET /v1/planner/eval-reports`` (summaries, newest first)."""
+        return self._get("/v1/planner/eval-reports", params={"limit": str(limit)})
+
+    def planner_eval_markdown(self, report_id: int) -> str:
+        """``GET /v1/planner/eval-reports/{id}?format=markdown``."""
+        path = f"/v1/planner/eval-reports/{report_id}"
+        response = self._send("GET", path, params={"format": "markdown"})
+        if response.status_code >= httpx.codes.BAD_REQUEST:
+            self._decode(response, path)  # raises the typed error
+        return response.text
+
     # V0.7 G2 join codes (D135, D151: fabric token = interim admin)
     def create_invite(
         self, *, ttl_s: int | None, replace_node_id: str | None
