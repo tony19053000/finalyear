@@ -156,6 +156,10 @@ ALLOWED: dict[tuple[str, str], str] = {
     ("controller/planner/estimator.py", "env_hash in node.cached_envs"): (
         "an environment's content hash (public, advertised by every agent)"
     ),
+    ("controller/ml/features.py", "env_hash in node.cached_envs"): (
+        "an environment's content hash (public, advertised by every agent); the ML "
+        "cache feature mirrors the estimator's check"
+    ),
     ("agent/envs/hash.py", "'=' not in token"): (
         "parsing a pip requirement word named token (`--opt=value`), no credential"
     ),
