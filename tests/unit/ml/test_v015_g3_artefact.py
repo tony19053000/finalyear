@@ -221,6 +221,58 @@ def test_fuzzed_bytes_only_ever_raise_artefact_error(
             assert out.y_hat.shape == (len(test),)
 
 
+def test_the_numpy_tree_compares_in_float32_like_scikit_learn() -> None:
+    """A query exactly on a threshold that float32 rounds up: scikit-learn
+    casts features to float32 (-> right), a float64 walk would go left."""
+    from sklearn.tree import DecisionTreeRegressor
+
+    from meshforge.controller.ml.artefact import TreeArrays
+    from meshforge.controller.ml.serve import _tree_predict
+
+    a = 2.0**25 + 4.0  # adjacent float32 values (spacing 4), odd then even mantissa
+    b = 2.0**25 + 8.0
+    est = DecisionTreeRegressor(min_samples_leaf=1, random_state=0).fit(
+        np.array([[a], [a], [b], [b]]), np.array([0.0, 0.0, 1.0, 1.0])
+    )
+    t = est.tree_.threshold[0]
+    assert t == (a + b) / 2 and np.float32(t) == np.float32(b)
+    tree = TreeArrays(
+        est.tree_.children_left.astype(np.int64),
+        est.tree_.children_right.astype(np.int64),
+        est.tree_.feature.astype(np.int64),
+        est.tree_.threshold,
+        np.asarray(est.tree_.value)[:, 0, 0],
+    )
+    query = np.array([[t], [a], [b]])
+    expected = est.predict(query)
+    assert expected[0] == 1.0  # scikit-learn went right
+    got = _tree_predict(tree, query.astype(np.float32))
+    np.testing.assert_array_equal(got, expected)
+
+
+def test_the_loaded_tree_casts_features_to_float32(table: Table) -> None:
+    """Through :class:`LoadedModel` (the serve path): a one-split tree on
+    feature 0 at the float32-rounding threshold above."""
+    from meshforge.controller.ml.artefact import TreeArrays
+    from meshforge.controller.ml.serve import LoadedModel
+
+    a, b = 2.0**25 + 4.0, 2.0**25 + 8.0
+    t = (a + b) / 2
+    _, _, data = _fit(table, "tree")
+    art = _decode(data)
+    tree = TreeArrays(
+        np.array([1, -1, -1], dtype=np.int64),
+        np.array([2, -1, -1], dtype=np.int64),
+        np.array([0, -2, -2], dtype=np.int64),
+        np.array([t, -2.0, -2.0]),
+        np.array([0.5, 0.0, 1.0]),
+    )
+    model = LoadedModel(replace(art, model={"trees": (tree,)}))
+    X = np.zeros((1, len(NUMERIC_FEATURES)))
+    X[0, 0] = t
+    assert model.predict_residual(X)[0] == 1.0  # float32(t) == b -> right
+
+
 def test_decoded_prep_is_the_trained_prep(table: Table) -> None:
     _, model, data = _fit(table, "ridge")
     art = _decode(data)
