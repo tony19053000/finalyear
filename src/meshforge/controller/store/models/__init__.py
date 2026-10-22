@@ -16,7 +16,8 @@ G2 D112, :mod:`.plan`), ``network_link`` (V0.6 G4 D111, :mod:`.network`),
 :mod:`.secret`), ``run_record`` (V0.9 G1 D212, :mod:`.telemetry`),
 ``bench_campaign``, ``bench_run`` (V0.9 G3 D216, :mod:`.bench`),
 ``planner_calibration`` (V0.14 G2 D293, :mod:`.calibration`),
-``planner_eval_report`` (V0.14 G4 D318, :mod:`.planner_eval`).
+``planner_eval_report`` (V0.14 G4 D318, :mod:`.planner_eval`), ``ml_model_set``,
+``ml_model`` (V0.15 G3 D339/D358, :mod:`.ml`).
 """
 
 from meshforge.controller.store.base import Base
@@ -36,6 +37,7 @@ from meshforge.controller.store.models.job import (
     Job,
     JobTransition,
 )
+from meshforge.controller.store.models.ml import MlModel, MlModelSet
 from meshforge.controller.store.models.network import NetworkLink
 from meshforge.controller.store.models.node import Node, NodeSession, SessionEndReason
 from meshforge.controller.store.models.plan import PlanDecision
@@ -61,6 +63,8 @@ __all__ = [
     "JobInput",
     "JobTransition",
     "JoinToken",
+    "MlModel",
+    "MlModelSet",
     "NamedInput",
     "NetworkLink",
     "Node",
