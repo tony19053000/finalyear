@@ -131,6 +131,8 @@ def test_base_metadata_uses_convention_and_registers_every_model() -> None:
         "chunk_record",  # V0.10 G8 (0029)
         "planner_calibration",  # V0.14 G2 (0031)
         "planner_eval_report",  # V0.14 G4 (0032)
+        "ml_model_set",  # V0.15 G3 (0034)
+        "ml_model",  # V0.15 G3 (0034)
     }
 
 

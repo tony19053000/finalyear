@@ -9,7 +9,7 @@ code in the controller. So an artefact is **data only**:
   ``null``);
 * every array a ``{"dtype", "shape", "b64"}`` block: the raw little-endian
   bytes (``<f8`` float64 or ``<i8`` int64 only) in base64 - never ``.npy``
-  (no ``np.load``, so no ``allow_pickle`` question at all);
+  (no NumPy file loader at all, so no pickled object array can appear);
 * LightGBM as its own text model (``model_to_string``), XGBoost as its own
   JSON model (``save_raw("json")``) - both are parsed by their library, never
   executed as Python;

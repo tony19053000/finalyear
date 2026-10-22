@@ -1393,6 +1393,34 @@ compute get <JOB_ID>               # outputs -> ./outputs/<JOB_ID>/ (--dest, --f
   summarises it, with the top features and the failure-classifier line.
   `--terms` / `--algorithms` cut the run time (about 6-7 min for 20 000 rows
   on one core; a harness dataset takes seconds).
+  `--timeout S` (default 3600) stops a comparison that runs too long (exit 1).
+- **ML model registry and retraining (V0.15 G3, D339, D358-D361).** With the
+  `ml` extra installed on the controller and `[controller.planner] ml =
+  "auto"` (the default) the controller retrains once a day
+  (`ml_retrain_s`, 86 400; the lab may use 3 600) in a child process (`nice`d,
+  killed after `ml_retrain_timeout_s`, 3 600) - skipped when no run ended since
+  the last set (`no_new_runs`) and when every term has too little data.
+  `compute planner ml train --wait` retrains now (admin). Each training run
+  stores one **model set** (one model per term, or `none` with the reason)
+  and goes live only through the **activation gate**: on the newest fifth of
+  every workload's runs (held out, the calibration's own split) the set must
+  be no more than 5 % worse than the set in use (or the calibration), keep
+  90 % intervals honest (>= 80 % coverage), be within 0.05 log error of the
+  calibration on every family, and beat the calibration somewhere by more
+  than 0.02 - else it is stored `rejected` with the rule that failed
+  (`compute planner ml models`, `--set VERSION` for the numbers; the planner
+  regret part of the gate is `pending_g4` until V0.15 G5). **Rollback:**
+  `compute planner ml pin VERSION` (any active or superseded set; refused for
+  a rejected one or one whose artefacts the GC removed - the GC keeps the
+  active, the pinned and the `ml_keep_superseded` = 5 newest superseded sets);
+  `compute planner ml unpin VERSION` returns to the automatic choice. A pin
+  in configuration (`ml = "sha256:..."`) must name an existing, non-rejected,
+  loadable set or the controller does not start; `ml = "off"` plans exactly as
+  V0.14. A controller without the `ml` extra starts normally, logs
+  `controller.planner.ml_unavailable` once and never trains (`train` answers
+  409); it can still serve ridge / kNN / tree / forest sets (numpy only), not
+  LightGBM / XGBoost ones (`library_missing`). Same dataset + same code and
+  library versions -> the same set version (byte-identical artefacts).
 - `run -f` streams the logs and exits like the job: `0` succeeded; the workload's own
   exit code (1-125) when it failed; `126` when the fabric failed it (the failure type
   is printed: `node_lost`, `deadline_exceeded`, `output_error` …); `128` cancelled.
