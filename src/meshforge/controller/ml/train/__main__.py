@@ -1,9 +1,18 @@
-"""``python -m meshforge.controller.ml.train compare ...`` - the process
-``compute planner ml compare`` runs (V0.15 G2, D353).
+"""``python -m meshforge.controller.ml.train compare|fit ...`` - the processes
+``compute planner ml compare`` (V0.15 G2, D353) and the controller's retrain
+task (V0.15 G3, D361) run.
 
     compare --dataset FILE --out DIR [--terms a,b] [--algorithms a,b]
             [--with-family] [--min-rows N] [--min-families N]
             [--min-effect X]
+    fit     --dataset FILE --out DIR [--reference DIR] [--terms a,b]
+            [--algorithms a,b] [--min-rows N] [--min-families N]
+            [--min-effect X] [--max-interval-log X]
+            [--family-tolerance-log X]
+
+``fit`` (:mod:`.fit_main`): train the model set on the dataset, run the
+activation gate against the ``--reference`` set (or the calibration) and
+write ``DIR/set.json`` + one ``DIR/<sha256 hex>.art`` per learned member.
 
 Reads the G1 dataset ``FILE`` (and its sidecar ``FILE.json`` when present),
 runs :func:`~.compare.compare` in this process (no server) and writes
@@ -46,21 +55,30 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog=_PROG, description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
     cmp = sub.add_parser("compare", help="compare models per term on a dataset")
-    cmp.add_argument("--dataset", required=True, type=Path)
-    cmp.add_argument("--out", required=True, type=Path)
-    cmp.add_argument("--terms", default=None)
-    cmp.add_argument("--algorithms", default=None)
+    _common(cmp)
     cmp.add_argument("--with-family", action="store_true")
-    cmp.add_argument("--min-rows", type=int, default=None)
-    cmp.add_argument("--min-families", type=int, default=None)
-    cmp.add_argument(
+    fit = sub.add_parser("fit", help="train, gate and write a model set (G3)")
+    _common(fit)
+    fit.add_argument("--reference", type=Path, default=None)
+    fit.add_argument("--max-interval-log", type=float, default=None)
+    fit.add_argument("--family-tolerance-log", type=float, default=None)
+    return parser
+
+
+def _common(cmd: argparse.ArgumentParser) -> None:
+    cmd.add_argument("--dataset", required=True, type=Path)
+    cmd.add_argument("--out", required=True, type=Path)
+    cmd.add_argument("--terms", default=None)
+    cmd.add_argument("--algorithms", default=None)
+    cmd.add_argument("--min-rows", type=int, default=None)
+    cmd.add_argument("--min-families", type=int, default=None)
+    cmd.add_argument(
         "--min-effect",
         type=float,
         default=None,
         help="D357 ml_min_effect_log: `better` needs the CI's upper end below "
         "minus this (default 0.02)",
     )
-    return parser
 
 
 def _err(message: str) -> None:
@@ -98,7 +116,7 @@ def _settings(args: argparse.Namespace) -> CompareSettings:
     from meshforge.controller.ml.train.algorithms import configs_for
     from meshforge.controller.ml.train.compare import CompareSettings
 
-    settings = CompareSettings(with_family=bool(args.with_family))
+    settings = CompareSettings(with_family=bool(getattr(args, "with_family", False)))
     terms, algorithms = _split(args.terms), _split(args.algorithms)
     if terms is not None:
         unknown = sorted(set(terms) - set(TERM_NAMES))
@@ -116,6 +134,15 @@ def _settings(args: argparse.Namespace) -> CompareSettings:
         if not args.min_effect >= 0.0:  # NaN too
             raise ValueError("--min-effect must be >= 0")
         settings = replace(settings, min_effect_log=args.min_effect)
+    for name, field in (
+        ("max_interval_log", "max_interval_log"),
+        ("family_tolerance_log", "family_tolerance_log"),
+    ):
+        value = getattr(args, name, None)
+        if value is not None:
+            if not value > 0.0 or value == float("inf"):  # NaN too
+                raise ValueError(f"--{name.replace('_', '-')} must be > 0")
+            settings = replace(settings, **{field: value})
     return settings
 
 
@@ -138,6 +165,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     except ValueError as exc:
         _err(str(exc))
         return int(ExitCode.USAGE_ERROR)
+    if args.command == "fit":
+        from meshforge.controller.ml.train.fit_main import run_fit
+
+        return run_fit(args.dataset, args.out, args.reference, settings)
     started = time.monotonic()
     try:
         table = load(args.dataset)

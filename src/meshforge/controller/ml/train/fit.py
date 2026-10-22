@@ -27,7 +27,7 @@ version (criterion 3).
 from __future__ import annotations
 
 import math
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from importlib import metadata
 from typing import Any
@@ -92,6 +92,8 @@ class Member:
     reason: str | None = None
     """Why ``none`` (``insufficient_data: ...`` / ``no_learned_model: ...``)."""
     artefact: bytes | None = None
+    config: Config | None = None
+    """The selected configuration (learned members; not stored)."""
 
     @property
     def learned(self) -> bool:
@@ -260,15 +262,19 @@ def train_term(
     rows: IntArray,
     settings: CompareSettings,
     observer: Observer | None = None,
+    *,
+    config: Config | None = None,
 ) -> Member:
-    """One term's member on ``rows`` (module docstring)."""
+    """One term's member on ``rows`` (module docstring). ``config`` = refit
+    this configuration instead of selecting one (the activation gate judges
+    the shipped configuration, :mod:`.gate`): its interval still comes from
+    grouped out-of-fold residuals; only the >= 2 groups floor applies."""
     family_of = table.families_of(rows)
     families = len(set(family_of.values()))
     sizes = {"rows": len(rows), "families": families, "groups": len(family_of)}
-    if (
-        len(rows) < settings.min_rows
-        or families < settings.min_families
-        or (len(family_of) < 2)
+    if len(family_of) < 2 or (
+        config is None
+        and (len(rows) < settings.min_rows or families < settings.min_families)
     ):
         reason = (
             f"insufficient_data: {len(rows)} rows, {families} families, "
@@ -291,7 +297,7 @@ def train_term(
         fold="final",
         observer=observer,
     )
-    configs = configs_for(settings.algorithms)
+    configs = [config] if config is not None else configs_for(settings.algorithms)
     sel = select(ctx, rows, configs, inner_k=settings.inner_k, seed=settings.seed)
     q = conformal_q(sel.oof_residuals, settings.alpha)
     metrics = {
@@ -322,6 +328,7 @@ def train_term(
         dict(sel.selected.params),
         {**metrics, "artefact_bytes": len(data)},
         artefact=data,
+        config=sel.selected,
     )
 
 
@@ -331,10 +338,13 @@ def train_set(
     *,
     allowed: np.ndarray | None = None,
     observer: Observer | None = None,
+    fixed: Mapping[str, Config] | None = None,
 ) -> TrainResult:
     """Every term of ``settings.terms`` (in :data:`TERM_NAMES` order) on the
     table's rows - or only the rows where ``allowed`` (a boolean mask) is
-    true; BLAS capped at one thread (D352)."""
+    true; BLAS capped at one thread (D352). ``fixed`` (the gate): refit only
+    these terms' configurations; every other term is a ``none`` member
+    (``not_shipped``)."""
     unknown = sorted(set(settings.terms) - set(TERM_NAMES))
     if unknown:
         raise ValueError(f"unknown term(s): {', '.join(unknown)}")
@@ -346,7 +356,29 @@ def train_set(
             rows = table.rows_of(term)
             if allowed is not None:
                 rows = rows[allowed[rows]]
-            members.append(train_term(table, term, rows, settings, observer))
+            if fixed is not None and term not in fixed:
+                reason = "not_shipped: the shipped set has no learned model"
+                members.append(
+                    Member(
+                        term,
+                        "none",
+                        none_version(term, reason, table.digest),
+                        {},
+                        {"rows": len(rows)},
+                        reason=reason,
+                    )
+                )
+                continue
+            members.append(
+                train_term(
+                    table,
+                    term,
+                    rows,
+                    settings,
+                    observer,
+                    config=None if fixed is None else fixed[term],
+                )
+            )
     return TrainResult(
         set_version=set_version(members, FEATURE_VERSION),
         dataset_digest=table.digest,

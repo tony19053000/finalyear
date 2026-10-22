@@ -33,6 +33,7 @@ __all__ = [
     "FAILURE_CLASSIFIER_MIN_EVENTS",
     "REPORT_VERSION",
     "canonical_json",
+    "clean",
     "failure_classifier",
     "library_versions",
     "markdown",
@@ -58,6 +59,12 @@ def _num(value: float | None) -> float | None:
     if value == 0.0:
         return 0.0
     return float(f"{value:.6g}")
+
+
+def clean(value: Any) -> Any:
+    """``value`` as canonical JSON-ready data (floats to 6 significant
+    digits, non-finite -> ``None``; V0.15 G3: the gate document too)."""
+    return _clean(value)
 
 
 def _clean(value: Any) -> Any:
