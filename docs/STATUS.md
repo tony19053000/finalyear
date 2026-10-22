@@ -261,7 +261,7 @@ Reviewer non-blocking follow-ups (carry into G2/G3): (1) `mint` should carry `pe
 - Windows: not yet run (first real CI run will cover unit + fresh-clone on windows-latest)
 
 ## Next Recommended Task
-🧑 **0.14.8 lab** (`lab/checklists/V0.14-planner.md`): part A regret check must NOT be `skipped` (D329); part C pastes `by_live_node_count` (D332). Agent-side: **V0.15 G2 brief** (§5b: 0.15.4 model comparison + 0.15.5 conformal/OOD; include the G2 carry items above), then implementer → tester → reviewer. Merged worktrees (V0.14 G1–G6F, V0.15 G1) kept (removal optional, ask first).
+🧑 **0.14.8 lab** (`lab/checklists/V0.14-planner.md`): part A regret check must NOT be `skipped` (D329); part C pastes `by_live_node_count` (D332). Agent-side: **V0.15 G2** — brief §5b DRAFTED (D347–D355); team answers Q11–Q16, then implementer → tester → reviewer. Merged worktrees (V0.14 G1–G6F, V0.15 G1) kept (removal optional, ask first).
 
 _Older:_ **V0.14 G6** — brief §5e DRAFTED (`d9ead6da`, D324–D328); team to answer Q13–Q16, then implementer (Mode 3 loader path for the evaluator per D322 follow-up, cluster harness campaign proving criteria 1–4, latency evidence), then implementer → tester → reviewer; then 🧑 0.14.8 lab. Optional follow-up: admin "Run evaluation" control (D323). Merged worktrees G1–G5 kept (user: removal optional).
 
