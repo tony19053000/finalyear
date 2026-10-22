@@ -58,7 +58,7 @@ def test_the_newest_runs_of_each_group_are_held() -> None:
         assert mine == [g * 10 + 8, g * 10 + 9]
 
 
-def test_a_small_group_still_gives_one_and_a_single_run_gives_none() -> None:
+def test_a_small_group_still_gives_one_and_one_off_runs_are_pooled() -> None:
     runs = [
         _run(0, "two"),
         _run(1, "two"),
@@ -67,8 +67,16 @@ def test_a_small_group_still_gives_one_and_a_single_run_gives_none() -> None:
         _run(4, None),
     ]
     fit, held = split_holdout(runs)
+    # "two" holds its newest; "one" joins the None pool (2, 3, 4) -> newest 4
     assert [r.decision_id for r in held] == [1, 4]
     assert [r.decision_id for r in fit] == [0, 2, 3]
+
+
+def test_all_one_off_workloads_behave_as_the_old_newest_slice() -> None:
+    runs = [_run(i, f"{i:064x}") for i in range(10)]
+    fit, held = split_holdout(runs)
+    assert [r.decision_id for r in held] == [8, 9]
+    assert len(fit) == 8
 
 
 def test_both_halves_stay_in_time_order() -> None:

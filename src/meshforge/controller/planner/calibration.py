@@ -584,19 +584,24 @@ def split_holdout(
     runs: Iterable[MatchedRun],
 ) -> tuple[list[MatchedRun], list[MatchedRun]]:
     """``(fit, held_out)``, both in time order. Stratified (V0.14 G6, D329,
-    amends D306/D319): within each workload fingerprint (runs without one form
-    one stratum) the most recent :data:`HOLDOUT_FRAC` by ``finished_at`` are
-    held out, at least one from every stratum with two or more runs; a
-    one-run stratum is all ``fit``. A newest-overall slice came almost
-    entirely from the last campaign, so the D319 regret check saw too few
-    groups and was skipped. Fewer than :data:`MIN_RUNS` runs -> everything is
-    ``fit`` and nothing is held."""
+    amends D306/D319): runs are grouped by workload fingerprint; a fingerprint
+    with a single run joins one shared pool with the runs that have none.
+    Within each group of two or more runs the most recent
+    :data:`HOLDOUT_FRAC` by ``finished_at`` (at least one) are held out. A
+    newest-overall slice came almost entirely from the last campaign, so the
+    D319 regret check saw too few groups and was skipped; the pool keeps the
+    old behaviour for one-off workloads. Fewer than :data:`MIN_RUNS` runs ->
+    everything is ``fit`` and nothing is held."""
     ordered = _order(runs)
     if len(ordered) < MIN_RUNS:
         return ordered, []
+    counts: dict[str | None, int] = {}
+    for run in ordered:
+        counts[run.fingerprint] = counts.get(run.fingerprint, 0) + 1
     strata: dict[str | None, list[MatchedRun]] = {}
     for run in ordered:
-        strata.setdefault(run.fingerprint, []).append(run)
+        key = run.fingerprint if counts[run.fingerprint] >= 2 else None
+        strata.setdefault(key, []).append(run)
     held_ids: set[tuple[int, str]] = set()
     for members in strata.values():
         if len(members) < 2:
