@@ -52,7 +52,7 @@ from meshforge.controller.planner.calibration import DecisionOutcome, chosen_row
 from meshforge.controller.store.engine import create_session_factory
 from meshforge.controller.store.models.job import Attempt, AttemptPhaseRow
 from meshforge.controller.store.models.plan import PlanDecision
-from meshforge.controller.store.models.telemetry import ChunkRecord
+from meshforge.controller.store.models.telemetry import ChunkRecord, RunRecord
 
 __all__ = [
     "DEFAULT_MAX_RUNS",
@@ -317,10 +317,37 @@ class Watermark:
     newest_end: dt.datetime | None
     feature_version: int
     max_runs: int
+    run_records: int = 0
+    """V0.15 G3 (G2 tech debt): run records written. A run record can land
+    after its attempt ended (the recorder is asynchronous) and changes the
+    row's family / fingerprint - a "relabel" the attempt counts above do not
+    see. Run records are insert-only (``ON CONFLICT DO NOTHING``), so their
+    count and newest ``recorded_at`` cover every change."""
+    newest_record: dt.datetime | None = None
+
+    def as_json(self) -> dict[str, Any]:
+        """A JSON object of every field (V0.15 G3: stored with a model set,
+        so the retrain task can skip unchanged data across restarts)."""
+
+        def iso(value: dt.datetime | None) -> str | None:
+            return None if value is None else value.isoformat()
+
+        return {
+            "matched_runs": self.matched_runs,
+            "newest_matched": None
+            if self.newest_matched is None
+            else [iso(self.newest_matched[0]), self.newest_matched[1]],
+            "ended_attempts": self.ended_attempts,
+            "newest_end": iso(self.newest_end),
+            "feature_version": self.feature_version,
+            "max_runs": self.max_runs,
+            "run_records": self.run_records,
+            "newest_record": iso(self.newest_record),
+        }
 
 
 async def read_watermark(engine: AsyncEngine, *, max_runs: int) -> Watermark:
-    """The current :class:`Watermark` (three aggregates, no row read);
+    """The current :class:`Watermark` (four aggregates, no row read);
     :class:`MlLoadError` when the database fails."""
     sessions = create_session_factory(engine)
     try:
@@ -330,6 +357,13 @@ async def read_watermark(engine: AsyncEngine, *, max_runs: int) -> Watermark:
                 await db.execute(
                     select(func.count(), func.max(Attempt.ended_at)).where(
                         Attempt.ended_at.is_not(None)
+                    )
+                )
+            ).one()
+            records, newest_record = (
+                await db.execute(
+                    select(func.count(), func.max(RunRecord.recorded_at)).select_from(
+                        RunRecord
                     )
                 )
             ).one()
@@ -347,6 +381,8 @@ async def read_watermark(engine: AsyncEngine, *, max_runs: int) -> Watermark:
         newest_end=newest_end,
         feature_version=FEATURE_VERSION,
         max_runs=max_runs,
+        run_records=int(records or 0),
+        newest_record=newest_record,
     )
 
 
