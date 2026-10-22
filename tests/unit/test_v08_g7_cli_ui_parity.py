@@ -175,6 +175,11 @@ def test_cli_only_is_the_exception() -> None:
         # V0.15 G1 (D333): the ML dataset export (admin); no UI in G1 by the
         # brief - the Planner page's Models section (G5) shows its use
         "planner ml dataset",
+        # V0.15 G3: the model registry's commands; its page is G5 (D342)
+        "planner ml models",
+        "planner ml pin",
+        "planner ml train",
+        "planner ml unpin",
     ]
 
 
