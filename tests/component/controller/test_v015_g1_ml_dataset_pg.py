@@ -4,8 +4,8 @@
    + ``DispatchPlanner``) write ``plan_decision`` rows with replays; the
    attempts end ``done`` with measured phases. The dataset's rows equal a
    hand computation from the stored rows (``y = ln(actual / raw)`` per term),
-   every skip is counted (the transfer of a held bundle is ``measured``, an
-   output nobody recorded is predicted 0 s), a decision whose replay is gone
+   every skip is counted (the 0-byte transfer of a held bundle is exact by
+   construction, D345; an output nobody recorded is predicted 0 s), a decision whose replay is gone
    is skipped once and counted (never imputed), and the dataset's runs are
    exactly the calibration's matched runs (one shared read, D333).
 2. **A Mode 3 job** through the real controller (dispatcher, gRPC sessions,
@@ -240,7 +240,7 @@ async def test_whole_jobs_rows_equal_the_hand_computed_residuals(engine: Any) ->
             if c["rank"] == 1 and c["node_id"] == stored.chosen_node_id
         )
         terms = row["estimate"]["terms"]
-        assert terms["transfer"]["source"] == "measured"  # nothing to move
+        assert terms["transfer"]["detail"]["missing_bytes"] == 0  # nothing to move
         assert terms["output"]["seconds"] == 0.0  # no output history
         # a fresh fingerprint each: compute is the assumed default; env is the
         # assumed default first, then the env-build history of the earlier runs
@@ -265,7 +265,7 @@ async def test_whole_jobs_rows_equal_the_hand_computed_residuals(engine: Any) ->
     counts = data.counts
     assert counts["runs"] == 5 and counts["runs_with_rows"] == 4
     assert counts["skipped"]["missing_replay"] == 1
-    assert counts["skipped"]["measured"] == 4  # each held-bundle transfer
+    assert counts["skipped"]["exact_by_construction"] == 4  # each 0-byte transfer
     assert counts["skipped"]["raw_not_positive"] == 4  # each unknown output
     assert built.truncated is False
 
@@ -474,7 +474,13 @@ async def test_mode3_rows_and_api_equals_cli_equals_function(
             term = terms[name]
             raw = term["detail"].get("calibration", {}).get("raw_s", term["seconds"])
             phase = "stage" if name == "transfer" else "env"
-            if term["source"] != "measured" and raw >= 0.05:
+            # D345: exact only when nothing moves / the env is cached
+            exact = (
+                term["detail"].get("missing_bytes") == 0
+                if name == "transfer"
+                else term["detail"].get("env_cached") is True
+            )
+            if not exact and raw >= 0.05:
                 expected[(ml_name, lane.node_id)] = math.log(
                     lane_phases[lane.id][phase] / 1000.0 / raw
                 )
