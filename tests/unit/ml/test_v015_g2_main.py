@@ -5,6 +5,7 @@ bad arguments; 1 for an unreadable file; 0 with the three files written."""
 
 from __future__ import annotations
 
+import importlib.util
 import json
 from pathlib import Path
 
@@ -15,7 +16,6 @@ pytest.importorskip("pyarrow", reason="needs the controller extra")
 import pyarrow.parquet as pq
 from mf_ml_synthetic import parquet_file, synthetic_rows
 
-from meshforge.controller.ml import train as train_pkg
 from meshforge.controller.ml.dataset import FEATURE_METADATA_KEY
 from meshforge.controller.ml.train import __main__ as train_main
 
@@ -38,10 +38,9 @@ def test_missing_extra_is_exit_2_before_any_ml_import(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    real = train_pkg.importlib.util.find_spec
+    real = importlib.util.find_spec
     monkeypatch.setattr(
-        train_pkg.importlib.util,
-        "find_spec",
+        "importlib.util.find_spec",
         lambda name, *a: None if name == "lightgbm" else real(name, *a),
     )
     assert train_main.main(_args(dataset, tmp_path / "o")) == 2

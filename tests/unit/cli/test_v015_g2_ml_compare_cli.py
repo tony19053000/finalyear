@@ -16,6 +16,7 @@ is faked (``subprocess.run``); the real child runs in
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import subprocess
 import sys
@@ -98,7 +99,7 @@ class _Child:
 @pytest.fixture
 def child(monkeypatch: pytest.MonkeyPatch) -> _Child:
     fake = _Child()
-    monkeypatch.setattr(pc.subprocess, "run", fake)
+    monkeypatch.setattr("meshforge.cli.planner_commands.subprocess.run", fake)
     monkeypatch.setattr(pc, "ml_missing_libraries", list)
     return fake
 
@@ -107,11 +108,13 @@ def test_missing_extra_is_exit_2_with_the_hint_and_no_child(
     runner: CliRunner, dataset: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     started: list[Any] = []
-    monkeypatch.setattr(pc.subprocess, "run", lambda *a, **k: started.append(a))
-    real = pc.importlib.util.find_spec
     monkeypatch.setattr(
-        pc.importlib.util,
-        "find_spec",
+        "meshforge.cli.planner_commands.subprocess.run",
+        lambda *a, **k: started.append(a),
+    )
+    real = importlib.util.find_spec
+    monkeypatch.setattr(
+        "importlib.util.find_spec",
         lambda name, *a: None if name in ("sklearn", "xgboost") else real(name, *a),
     )
     result = runner.invoke(app, ["planner", "ml", "compare", "--dataset", str(dataset)])

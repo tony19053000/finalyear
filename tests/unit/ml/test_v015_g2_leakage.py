@@ -98,8 +98,8 @@ def test_no_fitted_part_sees_its_held_out_family(seed: int) -> None:
             assert not train_groups & {table.group[i] for i in idx}
             pending = None
     # the held-out rows of fold F are exactly F's fingerprints' rows
-    for fold in result.folds:
+    for outer in result.folds:
         expected = sum(
-            1 for i in term_rows if family_of_group[table.group[i]] == fold.family
+            1 for i in term_rows if family_of_group[table.group[i]] == outer.family
         )
-        assert fold.test_rows == expected
+        assert outer.test_rows == expected

@@ -23,7 +23,9 @@ import json
 import os
 import sys
 from collections.abc import AsyncIterator
+from dataclasses import dataclass, field
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import httpx
@@ -35,12 +37,15 @@ pytest.importorskip("pyarrow", reason="needs the controller extra")
 
 from alembic import command
 from sqlalchemy import text
-from test_v015_g1_ml_dataset_pg import Manager, _dispatch_one, _finish, _node
 
+from meshforge.common.ids import new_job_id, new_node_id, new_session_id
 from meshforge.controller.api import ml_routes
 from meshforge.controller.jobs.execution_store import ExecutionStore
 from meshforge.controller.jobs.planning import DispatchPlanner
+from meshforge.controller.jobs.store import JobScheduling
+from meshforge.controller.liveness import NodeState
 from meshforge.controller.ml import export
+from meshforge.controller.registry import Registry
 from meshforge.controller.settings import JobApiSettings, PlannerSettings
 from meshforge.controller.store.engine import create_engine
 from meshforge.controller.store.migrate import alembic_config
@@ -49,6 +54,101 @@ from meshforge.controller.store.settings import DatabaseSettings
 pytestmark = [pytest.mark.component, pytest.mark.asyncio, pytest.mark.timeout(240)]
 
 PHASES = {"stage": 4_000, "env": 20_000, "run": 75_000, "collect": 200}
+MANIFEST = {"name": "g2", "entrypoint": ["python", "main.py"]}
+
+# --- the G1 component test's dispatch helpers (kept local: a test module is
+# not a library)
+
+
+@dataclass
+class _Live:
+    node_id: str
+    session_id: str
+    state: NodeState = NodeState.ONLINE
+    rtt_ewma_ms: float | None = 1.0
+    policy: Any = None
+    policy_slots: Any = None
+    clock: Any = field(default_factory=lambda: SimpleNamespace(latest=None))
+
+
+class _Manager:
+    def __init__(self, nodes: list[str]) -> None:
+        self.lives = {n: _Live(n, str(new_session_id())) for n in nodes}
+
+    def get(self, node_id: str) -> _Live | None:
+        return self.lives.get(node_id)
+
+    def get_lingering(self, node_id: str) -> None:
+        return None
+
+
+async def _sql(engine: Any, statement: str, **params: Any) -> None:
+    async with engine.begin() as conn:
+        await conn.execute(text(statement), params)
+
+
+async def _node(engine: Any) -> str:
+    node = str(new_node_id())
+    await Registry(engine).upsert_node_on_hello(
+        node_id=node,
+        hostname="h",
+        os="linux",
+        platform="x86_64",
+        hardware={"capabilities": ["exec", "exec-subprocess"]},
+        session_epoch=1,
+        session_id=str(new_session_id()),
+        state=NodeState.ONLINE,
+        hardware_scores=None,
+        cpu_slots=8,
+        gpu_slots=0,
+    )
+    return node
+
+
+async def _dispatch_one(
+    store: ExecutionStore, planner: DispatchPlanner, fingerprint: str
+) -> str:
+    job, _ = await store.create_queued_job(
+        job_id=str(new_job_id()),
+        name="g2",
+        manifest=MANIFEST,
+        bundle_digest="sha256:" + "cd" * 32,
+        placement={"mode": "auto", "node_id": None},
+        request_hash="h" * 64,
+        idempotency_key=None,
+        scheduling=JobScheduling(fingerprint=fingerprint, input_bytes=0),
+    )
+    results = await store.dispatch_planned(
+        planner.decide,
+        limit=10,
+        max_per_node=64,
+        now=dt.datetime.now(dt.UTC),
+        aging_s=600.0,
+    )
+    (result,) = [r for r in results if r.job.id == job.id]
+    assert result.attempt is not None
+    return result.attempt.id
+
+
+async def _finish(
+    engine: Any, attempt_id: str, at: int, phases: dict[str, int]
+) -> None:
+    await _sql(
+        engine,
+        "UPDATE attempt SET state = 'done', ended_at = timestamptz "
+        "'2026-10-22 00:00:00+00' + make_interval(secs => :at) WHERE id = :a",
+        a=attempt_id,
+        at=at,
+    )
+    for phase, ms in phases.items():
+        await _sql(
+            engine,
+            "INSERT INTO attempt_phase (attempt_id, phase, started_at, duration_ms, "
+            "skipped) VALUES (:a, :p, now(), :ms, false)",
+            a=attempt_id,
+            p=phase,
+            ms=ms,
+        )
 
 
 @pytest_asyncio.fixture
@@ -63,7 +163,7 @@ async def engine(pg_settings: DatabaseSettings) -> AsyncIterator[Any]:
 
 def _planner(nodes: list[str]) -> DispatchPlanner:
     return DispatchPlanner(
-        manager=Manager(nodes),  # type: ignore[arg-type]
+        manager=_Manager(nodes),  # type: ignore[arg-type]
         settings=JobApiSettings(max_attempts_per_node=64),
         planner=PlannerSettings(default_compute_s=60.0, default_env_s=30.0),
         clock=lambda: 1_000_000.0,
