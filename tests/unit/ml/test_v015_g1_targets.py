@@ -307,8 +307,8 @@ def test_mode3_set_lanes_chunk_rates_and_combine() -> None:
         one = lane_row(s, node)
         assert obs.lanes == 1 and obs.chunk_items == one["chunk_items"] != 166
     for i, node in enumerate(nodes):
-        for term in ("lane_env", "chunk_rate"):
-            shaped = by[(term, node)]
+        for name in ("lane_env", "chunk_rate"):
+            shaped = by[(name, node)]
             assert (shaped.lanes, shaped.chunk_items) == (
                 1,
                 lane_row(s, node)["chunk_items"],
