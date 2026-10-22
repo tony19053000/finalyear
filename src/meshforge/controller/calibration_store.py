@@ -76,7 +76,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Final, Literal
 
-from sqlalchemy import func, select, text
+from sqlalchemy import and_, func, or_, select, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
@@ -125,6 +125,7 @@ __all__ = [
     "RefreshResult",
     "factor_rows",
     "parse_mode",
+    "read_outcomes",
     "row_summary",
 ]
 
@@ -257,7 +258,18 @@ def _row(item: PlannerCalibration) -> CalibrationRow:
     )
 
 
-async def _outcomes(db: AsyncSession, limit: int) -> list[DecisionOutcome]:
+async def read_outcomes(
+    db: AsyncSession,
+    limit: int,
+    *,
+    before: tuple[dt.datetime, int] | None = None,
+) -> list[DecisionOutcome]:
+    """The matched-run read (module docstring): at most ``limit``
+    ``dispatched`` decisions whose attempt ended ``done``, newest first by
+    ``(ended_at, decision id)``. ``before`` (V0.15 G1, D333) = keyset cursor:
+    only rows strictly older than that ``(ended_at, decision id)`` - the ML
+    dataset loader pages through the **same** read the calibration fits on
+    (one query for both, never a copy)."""
     query = (
         select(
             PlanDecision.id,
@@ -282,6 +294,14 @@ async def _outcomes(db: AsyncSession, limit: int) -> list[DecisionOutcome]:
         .order_by(Attempt.ended_at.desc(), PlanDecision.id.desc())
         .limit(limit)
     )
+    if before is not None:
+        ended, decision_id = before
+        query = query.where(
+            or_(
+                Attempt.ended_at < ended,
+                and_(Attempt.ended_at == ended, PlanDecision.id < decision_id),
+            )
+        )
     rows = list((await db.execute(query)).all())
     ids = [str(row[3]) for row in rows]
     phases: dict[str, dict[str, int | None]] = {}
@@ -336,7 +356,7 @@ class CalibrationStore:
         limit = min(MAX_RUNS_READ, config.window_runs * RUNS_PER_WINDOW)
         try:
             async with self._sessions() as db:
-                outcomes = await _outcomes(db, max(1, limit))
+                outcomes = await read_outcomes(db, max(1, limit))
         except _DB_ERRORS as exc:
             raise CalibrationStoreError(
                 "the calibration read failed in the database",
@@ -405,7 +425,7 @@ class CalibrationStore:
         """G4 fix round 1 (N2): the refresh's work done **without** the lock
         (module docstring)."""
         async with self._sessions() as db:
-            outcomes = await _outcomes(db, limit)
+            outcomes = await read_outcomes(db, limit)
             current = (
                 await db.scalars(
                     select(PlannerCalibration).where(
@@ -436,7 +456,7 @@ class CalibrationStore:
             prepared = await self._prepare(config, limit)  # no lock held
             async with self._sessions() as db, db.begin():
                 await db.execute(_LOCK)
-                outcomes = await _outcomes(db, limit)
+                outcomes = await read_outcomes(db, limit)
                 # pure CPU work off the event loop; the lock stays held (the
                 # transaction is this coroutine's), nothing else uses ``db``
                 runs = await asyncio.to_thread(_match_all, outcomes)
