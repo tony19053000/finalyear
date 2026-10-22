@@ -676,9 +676,9 @@ A version is **complete** only when all apply:
 **Prerequisites:** V0.14 + sufficient telemetry (≥ several thousand runs across families).
 
 **Tasks**
-- [~] **0.15.1** Dataset builder from telemetry; group splits by workload family
-- [~] **0.15.2** Feature pipeline (workload, hardware scores, load, network, cache)
-- [~] **0.15.3** Targets: compute time per node, env time, per-mode overhead residuals, failure probability
+- [x] **0.15.1** Dataset builder from telemetry; group splits by workload family — ✅ 2026-10-22 G1 merged `420a3a24` (tester r1 PASS 72 tests, reviewer APPROVE, full unit 20637 passed)
+- [x] **0.15.2** Feature pipeline (workload, hardware scores, load, network, cache) — ✅ 2026-10-22 G1 merged `420a3a24` (tester r1 PASS 72 tests, reviewer APPROVE, full unit 20637 passed)
+- [x] **0.15.3** Targets: compute time per node, env time, per-mode overhead residuals, failure probability — ✅ 2026-10-22 G1 merged `420a3a24` (tester r1 PASS 72 tests, reviewer APPROVE, full unit 20637 passed). Failure probability: per D335 the D296 Beta risk term stays; a failure classifier (labels from node-caused failures) is G2 work, built only if ≥ 50 such failures exist
 - [ ] **0.15.4** Model comparison: linear/ridge, tree, random forest, XGBoost, LightGBM, kNN (+ quantile variants)
 - [ ] **0.15.5** Uncertainty + OOD detection → fallback to analytical
 - [ ] **0.15.6** Planner integration as cost-component predictors; decision records store predictor version

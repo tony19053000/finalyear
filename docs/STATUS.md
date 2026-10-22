@@ -5,7 +5,7 @@
 **Last updated:** 2026-10-22
 
 ```
-TOTAL   █████████████▒▒░░░░░  65%  103/157 done, 19 in progress
+TOTAL   ██████████████▒▒░░░░  67%  106/157 done, 16 in progress
 
 V0.1    █████████████████▒▒▒  83%  10/12  Foundations & engineering system
 V0.2    ██▒▒▒▒▒▒▒▒▒▒▒▒▒░░░░░   9%   1/11  Lab setup & feasibility validation
@@ -18,14 +18,15 @@ V0.8    ██████████████████░░  90%   9/10
 V0.9    ██████████████████░░  90%   9/10  Benchmark & telemetry system v1
 V0.10   ██████████████████░░  90%   9/10  Mode 3 Task Splitting
 V0.14   ██████████████████▒▒  87%   7/8   Unified planner v2
-V0.15   ▒▒▒▒▒░░░░░░░░░░░░░░░   0%   0/11  ML planner
+V0.15   █████░░░░░░░░░░░░░░░  27%   3/11  ML planner
 V0.17   ░░░░░░░░░░░░░░░░░░░░   0%   0/8   Productization
 V1.0    ░░░░░░░░░░░░░░░░░░░░   0%   0/8   Release hardening & final evaluation
 ```
 █ done `[x]` · ▒ in progress or waiting on a 🧑 lab step `[~]` · ░ not started
+█ done `[x]` · ▒ in progress or waiting on a 🧑 lab step `[~]` · ░ not started
 
 ## Current Version
-**V0.15 — ML planner** · started 2026-10-22 (team: approve all, start G1) · brief `docs/briefs/V0.15-ml-planner.md` (D333–D344, APPROVED) · ADR-0021 Proposed · 0.15.11 🧑 lab added (D344) · **G1** (0.15.1–0.15.3 `[~]`): implementer + fix r1 done, gates green, reviewer APPROVE; tester r1 to re-run (stopped), then merge — worktree `agent-a1770cddfeed43114` @`d5cdcf36`
+**V0.15 — ML planner** · started 2026-10-22 (team: approve all, start G1) · brief `docs/briefs/V0.15-ml-planner.md` (D333–D344, APPROVED) · ADR-0021 Proposed · 0.15.11 🧑 lab added (D344) · **G1 CLOSED** (0.15.1–0.15.3 `[x]`, merge `420a3a24`, D345/D346) · next **G2** brief (training/comparison + conformal + OOD, 0.15.4/0.15.5)
 **V0.14 — Unified planner v2** · started 2026-10-21 (team: "start V0.14", §7 on Lead recommendations) · brief `docs/briefs/V0.14-unified-planner-v2.md` (D290–D303) · ADR-0020 Proposed · **G1 CLOSED** (0.14.1 `[x]`, merge `f72681c0`) · **G2 CLOSED** (0.14.3 `[x]`, merge `092b60c7`, 2026-10-22) · **G3 CLOSED** (0.14.2/0.14.4/0.14.5 `[x]`, merge `3392fe49`, REPLAY_VERSION 2, D309–D312) · **G4+G5 CLOSED** (0.14.6/0.14.7 `[x]`, D321–D323) · **G6 MERGED** (`dbfe3a59`, D324–D331; 0.14.8 `[~]`) · **agent-side complete** · closes on 🧑 0.14.8 (`lab/checklists/V0.14-planner.md`)
 **V0.10 — Mode 3 Task Splitting** · started 2026-10-19 (team: proceed while away) · brief `docs/briefs/V0.10-task-splitting.md` (DRAFT, D259–D276) · ADR-0019 Proposed · **G1–G9 CLOSED** (D277–D288; 0.10.1–0.10.9 `[x]`) · **agent-side complete** · closes on 🧑 0.10.10 (`lab/checklists/V0.10-mode3.md`)
 **V0.9 — Benchmark & telemetry v1** · started 2026-10-17 · brief `docs/briefs/V0.9-benchmark-telemetry.md` (D211–D224, approved) · ADR-0018 · **G0, G1, G2 CLOSED** (D226, D231, D225; 0.9.1 + 0.9.2 `[x]`) · **G3 CLOSED** (D242; 0.9.3 + 0.9.4 `[x]`) · **G4 CLOSED** (D241–D245; 0.9.5 `[x]`, 2026-10-19) · **G5, G5c, G6 CLOSED** (D246–D258; 0.9.6–0.9.9 `[x]`) · **G7 CLOSED** (`c35ff3d`) · **agent-side complete**; closes on 🧑 0.9.10 (checklist part O)
@@ -44,6 +45,8 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 > V0.10. 129 tasks vs 140–180 capacity → **~1.5 tasks/session**. Needs the other three team members' approval.
 
 ## Current Task
+
+- **2026-10-22 (latest):** **V0.15 G1 MERGED** (`420a3a24`) → **0.15.1–0.15.3 `[x]`**. Tester r1 PASS (72 adversarial + route tests; D-R1-1 NaN/inf combine phase crash fixed → `missing_phase` skip). Lead did reviewer items 3–5 (lane-round fencing-token comment, combine without `combine_node_id` → `node_unknown` skip + test, loader dead fallback removed). Gates: ruff/format/mypy clean, full unit 20637 passed exit 0, G1 component pg 4 passed. Carry to **G2 brief**: dataset route rebuilds Parquet per request (cache/lock); failure classifier only if ≥ 50 node-caused failures (D335). Carry to **G4 brief**: pass pre-calibration raw_s to features + replay-vs-live feature parity test.
 
 - **2026-10-22 (latest):** **V0.14 G6F (G6 follow-ups) MERGED** (`bfea42a1`): **D332** criterion 3 judged on *live* snapshot nodes (online + connected + `exec`, job-independent; counted in SQL; report `judged_on` + `by_live_node_count`, old reports read as `snapshot_nodes`); D329 end-to-end pg test (12 groups judged vs 3 under the old slice); pool-boundary unit test; ARCHITECTURE `decision_ms` = planning time only. Tester r1 PASS (no defects), reviewer APPROVE (4 non-blocking done by Lead). Harness green (563 s). Post-merge main: ruff + mypy clean, **full unit 20027 passed, exit 0**.
 
@@ -258,7 +261,7 @@ Reviewer non-blocking follow-ups (carry into G2/G3): (1) `mint` should carry `pe
 - Windows: not yet run (first real CI run will cover unit + fresh-clone on windows-latest)
 
 ## Next Recommended Task
-🧑 **0.14.8 lab** (`lab/checklists/V0.14-planner.md`): part A regret check must NOT be `skipped` (D329); part C pastes `by_live_node_count` (D332). Agent-side: **V0.15 G1** (brief §5a) implementer → gates → tester → reviewer → merge; then G2. Merged worktrees G1–G6 + G6F kept (removal optional, ask first).
+🧑 **0.14.8 lab** (`lab/checklists/V0.14-planner.md`): part A regret check must NOT be `skipped` (D329); part C pastes `by_live_node_count` (D332). Agent-side: **V0.15 G2 brief** (§5b: 0.15.4 model comparison + 0.15.5 conformal/OOD; include the G2 carry items above), then implementer → tester → reviewer. Merged worktrees (V0.14 G1–G6F, V0.15 G1) kept (removal optional, ask first).
 
 _Older:_ **V0.14 G6** — brief §5e DRAFTED (`d9ead6da`, D324–D328); team to answer Q13–Q16, then implementer (Mode 3 loader path for the evaluator per D322 follow-up, cluster harness campaign proving criteria 1–4, latency evidence), then implementer → tester → reviewer; then 🧑 0.14.8 lab. Optional follow-up: admin "Run evaluation" control (D323). Merged worktrees G1–G5 kept (user: removal optional).
 
