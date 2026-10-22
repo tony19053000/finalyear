@@ -4492,6 +4492,9 @@
             "title": "Decisions",
             "type": "integer"
           },
+          "judged": {
+            "$ref": "#/components/schemas/LatencyBucketOut"
+          },
           "max_ms": {
             "anyOf": [
               {
@@ -4552,7 +4555,8 @@
           "budget_ms",
           "node_count",
           "min_decisions",
-          "by_node_count"
+          "by_node_count",
+          "judged"
         ],
         "title": "LatencyOut",
         "type": "object"

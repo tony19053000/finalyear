@@ -85,6 +85,7 @@ def test_an_empty_block() -> None:
         "node_count": 4,
         "min_decisions": 30,
         "by_node_count": {},
+        "judged": {"decisions": 0, "p99_ms": None},
     }
 
 
@@ -158,16 +159,28 @@ def test_p99_not_max_decides() -> None:
     assert _verdict([10.0] * 197 + [5_000.0] * 3)["status"] == "FAIL"
 
 
-def test_only_the_criterion_node_count_is_judged() -> None:
+def test_only_snapshots_of_at_least_the_criterion_size_are_judged() -> None:
     fast_three = [LatencySample(1.0, 3) for _ in range(100)]
     slow_four = [LatencySample(500.0, 4) for _ in range(30)]
     block = latency_block(fast_three + slow_four, CFG)
     assert block["p99_ms"] == 500.0
+    assert block["judged"] == {"decisions": 30, "p99_ms": 500.0}
     assert latency_verdict(block, leaked=False)["status"] == "FAIL"
     only_three = latency_block(fast_three, CFG)
     v = latency_verdict(only_three, leaked=False)
     assert v["status"] == "too_few_decisions" and v["value"] is None
     assert v["counted_groups"] == 0
+
+
+def test_a_larger_snapshot_counts_toward_the_criterion() -> None:
+    # 4 laptops + an old revoked row: every snapshot holds 5 nodes
+    five = [LatencySample(float(i), 5) for i in range(1, 41)]
+    unknown = [LatencySample(999.0, None) for _ in range(5)]
+    block = latency_block(five + unknown, CFG)
+    assert block["judged"] == {"decisions": 40, "p99_ms": 40.0}
+    v = latency_verdict(block, leaked=False)
+    assert (v["status"], v["value"], v["counted_groups"]) == ("PASS", 40.0, 40)
+    assert ">= 4 nodes" in v["detail"]
 
 
 def test_a_leaked_report_stamps_criterion_3_too() -> None:
@@ -227,6 +240,7 @@ def test_markdown_shows_the_latency_section() -> None:
     assert "## Decision latency (criterion 3)" in text
     assert "dispatched decisions timed: 41 (without a time: 1)" in text
     assert "| 3 | 1 | 3.50 |" in text and "| 4 | 40 |" in text
+    assert "criterion 3 judges snapshots of >= 4 nodes: 40 decisions" in text
     assert "| 3 | PASS |" in text  # 40 four-node decisions, p99 16.25 ms
     report = _report(SAMPLES)
     del report["latency"]  # a report stored before G6
@@ -239,6 +253,7 @@ def test_cli_lines_and_the_reports_table_show_it() -> None:
     assert lines[0].startswith("decision latency: 41 dispatched decision(s) timed")
     assert "(1 without a time)" in lines[0] and "over the 100 ms budget" in lines[0]
     assert "4 nodes: 40 decision(s)" in lines[1]
+    assert lines[2].startswith("  criterion 3 judges snapshots of >= 4 nodes: 40 ")
     assert latency_lines(None) == []
     record = {"id": 3, "report": report}
     assert any(line.startswith("criterion 3: PASS") for line in eval_lines(record))

@@ -328,6 +328,15 @@ def latency_lines(latency: Any) -> list[str]:
                 if isinstance(b, Mapping)
             )
         )
+    judged = latency.get("judged")
+    if isinstance(judged, Mapping):
+        lines.append(
+            f"  criterion 3 judges snapshots of >= "
+            f"{render.echo(latency.get('node_count'))} nodes: "
+            f"{render.echo(judged.get('decisions'))} decision(s), p99 "
+            f"{_num(judged.get('p99_ms'), 2)} ms (at least "
+            f"{render.echo(latency.get('min_decisions'))} needed)"
+        )
     return lines
 
 

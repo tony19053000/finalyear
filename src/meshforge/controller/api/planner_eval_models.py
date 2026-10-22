@@ -25,8 +25,8 @@ and how much slower is that than the best measured configuration?*
   ``leaked`` when the report was made with ``allow_leak`` (``would_be`` then
   says what it would have been).
 * ``latency`` (V0.14 G6, D324) - the stored decision times of the
-  campaigns' dispatched decisions; criterion 3's verdict (p99 at 4 nodes
-  strictly below the budget; ``too_few_decisions`` below 30).
+  campaigns' dispatched decisions; criterion 3's verdict (p99 of snapshots
+  of >= 4 nodes strictly below the budget; ``too_few_decisions`` below 30).
 * ``calibrations`` - per family, the calibration the calibrated rows used: a
   leave-one-family-out refit (D316, ``refit``), or the live active version
   (``active``, only with ``allow_leak``), or ``none``.
@@ -168,7 +168,7 @@ class VerdictOut(ApiModel):
     value: float | None
     """Criterion 1: % within the threshold; criterion 2: the lowest
     difference-CI lower bound over the rule policies (% points); criterion
-    3: the p99 decision time (ms) at ``latency.node_count`` nodes."""
+    3: the p99 decision time (ms) of ``latency.judged``."""
     threshold: float | None
     """Criterion 1: the target %; criterion 2: 0; criterion 3: the budget
     (ms, PASS only strictly below it)."""
@@ -280,11 +280,16 @@ class LatencyOut(ApiModel):
     budget_ms: float
     """``[controller.planner] decision_latency_budget_ms``."""
     node_count: int
-    """The snapshot size criterion 3 is judged at (4: the lab fabric)."""
+    """Criterion 3 judges snapshots of at least this many nodes (4: the lab
+    fabric; a snapshot holds every registered node row, offline and revoked
+    ones too)."""
     min_decisions: int
-    """Fewer decisions at ``node_count`` -> ``too_few_decisions``."""
+    """Fewer judged decisions -> ``too_few_decisions``."""
     by_node_count: dict[str, LatencyBucketOut]
     """Snapshot node count (``"unknown"`` = unreadable) -> its decisions."""
+    judged: LatencyBucketOut
+    """The decisions criterion 3 judges (snapshots of >= ``node_count``
+    nodes) and their p99."""
 
 
 class EvalReportOut(ApiModel):

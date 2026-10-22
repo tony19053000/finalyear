@@ -10,7 +10,8 @@ number of nodes the decision's snapshot held.
 
     {decisions, without_latency, p50_ms, p99_ms, max_ms, over_budget,
      budget_ms, node_count, min_decisions,
-     by_node_count: {"<n>": {decisions, p99_ms}}}
+     by_node_count: {"<n>": {decisions, p99_ms}},
+     judged: {decisions, p99_ms}}
 
 * ``decisions`` - samples with a time; ``without_latency`` - samples without
   one (a row written before 0033, or a non-finite / negative value): never
@@ -21,12 +22,18 @@ number of nodes the decision's snapshot held.
 * ``over_budget`` - decisions slower than ``budget_ms`` (``>``, the same
   rule as the dispatcher's counter);
 * ``by_node_count`` - the same per snapshot size (``unknown`` = the size
-  could not be read).
+  could not be read);
+* ``judged`` - the decisions criterion 3 judges: snapshots of **at least**
+  ``node_count`` nodes.
 
 **Criterion 3** (``criterion`` 3 in ``verdicts[]``): on the decisions whose
-snapshot had exactly ``node_count`` nodes (4: the lab fabric), ``PASS`` iff
+snapshot held at least ``node_count`` nodes (4: the lab fabric), ``PASS`` iff
 their p99 is **strictly below** ``budget_ms``, else ``FAIL``; fewer than
 ``min_decisions`` such decisions -> ``too_few_decisions``, never ``PASS``.
+"At least", not "exactly": the snapshot holds every registered node row -
+offline and revoked ones too - so a lab database with an old row has 5-node
+snapshots on 4 laptops; a larger snapshot is never faster to plan, so judging
+it against the 4-node budget is conservative.
 A leaked report stamps it ``leaked`` like every verdict (D299).
 
 Pure (no I/O): the planner_eval AST test pins the imports.
@@ -69,9 +76,10 @@ class LatencyConfig:
     budget_ms: float = 100.0
     """``[controller.planner] decision_latency_budget_ms`` (criterion 3)."""
     node_count: int = 4
-    """The fabric size criterion 3 is judged at (the 4 lab laptops)."""
+    """Criterion 3 judges snapshots of at least this many nodes (the 4 lab
+    laptops)."""
     min_decisions: int = 30
-    """Fewer decisions at ``node_count`` -> ``too_few_decisions``."""
+    """Fewer judged decisions -> ``too_few_decisions``."""
 
 
 def _r(value: float | None) -> float | None:
@@ -115,6 +123,9 @@ def latency_block(
         if (ms := _usable(sample.decision_ms)) is not None
     ]
     timed = sorted(ms for ms, _ in usable)
+    judged = sorted(
+        ms for ms, count in usable if count is not None and count >= config.node_count
+    )
     buckets: dict[str, list[float]] = {}
     for ms, count in usable:
         buckets.setdefault(_bucket_key(count), []).append(ms)
@@ -136,6 +147,7 @@ def latency_block(
         "node_count": config.node_count,
         "min_decisions": config.min_decisions,
         "by_node_count": by_node_count,
+        "judged": {"decisions": len(judged), "p99_ms": _r(nearest_rank(judged, 99))},
     }
 
 
@@ -146,20 +158,20 @@ def latency_verdict(block: Mapping[str, Any], *, leaked: bool) -> dict[str, Any]
     nodes = int(block["node_count"])
     budget = float(block["budget_ms"])
     least = int(block["min_decisions"])
-    bucket = (block.get("by_node_count") or {}).get(str(nodes)) or {}
-    n = int(bucket.get("decisions") or 0)
-    p99 = bucket.get("p99_ms")
+    judged = block.get("judged") or {}
+    n = int(judged.get("decisions") or 0)
+    p99 = judged.get("p99_ms")
     if n < least or p99 is None:
         status = "too_few_decisions"
         detail = (
-            f"{n} dispatched decision(s) with a {nodes}-node snapshot; at least "
-            f"{least} needed"
+            f"{n} dispatched decision(s) with a snapshot of >= {nodes} nodes; at "
+            f"least {least} needed"
         )
     else:
         status = "PASS" if float(p99) < budget else "FAIL"
         detail = (
-            f"p99 {float(p99):.3f} ms over {n} decision(s) with a {nodes}-node "
-            f"snapshot (budget < {budget:g} ms)"
+            f"p99 {float(p99):.3f} ms over {n} decision(s) with a snapshot of >= "
+            f"{nodes} nodes (budget < {budget:g} ms)"
         )
     return {
         "criterion": LATENCY_CRITERION,

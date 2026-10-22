@@ -88,6 +88,7 @@ export const LATENCY: LatencyOut = {
   node_count: 4,
   min_decisions: 30,
   by_node_count: { "3": { decisions: 26, p99_ms: 9.5 }, "4": { decisions: 64, p99_ms: 41.25 } },
+  judged: { decisions: 64, p99_ms: 41.25 },
 };
 
 function report(leaked: boolean): EvalReportOut {

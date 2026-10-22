@@ -79,6 +79,8 @@ def _latency_lines(latency: Any) -> list[str]:
     stored before G6)."""
     if not isinstance(latency, Mapping):
         return []
+    judged = latency.get("judged")
+    judged = judged if isinstance(judged, Mapping) else {}
     lines = [
         "",
         "## Decision latency (criterion 3)",
@@ -89,8 +91,10 @@ def _latency_lines(latency: Any) -> list[str]:
         f"ms, max {_num(latency.get('max_ms'))} ms (nearest rank)",
         f"- over the {_num(latency.get('budget_ms'), 0)} ms budget: "
         f"{_cell(latency.get('over_budget'))}",
-        f"- judged at {_cell(latency.get('node_count'))} nodes, at least "
-        f"{_cell(latency.get('min_decisions'))} decisions",
+        f"- criterion 3 judges snapshots of >= {_cell(latency.get('node_count'))} "
+        f"nodes: {_cell(judged.get('decisions'))} decisions, p99 "
+        f"{_num(judged.get('p99_ms'))} ms (at least "
+        f"{_cell(latency.get('min_decisions'))} needed)",
         "",
     ]
     buckets = latency.get("by_node_count")

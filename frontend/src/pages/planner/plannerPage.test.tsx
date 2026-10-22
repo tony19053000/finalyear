@@ -204,7 +204,9 @@ describe("Planner page", () => {
     );
     expect(row.textContent).toContain("3 nodes: 26 decisions, p99 9.50 ms");
     expect(row.textContent).toContain("4 nodes: 64 decisions, p99 41.25 ms");
-    expect(row.textContent).toContain("criterion 3 judges 4-node decisions (at least 30): p99 strictly below 100 ms");
+    expect(row.textContent).toContain(
+      "criterion 3 judges snapshots of ≥ 4 nodes: 64 decisions (at least 30 needed), p99 41.25 ms, PASS strictly below 100 ms",
+    );
   });
 
   it("criterion 3: too few decisions, and a report stored before decision times", async () => {

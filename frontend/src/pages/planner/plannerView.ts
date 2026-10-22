@@ -80,6 +80,14 @@ export function latencyBuckets(l: LatencyOut): string[] {
   );
 }
 
+/** What criterion 3 judges: snapshots of at least `node_count` nodes (a snapshot holds every registered node). */
+export function judgedText(l: LatencyOut): string {
+  return (
+    `criterion 3 judges snapshots of ≥ ${String(l.node_count)} nodes: ${String(l.judged.decisions)} decisions ` +
+    `(at least ${String(l.min_decisions)} needed), p99 ${ms(l.judged.p99_ms)}, PASS strictly below ${String(l.budget_ms)} ms`
+  );
+}
+
 /** "12.3 %" or "—". */
 export function pct(value: number | null | undefined): string {
   return value == null || !Number.isFinite(value) ? "—" : `${value.toFixed(1)} %`;

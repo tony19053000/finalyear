@@ -1073,14 +1073,21 @@ class Fabric:
         return path.read_text("utf-8").strip()
 
     def call(
-        self, method: str, path: str, *, as_user: str = ADMIN_USER, **kwargs: Any
+        self,
+        method: str,
+        path: str,
+        *,
+        as_user: str = ADMIN_USER,
+        timeout: float = 10.0,
+        **kwargs: Any,
     ) -> httpx.Response:
         """An authenticated REST call (jobs, blobs) as ``as_user`` (default the
-        admin, who sees every job); raises on transport errors."""
+        admin, who sees every job); raises on transport errors. ``timeout``
+        (s): longer for a slow request (an evaluation, V0.14 G6)."""
         headers = dict(kwargs.pop("headers", {}) or {})
         headers["authorization"] = f"Bearer {self.api_token(as_user)}"
         return self._http.request(
-            method, self.http_base + path, headers=headers, timeout=10.0, **kwargs
+            method, self.http_base + path, headers=headers, timeout=timeout, **kwargs
         )
 
     def nodes_by_id(self) -> dict[str, dict[str, Any]] | None:

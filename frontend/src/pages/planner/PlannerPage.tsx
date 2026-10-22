@@ -56,6 +56,7 @@ import {
   ciLabel,
   ciText,
   factorText,
+  judgedText,
   latencyBuckets,
   latencyText,
   pct,
@@ -385,10 +386,7 @@ function ReportDetail({ record }: { record: EvalReportRecordOut }) {
                     {b}
                   </span>
                 ))}
-                <span className="block text-fg-muted">
-                  criterion 3 judges {r.latency.node_count}-node decisions (at least {r.latency.min_decisions}): p99
-                  strictly below {r.latency.budget_ms} ms
-                </span>
+                <span className="block text-fg-muted">{judgedText(r.latency)}</span>
               </>
             ) : (
               <span className="text-fg-subtle">not recorded (report made before decision times were stored)</span>
