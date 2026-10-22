@@ -41,6 +41,7 @@ PURE = (
     "core.py",
     "report.py",
     "regret_gate.py",
+    "latency.py",  # V0.14 G6
 )
 
 

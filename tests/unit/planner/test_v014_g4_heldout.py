@@ -164,7 +164,10 @@ def test_allow_leak_stamps_every_verdict_and_the_markdown() -> None:
     assert _calibrated_pick(report)["regret_pct"] == 0.0  # it saw the answers
     for verdict in report["verdicts"]:
         assert verdict["status"] == "leaked"
-        assert verdict["would_be"] == "too_few_groups"
+        # V0.14 G6 (D324): criterion 3 has no decision here
+        assert verdict["would_be"] == (
+            "too_few_decisions" if verdict["criterion"] == 3 else "too_few_groups"
+        )
     assert report["calibrations"][0]["source"] == "active"
     text = render_markdown(report)
     assert "**LEAKED**" in text
@@ -176,7 +179,7 @@ def test_too_few_groups_is_never_pass() -> None:
     choices = refit_choices(_runs("cpu.sort"), {FAMILY: frozenset({PRINT})}, CAL)
     report = evaluate([g], recs, choices, default_policies(), CFG, campaign_ids=["c"])
     statuses = [v["status"] for v in report["verdicts"]]
-    assert statuses == ["too_few_groups", "too_few_groups"]
+    assert statuses == ["too_few_groups", "too_few_groups", "too_few_decisions"]
 
 
 RULES = (
@@ -349,7 +352,8 @@ def test_twelve_groups_end_to_end_reach_real_verdicts() -> None:
     report = evaluate(
         groups, recs, choices, default_policies(), CFG, campaign_ids=["camp_1"]
     )
-    c1, c2 = report["verdicts"]
+    c1, c2, c3 = report["verdicts"]  # V0.14 G6: + criterion 3 (no decisions here)
+    assert c3["criterion"] == 3 and c3["status"] == "too_few_decisions"
     assert c1["status"] == "PASS" and c1["value"] == 100.0
     assert c1["counted_groups"] == 12
     # every rule policy here picks a slower node in every group

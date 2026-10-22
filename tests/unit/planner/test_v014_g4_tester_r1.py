@@ -482,7 +482,11 @@ def test_never_pass_with_too_few_groups_even_when_perfect() -> None:
 def test_empty_campaign_does_not_crash() -> None:
     report = _eval([], [])
     assert report["counts"]["groups"] == 0
-    assert {v["status"] for v in report["verdicts"]} == {"too_few_groups"}
+    # V0.14 G6 (D324): criterion 3 with no decision is too_few_decisions
+    assert {v["status"] for v in report["verdicts"]} == {
+        "too_few_groups",
+        "too_few_decisions",
+    }
     assert all(r["mean_regret_pct"] is None for r in report["policies"])
     report_text(report)
     render_markdown(report)

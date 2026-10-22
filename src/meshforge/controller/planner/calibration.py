@@ -69,8 +69,9 @@ non-``measured`` term's seconds x its factor, still capped at
 ``detail`` gains ``calibration: {factor, n, key_level, version, raw_s}``. No
 calibration -> nothing is touched (bit-identical decisions).
 
-**Safety** (D306): the most recent :data:`HOLDOUT_FRAC` of matched runs are
-held out of the fit; a new version activates only if its mean
+**Safety** (D306, stratified per fingerprint by D329): the most recent
+:data:`HOLDOUT_FRAC` of matched runs are held out of the fit; a new version activates
+only if its mean
 ``|ln(pred_total / actual_total)|`` on them is at most the active version's x
 (1 + :data:`GATE_TOLERANCE`) (:func:`gate`). Fewer than :data:`MIN_RUNS`
 matched runs, or a fit that produced no factor at all, creates **nothing**
@@ -582,14 +583,34 @@ def _order(runs: Iterable[MatchedRun]) -> list[MatchedRun]:
 def split_holdout(
     runs: Iterable[MatchedRun],
 ) -> tuple[list[MatchedRun], list[MatchedRun]]:
-    """``(fit, held_out)``: the most recent :data:`HOLDOUT_FRAC` (at least
-    one) are held out, by ``finished_at``; fewer than :data:`MIN_RUNS` runs ->
+    """``(fit, held_out)``, both in time order. Stratified (V0.14 G6, D329,
+    amends D306/D319): runs are grouped by workload fingerprint; a fingerprint
+    with a single run joins one shared pool with the runs that have none.
+    Within each group of two or more runs the most recent
+    :data:`HOLDOUT_FRAC` by ``finished_at`` (at least one) are held out. A
+    newest-overall slice came almost entirely from the last campaign, so the
+    D319 regret check saw too few groups and was skipped; the pool keeps the
+    old behaviour for one-off workloads. Fewer than :data:`MIN_RUNS` runs ->
     everything is ``fit`` and nothing is held."""
     ordered = _order(runs)
     if len(ordered) < MIN_RUNS:
         return ordered, []
-    held = max(1, int(len(ordered) * HOLDOUT_FRAC))
-    return ordered[:-held], ordered[-held:]
+    counts: dict[str | None, int] = {}
+    for run in ordered:
+        counts[run.fingerprint] = counts.get(run.fingerprint, 0) + 1
+    strata: dict[str | None, list[MatchedRun]] = {}
+    for run in ordered:
+        key = run.fingerprint if counts[run.fingerprint] >= 2 else None
+        strata.setdefault(key, []).append(run)
+    held_ids: set[tuple[int, str]] = set()
+    for members in strata.values():
+        if len(members) < 2:
+            continue
+        held = max(1, int(len(members) * HOLDOUT_FRAC))
+        held_ids.update((r.decision_id, r.attempt_id) for r in members[-held:])
+    fit = [r for r in ordered if (r.decision_id, r.attempt_id) not in held_ids]
+    out = [r for r in ordered if (r.decision_id, r.attempt_id) in held_ids]
+    return fit, out
 
 
 def _median(values: Sequence[float]) -> float:

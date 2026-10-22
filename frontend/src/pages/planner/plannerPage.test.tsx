@@ -193,6 +193,34 @@ describe("Planner page", () => {
     expect(detail.textContent).toContain("seed 20261022");
   });
 
+  it("criterion 3 (D324): the decision-latency row from the report's block, per snapshot size", async () => {
+    fakeController(routes());
+    renderApp("/planner");
+    const detail = await screen.findByTestId("eval-report-detail");
+    expect(within(detail).getByText("criterion 3: PASS")).toBeTruthy();
+    const row = within(detail).getByTestId("eval-latency");
+    expect(row.textContent).toContain(
+      "90 dispatched decisions timed (2 without a time) · p50 12.50 ms · p99 41.25 ms · max 133.75 ms · 1 over the 100 ms budget",
+    );
+    expect(row.textContent).toContain("3 nodes: 26 decisions, p99 9.50 ms");
+    expect(row.textContent).toContain("4 nodes: 64 decisions, p99 41.25 ms");
+    expect(row.textContent).toContain(
+      "criterion 3 judges snapshots of ≥ 4 nodes: 64 decisions (at least 30 needed), p99 41.25 ms, PASS strictly below 100 ms",
+    );
+  });
+
+  it("criterion 3: too few decisions, and a report stored before decision times", async () => {
+    const verdicts = REPORT_RECORD.report.verdicts.map((v) =>
+      v.criterion === 3 ? { ...v, status: "too_few_decisions" as const, value: null } : v,
+    );
+    const old = { ...REPORT_RECORD, report: { ...REPORT_RECORD.report, verdicts, latency: null } };
+    fakeController(routes({ "GET /v1/planner/eval-reports/4": () => json(200, old) }));
+    renderApp("/planner");
+    const detail = await screen.findByTestId("eval-report-detail");
+    expect(within(detail).getByText("criterion 3: too_few_decisions")).toBeTruthy();
+    expect(within(detail).getByTestId("eval-latency").textContent).toContain("not recorded");
+  });
+
   it("a leaked report: LEAKED banner, every verdict stamped leaked with what it would be", async () => {
     fakeController(routes({ "GET /v1/planner/eval-reports": () => json(200, TWO_REPORTS) }));
     renderApp("/planner");

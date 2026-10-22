@@ -35,6 +35,7 @@ export type EvalCountsOut = Schemas["EvalCountsOut"];
 export type EvalConfigOut = Schemas["EvalConfigOut"];
 export type GroupPickOut = Schemas["GroupPickOut"];
 export type GroupResultOut = Schemas["GroupResultOut"];
+export type LatencyOut = Schemas["LatencyOut"];
 export type EvalReportOut = Schemas["EvalReportOut"];
 export type EvalReportSummaryOut = Schemas["EvalReportSummaryOut"];
 export type EvalReportListOut = Schemas["EvalReportListOut"];

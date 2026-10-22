@@ -300,6 +300,43 @@ def eval_lines(record: Mapping[str, Any]) -> list[str]:
                 f"{render.echo(c.get('common_groups'))} common groups; "
                 f"{render.echo(c.get('unmeasured_groups'))} unmeasured"
             )
+    lines.extend(latency_lines(report.get("latency")))
+    return lines
+
+
+def latency_lines(latency: Any) -> list[str]:
+    """V0.14 G6 (D324): the report's decision-latency block (pure; none for
+    a report stored before G6)."""
+    if not isinstance(latency, Mapping):
+        return []
+    lines = [
+        f"decision latency: {render.echo(latency.get('decisions'))} dispatched "
+        f"decision(s) timed ({render.echo(latency.get('without_latency'))} without "
+        f"a time); p50 {_num(latency.get('p50_ms'), 2)} ms, p99 "
+        f"{_num(latency.get('p99_ms'), 2)} ms, max {_num(latency.get('max_ms'), 2)} "
+        f"ms; {render.echo(latency.get('over_budget'))} over the "
+        f"{_num(latency.get('budget_ms'), 0)} ms budget"
+    ]
+    buckets = latency.get("by_node_count")
+    if isinstance(buckets, Mapping) and buckets:
+        lines.append(
+            "  by snapshot size: "
+            + "; ".join(
+                f"{render.echo(nodes)} nodes: {render.echo(b.get('decisions'))} "
+                f"decision(s), p99 {_num(b.get('p99_ms'), 2)} ms"
+                for nodes, b in buckets.items()
+                if isinstance(b, Mapping)
+            )
+        )
+    judged = latency.get("judged")
+    if isinstance(judged, Mapping):
+        lines.append(
+            f"  criterion 3 judges snapshots of >= "
+            f"{render.echo(latency.get('node_count'))} nodes: "
+            f"{render.echo(judged.get('decisions'))} decision(s), p99 "
+            f"{_num(judged.get('p99_ms'), 2)} ms (at least "
+            f"{render.echo(latency.get('min_decisions'))} needed)"
+        )
     return lines
 
 
@@ -321,6 +358,7 @@ def reports_table(doc: Mapping[str, Any]) -> Table:
         "GROUPS",
         "CRITERION 1",
         "CRITERION 2",
+        "CRITERION 3",
         title="planner evaluation reports",
     )
     for row in doc.get("reports") or []:
@@ -340,6 +378,7 @@ def reports_table(doc: Mapping[str, Any]) -> Table:
             render.cell(row.get("evaluated_groups")),
             _verdict_cell(row.get("verdicts"), 1),
             _verdict_cell(row.get("verdicts"), 2),
+            _verdict_cell(row.get("verdicts"), 3),  # V0.14 G6 (D324)
         )
     return table
 

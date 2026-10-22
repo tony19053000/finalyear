@@ -51,7 +51,20 @@ import {
   type PolicyResultOut,
   type VerdictOut,
 } from "./plannerApi";
-import { VERDICT_TONE, ciLabel, ciText, factorText, pct, points, pointsCi, regretBars, verdictText } from "./plannerView";
+import {
+  VERDICT_TONE,
+  ciLabel,
+  ciText,
+  factorText,
+  judgedText,
+  latencyBuckets,
+  latencyText,
+  pct,
+  points,
+  pointsCi,
+  regretBars,
+  verdictText,
+} from "./plannerView";
 
 const plannerKeys = {
   calibration: (version: number | null) => [...queryKeys.planner, "calibration", version ?? "active"] as const,
@@ -362,6 +375,22 @@ function ReportDetail({ record }: { record: EvalReportRecordOut }) {
               .join(" · ")}{" "}
             · no replay {r.counts.no_replay_groups} · records {r.counts.records_used} used of {r.counts.records}
             {r.counts.non_finite_configs > 0 && <> · non-finite configurations dropped {r.counts.non_finite_configs}</>}
+          </dd>
+          <dt className="text-fg-muted">Decision latency</dt>
+          <dd className="font-mono text-xs" data-testid="eval-latency">
+            {r.latency != null ? (
+              <>
+                <span>{latencyText(r.latency)}</span>
+                {latencyBuckets(r.latency).map((b) => (
+                  <span key={b} className="block text-fg-muted">
+                    {b}
+                  </span>
+                ))}
+                <span className="block text-fg-muted">{judgedText(r.latency)}</span>
+              </>
+            ) : (
+              <span className="text-fg-subtle">not recorded (report made before decision times were stored)</span>
+            )}
           </dd>
           <dt className="text-fg-muted">Settings</dt>
           <dd className="font-mono text-xs">

@@ -282,7 +282,8 @@
         "objective": "min_time",
         "calibration_version": 7,
         "replay_version": 2,
-        "margin_sentence": null
+        "margin_sentence": null,
+        "decision_ms": 4.25
       },
       {
         "id": 22,
@@ -529,7 +530,8 @@
         "objective": "min_network",
         "calibration_version": null,
         "replay_version": null,
-        "margin_sentence": "split over 3 nodes: 41.00s <= (1 - 0.1) x 52.00s (best single node node_aaaaaaaa), needs <= 46.80s; sets that only add an idle node were not costed: node_dddddddd (by node_aaaaaaaa) - the faster node would finish every item before it could start"
+        "margin_sentence": "split over 3 nodes: 41.00s <= (1 - 0.1) x 52.00s (best single node node_aaaaaaaa), needs <= 46.80s; sets that only add an idle node were not costed: node_dddddddd (by node_aaaaaaaa) - the faster node would finish every item before it could start",
+        "decision_ms": 37.5
       }
     ],
     "count": 2
@@ -898,6 +900,15 @@
         "replay_version"
       ],
       "to": 13
+    },
+    {
+      "field": "decisions.[].decision_ms",
+      "path": [
+        "decisions",
+        0,
+        "decision_ms"
+      ],
+      "to": 20.0
     },
     {
       "field": "decisions.[].candidates.[].node_set.[]",

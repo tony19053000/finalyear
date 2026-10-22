@@ -1201,7 +1201,8 @@ compute get <JOB_ID>               # outputs -> ./outputs/<JOB_ID>/ (--dest, --f
   carries its factors, so a replay reproduces the decision exactly).
   - **Versions and safety.** Every fit is a row of `planner_calibration`
     (`active` / `rejected` / `superseded`). A new fit is judged on the **newest
-    20 %** of matched runs, which it was not fitted on: it goes live only if its
+    20 %** of matched runs **of each workload** (at least one per workload with
+    two or more runs), which it was not fitted on: it goes live only if its
     mean `|ln(predicted / actual)|` there is at most **1.05 x** the active
     version's (or no calibration's); otherwise it is stored `rejected` with the
     reason. At most one row is ever `active` (a unique index; refreshes run one
@@ -1302,6 +1303,38 @@ compute get <JOB_ID>               # outputs -> ./outputs/<JOB_ID>/ (--dest, --f
     only re-checks that the runs and the active version did not change (if they
     did, it judges the new fit again there). The x 1.05 boundary is compared
     exactly in decimal.
+  - **Decision latency (V0.14 G6, D324; criterion 3).** Every dispatch
+    decision stores how long the planner took (`plan_decision.decision_ms`,
+    migration 0033: snapshot cut, plan, a campaign run's shadow plan and the
+    replay; NULL on older rows). `compute explain` prints it as `decided in
+    X ms` and the Plan tab shows it. Each evaluation report has a `latency`
+    block over the evaluated campaigns' `dispatched` decisions (their run jobs
+    of every generation, fillers and warm-ups): count, rows without a time
+    (counted, never as 0), nearest-rank p50 / p99 / max, decisions over
+    `decision_latency_budget_ms`, per snapshot size; and a **criterion 3**
+    verdict: `PASS` iff the p99 of the decisions whose snapshot held **at
+    least 4 nodes** is strictly below the budget (the snapshot holds every
+    registered node row, offline and revoked ones too), `too_few_decisions`
+    below 30 of them. `compute planner eval` prints `decision latency: ...`,
+    `compute planner reports` a `CRITERION 3` column, the Planner page a
+    "Decision latency" row.
+  - **Evaluating the planner on lab data (0.14.8).** The procedure, with what
+    to paste back, is [lab/checklists/V0.14-planner.md](../lab/checklists/V0.14-planner.md).
+    In short (admin, on the controller laptop):
+
+    ```bash
+    compute bench create v014.yaml && compute bench start <CAMP> --per-node 1 --cooldown 2
+    compute bench status <CAMP>                      # until done (complete)
+    compute planner calibrate && compute planner calibration
+    compute planner eval --campaign <CAMP> --md eval-all.md          # criteria 1-3, every family held out in turn
+    compute planner eval --campaign <CAMP> --holdout <FAMILY> --md eval-<FAMILY>.md
+    compute planner reports
+    compute explain <JOB> --json                     # criterion 4: == GET /v1/jobs/<JOB>/decisions
+    ```
+
+    Criteria 1 and 2 need >= 10 counted groups per evaluation and campaigns
+    run on a V0.14 build (decisions without a replay are `no_replay`);
+    criterion 3 needs >= 30 decisions made with all 4 laptops registered.
 - `run -f` streams the logs and exits like the job: `0` succeeded; the workload's own
   exit code (1-125) when it failed; `126` when the fabric failed it (the failure type
   is printed: `node_lost`, `deadline_exceeded`, `output_error` …); `128` cancelled.

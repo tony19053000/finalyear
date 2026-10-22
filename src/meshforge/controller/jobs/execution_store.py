@@ -202,6 +202,9 @@ class DecisionRecord:
     """V0.14 D295: the objective the decision ranked by."""
     calibration_version: int | None = None
     """V0.14 D293: the calibration it was scaled by (None = uncalibrated)."""
+    decision_ms: float | None = None
+    """V0.14 G6 (D324): the decision's wall time in ms (the dispatcher's
+    ``_timed``); None = not measured (a decider without the planner)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -1129,6 +1132,7 @@ async def _record_decision(
                     else record.replay_version,
                     objective=record.objective,
                     calibration_version=record.calibration_version,
+                    decision_ms=record.decision_ms,  # V0.14 G6 (D324)
                 )
             )
     except SQLAlchemyError as exc:

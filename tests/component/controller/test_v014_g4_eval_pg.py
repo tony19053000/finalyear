@@ -243,7 +243,7 @@ async def test_campaign_to_report_to_api_to_cli(engine: Any) -> None:
     listed = (await _call(app, "GET", "/v1/planner/eval-reports")).json()["reports"]
     assert [r["id"] for r in listed] == [record["id"]]
     assert listed[0]["evaluated_groups"] == 2
-    assert [v["criterion"] for v in listed[0]["verdicts"]] == [1, 2]
+    assert [v["criterion"] for v in listed[0]["verdicts"]] == [1, 2, 3]  # + G6 latency
     detail = await _call(app, "GET", f"/v1/planner/eval-reports/{record['id']}")
     assert detail.status_code == 200 and detail.json() == record
     md = await _call(

@@ -25,6 +25,7 @@ import datetime as dt
 from typing import Any, Final
 
 from sqlalchemy import (
+    REAL,
     BigInteger,
     CheckConstraint,
     DateTime,
@@ -85,6 +86,7 @@ class PlanDecision(Base):
             f"objective IS NULL OR objective IN ({_OBJECTIVES_SQL})",
             name="objective",
         ),
+        CheckConstraint("decision_ms IS NULL OR decision_ms >= 0", name="decision_ms"),
         Index("ix_plan_decision_job_id", "job_id", "id"),
         Index("ix_plan_decision_attempt_id", "attempt_id"),
     )
@@ -148,3 +150,8 @@ class PlanDecision(Base):
     calibration_version: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     """V0.14 D293: the calibration its estimates were scaled by; None =
     uncalibrated (every row until G2)."""
+    decision_ms: Mapped[float | None] = mapped_column(REAL, nullable=True)
+    """V0.14 G6 (D324, migration 0033): the wall time of the dispatcher's
+    decision (snapshot cut, plan, shadow plan, replay) in ms - criterion 3's
+    number. None = a row written before 0033, or by a decider without the
+    planner."""

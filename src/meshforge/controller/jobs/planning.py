@@ -120,7 +120,7 @@ from meshforge.controller.settings import (
 )
 from meshforge.workqueue.core import QueuePolicy
 
-__all__ = ["DispatchPlanner", "decision_record"]
+__all__ = ["DispatchPlanner", "decision_record", "with_decision_ms"]
 
 log = get_logger(__name__)
 
@@ -204,6 +204,18 @@ def decision_record(decision: Decision) -> DecisionRecord:
         chosen_node_id=None if decision.chosen is None else decision.chosen.node_id,
         objective=decision.objective or DEFAULT_OBJECTIVE,  # V0.14 G3
     )
+
+
+def with_decision_ms(outcome: DispatchDecision, took_ms: float) -> DispatchDecision:
+    """V0.14 G6 (D324): ``outcome`` with ``took_ms`` (ms, 3 decimals, never
+    negative) on its decision row; an outcome without a row is returned
+    as is (a :class:`Wait` without a record writes nothing)."""
+    if outcome is None or outcome.record is None:
+        return outcome
+    record = dataclasses.replace(
+        outcome.record, decision_ms=round(max(0.0, took_ms), 3)
+    )
+    return dataclasses.replace(outcome, record=record)
 
 
 # --- V0.14 G3 (D295) -------------------------------------------------------------
@@ -428,6 +440,12 @@ class DispatchPlanner:
           can never wipe the queue, and the rest of the batch still plans.
         """
         started = time.perf_counter()
+        outcome = self._decide_isolated(job, fabric)
+        # V0.14 G6 (D324): the wall time goes onto the row the store writes
+        return self._timed(job, outcome, (time.perf_counter() - started) * 1000.0)
+
+    def _decide_isolated(self, job: JobRecord, fabric: FabricRows) -> DispatchDecision:
+        """:meth:`decide` without the timing (its docstring)."""
         try:
             return self._decide(job, fabric)
         except _JOB_IS_BAD as exc:
@@ -454,23 +472,25 @@ class DispatchPlanner:
                     error_type=type(exc).__name__,
                 )
             return Wait()
-        finally:
-            self._timed(job, (time.perf_counter() - started) * 1000.0)
 
-    def _timed(self, job: JobRecord, took_ms: float) -> None:
+    def _timed(
+        self, job: JobRecord, outcome: DispatchDecision, took_ms: float
+    ) -> DispatchDecision:
         """V0.14 G3 (D294, criterion 3): count a decision over the budget, and
-        log it once per job."""
+        log it once per job. V0.14 G6 (D324): the outcome's decision row (if
+        it carries one) gets ``decision_ms`` - every outcome that writes a
+        row, whole job or split."""
         budget = self._planner.decision_latency_budget_ms
-        if took_ms <= budget:
-            return
-        self.decisions_over_budget += 1
-        if self._first_time((job.id, "over_budget")):
-            log.warning(
-                "controller.jobs.decision_over_budget",
-                job_id=job.id,
-                decision_ms=round(took_ms, 3),
-                budget_ms=budget,
-            )
+        if took_ms > budget:
+            self.decisions_over_budget += 1
+            if self._first_time((job.id, "over_budget")):
+                log.warning(
+                    "controller.jobs.decision_over_budget",
+                    job_id=job.id,
+                    decision_ms=round(took_ms, 3),
+                    budget_ms=budget,
+                )
+        return with_decision_ms(outcome, took_ms)
 
     def _decide(self, job: JobRecord, fabric: FabricRows) -> DispatchDecision:
         manifest = Manifest.model_validate(dict(job.manifest))
