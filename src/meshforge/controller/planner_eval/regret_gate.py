@@ -2,7 +2,7 @@
 
 G2's activation gate (D306) compares prediction errors. D319 adds, on the same
 held-out slice (the newest :data:`~meshforge.controller.planner.calibration.
-HOLDOUT_FRAC` of matched runs), the question that matters: **does the new
+HOLDOUT_FRAC` of each fingerprint's matched runs, D329), the question that matters: **does the new
 version make the planner pick worse configurations?**
 
 * The slice's labelled groups are the ``best`` / ``tie`` groups of the

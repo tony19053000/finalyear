@@ -1201,7 +1201,8 @@ compute get <JOB_ID>               # outputs -> ./outputs/<JOB_ID>/ (--dest, --f
   carries its factors, so a replay reproduces the decision exactly).
   - **Versions and safety.** Every fit is a row of `planner_calibration`
     (`active` / `rejected` / `superseded`). A new fit is judged on the **newest
-    20 %** of matched runs, which it was not fitted on: it goes live only if its
+    20 %** of matched runs **of each workload** (at least one per workload with
+    two or more runs), which it was not fitted on: it goes live only if its
     mean `|ln(predicted / actual)|` there is at most **1.05 x** the active
     version's (or no calibration's); otherwise it is stored `rejected` with the
     reason. At most one row is ever `active` (a unique index; refreshes run one
