@@ -1353,7 +1353,7 @@ compute get <JOB_ID>               # outputs -> ./outputs/<JOB_ID>/ (--dest, --f
   prediction and its source; a missing input is NaN, never 0) and its target is
   `y = ln(actual / raw)` (0 = the analytical model was exact). Nothing is
   imputed: a decision without a replay (`missing_replay`), an unreadable one,
-  a skipped or missing phase, a `measured` term, a prediction under 0.05 s, a
+  a skipped or missing phase, a term exact by construction (nothing to move, a cached env - D345; a transfer over a probed link IS learned), a prediction under 0.05 s, a
   lane without a committed chunk ... is **counted by reason** in the summary's
   `skipped`. The file is byte-identical for the same runs (its `digest` is the
   dataset's identity for V0.15 training); at most `[controller.planner]
