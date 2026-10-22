@@ -626,6 +626,28 @@ class PlannerSettings(SectionModel):
             "older runs were left out (truncated)."
         ),
     )
+    # ------------------------------------------------ V0.15 G4 (D336, D363)
+    ml_max_interval_log: float = Field(
+        default=0.6931471805599453,  # ln 2
+        ge=0.0,
+        le=20.0,
+        description=(
+            "V0.15 D336/D338: an ML correction is used only when its interval "
+            "(hi - lo, log space) is at most this wide - ln 2 = the interval "
+            "spans at most a factor 2; else the term keeps its calibration "
+            "(reason interval_too_wide)."
+        ),
+    )
+    ml_predict_budget_ms: float = Field(
+        default=20.0,
+        gt=0.0,
+        le=10_000.0,
+        description=(
+            "V0.15 D363: an ML predict call slower than this is discarded and "
+            "the decision falls back to calibration (predictor_error); logged "
+            "at most once a minute."
+        ),
+    )
 
     @field_validator("calibration", mode="before")
     @classmethod

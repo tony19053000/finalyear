@@ -25,6 +25,7 @@ from typing import Any, Final
 
 from meshforge.controller.ml.schema import NUMERIC_FEATURES
 from meshforge.controller.planner.feasibility import missing_bytes
+from meshforge.controller.planner.predictor import TermContext
 from meshforge.controller.planner.replay import from_replay
 from meshforge.controller.planner.types import (
     ClusterSnapshot,
@@ -33,7 +34,7 @@ from meshforge.controller.planner.types import (
     TermSource,
 )
 
-__all__ = ["NAN", "Predicted", "features", "features_from_replay"]
+__all__ = ["NAN", "Predicted", "features", "features_from_replay", "term_features"]
 
 NAN: Final = math.nan
 _SOURCES: Final = (
@@ -275,3 +276,34 @@ def features_from_replay(
     be read)."""
     request, snapshot, now = from_replay(replay)
     return features(request, snapshot, now, node_id, predicted)
+
+
+# ------------------------------------------------------------ V0.15 G4 (D362)
+
+
+def term_features(
+    request: PlanRequest,
+    snapshot: ClusterSnapshot,
+    now: dt.datetime | None,
+    ctx: TermContext,
+) -> tuple[float, ...]:
+    """The planner's :data:`~meshforge.controller.planner.predictor.FeatureFn`:
+    :func:`features` of one learnable term as the live planner sees it, in
+    :data:`~.schema.NUMERIC_FEATURES` order. ``ctx.raw_s`` is already the
+    **pre-calibration** term in its stored form
+    (:func:`~meshforge.controller.planner.predictor.stored_raw`) - exactly
+    what the dataset reads back as ``raw_s`` (D362: the parity test)."""
+    values = features(
+        request,
+        snapshot,
+        now,
+        ctx.node_id,
+        Predicted(
+            raw_s=ctx.raw_s,
+            source=ctx.source,
+            detail=ctx.detail,
+            lanes=ctx.lanes,
+            chunk_items=ctx.chunk_items,
+        ),
+    )
+    return tuple(values[name] for name in NUMERIC_FEATURES)

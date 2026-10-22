@@ -34,6 +34,7 @@ __all__ = [
     "LanePlan",
     "LinkStat",
     "MarginTest",
+    "MlUse",
     "Mode",
     "NodeSnapshot",
     "Objective",
@@ -709,6 +710,18 @@ class Pruned:
 
 
 @dataclass(frozen=True, slots=True)
+class MlUse:
+    """V0.15 G4 (D336, D363): :attr:`Decision.ml` - the model a decision was
+    planned with (:mod:`.predictor`)."""
+
+    version: str
+    error: str | None = None
+    """D363: the predictor failed (its error's type name,
+    ``budget_exceeded``, ``malformed_prediction``) -> the decision fell back
+    to calibration."""
+
+
+@dataclass(frozen=True, slots=True)
 class Decision:
     policy: str
     candidates: tuple[CandidateEval, ...]
@@ -723,6 +736,9 @@ class Decision:
     """The request's objective (None = ``min_time``, not named)."""
     pruned: tuple[Pruned, ...] = ()
     """Nodes the Mode 3 set generator did not extend sets with, and why."""
+    ml: MlUse | None = None
+    """V0.15 G4 (D336): the model the decision used (None = no predictor -
+    the V0.14 decision exactly)."""
 
     @property
     def all_static_rejections(self) -> bool:

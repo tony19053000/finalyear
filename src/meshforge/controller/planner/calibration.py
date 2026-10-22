@@ -121,6 +121,7 @@ __all__ = [
     "applied_factor",
     "calibrate_estimate",
     "calibrate_lane",
+    "calibrate_term",
     "calibration_from_json",
     "calibration_json",
     "canonical",
@@ -277,6 +278,24 @@ def _scale(
             },
         },
     )
+
+
+def calibrate_term(
+    name: str,
+    term: EstimateTerm,
+    calibration: Calibration | None,
+    *,
+    node_id: str,
+    family: str | None,
+) -> EstimateTerm:
+    """One term scaled by its factor (``name`` = the term's planner name,
+    ``transfer`` for a lane's stage); ``calibration`` None -> ``term`` as is.
+    V0.15 G4 (D336): the per-term fallback when ML does not correct a term -
+    the very scaling :func:`calibrate_estimate` and :func:`calibrate_lane`
+    apply."""
+    if calibration is None:
+        return term
+    return _scale(term, calibration.lookup(name, node_id, family), calibration.version)
 
 
 def calibrate_estimate(
@@ -522,9 +541,14 @@ def chosen_row(outcome: DecisionOutcome) -> Mapping[str, Any] | None:
 def raw_prediction(term: Mapping[str, Any]) -> float | None:
     """A stored term's **uncalibrated** seconds (``detail.calibration.raw_s``
     when the decision was calibrated, else ``seconds``); None = not a finite
-    non-negative number. Public since V0.15 G1 (the ML residual's ``raw``)."""
+    non-negative number. Public since V0.15 G1 (the ML residual's ``raw``).
+    V0.15 G4 (D336/D362): a term the ML model corrected keeps its analytical
+    seconds as ``detail.ml.raw_s`` (``used`` true) - that one is the raw."""
     detail = term.get("detail")
     if isinstance(detail, Mapping):
+        ml = detail.get("ml")
+        if isinstance(ml, Mapping) and ml.get("used") is True and "raw_s" in ml:
+            return _number(ml["raw_s"])
         calibrated = detail.get("calibration")
         if isinstance(calibrated, Mapping) and "raw_s" in calibrated:
             return _number(calibrated["raw_s"])

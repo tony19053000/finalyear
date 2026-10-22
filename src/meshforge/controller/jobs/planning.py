@@ -104,13 +104,21 @@ from meshforge.controller.planner import (
 from meshforge.controller.planner.calibration import Calibration, project_calibration
 from meshforge.controller.planner.decision_json import candidates_json
 from meshforge.controller.planner.inputs import node_snapshot, plan_request, split_info
+
+# V0.15 G4 (D336): the tick's ML model (None = none)
+from meshforge.controller.planner.predictor import MlInput
 from meshforge.controller.planner.replay import (
     REPLAY_VERSION,
     bounded_replay,
     idle_snapshot,
     project,
 )
-from meshforge.controller.planner.types import Objective, Reliability, RiskConfig
+from meshforge.controller.planner.types import (
+    MlUse,
+    Objective,
+    Reliability,
+    RiskConfig,
+)
 from meshforge.controller.resources import ResourceTracker
 from meshforge.controller.session.manager import SessionManager
 from meshforge.controller.settings import (
@@ -128,6 +136,10 @@ _JOB_IS_BAD: Final = (ValidationError, ManifestError, InvalidIdError)
 """Errors that mean the stored job itself is unusable (reviewer N-1): only
 these fail the job; any other planning error leaves it queued."""
 _ERRORS_LOGGED_MAX: Final = 1024
+
+ML_ERROR_LOG_EVERY_S: Final = 60.0
+"""V0.15 G4 (D363): a failing predictor is logged at most once a minute (every
+failure is counted in :attr:`DispatchPlanner.ml_predictor_errors`)."""
 
 DEFAULT_OBJECTIVE: Final = "min_time"
 """V0.14 D295: what a decision whose request named no objective ranked by
@@ -292,6 +304,15 @@ class DispatchPlanner:
         CalibrationSource`); None = uncalibrated. Its version is written as
         ``plan_decision.calibration_version`` and its factors (cut to the
         job) as the replay's ``calibration`` block."""
+        # ------------------------------------------------ V0.15 G4 (D336)
+        self.ml: MlInput | None = None
+        """The ML model this tick plans with (the dispatcher sets it once per
+        tick from its ``ModelSource``); None = no model (V0.14 decisions
+        exactly). Its version goes onto every candidate row and the replay."""
+        self.ml_predictor_errors = 0
+        """D363: decisions whose predictor failed (they fell back to
+        calibration)."""
+        self._ml_error_logged_at: float | None = None
         self.config = PlannerConfig(
             default_bw_bytes_s=planner.default_bw_bytes_s,
             default_compute_s=planner.default_compute_s,
@@ -507,8 +528,14 @@ class DispatchPlanner:
         view = project(plan_job, snapshot)  # V0.14 G1: what the replay stores
         calibration = self._job_calibration(plan_job, view)  # V0.14 G2
         decision = plan(
-            plan_job, view, self.policy_of(job), now, calibration=calibration
+            plan_job,
+            view,
+            self.policy_of(job),
+            now,
+            calibration=calibration,
+            ml=self.ml,  # V0.15 G4 (D336)
         )
+        self._note_ml(job, decision.ml)  # V0.15 G4 (D363)
         record = self._calibrated(decision_record(decision), calibration)
         shadow: PlanRequest | None = None
         if (
@@ -534,6 +561,7 @@ class DispatchPlanner:
             now,
             shadow,
             calibration=calibration,  # V0.14 G2
+            ml=decision.ml,  # V0.15 G4 (D364)
         )
 
     def _whole_outcome(
@@ -653,8 +681,14 @@ class DispatchPlanner:
         view = project(plan_job, snapshot)  # V0.14 G1: what the replay stores
         calibration = self._job_calibration(plan_job, view)  # V0.14 G2
         decision = plan(
-            plan_job, view, self.policy_of(job), now, calibration=calibration
+            plan_job,
+            view,
+            self.policy_of(job),
+            now,
+            calibration=calibration,
+            ml=self.ml,  # V0.15 G4 (D336)
         )
+        self._note_ml(job, decision.ml)  # V0.15 G4 (D363)
         record = self._calibrated(decision_record(decision), calibration)
         shadow: PlanRequest | None = None
         if (
@@ -689,6 +723,7 @@ class DispatchPlanner:
             now,
             shadow,
             calibration=calibration,  # V0.14 G2
+            ml=decision.ml,  # V0.15 G4 (D364)
         )
 
     def _split_outcome(
@@ -989,6 +1024,7 @@ class DispatchPlanner:
                 self.policy_of(job),
                 now,
                 calibration=calibration,  # V0.14 G2: as the decision itself
+                ml=self.ml,  # V0.15 G4: as the decision itself
             )
         except Exception as exc:  # the shadow is telemetry, never a condition
             log.exception(
@@ -1027,6 +1063,7 @@ class DispatchPlanner:
         shadow: PlanRequest | None,
         *,
         calibration: Calibration | None = None,
+        ml: MlUse | None = None,
     ) -> DispatchDecision:
         """V0.14 G3 (G1 review N1): ``outcome`` with its record's replay - built
         only when the store will write the row: always for a dispatch or a
@@ -1042,7 +1079,14 @@ class DispatchPlanner:
         ):
             return outcome
         with_replay = self._with_replay(
-            record, job, plan_job, snapshot, now, shadow, calibration=calibration
+            record,
+            job,
+            plan_job,
+            snapshot,
+            now,
+            shadow,
+            calibration=calibration,
+            ml=ml,
         )
         return dataclasses.replace(outcome, record=with_replay)
 
@@ -1056,6 +1100,7 @@ class DispatchPlanner:
         shadow: PlanRequest | None,
         *,
         calibration: Calibration | None = None,
+        ml: MlUse | None = None,
     ) -> DecisionRecord:
         """V0.14 G1 (D292): the record with its replay snapshot - or without
         one, counted and logged, when it is over ``replay_max_bytes`` or could
@@ -1069,6 +1114,7 @@ class DispatchPlanner:
                 max_bytes=self._planner.replay_max_bytes,
                 shadow=shadow,
                 calibration=calibration,  # V0.14 G2 (D307): already cut to the job
+                ml=ml,  # V0.15 G4 (D364): the model the decision used
             )
         except Exception as exc:  # a bug in the codec: keep dispatching
             self.replay_failures += 1
@@ -1100,6 +1146,26 @@ class DispatchPlanner:
         while len(self._errors_logged) > _ERRORS_LOGGED_MAX:
             self._errors_logged.popitem(last=False)
         return True
+
+    def _note_ml(self, job: JobRecord, ml: MlUse | None) -> None:
+        """V0.15 G4 (D363): a decision whose predictor failed is counted, and
+        logged at most once per :data:`ML_ERROR_LOG_EVERY_S` (a broken model
+        would otherwise log on every decision of every tick)."""
+        if ml is None or ml.error is None:
+            return
+        self.ml_predictor_errors += 1
+        now = self._clock()
+        last = self._ml_error_logged_at
+        if last is not None and now - last < ML_ERROR_LOG_EVERY_S:
+            return
+        self._ml_error_logged_at = now
+        log.warning(
+            "controller.jobs.ml_predictor_error",
+            job_id=job.id,
+            ml_model_version=ml.version,
+            error_type=ml.error,
+            errors_total=self.ml_predictor_errors,
+        )
 
     def _job_calibration(
         self, plan_job: PlanRequest, view: ClusterSnapshot
