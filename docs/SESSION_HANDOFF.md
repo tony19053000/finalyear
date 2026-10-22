@@ -8,7 +8,7 @@
 >
 > ```
 Read docs/SESSION_HANDOFF.md §1, then docs/STATUS.md, then the V0.14 section of docs/DEVELOPMENT_ROADMAP.md.
-V0.14 is AGENT-SIDE COMPLETE: G1–G6 + G6 follow-ups merged (G6 = dbfe3a59, G6F = bfea42a1; D324–D332 incl. D329 stratified held-out slice and D332 criterion 3 on live nodes); 0.14.1–0.14.7 [x], 0.14.8 [~] awaiting the 🧑 lab run (lab/checklists/V0.14-planner.md). Next agent work: V0.15 ML planner brief (ask the team to start it). Merged worktrees G1–G6 kept (ask before deleting). Normal mode. Parallel agents OK. Don't delete anything without asking.
+V0.14 is AGENT-SIDE COMPLETE: G1–G6 + G6 follow-ups merged (G6 = dbfe3a59, G6F = bfea42a1; D324–D332 incl. D329 stratified held-out slice and D332 criterion 3 on live nodes); 0.14.1–0.14.7 [x], 0.14.8 [~] awaiting the 🧑 lab run (lab/checklists/V0.14-planner.md). V0.15 brief DRAFTED: docs/briefs/V0.15-ml-planner.md (D333–D344) + ADR-0021 Proposed — waiting for the team's answers to §7 Q1–Q10; then G1 implementer (dataset + features + targets). Merged worktrees G1–G6 kept (ask before deleting). Normal mode. Parallel agents OK. Don't delete anything without asking.
 ```
 >
 > Order of truth: `PROJECT_BRIEF → ARCHITECTURE → ROADMAP → STATUS → this file`. If this file
