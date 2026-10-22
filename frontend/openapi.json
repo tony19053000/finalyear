@@ -5000,6 +5000,10 @@
       "MlCountsOut": {
         "additionalProperties": false,
         "properties": {
+          "node_failures": {
+            "title": "Node Failures",
+            "type": "integer"
+          },
           "rows": {
             "title": "Rows",
             "type": "integer"
@@ -5040,7 +5044,8 @@
           "rows",
           "rows_by_term",
           "rows_by_family",
-          "skipped"
+          "skipped",
+          "node_failures"
         ],
         "title": "MlCountsOut",
         "type": "object"

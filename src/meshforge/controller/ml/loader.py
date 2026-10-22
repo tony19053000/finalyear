@@ -21,6 +21,10 @@ At most ``max_runs`` decisions are read (``[controller.planner]
 ml_dataset_max_runs``); a page's runs are handed to the caller and dropped,
 so the replays of one page (at most ``page_size x replay_max_bytes``) are the
 most held at once.
+
+V0.15 G2: :func:`read_watermark` (D355) - the cheap key the dataset route
+caches on - and :func:`count_node_failures` (D354) - the failure events a
+failure classifier could learn from, by the risk term's own definition.
 """
 
 from __future__ import annotations
@@ -30,12 +34,14 @@ from collections.abc import AsyncIterator, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Final
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 from meshforge.common.errors import ExitCode, FailureType, MeshForgeError
-from meshforge.controller.calibration_store import read_outcomes
+from meshforge.controller.calibration_store import matched_watermark, read_outcomes
+from meshforge.controller.jobs.queue_reads import node_caused_end
+from meshforge.controller.ml.schema import FEATURE_VERSION
 from meshforge.controller.ml.targets import (
     ChunkOutcome,
     CombineOutcome,
@@ -53,7 +59,10 @@ __all__ = [
     "PAGE_SIZE",
     "MlLoadError",
     "Page",
+    "Watermark",
+    "count_node_failures",
     "iter_runs",
+    "read_watermark",
 ]
 
 DEFAULT_MAX_RUNS: Final = 50_000
@@ -286,5 +295,80 @@ async def iter_runs(
     except _DB_ERRORS as exc:
         raise MlLoadError(
             "the ML dataset read failed in the database",
+            details={"cause": type(exc).__name__},
+        ) from exc
+
+
+# --- V0.15 G2 (D354, D355) --------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class Watermark:
+    """What a built dataset depends on, cheaply (D355): equal watermarks ->
+    the cached build is still the dataset."""
+
+    matched_runs: int
+    newest_matched: tuple[dt.datetime, int] | None
+    """The newest matched run's ``(ended_at, decision id)``."""
+    ended_attempts: int
+    """Every ended attempt (any role, any state): a lane, a combine or a
+    failure that ends later changes a Mode 3 row or ``node_failures``
+    without touching the matched set."""
+    newest_end: dt.datetime | None
+    feature_version: int
+    max_runs: int
+
+
+async def read_watermark(engine: AsyncEngine, *, max_runs: int) -> Watermark:
+    """The current :class:`Watermark` (three aggregates, no row read);
+    :class:`MlLoadError` when the database fails."""
+    sessions = create_session_factory(engine)
+    try:
+        async with sessions() as db:
+            count, newest_at, newest_id = await matched_watermark(db)
+            ended, newest_end = (
+                await db.execute(
+                    select(func.count(), func.max(Attempt.ended_at)).where(
+                        Attempt.ended_at.is_not(None)
+                    )
+                )
+            ).one()
+    except _DB_ERRORS as exc:
+        raise MlLoadError(
+            "the ML dataset watermark read failed in the database",
+            details={"cause": type(exc).__name__},
+        ) from exc
+    return Watermark(
+        matched_runs=count,
+        newest_matched=None
+        if newest_at is None or newest_id is None
+        else (newest_at, newest_id),
+        ended_attempts=int(ended or 0),
+        newest_end=newest_end,
+        feature_version=FEATURE_VERSION,
+        max_runs=max_runs,
+    )
+
+
+async def count_node_failures(engine: AsyncEngine, *, since: dt.datetime | None) -> int:
+    """D354: attempts that ended node-caused (the D296 risk term's
+    :func:`~meshforge.controller.jobs.queue_reads.node_caused_end`, never a
+    second definition) since ``since`` (None = ever) - the events a failure
+    classifier would learn from. :class:`MlLoadError` when the database
+    fails."""
+    query = (
+        select(func.count())
+        .select_from(Attempt)
+        .where(Attempt.ended_at.is_not(None), node_caused_end())
+    )
+    if since is not None:
+        query = query.where(Attempt.ended_at >= since)
+    sessions = create_session_factory(engine)
+    try:
+        async with sessions() as db:
+            return int(await db.scalar(query) or 0)
+    except _DB_ERRORS as exc:
+        raise MlLoadError(
+            "the ML dataset failure count failed in the database",
             details={"cause": type(exc).__name__},
         ) from exc

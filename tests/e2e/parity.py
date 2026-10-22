@@ -345,6 +345,12 @@ COMPUTE: Final[dict[str, Entry]] = {
         "brief (§5a 'no UI'); the Planner page's Models section (V0.15 G5, "
         "D342) shows what is trained on it."
     ),
+    "planner ml compare": CliOnly(
+        "V0.15 G2 (D353): an offline experiment over a dataset file on the "
+        "machine that runs it (no controller, no server-side training in G2); "
+        "the Planner page's Models section (V0.15 G5, D342) shows the "
+        "registry's models and their metrics."
+    ),
 }
 
 #: ``meshforge-controller user ...`` (D176 "users (admin)").

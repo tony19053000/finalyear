@@ -124,6 +124,7 @@ __all__ = [
     "CalibrationStoreError",
     "RefreshResult",
     "factor_rows",
+    "matched_watermark",
     "parse_mode",
     "read_outcomes",
     "row_summary",
@@ -258,6 +259,37 @@ def _row(item: PlannerCalibration) -> CalibrationRow:
     )
 
 
+def _matched(query: Any) -> Any:
+    """``query`` joined to the decision's attempt and cut to the matched-run
+    set: ``dispatched`` decisions whose attempt ended ``done``. The one
+    definition :func:`read_outcomes` and :func:`matched_watermark` share."""
+    return query.join(Attempt, Attempt.id == PlanDecision.attempt_id).where(
+        PlanDecision.outcome == "dispatched",
+        Attempt.state == "done",
+        Attempt.ended_at.is_not(None),
+    )
+
+
+async def matched_watermark(
+    db: AsyncSession,
+) -> tuple[int, dt.datetime | None, int | None]:
+    """V0.15 G2 (D355): ``(count, newest ended_at, newest decision id)`` of the
+    whole matched-run set - two cheap aggregates over the same join as
+    :func:`read_outcomes` (the ML dataset route's cache key). Newest = the
+    largest ``(ended_at, decision id)``, the read's own order."""
+    count = await db.scalar(_matched(select(func.count()).select_from(PlanDecision)))
+    newest = (
+        await db.execute(
+            _matched(select(Attempt.ended_at, PlanDecision.id))
+            .order_by(Attempt.ended_at.desc(), PlanDecision.id.desc())
+            .limit(1)
+        )
+    ).first()
+    if newest is None:
+        return int(count or 0), None, None
+    return int(count or 0), newest[0], int(newest[1])
+
+
 async def read_outcomes(
     db: AsyncSession,
     limit: int,
@@ -271,26 +303,22 @@ async def read_outcomes(
     dataset loader pages through the **same** read the calibration fits on
     (one query for both, never a copy)."""
     query = (
-        select(
-            PlanDecision.id,
-            PlanDecision.chosen_node_id,
-            PlanDecision.candidates,
-            Attempt.id,
-            Attempt.node_id,
-            Attempt.state,
-            Attempt.role,
-            Attempt.ended_at,
-            RunRecord.workload_family,
-            func.coalesce(RunRecord.fingerprint, Job.fingerprint),
+        _matched(
+            select(
+                PlanDecision.id,
+                PlanDecision.chosen_node_id,
+                PlanDecision.candidates,
+                Attempt.id,
+                Attempt.node_id,
+                Attempt.state,
+                Attempt.role,
+                Attempt.ended_at,
+                RunRecord.workload_family,
+                func.coalesce(RunRecord.fingerprint, Job.fingerprint),
+            )
         )
-        .join(Attempt, Attempt.id == PlanDecision.attempt_id)
         .join(Job, Job.id == PlanDecision.job_id)
         .outerjoin(RunRecord, RunRecord.attempt_id == Attempt.id)
-        .where(
-            PlanDecision.outcome == "dispatched",
-            Attempt.state == "done",
-            Attempt.ended_at.is_not(None),
-        )
         .order_by(Attempt.ended_at.desc(), PlanDecision.id.desc())
         .limit(limit)
     )

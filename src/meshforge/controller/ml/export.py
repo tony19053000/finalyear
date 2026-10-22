@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import asyncio
+import datetime as dt
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -24,7 +25,11 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from meshforge.common.logging import get_logger
 from meshforge.controller.ml.dataset import COLUMNS, Builder, Dataset
-from meshforge.controller.ml.loader import DEFAULT_MAX_RUNS, iter_runs
+from meshforge.controller.ml.loader import (
+    DEFAULT_MAX_RUNS,
+    count_node_failures,
+    iter_runs,
+)
 from meshforge.controller.ml.schema import (
     DATASET_VERSION,
     FEATURE_VERSION,
@@ -53,9 +58,17 @@ async def build_dataset(
     :class:`~.loader.MlLoadError` when the database fails."""
     builder = Builder()
     truncated = False
+    oldest: dt.datetime | None = None
     async for page in iter_runs(engine, max_runs=max_runs):
         await asyncio.to_thread(builder.add, page.runs)
         truncated = truncated or page.truncated
+        if page.runs:
+            oldest = page.runs[-1].outcome.finished_at
+    # D354: failure events over the dataset's window - every one when the
+    # whole matched set was read, else since the oldest run read.
+    builder.node_failures = await count_node_failures(
+        engine, since=oldest if truncated else None
+    )
     dataset = await asyncio.to_thread(builder.finish)
     log.info(
         "controller.ml.dataset_built",
@@ -63,6 +76,7 @@ async def build_dataset(
         runs=dataset.counts["runs"],
         digest=dataset.digest,
         truncated=truncated,
+        node_failures=builder.node_failures,
     )
     return BuiltDataset(dataset=dataset, max_runs=max_runs, truncated=truncated)
 

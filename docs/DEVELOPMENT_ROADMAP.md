@@ -687,6 +687,7 @@ A version is **complete** only when all apply:
 - [ ] **0.15.9** Dashboard: predicted vs actual, model versions
 - [ ] **0.15.10** Optional experiment: direct strategy classifier vs cost-regression (for the report)
 - [ ] **0.15.11** 🧑 Lab data collection + validation: overnight unattended campaign on 4 laptops (all Mode 1 + Mode 3 families, ≥ 2 000 records) → train → evaluate on held-out families; criteria pasted (added 2026-10-22, D344)
+- [ ] **0.15.TD1** Tech debt (D354, added 2026-10-22 by V0.15 G2): node failure classifier - build it only when a real dataset counts ≥ 50 node-caused failures (`counts.node_failures` of the ML dataset; `compute planner ml compare` prints "failure classifier: eligible"); until then the D296 Beta risk term stays and the report says "not trained, N < 50 events"
 
 **Success criteria**
 1. ML-hybrid planner reduces mean regret vs analytical v2 on held-out workload groups, reported with 95 % confidence intervals.

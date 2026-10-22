@@ -1358,9 +1358,41 @@ compute get <JOB_ID>               # outputs -> ./outputs/<JOB_ID>/ (--dest, --f
   `skipped`. The file is byte-identical for the same runs (its `digest` is the
   dataset's identity for V0.15 training); at most `[controller.planner]
   ml_dataset_max_runs` (50 000) newest runs are read - `truncated: true` says
-  older ones were left out. It is built per request (bounded, paged reads; a
-  few seconds per ten thousand runs). Harness data proves the pipeline; the
-  V0.15 criteria are judged on the lab campaign of 0.15.11 only.
+  older ones were left out. It is built on the first request (bounded, paged
+  reads; a few seconds per ten thousand runs) and **cached** (V0.15 G2, D355):
+  the next request reuses it until a cheap watermark changes (a new matched
+  run, any attempt that ends), and concurrent requests share one build. The
+  summary's `counts.node_failures` (D354) is how many attempts ended
+  node-caused (the risk term's own definition) in the dataset's window - a
+  failure classifier is only worth building once a real dataset has 50.
+  Harness data proves the pipeline; the V0.15 criteria are judged on the lab
+  campaign of 0.15.11 only.
+- **Comparing ML models (V0.15 G2, D337/D338/D347-D353).** Offline, on any
+  machine with the dataset file: install the extras once (`uv sync --extra
+  controller --extra ml`; Linux and Windows use the CPU-only `xgboost-cpu`
+  wheel, ~55 MB of wheels in all), then `compute planner ml compare --dataset
+  ds.parquet --out report/` (no controller needed; without the extras it
+  exits 2 with that install hint). Per term it compares ridge, kNN, tree,
+  forest, LightGBM and XGBoost with the raw analytical model and the V0.14
+  calibration: the numbers are **held-out families only** (leave one family
+  out) and the model is chosen on the other families (grouped 5-fold, one
+  standard error rule), so a model never scores on a family it was chosen on.
+  Read the table: `status` `trained` (a learned model is the pick on all
+  data), `no learned model` (calibration or raw wins - a real outcome) or
+  `insufficient data` (< 200 rows or < 3 families: the planner keeps
+  calibration); `MALE` = mean absolute log error (0.1 is about 10 %); `vs cal`
+  = `better` / `not separable` / `worse` / `no learned model` (paired
+  bootstrap over families; `better` needs at least 5 families, a gain whose
+  95 % CI clears 0.02 log - `--min-effect` - and a learned model picked in at
+  least half the held-out folds and on all data);
+  `cover` = share of held-out values inside the 90 % conformal interval (the
+  model would be rejected under 80 % pooled, or under 70 % on any family with
+  20+ held-out rows); `usable` = share where ML would be used
+  (in distribution and interval at most x2 wide). `report.json` is
+  byte-identical for the same dataset and library versions; `report.md`
+  summarises it, with the top features and the failure-classifier line.
+  `--terms` / `--algorithms` cut the run time (about 6-7 min for 20 000 rows
+  on one core; a harness dataset takes seconds).
 - `run -f` streams the logs and exits like the job: `0` succeeded; the workload's own
   exit code (1-125) when it failed; `126` when the fabric failed it (the failure type
   is printed: `node_lost`, `deadline_exceeded`, `output_error` …); `128` cancelled.

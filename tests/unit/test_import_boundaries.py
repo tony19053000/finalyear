@@ -97,6 +97,10 @@ VIOLATIONS = [
     ("bench", "meshforge.cli", "bench imports only common"),
     ("bench", "meshforge.agent", "bench imports only common"),
     ("agent", "meshforge.bench", "agent imports only common"),
+    # V0.15 G2 (D340): the ML libraries only in controller.ml.train
+    ("controller", "sklearn", "scikit-learn, LightGBM and XGBoost only in"),
+    ("agent", "lightgbm", "scikit-learn, LightGBM and XGBoost only in"),
+    ("cli", "xgboost", "scikit-learn, LightGBM and XGBoost only in"),
 ]
 
 

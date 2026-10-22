@@ -30,6 +30,17 @@ calibration (V0.14 G2, D293/D301/D306).
   checked) and ``FILE.json``, the sidecar - written only when the summary
   names the same digest (the dataset did not change in between).
 
+* ``ml compare --dataset FILE [--terms a,b] [--algorithms a,b] [--with-family]
+  [--min-rows N] [--min-families N] [--min-effect X] [--out DIR]`` (V0.15 G2, D353): offline,
+  no controller needed - per term, does any learned model predict the
+  residual better than the calibration on held-out families? Runs ``python
+  -m meshforge.controller.ml.train compare`` in a child process with this
+  interpreter (the CLI never imports the controller - an import-linter
+  contract; the child needs the ``controller`` and ``ml`` extras: exit 2 with
+  the install hint without them), prints the per-term table and keeps
+  ``report.json`` / ``report.md`` in ``--out`` (default: a temporary
+  directory, removed).
+
 ``--json`` prints the API document (docs/CLI.md section 3). Every value from
 the controller goes through the renderer's cell / echo scrubbing.
 """
@@ -37,8 +48,12 @@ the controller goes through the renderer's cell / echo scrubbing.
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import os
+import subprocess
+import sys
+import tempfile
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Annotated, Any, Final
@@ -56,7 +71,10 @@ __all__ = [
     "eval_table",
     "factor_table",
     "ml_app",
+    "ml_compare_lines",
+    "ml_compare_table",
     "ml_dataset_lines",
+    "ml_missing_libraries",
     "planner_app",
     "reports_table",
 ]
@@ -530,6 +548,11 @@ def ml_dataset_lines(doc: Mapping[str, Any]) -> list[str]:
     if isinstance(skipped, Mapping):
         shown = [f"{render.echo(k)} {render.echo(v)}" for k, v in skipped.items() if v]
         lines.append("skipped: " + (", ".join(shown) if shown else "none"))
+    if "node_failures" in counts:  # V0.15 G2 (D354)
+        lines.append(
+            f"node-caused failures: {render.echo(counts.get('node_failures'))} "
+            "(the events a failure classifier would learn from)"
+        )
     return lines
 
 
@@ -630,3 +653,215 @@ def ml_dataset(
     for line in ml_dataset_lines(doc):
         render.line(line)
     render.line(f"wrote {out} ({size} bytes) and {sidecar}")
+
+
+# ------------------------------------------------------- V0.15 G2 (D353)
+
+ML_COMPARE_LIBRARIES: Final = ("pyarrow", "numpy", "sklearn", "lightgbm", "xgboost")
+"""What the comparison child imports (the ``controller`` + ``ml`` extras);
+checked with ``find_spec`` - nothing is imported here."""
+ML_EXTRA_HINT: Final = (
+    "install the controller and ml extras on this machine: "
+    "`uv sync --extra controller --extra ml` (or `pip install "
+    "'meshforge[controller,ml]'`)"
+)
+_TRAIN_MODULE: Final = "meshforge.controller.ml.train"
+_COMPARE_HEADER: Final = (
+    "term",
+    "rows",
+    "fam",
+    "status",
+    "selected",
+    "MALE ml",
+    "MALE cal",
+    "vs cal",
+    "cover",
+    "usable",
+)
+
+
+def ml_missing_libraries() -> list[str]:
+    return [m for m in ML_COMPARE_LIBRARIES if importlib.util.find_spec(m) is None]
+
+
+def _pct(value: Any) -> str:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return _DASH
+    return f"{100.0 * value:.1f}%"
+
+
+def _words(value: Any) -> str:
+    """``not_separable`` -> ``not separable`` (wraps by word in a narrow
+    table; ``--json`` keeps the report's own value)."""
+    return _DASH if value is None else render.echo(value).replace("_", " ")
+
+
+def ml_compare_table(doc: Mapping[str, Any]) -> Table:
+    """The per-term table of a comparison report (pure; tests read it)."""
+    table = render.table(*_COMPARE_HEADER, title="ML vs calibration, held-out families")
+    terms = doc.get("terms")
+    for term in terms if isinstance(terms, list) else []:
+        if not isinstance(term, Mapping):
+            continue
+        shipped = term.get("shipped")
+        shipped = shipped if isinstance(shipped, Mapping) else {}
+        config = shipped.get("config")
+        pooled = term.get("pooled")
+        pooled = pooled if isinstance(pooled, Mapping) else {}
+        verdict = term.get("vs_calibration")
+        verdict = verdict if isinstance(verdict, Mapping) else {}
+        table.add_row(
+            render.cell(term.get("term")),
+            render.cell(term.get("rows")),
+            render.cell(term.get("families")),
+            _words(term.get("status")),
+            render.cell(config.get("name") if isinstance(config, Mapping) else None),
+            _num(pooled.get("male_model")),
+            _num(pooled.get("male_calibration")),
+            _words(verdict.get("verdict")),
+            _pct(pooled.get("coverage")),
+            _pct(pooled.get("usable_rate")),
+        )
+    return table
+
+
+def ml_compare_lines(doc: Mapping[str, Any]) -> list[str]:
+    """The header and footer lines of a comparison report (pure)."""
+    dataset = doc.get("dataset")
+    dataset = dataset if isinstance(dataset, Mapping) else {}
+    lines = [
+        f"dataset {render.echo(dataset.get('digest'))} "
+        f"({render.echo(dataset.get('rows'))} rows, dataset "
+        f"v{render.echo(dataset.get('dataset_version'))}, features "
+        f"v{render.echo(dataset.get('feature_version'))})",
+        "held-out = leave one family out; the model is chosen on the other "
+        "families only; 'vs cal' = paired family bootstrap of the log error",
+    ]
+    failures = doc.get("failure_classifier")
+    if isinstance(failures, Mapping):
+        status = failures.get("status")
+        n = render.echo(failures.get("node_failures"))
+        limit = render.echo(failures.get("min_events"))
+        if status == "not_trained":
+            lines.append(f"failure classifier: not trained, {n} < {limit} events")
+        elif status == "eligible":
+            lines.append(f"failure classifier: eligible ({n} >= {limit} events)")
+        else:
+            lines.append("failure classifier: unknown (no matching dataset sidecar)")
+    return lines
+
+
+@ml_app.command("compare")
+def ml_compare(
+    dataset: Annotated[
+        Path,
+        typer.Option(
+            "--dataset",
+            help="A dataset file from `compute planner ml dataset --out FILE` "
+            "(its FILE.json sidecar is read when present).",
+            dir_okay=False,
+        ),
+    ],
+    terms: Annotated[
+        str | None, typer.Option("--terms", help="Only these terms (a,b,...).")
+    ] = None,
+    algorithms: Annotated[
+        str | None,
+        typer.Option(
+            "--algorithms",
+            help="Only these learned algorithms (ridge, knn, tree, forest, "
+            "lightgbm, xgboost); the baselines always run.",
+        ),
+    ] = None,
+    with_family: Annotated[
+        bool,
+        typer.Option("--with-family", help="Ablation: add the family as a feature."),
+    ] = False,
+    min_rows: Annotated[
+        int | None,
+        typer.Option("--min-rows", min=1, help="Data floor per term (default 200)."),
+    ] = None,
+    min_families: Annotated[
+        int | None,
+        typer.Option(
+            "--min-families", min=1, help="Family floor per term (default 3)."
+        ),
+    ] = None,
+    min_effect: Annotated[
+        float | None,
+        typer.Option(
+            "--min-effect",
+            min=0.0,
+            help="`better` needs the held-out log-error gain's CI beyond this "
+            "(default 0.02, about 2 %).",
+        ),
+    ] = None,
+    out: Annotated[
+        Path | None,
+        typer.Option(
+            "--out",
+            "-o",
+            help="Keep report.json and report.md in this directory.",
+            file_okay=False,
+        ),
+    ] = None,
+    json_output: cli.JsonOption = False,
+) -> None:
+    """Compare learned models with the calibration per term (offline, no
+    controller): held-out families, conformal intervals, OOD."""
+    if not dataset.is_file():
+        cli._die(f"{dataset}: no such dataset file", CliExit.USAGE_ERROR)
+    missing = ml_missing_libraries()
+    if missing:
+        cli._die(
+            f"ml compare needs {', '.join(missing)} (not installed): {ML_EXTRA_HINT}",
+            CliExit.USAGE_ERROR,
+        )
+    with tempfile.TemporaryDirectory(prefix="meshforge-ml-") as scratch:
+        target = out if out is not None else Path(scratch)
+        argv = [
+            sys.executable,
+            "-m",
+            _TRAIN_MODULE,
+            "compare",
+            "--dataset",
+            str(dataset),
+            "--out",
+            str(target),
+        ]
+        for flag, value in (
+            ("--terms", terms),
+            ("--algorithms", algorithms),
+            ("--min-rows", min_rows),
+            ("--min-families", min_families),
+            ("--min-effect", min_effect),
+        ):
+            if value is not None:
+                argv += [flag, str(value)]
+        if with_family:
+            argv.append("--with-family")
+        result = subprocess.run(  # noqa: S603 - this interpreter, our own module
+            argv, capture_output=True, text=True, check=False
+        )
+        if result.returncode != 0:
+            message = result.stderr.strip() or "the comparison failed"
+            code = (
+                CliExit.USAGE_ERROR
+                if result.returncode == CliExit.USAGE_ERROR
+                else CliExit.FAILURE
+            )
+            cli._die(message, code)
+        try:
+            doc = json.loads((target / "report.json").read_text(encoding="utf-8"))
+            timings = json.loads((target / "timings.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            cli._die(f"cannot read the report: {type(exc).__name__}", CliExit.FAILURE)
+    if json_output:
+        cli._echo_json(doc)
+        return
+    for line in ml_compare_lines(doc):
+        render.line(line)
+    render.show(ml_compare_table(doc))
+    render.line(f"compared in {render.echo(timings.get('total_s'))} s")
+    if out is not None:
+        render.line(f"wrote {out / 'report.json'} and {out / 'report.md'}")

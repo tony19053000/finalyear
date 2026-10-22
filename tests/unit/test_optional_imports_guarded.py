@@ -41,6 +41,9 @@ TESTS_DIR: Final = REPO_ROOT / "tests"
 DIST_TO_IMPORTS: Final[dict[str, tuple[str, ...]]] = {
     "nvidia-ml-py": ("pynvml",),
     "uvicorn": ("uvicorn",),
+    # V0.15 G2 (D340): the `ml` extra
+    "scikit-learn": ("sklearn",),
+    "xgboost-cpu": ("xgboost",),
 }
 
 

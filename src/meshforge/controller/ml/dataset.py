@@ -170,7 +170,8 @@ class Dataset:
     """In file order (:func:`sort_key`)."""
     counts: Mapping[str, Any]
     """``runs``, ``runs_with_rows``, ``rows``, ``rows_by_term`` (every term),
-    ``rows_by_family``, ``skipped`` (every :class:`~.targets.Skip`)."""
+    ``rows_by_family``, ``skipped`` (every :class:`~.targets.Skip`),
+    ``node_failures`` (V0.15 G2, D354)."""
     parquet: bytes
     digest: str
 
@@ -196,6 +197,10 @@ class Builder:
     skipped: Counter[str] = field(default_factory=Counter)
     runs: int = 0
     runs_with_rows: int = 0
+    node_failures: int = 0
+    """V0.15 G2 (D354): node-caused attempt ends over the dataset's window
+    (set by the I/O side, :func:`~.export.build_dataset`; 0 for a pure
+    build)."""
 
     def add(self, runs: Iterable[RunInput]) -> None:
         for run in runs:
@@ -263,6 +268,7 @@ class Builder:
             "skipped": {
                 reason.value: self.skipped.get(reason.value, 0) for reason in Skip
             },
+            "node_failures": self.node_failures,
         }
 
     def finish(self) -> Dataset:
