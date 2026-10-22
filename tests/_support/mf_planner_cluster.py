@@ -189,7 +189,11 @@ def criterion2_status(comparisons: Sequence[Mapping[str, Any]], min_groups: int)
 def answer_leaves(data: Any, path: tuple[str, ...] = ()) -> set[str]:
     """The normalised leaf paths of a decisions answer (``[]`` for a list
     index, ``{}`` for a term / phase name; ``detail`` is one leaf) - the
-    criterion-4 fixture's notation."""
+    criterion-4 fixture's notation). A null has no leaf: the fixture lists
+    the leaves of non-null values, and a null field of an answer object is
+    still one of the model's fields."""
+    if data is None:
+        return set()
     if isinstance(data, Mapping) and (not path or path[-1] != "detail"):
         leaves: set[str] = set()
         for key, value in data.items():

@@ -333,6 +333,43 @@ def _check_explain(
     assert chosen["estimate"]["terms"]["compute"]["actual_s"] is not None, chosen
 
 
+def _summary(report: dict[str, Any], calibrated: dict[str, Any], took: float) -> str:
+    """One diagnostic block (printed with ``-s``): what the real data gave."""
+    lines = [f"g6 harness: campaigns done in {took:.0f} s"]
+    lines.append(f"  counts {json.dumps(report['counts'], sort_keys=True)}")
+    lines.extend(
+        f"  criterion {v['criterion']}: {v['status']} - {v['detail']}"
+        for v in report["verdicts"]
+    )
+    lat = report["latency"]
+    lines.append(
+        f"  latency n={lat['decisions']} p50={lat['p50_ms']} p99={lat['p99_ms']} "
+        f"max={lat['max_ms']} over={lat['over_budget']}"
+    )
+    created = calibrated.get("created") or {}
+    lines.append(
+        f"  calibration v{created.get('version')} {created.get('status')} "
+        f"reason={created.get('reason')!r}"
+    )
+    for g in report["groups"]:
+        crit = next((p for p in g["picks"] if p["key"] == CRITERION_KEY), None)
+        strategies = {c["config_id"]: c["strategy"] for c in g["configs"]}
+        picked = (
+            None
+            if crit is None
+            else (
+                crit["status"],
+                strategies.get(crit["config_id"] or ""),
+                crit["regret_pct"],
+            )
+        )
+        lines.append(
+            f"  {g['family']} {g['group_id'][:12]} {g['label']} {g['status']} "
+            f"best={strategies.get(g['best_config_id'] or '')} crit={picked}"
+        )
+    return "\n".join(lines)
+
+
 # ------------------------------------------------------------------ the test
 
 
@@ -429,4 +466,4 @@ def test_campaigns_to_calibration_to_evaluation_to_explain(
         r.job_id for r in runs if r.strategy == "mode1" and r.family == PRIMES
     )
     _check_explain(fabric, data, work, mode3_job, mode1_job)
-    print(f"g6 harness: campaigns done in {took:.0f} s")  # noqa: T201
+    print(_summary(report, calibrated, took))  # noqa: T201 - for the hand-off

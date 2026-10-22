@@ -57,6 +57,7 @@ __all__ = [
     "EvalInputs",
     "EvalLoadError",
     "EvalTooLargeError",
+    "attach_replays",
     "groups_from_labels",
     "latency_samples",
     "load_campaigns",
@@ -194,13 +195,39 @@ async def _node_sets(engine: AsyncEngine, campaign_id: str) -> dict[str, list[st
     return {str(r[0]): [str(n) for n in (r[1] or [])] for r in rows}
 
 
+def attach_replays(
+    records: Sequence[EvalRecord], rows: Iterable[Sequence[Any]]
+) -> list[EvalRecord]:
+    """``records`` with their decisions' replays (pure; module docstring).
+    ``rows`` = ``(decision id, job id, attempt id, replay)`` of ``dispatched``
+    decisions, **ascending by decision id**: a record takes its own
+    attempt's decision, else its job's **first** one (a split job's record is
+    the combine's row; the lanes were planned by the first decision - a later
+    one is a re-plan of what was left, D259)."""
+    by_attempt: dict[str, tuple[int, Any]] = {}
+    first_of_job: dict[str, tuple[int, Any]] = {}
+    for decision_id, job_id, attempt_id, replay in rows:
+        found = (int(decision_id), replay)
+        if attempt_id is not None:
+            by_attempt.setdefault(str(attempt_id), found)
+        first_of_job.setdefault(str(job_id), found)
+    out: list[EvalRecord] = []
+    for record in records:
+        hit = by_attempt.get(record.attempt_id) or first_of_job.get(record.job_id)
+        if hit is None:
+            out.append(record)
+        else:
+            out.append(replace(record, decision_id=hit[0], replay=hit[1]))
+    return out
+
+
 async def _replays(
     engine: AsyncEngine, records: Sequence[EvalRecord]
 ) -> list[EvalRecord]:
-    """``records`` with their decisions' replays (module docstring)."""
+    """``records`` with their decisions' replays, read in batches of jobs
+    (:func:`attach_replays`)."""
     jobs = sorted({r.job_id for r in records})
-    by_attempt: dict[str, tuple[int, dict[str, Any] | None]] = {}
-    first_of_job: dict[str, tuple[int, dict[str, Any] | None]] = {}
+    rows: list[Sequence[Any]] = []
     sessions = create_session_factory(engine)
     for start in range(0, len(jobs), _BATCH):
         batch = jobs[start : start + _BATCH]
@@ -215,20 +242,9 @@ async def _replays(
             .order_by(PlanDecision.id)
         )
         async with sessions() as db:
-            rows = list((await db.execute(query)).all())
-        for decision_id, job_id, attempt_id, replay in rows:
-            found = (int(decision_id), replay)
-            if attempt_id is not None:
-                by_attempt.setdefault(str(attempt_id), found)
-            first_of_job.setdefault(str(job_id), found)
-    out: list[EvalRecord] = []
-    for record in records:
-        hit = by_attempt.get(record.attempt_id) or first_of_job.get(record.job_id)
-        if hit is None:
-            out.append(record)
-        else:
-            out.append(replace(record, decision_id=hit[0], replay=hit[1]))
-    return out
+            rows.extend((await db.execute(query)).all())
+    rows.sort(key=lambda r: int(r[0]))  # one order over every batch
+    return attach_replays(records, rows)
 
 
 def _node_count(nodes: Any, candidates: Any) -> int | None:
