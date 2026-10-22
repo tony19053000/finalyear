@@ -10,15 +10,18 @@
   per term / family, skips by reason), the read cap and whether it cut older
   runs, and the schema.
 
-The dataset is built per request from at most ``[controller.planner]
+The dataset is built from at most ``[controller.planner]
 ml_dataset_max_runs`` newest matched runs (bounded paged reads; the pure work
-runs in a worker thread). Database down -> 503 ``network_error``
+runs in a worker thread) and **cached** (V0.15 G2, D355,
+:class:`~meshforge.controller.ml.cache.DatasetCache`): rebuilt only when a
+cheap watermark of the data changes, one build at a time - a request during a
+build waits for it and reuses it. Database down -> 503 ``network_error``
 (``Retry-After``). ``compute planner ml dataset`` calls this route.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Annotated, Final, Literal
 
 from fastapi import APIRouter, Depends, Query, Request
@@ -30,6 +33,7 @@ from meshforge.common.logging import get_logger
 from meshforge.controller.api.auth import AdminUser
 from meshforge.controller.api.errors import ApiError
 from meshforge.controller.api.models import ApiModel
+from meshforge.controller.ml.cache import DatasetCache
 
 __all__ = [
     "DIGEST_HEADER",
@@ -54,6 +58,8 @@ class MlDatasetApi:
 
     engine: AsyncEngine
     max_runs: int
+    cache: DatasetCache = field(default_factory=DatasetCache)
+    """D355: one per app (single-flight builds, reuse while unchanged)."""
 
 
 def get_ml_api(request: Request) -> MlDatasetApi:
@@ -74,6 +80,10 @@ class MlCountsOut(ApiModel):
     skipped: dict[str, int]
     """Skip reason -> count (decisions for ``missing_replay`` /
     ``unreadable_replay`` / ``unmatched``, terms for the rest)."""
+    node_failures: int
+    """V0.15 G2 (D354): attempts that ended node-caused (the D296 risk
+    term's definition) over the dataset's window - the events a failure
+    classifier would learn from (built only once a real dataset has 50)."""
 
 
 class MlColumnOut(ApiModel):
@@ -142,11 +152,11 @@ async def get_ml_dataset(
         Query(description="parquet = the file (default); summary = the sidecar."),
     ] = "parquet",
 ) -> Response | MlDatasetSummaryOut:
-    from meshforge.controller.ml.export import build_dataset, summary
+    from meshforge.controller.ml.export import summary
     from meshforge.controller.ml.loader import MlLoadError
 
     try:
-        built = await build_dataset(api.engine, max_runs=api.max_runs)
+        built = await api.cache.get(api.engine, max_runs=api.max_runs)
     except MlLoadError:
         raise ApiError(
             FailureType.NETWORK_ERROR,

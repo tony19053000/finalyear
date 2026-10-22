@@ -530,6 +530,11 @@ def ml_dataset_lines(doc: Mapping[str, Any]) -> list[str]:
     if isinstance(skipped, Mapping):
         shown = [f"{render.echo(k)} {render.echo(v)}" for k, v in skipped.items() if v]
         lines.append("skipped: " + (", ".join(shown) if shown else "none"))
+    if "node_failures" in counts:  # V0.15 G2 (D354)
+        lines.append(
+            f"node-caused failures: {render.echo(counts.get('node_failures'))} "
+            "(the events a failure classifier would learn from)"
+        )
     return lines
 
 

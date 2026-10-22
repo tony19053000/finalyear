@@ -24,7 +24,7 @@ from mf_ml_fixtures import stored, whole_run
 from meshforge.controller.api import auth, ml_routes
 from meshforge.controller.api.errors import install_error_handlers
 from meshforge.controller.ml import dataset as ds
-from meshforge.controller.ml import export
+from meshforge.controller.ml import export, loader
 
 pytestmark = [pytest.mark.unit, pytest.mark.asyncio]
 
@@ -63,6 +63,11 @@ def _fake_build(monkeypatch: pytest.MonkeyPatch) -> None:
         return export.BuiltDataset(dataset=data, max_runs=max_runs, truncated=False)
 
     monkeypatch.setattr(export, "build_dataset", fake)
+
+    async def watermark(engine: Any, *, max_runs: int) -> object:
+        return object()  # V0.15 G2 (D355): never equal -> every request builds
+
+    monkeypatch.setattr(loader, "read_watermark", watermark)
 
 
 async def _get(app: FastAPI, path: str) -> httpx.Response:

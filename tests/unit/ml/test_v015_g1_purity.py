@@ -83,7 +83,8 @@ def test_pure_modules_import_nothing_impure(name: str) -> None:
 
 def test_every_ml_module_is_listed_as_pure_or_io() -> None:
     names = {p.name for p in ML_ROOT.glob("*.py")}
-    assert names == {*PURE, "__init__.py", "loader.py", "export.py"}
+    # V0.15 G2: cache.py (D355, I/O through loader / export)
+    assert names == {*PURE, "__init__.py", "loader.py", "export.py", "cache.py"}
 
 
 @pytest.mark.parametrize("path", sorted(ML_ROOT.glob("*.py")), ids=lambda p: p.name)

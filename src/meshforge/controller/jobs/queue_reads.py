@@ -81,6 +81,7 @@ __all__ = [
     "NetworkReads",
     "NodeRow",
     "is_benchmark_key",
+    "node_caused_end",
     "queued_jobs",
     "read_fabric",
 ]
@@ -601,6 +602,21 @@ _NODE_CAUSED: Final = failure_types_of(EndClass.NODE)
 _CLEAN_FAILURES: Final = failure_types_of(EndClass.CLEAN)
 
 
+def node_caused_end() -> Any:
+    """The D296 "node-caused attempt end" as a SQL predicate on ``attempt``:
+    ``lost``, or ``failed`` with a node-caused failure type (the planner's
+    :func:`~meshforge.controller.planner.risk.classify_end`). Public since
+    V0.15 G2 (D354): the ML dataset counts its failure events with this very
+    predicate - one definition for the risk term and the dataset."""
+    return or_(
+        Attempt.state == AttemptState.LOST.value,
+        and_(
+            Attempt.state == AttemptState.FAILED.value,
+            Attempt.failure_type.in_(_NODE_CAUSED),
+        ),
+    )
+
+
 async def _reliability(
     db: AsyncSession, since: dt.datetime, node_ids: Sequence[str]
 ) -> dict[str, tuple[int, int]]:
@@ -614,9 +630,8 @@ async def _reliability(
     review N3)."""
     if not node_ids:
         return {}
-    lost = Attempt.state == AttemptState.LOST.value
     failed = Attempt.state == AttemptState.FAILED.value
-    node_caused = or_(lost, and_(failed, Attempt.failure_type.in_(_NODE_CAUSED)))
+    node_caused = node_caused_end()
     counted = or_(
         node_caused,
         Attempt.state == AttemptState.DONE.value,
