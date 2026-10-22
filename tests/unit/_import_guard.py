@@ -93,6 +93,10 @@ def boundary_problems(
     policy: dict[str, set[str]] = {}
     named: set[str] = set()
     for contract in contracts:
+        if ROOT_PACKAGE in contract.get("source_modules", []):
+            # V0.15 G2: a third-party-library contract over the whole tree
+            # (ml-libraries-only-in-ml-train) - not a sibling policy
+            continue
         for key in ("source_modules", "forbidden_modules", "modules"):
             named.update(_short(m) for m in contract.get(key, []))
         if contract.get("type") != "forbidden":

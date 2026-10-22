@@ -94,6 +94,8 @@ ml = [
     "numpy>=2.3,<3",
     "scikit-learn>=1.9,<2",
     "lightgbm>=4.7,<5",
+    # caps BLAS threads during a comparison (D352); scikit-learn needs it anyway
+    "threadpoolctl>=3.5,<4",
     "xgboost-cpu>=3.4,<4; sys_platform != 'darwin'",
     "xgboost>=3.4,<4; sys_platform == 'darwin'",
 ]
@@ -208,6 +210,9 @@ artifacts = ["src/meshforge/controller/web/dist/**"]
 # ---------------------------------------------------------------------------
 [tool.importlinter]
 root_package = "meshforge"
+# V0.15 G2: external packages are graph nodes, so a contract can forbid the
+# ML libraries (ml-libraries-only-in-ml-train)
+include_external_packages = true
 
 [[tool.importlinter.contracts]]
 id = "controller-agent-independent"
@@ -337,6 +342,24 @@ forbidden_modules = [
     "meshforge.bench",
 ]
 
+# V0.15 G2 (D340): the ML libraries (the controller's `ml` extra) are imported
+# only by meshforge.controller.ml.train. Every other module - agent, planner,
+# the rest of the controller, cli, sdk, ... - forbids them, so an agent or a
+# plain controller install never needs them. (tests/unit/ml/
+# test_v015_g2_purity.py also pins that nothing outside the train package
+# imports it, which this contract cannot see through the ignored edges.)
+[[tool.importlinter.contracts]]
+id = "ml-libraries-only-in-ml-train"
+name = "scikit-learn, LightGBM and XGBoost only in controller.ml.train"
+type = "forbidden"
+source_modules = ["meshforge"]
+forbidden_modules = ["sklearn", "lightgbm", "xgboost"]
+ignore_imports = [
+    "meshforge.controller.ml.train.* -> sklearn",
+    "meshforge.controller.ml.train.* -> lightgbm",
+    "meshforge.controller.ml.train.* -> xgboost",
+]
+
 # ---------------------------------------------------------------------------
 # ruff: lint + format (roadmap 0.1.9). Run: `uv run ruff check .` and
 # `uv run ruff format --check .`. Generated protobuf code is excluded (it also
@@ -395,6 +418,9 @@ ignore = [
 ]
 "lab/**" = [
     "S603", # lab probes run fixed tool commands (argv lists, no shell, resolved via PATH)
+]
+"src/meshforge/controller/ml/train/**" = [
+    "N803", "N806", # X / Z = feature matrices: the ML convention (V0.15 G2)
 ]
 "src/meshforge/controller/store/migrations/**" = [
     "N999", # Alembic revision files are named 0001_*.py
@@ -464,5 +490,9 @@ ignore_errors = true
 module = [
     "docker", "docker.*", "torch", "torch.*", "asyncpg", "asyncpg.*", "yaml",
     "pyarrow", "pyarrow.*",
+    # V0.15 G2 (D340): the `ml` extra (scikit-learn ships no py.typed;
+    # lightgbm / xgboost stubs are partial), only under controller.ml.train
+    "sklearn", "sklearn.*", "lightgbm", "lightgbm.*", "xgboost", "xgboost.*",
+    "threadpoolctl",
 ]
 ignore_missing_imports = true

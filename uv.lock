@@ -755,6 +755,7 @@ ml = [
     { name = "lightgbm" },
     { name = "numpy" },
     { name = "scikit-learn" },
+    { name = "threadpoolctl" },
     { name = "xgboost", marker = "sys_platform == 'darwin'" },
     { name = "xgboost-cpu", marker = "sys_platform != 'darwin'" },
 ]
@@ -805,6 +806,7 @@ requires-dist = [
     { name = "scikit-learn", marker = "extra == 'ml'", specifier = ">=1.9,<2" },
     { name = "sqlalchemy", extras = ["asyncio"], marker = "extra == 'controller'", specifier = ">=2.0.53" },
     { name = "structlog", specifier = ">=26.1" },
+    { name = "threadpoolctl", marker = "extra == 'ml'", specifier = ">=3.5,<4" },
     { name = "torch", marker = "extra == 'gpu'", specifier = ">=2.14" },
     { name = "typer", specifier = ">=0.27" },
     { name = "uv", marker = "extra == 'agent'", specifier = ">=0.10" },

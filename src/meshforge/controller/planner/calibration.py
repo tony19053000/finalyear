@@ -118,6 +118,7 @@ __all__ = [
     "Refit",
     "TermFactors",
     "TermObservation",
+    "applied_factor",
     "calibrate_estimate",
     "calibrate_lane",
     "calibration_from_json",
@@ -132,6 +133,7 @@ __all__ = [
     "raw_prediction",
     "refit",
     "split_holdout",
+    "term_observation",
 ]
 
 CALIBRATION_FORMAT: Final = 1
@@ -529,6 +531,38 @@ def raw_prediction(term: Mapping[str, Any]) -> float | None:
     return _number(term.get("seconds"))
 
 
+def term_observation(
+    term: str, predicted_s: float, actual_s: float, source: Any
+) -> TermObservation:
+    """One term's observation by the calibration's rules (D293): a
+    ``measured``-source term is never scaled; one predicted under
+    :data:`MIN_PREDICTED_S` (or never scaled) is kept for the totals but not
+    fitted. Shared since V0.15 G2 (D350): the ML comparison's calibration
+    baseline builds its observations with this function, never a copy."""
+    scaled = source != TermSource.MEASURED.value
+    return TermObservation(
+        term,
+        predicted_s,
+        actual_s,
+        fitted=scaled and predicted_s >= MIN_PREDICTED_S,
+        scaled=scaled,
+    )
+
+
+def applied_factor(
+    calibration: Calibration, obs: TermObservation, node_id: str, family: str | None
+) -> float:
+    """The factor the planner multiplies ``obs``'s prediction by on
+    ``node_id`` (key ladder node + family -> node -> global): 1.0 for a term
+    the planner never scales (not in :data:`TERM_PHASE`, or a ``measured``
+    source) or with nothing fitted. Shared since V0.15 G2 (D350) by
+    :func:`holdout_error` and the ML comparison's calibration baseline."""
+    if obs.term not in TERM_PHASE or not obs.scaled:
+        return 1.0
+    found = calibration.lookup(obs.term, node_id, family)
+    return 1.0 if found is None else found[0].factor
+
+
 def match(outcome: DecisionOutcome) -> MatchedRun | None:
     """The run's term observations, or None when it does not count (module
     docstring: not done, another node, a Mode 3 set, nothing comparable)."""
@@ -557,15 +591,8 @@ def match(outcome: DecisionOutcome) -> MatchedRun | None:
         predicted = raw_prediction(term)
         if predicted is None:
             continue
-        scaled = term.get("source") != TermSource.MEASURED.value
         observed.append(
-            TermObservation(
-                name,
-                predicted,
-                actual_ms / 1000.0,
-                fitted=scaled and predicted >= MIN_PREDICTED_S,
-                scaled=scaled,
-            )
+            term_observation(name, predicted, actual_ms / 1000.0, term.get("source"))
         )
     if not observed:
         return None
@@ -703,11 +730,11 @@ def holdout_error(
         predicted = 0.0
         actual = 0.0
         for obs in run.terms:
-            factor = 1.0
-            if calibration is not None and obs.term in TERM_PHASE:
-                found = calibration.lookup(obs.term, run.node_id, family)
-                if found is not None and obs.scaled:
-                    factor = found[0].factor
+            factor = (
+                1.0
+                if calibration is None
+                else applied_factor(calibration, obs, run.node_id, family)
+            )
             predicted += obs.predicted_s * factor
             actual += obs.actual_s
         if predicted > 0.0 and actual > 0.0:
