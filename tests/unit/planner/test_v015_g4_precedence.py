@@ -267,6 +267,42 @@ def test_a_raising_predictor_falls_back_to_calibration(split: bool) -> None:
         _assert_fell_back(decision, calibrated, "RuntimeError")
 
 
+@pytest.mark.parametrize("raises", [False, True], ids=["ood", "predictor_error"])
+def test_split_lane_terms_fall_back_to_their_calibration(raises: bool) -> None:
+    """A lane's stage / env the model does not correct are calibrated exactly
+    like V0.14's ``calibrate_lane`` (unprobed links: the stage is not a
+    ``measured`` term, so a factor applies) - start times, chunking and the
+    plan equal the calibrated planner's."""
+    request, snapshot, now = synthetic_fabric(4, split=True, seed=4)
+    snapshot = dataclasses.replace(snapshot, links={})
+    view = project(request, snapshot)
+    cal = _calibration(1.7)
+    calibrated = plan(request, view, "cost_model", now, calibration=cal)
+    rule = Rule(y_hat=LN_HALF, ood=True, ood_reason="knn")
+    ml, _ = stub_ml(
+        {(t, None): rule for t in ("lane_stage", "lane_env")},
+        raises=RuntimeError("x") if raises else None,
+    )
+    decision = plan(request, view, "cost_model", now, calibration=cal, ml=ml)
+    assert decision.split == calibrated.split
+    lanes = [c for c in decision.candidates if c.node_set and len(c.node_set) == 1]
+    assert lanes
+    scaled = 0
+    for row in lanes:
+        want = next(
+            c
+            for c in calibrated.candidates
+            if c.node_set == row.node_set and c.estimate is not None
+        )
+        assert row.estimate is not None and want.estimate is not None
+        for name in ("transfer", "env"):
+            got = getattr(row.estimate, name)
+            assert got.seconds == getattr(want.estimate, name).seconds
+            assert got.detail["ml"]["used"] is False
+            scaled += "calibration" in got.detail
+    assert scaled  # a factor really applied somewhere
+
+
 @pytest.mark.parametrize(
     "broken",
     [
