@@ -5,17 +5,15 @@
  *   use, the active version's factors (each with `n` and its key level) and
  *   the latest versions' summaries. Typed from schema.d.ts.
  * * `GET /v1/planner/eval-reports` / `/{id}` (V0.14 G4, D318) - the offline
- *   evaluator's stored reports.
+ *   evaluator's stored reports. Typed from schema.d.ts (D321: the D318 mirror
+ *   was replaced by the generated types at the G4 + G5 merge).
  *
- * MERGE (Lead, G4 + G5): the eval-report types below are a hand-written
- * mirror of G4's `controller/api/planner_eval_models.py` (commit 2423f476,
- * D318 contract). When G4's models are in openapi.json, replace this block by
- * `Schemas["EvalReportListOut"]` etc. (same field names) and delete the
- * mirror; `npm run typecheck` then proves the page against the real contract.
- * Until G4's routes exist the controller answers 404 and the page says so
- * (never fake data); tests use `src/test/fixtures/evalReports.ts`.
+ * A controller without the evaluator answers 404 on these routes and the page
+ * says "not available" (never fake data); a 404 carrying
+ * `UNKNOWN_EVAL_REPORT_REASON` is a report id that does not exist.
  */
 import { apiRequest } from "../../api/client";
+import { ApiError } from "../../api/errors";
 import type { components } from "../../api/schema";
 
 type Schemas = components["schemas"];
@@ -24,156 +22,42 @@ export type CalibrationOut = Schemas["CalibrationOut"];
 export type CalibrationSummary = Schemas["CalibrationSummaryOut"];
 export type FactorOut = Schemas["FactorOut"];
 
-// ---- BEGIN D318 mirror (replace with Schemas[...] at the G4 merge) ----------
-export type VerdictStatus = "PASS" | "FAIL" | "not_separable" | "too_few_groups" | "leaked";
+// D318 contract (G4's planner_eval_models.py), generated into schema.d.ts.
+export type VerdictStatus = Schemas["VerdictStatus"];
+export type VerdictOut = Schemas["VerdictOut"];
+export type PairedComparisonOut = Schemas["PairedComparisonOut"];
+export type BootstrapCIOut = Schemas["BootstrapCIOut"];
+export type PolicyResultOut = Schemas["PolicyResultOut"];
+export type FamilyResultOut = Schemas["FamilyResultOut"];
+export type CalibrationUsedOut = Schemas["CalibrationUsedOut"];
+export type EvalSettingsOut = Schemas["EvalSettingsOut"];
+export type EvalCountsOut = Schemas["EvalCountsOut"];
+export type EvalConfigOut = Schemas["EvalConfigOut"];
+export type GroupPickOut = Schemas["GroupPickOut"];
+export type GroupResultOut = Schemas["GroupResultOut"];
+export type EvalReportOut = Schemas["EvalReportOut"];
+export type EvalReportSummaryOut = Schemas["EvalReportSummaryOut"];
+export type EvalReportListOut = Schemas["EvalReportListOut"];
+export type EvalReportRecordOut = Schemas["EvalReportRecordOut"];
 
-export interface VerdictOut {
-  criterion: 1 | 2;
-  status: VerdictStatus;
-  would_be: VerdictStatus | null;
-  value: number | null;
-  threshold: number | null;
-  counted_groups: number;
-  detail: string;
+/**
+ * The machine `reason` of the controller's 404 for a report id it does not
+ * have (planner_eval_routes `UNKNOWN_EVAL_REPORT_REASON`). An unmatched
+ * route's 404 (a controller without the evaluator) is the plain `not_found`
+ * envelope without a reason, or a non-envelope `http_404` behind a proxy; the
+ * `code` alone cannot tell the two apart (D321).
+ */
+export const UNKNOWN_EVAL_REPORT_REASON = "unknown_eval_report";
+
+/** A 404 meaning "this controller has no evaluation-report route". */
+export function isEvalUnavailable(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 404 && error.reason !== UNKNOWN_EVAL_REPORT_REASON;
 }
 
-export interface BootstrapCIOut {
-  low: number | null;
-  high: number | null;
+/** A 404 meaning "the route exists, this report id does not". */
+export function isEvalReportNotFound(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 404 && error.reason === UNKNOWN_EVAL_REPORT_REASON;
 }
-
-export interface PolicyResultOut {
-  key: string;
-  policy: string;
-  kind: "rule" | "cost_model" | "oracle";
-  calibrated: boolean | null;
-  objective: string | null;
-  counted_groups: number;
-  unmeasured_groups: number;
-  no_replay_groups: number;
-  mean_regret_pct: number | null;
-  ci_pct: BootstrapCIOut;
-  mean_regret_ms: number | null;
-  within_threshold_pct: number | null;
-  zero_regret_groups: number;
-}
-
-export interface FamilyResultOut {
-  family: string;
-  key: string;
-  counted_groups: number;
-  unmeasured_groups: number;
-  no_replay_groups: number;
-  mean_regret_pct: number | null;
-  mean_regret_ms: number | null;
-  within_threshold_pct: number | null;
-}
-
-export interface CalibrationUsedOut {
-  family: string;
-  source: "refit" | "active" | "none";
-  version: number | null;
-  fitted_runs: number;
-  excluded_runs: number;
-  factors: number;
-  digest: string | null;
-}
-
-export interface EvalSettingsOut {
-  regret_threshold_pct: number;
-  within_target_pct: number;
-  min_groups: number;
-  bootstrap_resamples: number;
-  bootstrap_seed: number;
-  ci_level: number;
-  criterion_policy: string;
-}
-
-export interface EvalCountsOut {
-  groups: number;
-  evaluated_groups: number;
-  labels: Record<string, number>;
-  no_replay_groups: number;
-  records: number;
-  records_used: number;
-  records_skipped: Record<string, number>;
-}
-
-export interface EvalConfigOut {
-  config_id: string;
-  strategy: string;
-  node_id: string;
-  origin_node_id: string;
-  node_set: string[];
-  state: "measured" | "unsupported";
-  median_ms: number | null;
-  repetitions: number;
-}
-
-export interface GroupPickOut {
-  key: string;
-  status: "counted" | "unmeasured" | "no_replay";
-  config_id: string | null;
-  regret_pct: number | null;
-  regret_ms: number | null;
-  votes: Record<string, number>;
-}
-
-export interface GroupResultOut {
-  campaign_id: string;
-  group_id: string;
-  family: string;
-  condition: string;
-  label: "best" | "tie" | "insufficient" | "pending";
-  best_config_id: string | null;
-  tied_config_ids: string[];
-  best_median_ms: number | null;
-  status: "evaluated" | "excluded" | "no_replay";
-  excluded_reason: string | null;
-  records: number;
-  records_used: number;
-  configs: EvalConfigOut[];
-  picks: GroupPickOut[];
-}
-
-export interface EvalReportOut {
-  eval_version: number;
-  campaign_ids: string[];
-  holdout: string | null;
-  leaked: boolean;
-  settings: EvalSettingsOut;
-  counts: EvalCountsOut;
-  verdicts: VerdictOut[];
-  policies: PolicyResultOut[];
-  families: FamilyResultOut[];
-  calibrations: CalibrationUsedOut[];
-  groups: GroupResultOut[];
-}
-
-export interface EvalReportSummaryOut {
-  id: number;
-  created_at: string;
-  campaign_ids: string[];
-  holdout: string | null;
-  leaked: boolean;
-  eval_version: number;
-  evaluated_groups: number;
-  verdicts: VerdictOut[];
-}
-
-export interface EvalReportListOut {
-  reports: EvalReportSummaryOut[];
-}
-
-export interface EvalReportRecordOut {
-  id: number;
-  created_at: string;
-  campaign_ids: string[];
-  holdout: string | null;
-  leaked: boolean;
-  report: EvalReportOut;
-}
-// ---- END D318 mirror ---------------------------------------------------------
 
 /** `GET /v1/planner/calibration` - the active version (or `version`). */
 export function getCalibration(version: number | null, signal?: AbortSignal): Promise<CalibrationView> {

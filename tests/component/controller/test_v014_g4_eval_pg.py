@@ -311,9 +311,13 @@ async def test_errors_unknown_campaign_report_family_and_database_down(
         app, "POST", "/v1/planner/eval-reports", json={"campaign_ids": []}
     )
     assert empty.status_code == 400
-    assert (
-        await _call(app, "GET", "/v1/planner/eval-reports/999999")
-    ).status_code == 404
+    gone = await _call(app, "GET", "/v1/planner/eval-reports/999999")
+    assert gone.status_code == 404
+    # D321: the reason tells "report not found" from an unmatched route's 404
+    assert gone.json()["error"]["reason"] == "unknown_eval_report"
+    unrouted = await _call(app, "GET", "/v1/planner/eval-reports-nope")
+    assert unrouted.status_code == 404
+    assert "reason" not in unrouted.json()["error"]
     assert (await _call(app, "GET", "/v1/planner/eval-reports/0")).status_code == 400
 
     dead = create_engine(

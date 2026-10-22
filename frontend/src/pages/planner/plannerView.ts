@@ -63,6 +63,26 @@ export function ciText(low: number | null | undefined, high: number | null | und
   return `[${low.toFixed(1)}, ${high.toFixed(1)}] %`;
 }
 
+/**
+ * The report's CI level as a label: 0.95 -> "95 % CI", 0.975 -> "97.5 % CI"
+ * (the level is the report's `settings.ci_level`, never assumed).
+ */
+export function ciLabel(level: number): string {
+  if (!Number.isFinite(level) || level <= 0 || level >= 1) return "CI";
+  return `${String(Number((level * 100).toFixed(1)))} % CI`;
+}
+
+/** A paired difference in percentage points: "8.0" / "-1.3" or "—". */
+export function points(value: number | null | undefined): string {
+  return value == null || !Number.isFinite(value) ? "—" : value.toFixed(1);
+}
+
+/** "[-1.3, 15.5]" (percentage points) or "—". */
+export function pointsCi(low: number | null | undefined, high: number | null | undefined): string {
+  if (low == null || high == null || !Number.isFinite(low) || !Number.isFinite(high)) return "—";
+  return `[${low.toFixed(1)}, ${high.toFixed(1)}]`;
+}
+
 /** A factor as "×1.30". */
 export function factorText(value: number): string {
   return `×${value.toFixed(2)}`;

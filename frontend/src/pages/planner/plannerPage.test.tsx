@@ -1,7 +1,8 @@
 /**
  * V0.14 G5 (D300): the Planner page against a fake controller - calibration
  * factors and versions, evaluation reports (empty, one, leaked), a controller
- * without the evaluator, and the regret bars' numbers (the API's, never
+ * without the evaluator vs an unknown report id (D321), criterion 2's paired
+ * comparisons (D322), and the regret bars' numbers (the API's, never
  * recomputed). Eval-report answers are the typed D318 fixture.
  */
 import { screen, waitFor, within } from "@testing-library/react";
@@ -19,7 +20,8 @@ import {
   REPORT_RECORD,
   TWO_REPORTS,
 } from "../../test/fixtures/evalReports";
-import { regretBars, verdictText } from "./plannerView";
+import { UNKNOWN_EVAL_REPORT_REASON } from "./plannerApi";
+import { ciLabel, pointsCi, regretBars, verdictText } from "./plannerView";
 
 beforeEach(() => {
   document.cookie = "mf_csrf=test-csrf";
@@ -95,7 +97,77 @@ describe("Planner page", () => {
     fakeController(routes({ "GET /v1/planner/eval-reports": () => json(404, { error: { code: "not_found", message: "Not Found" } }) }));
     renderApp("/planner");
     expect(await screen.findByText("Evaluation reports are not available")).toBeTruthy();
+    expect(screen.queryByText(/not found/)).toBeNull();
     expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("a proxy's non-envelope 404 on the list is also 'not available'", async () => {
+    fakeController(routes({ "GET /v1/planner/eval-reports": () => new Response("gone", { status: 404 }) }));
+    renderApp("/planner");
+    expect(await screen.findByText("Evaluation reports are not available")).toBeTruthy();
+  });
+
+  it("an unknown report id (404 with the unknown-report reason): 'report not found', the list stays", async () => {
+    fakeController(
+      routes({
+        "GET /v1/planner/eval-reports/99": () =>
+          json(404, { error: { code: "not_found", message: "no evaluation report 99", reason: UNKNOWN_EVAL_REPORT_REASON } }),
+      }),
+    );
+    renderApp("/planner?report=99");
+    expect(await screen.findByText("Report #99 not found")).toBeTruthy();
+    expect(screen.queryByText("Evaluation reports are not available")).toBeNull();
+    expect(screen.getByRole("table", { name: "Evaluation reports, newest first" })).toBeTruthy();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("a report route answering a reason-less 404 is 'not available', not 'not found'", async () => {
+    fakeController(
+      routes({ "GET /v1/planner/eval-reports/4": () => json(404, { error: { code: "not_found", message: "Not Found" } }) }),
+    );
+    renderApp("/planner");
+    expect(await screen.findByText("Evaluation reports are not available")).toBeTruthy();
+    expect(screen.queryByText(/not found/)).toBeNull();
+  });
+
+  it("criterion 2 (D322): the paired comparisons per rule policy, CI labelled with the report's level", async () => {
+    fakeController(routes());
+    renderApp("/planner");
+    const detail = await screen.findByTestId("eval-report-detail");
+    const paired = within(detail).getByRole("table", { name: "Criterion 2: paired regret difference per rule policy" });
+    const headers = within(paired)
+      .getAllByRole("columnheader")
+      .map((h) => h.textContent);
+    expect(headers).toEqual(["Rule policy", "Common groups", "Mean difference (% points)", "90 % CI", "Unmeasured"]);
+    const rows = within(paired).getAllByRole("row").slice(1);
+    expect(rows).toHaveLength(3);
+    const random = rows.find((r) => r.textContent.includes("random"));
+    expect(random?.textContent).toContain("10");
+    expect(random?.textContent).toContain("37.0");
+    expect(random?.textContent).toContain("[25.5, 49.0]");
+    expect(random?.textContent).toContain("2");
+    const leastLoaded = rows.find((r) => r.textContent.includes("least_loaded"));
+    expect(leastLoaded?.textContent).toContain("[-1.3, 15.5]");
+    expect(detail.textContent).toContain("cost_model:calibrated:min_time");
+    expect(detail.textContent).toContain("non-finite configurations dropped 1");
+    // the policy table and the chart use the report's CI level too, never a fixed 95 %
+    const policies = within(detail).getByRole("table", { name: "Regret per policy" });
+    expect(within(policies).getByRole("columnheader", { name: "90 % CI" })).toBeTruthy();
+    expect(within(detail).getByText("Mean regret per policy (bootstrap 90 % CI)")).toBeTruthy();
+    expect(detail.textContent).not.toContain("95 % CI");
+  });
+
+  it("criterion 2 without comparisons (an older report): no paired table", async () => {
+    const verdicts = REPORT_RECORD.report.verdicts.map((v) => {
+      const older = { ...v };
+      delete older.comparisons;
+      return older;
+    });
+    const old = { ...REPORT_RECORD, report: { ...REPORT_RECORD.report, verdicts } };
+    fakeController(routes({ "GET /v1/planner/eval-reports/4": () => json(200, old) }));
+    renderApp("/planner");
+    const detail = await screen.findByTestId("eval-report-detail");
+    expect(within(detail).queryByRole("table", { name: "Criterion 2: paired regret difference per rule policy" })).toBeNull();
   });
 
   it("one report: verdicts, per-policy regret with CI (bars + table), families, calibrations used", async () => {
@@ -156,6 +228,16 @@ describe("planner view helpers", () => {
     expect(calibrated?.err[1]).toBeCloseTo(4.9);
     const oracle = bars.find((b) => b.key === "oracle");
     expect(oracle?.err).toEqual([0, 0]);
+  });
+
+  it("CI label from the report's level; paired CI text", () => {
+    expect(ciLabel(0.95)).toBe("95 % CI");
+    expect(ciLabel(0.9)).toBe("90 % CI");
+    expect(ciLabel(0.975)).toBe("97.5 % CI");
+    expect(ciLabel(Number.NaN)).toBe("CI");
+    expect(ciLabel(1)).toBe("CI");
+    expect(pointsCi(-1.25, 15.5)).toBe("[-1.3, 15.5]");
+    expect(pointsCi(null, 3)).toBe("—");
   });
 
   it("verdict text", () => {

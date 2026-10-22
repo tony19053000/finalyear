@@ -10,6 +10,7 @@ import type { DecisionList, DecisionOut } from "../pages/jobs/jobsApi";
 import { PlanTable } from "../components/jobs/PlanTable";
 import { USER_SESSION, fakeController, json, renderApp, type Handler } from "./fakeFabric";
 import { ACTIVE_CALIBRATION, ONE_REPORT, REPORT_RECORD } from "./fixtures/evalReports";
+import { UNKNOWN_EVAL_REPORT_REASON } from "../pages/planner/plannerApi";
 
 const FIXTURE = contract.payload as unknown as DecisionList;
 
@@ -111,20 +112,28 @@ describe("Planner page, failures", () => {
     expect(screen.queryByText("Evaluation reports are not available")).toBeNull();
   });
 
-  it("a listed report whose detail 404s (deleted meanwhile): error, page survives", async () => {
+  // D321 (G4 + G5 merge): the controller's unknown-report 404 carries the
+  // `unknown_eval_report` reason, so these say "not found" (not an error box).
+  it("a listed report whose detail 404s (deleted meanwhile): 'not found', page survives", async () => {
     fakeController(
-      routes({ "GET /v1/planner/eval-reports/4": () => json(404, { error: { code: "not_found", message: "gone" } }) }),
+      routes({
+        "GET /v1/planner/eval-reports/4": () =>
+          json(404, { error: { code: "not_found", message: "gone", reason: UNKNOWN_EVAL_REPORT_REASON } }),
+      }),
     );
     renderApp("/planner");
-    expect(await screen.findByText(/Could not load report #4/)).toBeTruthy();
+    expect(await screen.findByText("Report #4 not found")).toBeTruthy();
     expect(screen.getByRole("navigation", { name: "Main" })).toBeTruthy();
   });
 
   it("an unknown ?report=999 does not crash the page", async () => {
     fakeController(
-      routes({ "GET /v1/planner/eval-reports/999": () => json(404, { error: { code: "not_found", message: "no" } }) }),
+      routes({
+        "GET /v1/planner/eval-reports/999": () =>
+          json(404, { error: { code: "not_found", message: "no", reason: UNKNOWN_EVAL_REPORT_REASON } }),
+      }),
     );
     renderApp("/planner?report=999");
-    expect(await screen.findByText(/Could not load report #999/)).toBeTruthy();
+    expect(await screen.findByText("Report #999 not found")).toBeTruthy();
   });
 });

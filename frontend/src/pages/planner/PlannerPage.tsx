@@ -9,7 +9,12 @@
  * * **Evaluation reports** (`GET /v1/planner/eval-reports`, D318): the newest
  *   reports with their criterion verdicts; the selected one's per-policy mean
  *   regret with its bootstrap CI (bars + whiskers, and the numbers as a
- *   table), per-family results, the calibrations used and the counts. A report
+ *   table; the CI level is the report's `settings.ci_level`), criterion 2's
+ *   paired comparisons (D322: rule policy regret minus the judged row's, per
+ *   rule policy on the common groups), per-family results, the calibrations
+ *   used and the counts. A 404 with no `unknown_eval_report` reason means the
+ *   controller has no evaluator ("not available"); with it, the report id does
+ *   not exist ("not found", D321). A report
  *   made with `--allow-leak` carries a LEAKED banner: its verdicts are not
  *   evidence.
  *
@@ -20,7 +25,6 @@ import { useQuery } from "@tanstack/react-query";
 import { Bar, BarChart, CartesianGrid, ErrorBar, XAxis, YAxis } from "recharts";
 import { useSearchParams } from "react-router-dom";
 
-import { ApiError } from "../../api/errors";
 import { queryKeys } from "../../api/queryKeys";
 import { useDocumentTitle } from "../../app/useDocumentTitle";
 import { Card } from "../../components/Card";
@@ -33,6 +37,8 @@ import { PageHeader } from "../PageHeader";
 import {
   getCalibration,
   getEvalReport,
+  isEvalReportNotFound,
+  isEvalUnavailable,
   listEvalReports,
   type CalibrationSummary,
   type CalibrationView,
@@ -41,10 +47,11 @@ import {
   type FactorOut,
   type FamilyResultOut,
   type CalibrationUsedOut,
+  type PairedComparisonOut,
   type PolicyResultOut,
   type VerdictOut,
 } from "./plannerApi";
-import { VERDICT_TONE, ciText, factorText, pct, regretBars, verdictText } from "./plannerView";
+import { VERDICT_TONE, ciLabel, ciText, factorText, pct, points, pointsCi, regretBars, verdictText } from "./plannerView";
 
 const plannerKeys = {
   calibration: (version: number | null) => [...queryKeys.planner, "calibration", version ?? "active"] as const,
@@ -243,17 +250,30 @@ function reportColumns(selected: number | null, select: (id: number) => void): C
   ];
 }
 
-const POLICY_COLUMNS: Column<PolicyResultOut>[] = [
+function policyColumns(ci: string): Column<PolicyResultOut>[] {
+  return [
   { id: "key", header: "Policy", mono: true, cell: (p) => p.key },
   { id: "kind", header: "Kind", cell: (p) => p.kind },
   { id: "counted", header: "Counted", align: "right", mono: true, cell: (p) => String(p.counted_groups) },
   { id: "unmeasured", header: "Unmeasured", align: "right", mono: true, cell: (p) => String(p.unmeasured_groups) },
   { id: "noreplay", header: "No replay", align: "right", mono: true, cell: (p) => String(p.no_replay_groups) },
   { id: "mean", header: "Mean regret", align: "right", mono: true, cell: (p) => pct(p.mean_regret_pct) },
-  { id: "ci", header: "95 % CI", align: "right", mono: true, cell: (p) => ciText(p.ci_pct.low, p.ci_pct.high) },
+  { id: "ci", header: ci, align: "right", mono: true, cell: (p) => ciText(p.ci_pct.low, p.ci_pct.high) },
   { id: "ms", header: "Mean regret (time)", align: "right", mono: true, cell: (p) => formatMs(p.mean_regret_ms) },
   { id: "within", header: "Within threshold", align: "right", mono: true, cell: (p) => pct(p.within_threshold_pct) },
-];
+  ];
+}
+
+/** Criterion 2 (D322): rule policy regret minus the criterion policy's, per rule policy, on common groups. */
+function pairedColumns(ci: string): Column<PairedComparisonOut>[] {
+  return [
+    { id: "key", header: "Rule policy", mono: true, cell: (c) => c.key },
+    { id: "common", header: "Common groups", align: "right", mono: true, cell: (c) => String(c.common_groups) },
+    { id: "mean", header: "Mean difference (% points)", align: "right", mono: true, cell: (c) => points(c.mean_diff_pct) },
+    { id: "ci", header: ci, align: "right", mono: true, cell: (c) => pointsCi(c.ci_low, c.ci_high) },
+    { id: "unmeasured", header: "Unmeasured", align: "right", mono: true, cell: (c) => String(c.unmeasured_groups) },
+  ];
+}
 
 const FAMILY_COLUMNS: Column<FamilyResultOut>[] = [
   { id: "family", header: "Family", mono: true, cell: (f) => f.family },
@@ -276,14 +296,14 @@ const CHART_WIDTH = 720;
 const CHART_HEIGHT = 280;
 const TICK = { fill: "currentColor", fontSize: 11 };
 
-function RegretChart({ policies }: { policies: readonly PolicyResultOut[] }) {
+function RegretChart({ policies, ci }: { policies: readonly PolicyResultOut[]; ci: string }) {
   const bars = regretBars(policies);
   if (bars.length === 0) {
     return <p className="text-sm text-fg-muted">No policy has a counted group, so there is no regret to chart.</p>;
   }
   return (
     <figure className="flex flex-col gap-2" data-testid="regret-chart">
-      <figcaption className="text-sm font-medium text-fg">Mean regret per policy (bootstrap 95 % CI)</figcaption>
+      <figcaption className="text-sm font-medium text-fg">Mean regret per policy (bootstrap {ci})</figcaption>
       <div
         role="img"
         aria-label={`Mean regret per policy: ${String(bars.length)} policies; the numbers are in the policy table.`}
@@ -305,6 +325,8 @@ function RegretChart({ policies }: { policies: readonly PolicyResultOut[] }) {
 function ReportDetail({ record }: { record: EvalReportRecordOut }) {
   const r = record.report;
   const s = r.settings;
+  const ci = ciLabel(s.ci_level);
+  const paired = r.verdicts.find((v) => v.criterion === 2)?.comparisons ?? [];
   return (
     <div className="flex flex-col gap-4" data-testid="eval-report-detail">
       {r.leaked && (
@@ -339,18 +361,34 @@ function ReportDetail({ record }: { record: EvalReportRecordOut }) {
               .map(([label, n]) => `${label} ${String(n)}`)
               .join(" · ")}{" "}
             · no replay {r.counts.no_replay_groups} · records {r.counts.records_used} used of {r.counts.records}
+            {r.counts.non_finite_configs > 0 && <> · non-finite configurations dropped {r.counts.non_finite_configs}</>}
           </dd>
           <dt className="text-fg-muted">Settings</dt>
           <dd className="font-mono text-xs">
             within {s.regret_threshold_pct} % in ≥ {s.within_target_pct} % of groups · min {s.min_groups} groups ·{" "}
-            {s.bootstrap_resamples} resamples, seed {s.bootstrap_seed} · judged row {s.criterion_policy}
+            {s.bootstrap_resamples} resamples, seed {s.bootstrap_seed}, {ci} · judged row {s.criterion_policy}
           </dd>
         </dl>
       </Card>
+      {paired.length > 0 && (
+        <Card title="Criterion 2, paired" flush>
+          <p className="px-4 pt-3 text-xs text-fg-muted">
+            Each rule policy&apos;s regret minus <span className="font-mono">{s.criterion_policy}</span>&apos;s, on the groups
+            counted for both (% points; above 0 = the judged row picked better). Criterion 2 passes only if every
+            difference&apos;s {ci} lies entirely above 0.
+          </p>
+          <Table
+            caption="Criterion 2: paired regret difference per rule policy"
+            columns={pairedColumns(ci)}
+            rows={paired}
+            rowKey={(c) => c.key}
+          />
+        </Card>
+      )}
       <Card title="Regret per policy">
         <div className="flex flex-col gap-3">
-          <RegretChart policies={r.policies} />
-          <Table caption="Regret per policy" columns={POLICY_COLUMNS} rows={r.policies} rowKey={(p) => p.key} />
+          <RegretChart policies={r.policies} ci={ci} />
+          <Table caption="Regret per policy" columns={policyColumns(ci)} rows={r.policies} rowKey={(p) => p.key} />
         </div>
       </Card>
       <Card title="Per family" flush>
@@ -385,9 +423,27 @@ function Report({ id }: { id: number }) {
     );
   }
   if (query.isError) {
+    if (isEvalReportNotFound(query.error)) {
+      return (
+        <EmptyState title={`Report #${String(id)} not found`}>
+          This controller has no evaluation report #{id} - pick one from the list above.
+        </EmptyState>
+      );
+    }
+    if (isEvalUnavailable(query.error)) return <EvalUnavailable />;
     return <ErrorState title={`Could not load report #${String(id)}`} error={query.error} onRetry={() => void query.refetch()} />;
   }
   return <ReportDetail record={query.data} />;
+}
+
+/** A 404 without the unknown-report reason: the controller has no such route (D321). */
+function EvalUnavailable() {
+  return (
+    <EmptyState title="Evaluation reports are not available">
+      This controller has no offline evaluator (it arrives with V0.14 G4). Once it does, reports made with{" "}
+      <code className="font-mono">compute planner eval</code> appear here.
+    </EmptyState>
+  );
 }
 
 function EvalReports({ selected, onSelect }: { selected: number | null; onSelect: (id: number) => void }) {
@@ -401,14 +457,7 @@ function EvalReports({ selected, onSelect }: { selected: number | null; onSelect
   }
   if (list.isError) {
     // the list route never answers 404 itself: a 404 means this controller has no such route
-    if (list.error instanceof ApiError && list.error.status === 404) {
-      return (
-        <EmptyState title="Evaluation reports are not available">
-          This controller has no offline evaluator (it arrives with V0.14 G4). Once it does, reports made with{" "}
-          <code className="font-mono">compute planner eval</code> appear here.
-        </EmptyState>
-      );
-    }
+    if (isEvalUnavailable(list.error)) return <EvalUnavailable />;
     return <ErrorState title="Could not load evaluation reports" error={list.error} onRetry={() => void list.refetch()} />;
   }
   const reports = list.data.reports;

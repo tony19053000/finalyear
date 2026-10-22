@@ -1,15 +1,17 @@
 /**
  * V0.14 G5: typed fixtures of the D318 evaluation-report API (G4's
- * `planner_eval_models.py`, mirrored in pages/planner/plannerApi.ts) and of
- * `GET /v1/planner/calibration`, for the Planner page tests and the e2e route
- * stub. MERGE: once G4's routes are on main, the e2e test reads real reports
- * (the vitest fixtures stay: they pin the page's states).
+ * `planner_eval_models.py`, generated into schema.d.ts) and of
+ * `GET /v1/planner/calibration`, for the Planner page tests. Criterion 2 has
+ * the D322 paired shape: `value` = the lowest paired-difference CI lower bound,
+ * `threshold` 0, one `comparisons` row per rule policy. The e2e test reads
+ * real stored reports; these fixtures pin the page's states.
  */
 import type {
   CalibrationView,
   EvalReportListOut,
   EvalReportOut,
   EvalReportRecordOut,
+  PairedComparisonOut,
   PolicyResultOut,
   VerdictOut,
 } from "../../pages/planner/plannerApi";
@@ -33,9 +35,34 @@ function policy(key: string, kind: PolicyResultOut["kind"], mean: number | null,
   };
 }
 
+/** D322: rule policy regret minus `cost_model:calibrated:min_time`'s, on the groups counted for both. */
+export const COMPARISONS: PairedComparisonOut[] = [
+  { key: "random", common_groups: 10, mean_diff_pct: 37.0, ci_low: 25.5, ci_high: 49.0, unmeasured_groups: 2 },
+  { key: "round_robin", common_groups: 12, mean_diff_pct: 32.75, ci_low: 21.5, ci_high: 44.25, unmeasured_groups: 0 },
+  { key: "least_loaded", common_groups: 12, mean_diff_pct: 8.0, ci_low: -1.25, ci_high: 15.5, unmeasured_groups: 0 },
+];
+
 const VERDICTS: VerdictOut[] = [
-  { criterion: 1, status: "PASS", would_be: null, value: 83.3, threshold: 80, counted_groups: 12, detail: "10 of 12 groups within 15 % of the oracle" },
-  { criterion: 2, status: "not_separable", would_be: null, value: 9.4, threshold: 6.1, counted_groups: 12, detail: "CI upper 9.4 % >= best rule policy's CI lower 6.1 %" },
+  {
+    criterion: 1,
+    status: "PASS",
+    would_be: null,
+    value: 83.3,
+    threshold: 80,
+    counted_groups: 12,
+    detail: "83.3 % of 12 counted groups within 15 % of the oracle (target >= 80 %)",
+    comparisons: [],
+  },
+  {
+    criterion: 2,
+    status: "not_separable",
+    would_be: null,
+    value: -1.25,
+    threshold: 0,
+    counted_groups: 10,
+    detail: "cost_model:calibrated:min_time unmeasured in 0 group(s); difference CI reaches 0 for: least_loaded",
+    comparisons: COMPARISONS,
+  },
 ];
 
 function report(leaked: boolean): EvalReportOut {
@@ -50,7 +77,7 @@ function report(leaked: boolean): EvalReportOut {
       min_groups: 10,
       bootstrap_resamples: 10000,
       bootstrap_seed: 20261022,
-      ci_level: 0.95,
+      ci_level: 0.9,
       criterion_policy: "cost_model:calibrated:min_time",
     },
     counts: {
@@ -61,6 +88,7 @@ function report(leaked: boolean): EvalReportOut {
       records: 90,
       records_used: 84,
       records_skipped: { no_replay: 6 },
+      non_finite_configs: 1,
     },
     verdicts: leaked
       ? VERDICTS.map((v) => ({ ...v, status: "leaked", would_be: v.status }))

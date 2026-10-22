@@ -48,9 +48,18 @@ from meshforge.controller.planner_eval.store import (
     EvalStoreError,
 )
 
-__all__ = ["PLANNER_EVAL_STATE_KEY", "PlannerEvalApi", "planner_eval_router"]
+__all__ = [
+    "PLANNER_EVAL_STATE_KEY",
+    "UNKNOWN_EVAL_REPORT_REASON",
+    "PlannerEvalApi",
+    "planner_eval_router",
+]
 
 PLANNER_EVAL_STATE_KEY: Final = "meshforge_planner_eval"
+UNKNOWN_EVAL_REPORT_REASON: Final = "unknown_eval_report"
+"""``error.reason`` of the 404 for a report id the store does not have. Lets a
+client tell it from an unmatched route's 404 (both ``not_found``; D321): the
+Planner page says "report not found" only for this one."""
 MARKDOWN_MEDIA_TYPE: Final = "text/markdown; charset=utf-8"
 
 planner_eval_router = APIRouter(prefix="/v1", tags=["planner"])
@@ -178,7 +187,11 @@ async def get_eval_report(
     except EvalStoreError:
         raise _unavailable() from None
     if row is None:
-        raise ApiError(FailureType.NOT_FOUND, f"no evaluation report {report_id}")
+        raise ApiError(
+            FailureType.NOT_FOUND,
+            f"no evaluation report {report_id}",
+            extra={"reason": UNKNOWN_EVAL_REPORT_REASON},
+        )
     if format == "markdown":
         return PlainTextResponse(
             render_markdown(row.report), media_type=MARKDOWN_MEDIA_TYPE
