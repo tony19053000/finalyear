@@ -5,7 +5,7 @@
 **Last updated:** 2026-10-22
 
 ```
-TOTAL   █████████████▒▒░░░░░  64%  101/156 done, 15 in progress
+TOTAL   █████████████▒▒░░░░░  66%  103/156 done, 15 in progress
 
 V0.1    █████████████████▒▒▒  83%  10/12  Foundations & engineering system
 V0.2    ██▒▒▒▒▒▒▒▒▒▒▒▒▒░░░░░   9%   1/11  Lab setup & feasibility validation
@@ -17,17 +17,15 @@ V0.7    ██████████████████░░  91%  11/12
 V0.8    ██████████████████░░  90%   9/10  Dashboard & CLI v1
 V0.9    ██████████████████░░  90%   9/10  Benchmark & telemetry system v1
 V0.10   ██████████████████░░  90%   9/10  Mode 3 Task Splitting
-V0.14   ████████████░░░░░░░░  62%   5/8   Unified planner v2
+V0.14   ██████████████████░░  87%   7/8   Unified planner v2
 V0.15   ░░░░░░░░░░░░░░░░░░░░   0%   0/10  ML planner
 V0.17   ░░░░░░░░░░░░░░░░░░░░   0%   0/8   Productization
 V1.0    ░░░░░░░░░░░░░░░░░░░░   0%   0/8   Release hardening & final evaluation
 ```
 █ done `[x]` · ▒ in progress or waiting on a 🧑 lab step `[~]` · ░ not started
-█ done `[x]` · ▒ in progress or waiting on a 🧑 lab step `[~]` · ░ not started
-█ done `[x]` · ▒ in progress or waiting on a 🧑 lab step `[~]` · ░ not started
 
 ## Current Version
-**V0.14 — Unified planner v2** · started 2026-10-21 (team: "start V0.14", §7 on Lead recommendations) · brief `docs/briefs/V0.14-unified-planner-v2.md` (D290–D303) · ADR-0020 Proposed · **G1 CLOSED** (0.14.1 `[x]`, merge `f72681c0`) · **G2 CLOSED** (0.14.3 `[x]`, merge `092b60c7`, 2026-10-22) · **G3 CLOSED** (0.14.2/0.14.4/0.14.5 `[x]`, merge `3392fe49`, REPLAY_VERSION 2, D309–D312) · next G4 (0.14.6 decision page / 0.14.7 offline evaluator)
+**V0.14 — Unified planner v2** · started 2026-10-21 (team: "start V0.14", §7 on Lead recommendations) · brief `docs/briefs/V0.14-unified-planner-v2.md` (D290–D303) · ADR-0020 Proposed · **G1 CLOSED** (0.14.1 `[x]`, merge `f72681c0`) · **G2 CLOSED** (0.14.3 `[x]`, merge `092b60c7`, 2026-10-22) · **G3 CLOSED** (0.14.2/0.14.4/0.14.5 `[x]`, merge `3392fe49`, REPLAY_VERSION 2, D309–D312) · **G4+G5 CLOSED** (0.14.6/0.14.7 `[x]`, D321–D323) · next: write brief §5e G6 (Mode 3 loader path / cluster harness, criteria evidence), then 🧑 0.14.8 lab
 **V0.10 — Mode 3 Task Splitting** · started 2026-10-19 (team: proceed while away) · brief `docs/briefs/V0.10-task-splitting.md` (DRAFT, D259–D276) · ADR-0019 Proposed · **G1–G9 CLOSED** (D277–D288; 0.10.1–0.10.9 `[x]`) · **agent-side complete** · closes on 🧑 0.10.10 (`lab/checklists/V0.10-mode3.md`)
 **V0.9 — Benchmark & telemetry v1** · started 2026-10-17 · brief `docs/briefs/V0.9-benchmark-telemetry.md` (D211–D224, approved) · ADR-0018 · **G0, G1, G2 CLOSED** (D226, D231, D225; 0.9.1 + 0.9.2 `[x]`) · **G3 CLOSED** (D242; 0.9.3 + 0.9.4 `[x]`) · **G4 CLOSED** (D241–D245; 0.9.5 `[x]`, 2026-10-19) · **G5, G5c, G6 CLOSED** (D246–D258; 0.9.6–0.9.9 `[x]`) · **G7 CLOSED** (`c35ff3d`) · **agent-side complete**; closes on 🧑 0.9.10 (checklist part O)
 **V0.8 — Dashboard & CLI v1** · started 2026-10-15 · brief `docs/briefs/V0.8-dashboard-cli.md` (D169–D180, approved) · ADR-0017 · groups G1–G7 sequential · **G1–G7 CLOSED** (G7 2026-10-17, D210) — 0.8.1–0.8.9 `[x]`; agent-side complete; closes on 🧑 0.8.10 (`lab/checklists/V0.8-visual.md`)
@@ -45,6 +43,8 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 > V0.10. 129 tasks vs 140–180 capacity → **~1.5 tasks/session**. Needs the other three team members' approval.
 
 ## Current Task
+
+- **2026-10-22 (latest):** **V0.14 G4 + G5 MERGED** → **0.14.6, 0.14.7 `[x]`**. G4 tester r2 PASS / reviewer r2 APPROVE + Lead fixes `4480cf9c`; G5 merged `6e014015` (3 conflicts resolved, schema regenerated); post-merge D321 items (generated planner types, split 404, paired criterion-2 table, real-API e2e, `planner reports` InUi, `planner eval` stays CliOnly — D323). Full unit 19905 passed exit 0. Next: brief §5e G6.
 
 - **2026-10-22 (latest):** **V0.14 G3 MERGED** (`3392fe49`) → **0.14.2, 0.14.4, 0.14.5 `[x]`**. Tester r1 D1 (pruning changed chunk sizing) fixed; r2 PASS; reviewer r1+r2+integration APPROVE. Post-merge main: ruff/format/mypy clean, unit 19511, cluster test_v010_mode3 4. Decisions D309–D312 in the V0.14 brief. Next: brief for G4 (0.14.6/0.14.7).
 
@@ -251,7 +251,9 @@ Reviewer non-blocking follow-ups (carry into G2/G3): (1) `mint` should carry `pe
 - Windows: not yet run (first real CI run will cover unit + fresh-clone on windows-latest)
 
 ## Next Recommended Task
-🧑 **0.10.10** Mode 3 lab run (`lab/checklists/V0.10-mode3.md`). Agent-side: V0.10 tech debt (D287/D288 list under Technical Debt) or V0.14 Unified planner v2 brief (team to choose).
+**V0.14 G6** — write brief §5e (Mode 3 loader path for the evaluator per D322 follow-up, cluster harness campaign proving criteria 1–4, latency evidence), then implementer → tester → reviewer; then 🧑 0.14.8 lab. Optional follow-up: admin "Run evaluation" control (D323). Merged worktrees G1–G5 kept (user: removal optional).
+
+_Older:_ 🧑 **0.10.10** Mode 3 lab run (`lab/checklists/V0.10-mode3.md`). Agent-side: V0.10 tech debt (D287/D288 list under Technical Debt) or V0.14 Unified planner v2 brief (team to choose).
 
 _Older:_ **V0.10 G8** (0.10.9; brief §5h + G8 carry-overs: stderr tail, `_history` cache, chunk_record reads speculative copies, map refetch throttle) → G9 (cluster harness + `lab/checklists/V0.10-mode3.md`) → 🧑 0.10.10.
 
