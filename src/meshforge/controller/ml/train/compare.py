@@ -198,6 +198,8 @@ class _Collected:
     learned: list[np.ndarray] = field(default_factory=list)
     q_low: list[FloatArray] = field(default_factory=list)
     q_high: list[FloatArray] = field(default_factory=list)
+    q_y: list[FloatArray] = field(default_factory=list)
+    """The held-out ``y`` of the folds that have quantile predictions."""
 
 
 def _fold(
@@ -248,11 +250,16 @@ def _fold(
     out.learned.append(np.full(len(test), selected.learned))
     q_cov: float | None = None
     q_width: float | None = None
-    if settings.quantile_alternative and "lightgbm" in settings.algorithms:
+    if (
+        settings.quantile_alternative
+        and "lightgbm" in settings.algorithms
+        and sel is not None
+    ):
         low, high = _quantile(ctx, train, test)
         out.q_low.append(low)
         out.q_high.append(high)
         y = table.y[test]
+        out.q_y.append(y)
         q_cov = float(np.mean((y >= low) & (y <= high)))
         q_width = float(np.median(high - low))
     if selected.learned:
@@ -278,18 +285,33 @@ def compare_term(
     settings: CompareSettings,
     observer: Observer | None = None,
 ) -> TermResult:
-    """One term's :class:`TermResult` (module docstring)."""
+    """One term's :class:`TermResult` (module docstring), BLAS capped at one
+    thread (D352)."""
+    with threadpool_limits(limits=1):
+        return _compare_term(table, term, settings, observer)
+
+
+def _compare_term(
+    table: Table,
+    term: str,
+    settings: CompareSettings,
+    observer: Observer | None,
+) -> TermResult:
     rows = table.rows_of(term)
     family_of = table.families_of(rows)
     families = sorted(set(family_of.values()))
     sizes = (len(rows), len(families), len(family_of))
-    if len(rows) < settings.min_rows or len(families) < settings.min_families:
+    if (
+        len(rows) < settings.min_rows
+        or len(families) < settings.min_families
+        or len(family_of) < 2  # nothing to cross-validate, whatever the floors
+    ):
         return TermResult(
             term,
             "insufficient_data",
             *sizes,
-            reason=f"needs >= {settings.min_rows} rows and >= "
-            f"{settings.min_families} families",
+            reason=f"needs >= {settings.min_rows} rows, >= "
+            f"{settings.min_families} families and >= 2 workload groups",
         )
     configs = configs_for(settings.algorithms)
     ctx = FitContext(
@@ -357,8 +379,10 @@ def compare_term(
     if collected.q_low:
         low = np.concatenate(collected.q_low)
         high = np.concatenate(collected.q_high)
+        q_y = np.concatenate(collected.q_y)
         quantile = {
-            "coverage": float(np.mean((held.y >= low) & (held.y <= high))),
+            "rows": len(q_y),
+            "coverage": float(np.mean((q_y >= low) & (q_y <= high))),
             "median_width": float(np.median(high - low)),
         }
     weighted = importance / max(1, len(order))
@@ -395,14 +419,12 @@ def compare_term(
 def compare(
     table: Table, settings: CompareSettings, observer: Observer | None = None
 ) -> list[TermResult]:
-    """Every requested term, in :data:`~..schema.TERM_NAMES` order, with BLAS
-    capped at one thread (D352)."""
+    """Every requested term, in :data:`~..schema.TERM_NAMES` order."""
     unknown = sorted(set(settings.terms) - set(TERM_NAMES))
     if unknown:
         raise ValueError(f"unknown term(s): {', '.join(unknown)}")
-    with threadpool_limits(limits=1):
-        return [
-            compare_term(table, name, settings, observer)
-            for name in TERM_NAMES
-            if name in settings.terms
-        ]
+    return [
+        compare_term(table, name, settings, observer)
+        for name in TERM_NAMES
+        if name in settings.terms
+    ]

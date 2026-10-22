@@ -75,8 +75,10 @@ __all__ = [
     "Model",
     "Observer",
     "configs_for",
+    "fit_lightgbm",
     "fit_many",
     "fit_one",
+    "lightgbm_params",
 ]
 
 SIMPLICITY: Final = (
@@ -342,6 +344,7 @@ def fit_lightgbm(
 ) -> tuple[Prep, Any]:
     """A LightGBM booster on ``rows`` (also the quantile alternative)."""
     families = ctx.families(rows) if ctx.with_family else None
+    ctx.observe("prep", rows)
     prep = fit_prep(ctx.table.X[rows], families, with_family=ctx.with_family)
     ctx.observe("model", rows)
     data = lgb.Dataset(
@@ -357,6 +360,7 @@ def _xgboost(
     ctx: FitContext, rows: IntArray, depth: int, rounds: int
 ) -> tuple[Prep, Any]:
     families = ctx.families(rows) if ctx.with_family else None
+    ctx.observe("prep", rows)
     prep = fit_prep(ctx.table.X[rows], families, with_family=ctx.with_family)
     ctx.observe("model", rows)
     data = xgb.DMatrix(
