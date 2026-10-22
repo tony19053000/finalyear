@@ -131,7 +131,7 @@ def whole_run(
     combine: CombineOutcome | None = None,
 ) -> RunInput:
     node = node_id or s.chosen_node_id
-    split = bool(chosen(s).get("node_set"))
+    split = role is None and bool(chosen(s).get("node_set"))
     return RunInput(
         outcome=DecisionOutcome(
             decision_id=decision_id,
