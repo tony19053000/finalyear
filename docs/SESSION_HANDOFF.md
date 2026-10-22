@@ -7,8 +7,8 @@
 > **Cold-start prompt** (paste this as the first message on the new account):
 >
 > ```
-Read docs/SESSION_HANDOFF.md §1, then docs/STATUS.md, then the V0.14 section of docs/DEVELOPMENT_ROADMAP.md and docs/briefs/V0.14-unified-planner-v2.md (D290–D312).
-V0.14 G1–G3 CLOSED (0.14.1–0.14.5 [x]; G3 merge 3392fe49, REPLAY_VERSION 2). Next: Lead writes brief §5d for G4 (0.14.6 decision page: candidate table predicted vs actual; 0.14.7 offline evaluator: replay → regret vs oracle, plus D306's regret check on calibration), team approves, then implementer → tester ∥ reviewer → merge. Merged worktrees G1 agent-a0a1e95c1ee7384ec, G2 agent-aef81b3f80ac578c8, G3 agent-a485a40c89a558f22 — remove only with user OK. Normal mode. Parallel agents OK. Don't delete anything without asking.
+Read docs/SESSION_HANDOFF.md §1, then docs/STATUS.md, then the V0.14 section of docs/DEVELOPMENT_ROADMAP.md and docs/briefs/V0.14-unified-planner-v2.md §5d (D313–D322).
+V0.14 G4 ∥ G5 in flight. G5 (0.14.6) READY: worktree agent-afdc8ecb0da11dc50 head 759a3c00, tester r1 PASS, reviewer r1 APPROVE, merge items D321. G4 (0.14.7): worktree agent-a716c94445de52d7f, fix round 1 head 78b30d4d (D322 paired criterion 2, T1–T3, N2, `planner reports`), gates green; tester r2 + reviewer r2 were RUNNING — check progress note docs/briefs/progress/V0.14-G4.md for "## Tester r2"/reviewer result; rerun whichever is missing. Then merge G4 → main, then G5 (swap plannerApi D318 mirror for generated schemas, split 404 cases, drop e2e eval stub, `planner eval`/`planner reports` parity → InUi, regenerate openapi/schema.d.ts) → full -m unit alone → 0.14.6/0.14.7 [x] + status bar → brief §5e G6. Merged worktrees G1 agent-a0a1e95c1ee7384ec, G2 agent-aef81b3f80ac578c8, G3 agent-a485a40c89a558f22 — remove only with user OK. Normal mode. Parallel agents OK. Don't delete anything without asking.
 ```
 >
 > Order of truth: `PROJECT_BRIEF → ARCHITECTURE → ROADMAP → STATUS → this file`. If this file
