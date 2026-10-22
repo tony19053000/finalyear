@@ -133,6 +133,8 @@ from meshforge.controller.planner_calibration_task import (
 )
 
 # V0.14 G4 (D297/D318): the offline evaluator
+from meshforge.controller.planner_eval.latency import LatencyConfig
+from meshforge.controller.planner_eval.model import EvalConfig
 from meshforge.controller.planner_eval.service import EvalService
 from meshforge.controller.planner_eval.store import EvalReportStore
 from meshforge.controller.prepare import PrepareTracker
@@ -829,6 +831,12 @@ class ControllerRuntime:
                     EvalReportStore(engine),
                     calibration_config(cfg.planner),
                     max_rows=self.settings.controller.telemetry.export_max_rows,
+                    # V0.14 G6 (D324): criterion 3's budget is the dispatcher's
+                    config=EvalConfig(
+                        latency=LatencyConfig(
+                            budget_ms=cfg.planner.decision_latency_budget_ms
+                        )
+                    ),
                 )
             ),
         )

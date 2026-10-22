@@ -71,6 +71,9 @@ class DecisionRecordOut:
     replay_version: int | None = None
     """V0.14 G5 (D300): the replay snapshot's format version; None = the row
     has no replay (pre-V0.14, or over ``replay_max_bytes``)."""
+    decision_ms: float | None = None
+    """V0.14 G6 (D324): the decision's wall time in ms; None = a row written
+    before migration 0033."""
 
 
 class DecisionReads(JobStore):
@@ -145,6 +148,9 @@ class DecisionReads(JobStore):
                     replay_version=None
                     if r.replay_version is None
                     else int(r.replay_version),
+                    decision_ms=None
+                    if r.decision_ms is None
+                    else round(float(r.decision_ms), 3),
                 )
                 for r in rows
             ]

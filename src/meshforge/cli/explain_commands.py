@@ -125,7 +125,8 @@ def _int_text(value: Any) -> str | None:
 
 def _facts_note(decision: Mapping[str, Any]) -> str:
     """V0.14 G5 (D300): the chosen node, calibration version, replay, when,
-    snapshot digest and a pinned job's shadow pick - the Plan tab's header."""
+    snapshot digest and a pinned job's shadow pick - the Plan tab's header.
+    V0.14 G6 (D324): how long the decision took (absent on older rows)."""
     calibration = _int_text(decision.get("calibration_version"))
     replay = _int_text(decision.get("replay_version"))
     chosen = decision.get("chosen_node_id")
@@ -134,6 +135,9 @@ def _facts_note(decision: Mapping[str, Any]) -> str:
         f"calibration v{calibration}" if calibration else "uncalibrated",
         f"replay v{replay}" if replay else "no replay",
     ]
+    took = decision.get("decision_ms")  # V0.14 G6 (D324)
+    if isinstance(took, int | float) and not isinstance(took, bool):
+        parts.append(f"decided in {took:.2f} ms")
     created = decision.get("created_at")
     if isinstance(created, str) and created:
         parts.append(f"at {created}")

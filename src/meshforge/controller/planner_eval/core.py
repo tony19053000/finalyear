@@ -62,6 +62,9 @@ same without CI.
   comparison) -> ``too_few_groups``, never ``PASS``;
 * a ``leaked`` report (``allow_leak``) -> every verdict ``leaked``, with
   ``would_be`` the verdict above (D299: never a claim on training data).
+* criterion 3 (V0.14 G6, D324) - decision latency p99 at the lab's fabric
+  size from the stored ``decision_ms`` of the campaigns' dispatched decisions
+  (:mod:`.latency`); ``too_few_decisions`` below its minimum, never ``PASS``.
 """
 
 from __future__ import annotations
@@ -90,6 +93,11 @@ from meshforge.controller.planner.types import (
 from meshforge.controller.planner_eval.heldout import (
     CalibrationChoice,
     calibration_digest,
+)
+from meshforge.controller.planner_eval.latency import (
+    LatencySample,
+    latency_block,
+    latency_verdict,
 )
 from meshforge.controller.planner_eval.mapping import config_for, pick_of
 from meshforge.controller.planner_eval.model import (
@@ -644,10 +652,14 @@ def evaluate(
     campaign_ids: Sequence[str],
     holdout: str | None = None,
     leaked: bool = False,
+    latency: Sequence[LatencySample] = (),
 ) -> dict[str, Any]:
     """The evaluation report (module docstring) as a JSON-ready dict.
     ``calibrations`` = family -> the calibration its calibrated rows use
-    (:mod:`.heldout`); ``holdout`` restricts the groups to that family."""
+    (:mod:`.heldout`); ``holdout`` restricts the groups to that family.
+    ``latency`` = the campaigns' dispatched decisions (V0.14 G6, D324: the
+    ``latency`` block and criterion 3, :mod:`.latency`; never filtered by
+    ``holdout`` - a decision's latency does not depend on the family)."""
     keys = [spec.key for spec in policies]
     if len(set(keys)) != len(keys):
         raise ValueError("a policy row is listed twice")
@@ -693,6 +705,7 @@ def evaluate(
         for spec in policies
     ]
     labels = Counter(r.group.label for r in results)
+    timing = latency_block(latency, config.latency)
     used_families = sorted({r.group.family for r in evaluated})
     return {
         "eval_version": EVAL_VERSION,
@@ -721,7 +734,11 @@ def evaluate(
             "records_skipped": {k: skipped.get(k, 0) for k in SKIP_REASONS},
             "non_finite_configs": skipped.get("non_finite_configs", 0),
         },
-        "verdicts": _verdicts(rows, _regrets(results, keys), config, leaked),
+        "verdicts": [
+            *_verdicts(rows, _regrets(results, keys), config, leaked),
+            latency_verdict(timing, leaked=leaked),  # V0.14 G6 (D324)
+        ],
+        "latency": timing,
         "policies": [rows[k] for k in keys],
         "families": families,
         "calibrations": [

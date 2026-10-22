@@ -11,6 +11,7 @@ import type {
   EvalReportListOut,
   EvalReportOut,
   EvalReportRecordOut,
+  LatencyOut,
   PairedComparisonOut,
   PolicyResultOut,
   VerdictOut,
@@ -63,7 +64,31 @@ const VERDICTS: VerdictOut[] = [
     detail: "cost_model:calibrated:min_time unmeasured in 0 group(s); difference CI reaches 0 for: least_loaded",
     comparisons: COMPARISONS,
   },
+  {
+    criterion: 3,
+    status: "PASS",
+    would_be: null,
+    value: 41.25,
+    threshold: 100,
+    counted_groups: 64,
+    detail: "p99 41.250 ms over 64 decision(s) with a 4-node snapshot (budget < 100 ms)",
+    comparisons: [],
+  },
 ];
+
+/** V0.14 G6 (D324): the report's decision-latency block. */
+export const LATENCY: LatencyOut = {
+  decisions: 90,
+  without_latency: 2,
+  p50_ms: 12.5,
+  p99_ms: 41.25,
+  max_ms: 133.75,
+  over_budget: 1,
+  budget_ms: 100,
+  node_count: 4,
+  min_decisions: 30,
+  by_node_count: { "3": { decisions: 26, p99_ms: 9.5 }, "4": { decisions: 64, p99_ms: 41.25 } },
+};
 
 function report(leaked: boolean): EvalReportOut {
   return {
@@ -111,6 +136,7 @@ function report(leaked: boolean): EvalReportOut {
       { family: "split_hash", source: leaked ? "active" : "refit", version: leaked ? 7 : null, fitted_runs: 44, excluded_runs: 18, factors: 8, digest: "cd".repeat(32) },
     ],
     groups: [],
+    latency: LATENCY,
   };
 }
 

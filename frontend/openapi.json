@@ -2225,6 +2225,17 @@
           "created_at": {
             "$ref": "#/components/schemas/Utc"
           },
+          "decision_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decision Ms"
+          },
           "id": {
             "title": "Id",
             "type": "integer"
@@ -2589,6 +2600,16 @@
               }
             ],
             "title": "Holdout"
+          },
+          "latency": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LatencyOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "leaked": {
             "title": "Leaked",
@@ -4423,6 +4444,117 @@
           "ended_at"
         ],
         "title": "LaneOut",
+        "type": "object"
+      },
+      "LatencyBucketOut": {
+        "additionalProperties": false,
+        "description": "Decisions of one snapshot size (V0.14 G6, D324).",
+        "properties": {
+          "decisions": {
+            "title": "Decisions",
+            "type": "integer"
+          },
+          "p99_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P99 Ms"
+          }
+        },
+        "required": [
+          "decisions",
+          "p99_ms"
+        ],
+        "title": "LatencyBucketOut",
+        "type": "object"
+      },
+      "LatencyOut": {
+        "additionalProperties": false,
+        "description": "Decision latency of the evaluated campaigns' ``dispatched`` decisions,\nfrom ``plan_decision.decision_ms`` (V0.14 G6, D324; criterion 3).\nPercentiles are nearest-rank (exact; no interpolation).",
+        "properties": {
+          "budget_ms": {
+            "title": "Budget Ms",
+            "type": "number"
+          },
+          "by_node_count": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/LatencyBucketOut"
+            },
+            "title": "By Node Count",
+            "type": "object"
+          },
+          "decisions": {
+            "title": "Decisions",
+            "type": "integer"
+          },
+          "max_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Ms"
+          },
+          "min_decisions": {
+            "title": "Min Decisions",
+            "type": "integer"
+          },
+          "node_count": {
+            "title": "Node Count",
+            "type": "integer"
+          },
+          "over_budget": {
+            "title": "Over Budget",
+            "type": "integer"
+          },
+          "p50_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P50 Ms"
+          },
+          "p99_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P99 Ms"
+          },
+          "without_latency": {
+            "title": "Without Latency",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "decisions",
+          "without_latency",
+          "p50_ms",
+          "p99_ms",
+          "max_ms",
+          "over_budget",
+          "budget_ms",
+          "node_count",
+          "min_decisions",
+          "by_node_count"
+        ],
+        "title": "LatencyOut",
         "type": "object"
       },
       "LinkOut": {
@@ -7818,7 +7950,8 @@
           "criterion": {
             "enum": [
               1,
-              2
+              2,
+              3
             ],
             "title": "Criterion",
             "type": "integer"
@@ -7881,6 +8014,7 @@
           "FAIL",
           "not_separable",
           "too_few_groups",
+          "too_few_decisions",
           "leaked"
         ],
         "type": "string"

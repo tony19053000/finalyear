@@ -24,6 +24,9 @@ and how much slower is that than the best measured configuration?*
   ``min_groups`` counted (criterion 2: common) groups, never ``PASS``;
   ``leaked`` when the report was made with ``allow_leak`` (``would_be`` then
   says what it would have been).
+* ``latency`` (V0.14 G6, D324) - the stored decision times of the
+  campaigns' dispatched decisions; criterion 3's verdict (p99 at 4 nodes
+  strictly below the budget; ``too_few_decisions`` below 30).
 * ``calibrations`` - per family, the calibration the calibrated rows used: a
   leave-one-family-out refit (D316, ``refit``), or the live active version
   (``active``, only with ``allow_leak``), or ``none``.
@@ -61,6 +64,8 @@ __all__ = [
     "FamilyResultOut",
     "GroupPickOut",
     "GroupResultOut",
+    "LatencyBucketOut",
+    "LatencyOut",
     "PairedComparisonOut",
     "PolicyResultOut",
     "VerdictOut",
@@ -74,7 +79,7 @@ _ID_MAX: Final = 64
 
 type PolicyKind = Literal["rule", "cost_model", "oracle"]
 type VerdictStatus = Literal[
-    "PASS", "FAIL", "not_separable", "too_few_groups", "leaked"
+    "PASS", "FAIL", "not_separable", "too_few_groups", "too_few_decisions", "leaked"
 ]
 type PickStatus = Literal["counted", "unmeasured", "no_replay"]
 type GroupStatus = Literal["evaluated", "excluded", "no_replay"]
@@ -154,17 +159,22 @@ class PairedComparisonOut(ApiModel):
 
 
 class VerdictOut(ApiModel):
-    criterion: Literal[1, 2]
+    criterion: Literal[1, 2, 3]
+    """V0.14 G6 (D324): criterion 3 = decision latency (``latency``)."""
     status: VerdictStatus
+    """``too_few_decisions``: criterion 3 only."""
     would_be: VerdictStatus | None
     """With ``leaked``: the verdict the numbers would give (never a claim)."""
     value: float | None
     """Criterion 1: % within the threshold; criterion 2: the lowest
-    difference-CI lower bound over the rule policies (% points)."""
+    difference-CI lower bound over the rule policies (% points); criterion
+    3: the p99 decision time (ms) at ``latency.node_count`` nodes."""
     threshold: float | None
-    """Criterion 1: the target %; criterion 2: 0."""
+    """Criterion 1: the target %; criterion 2: 0; criterion 3: the budget
+    (ms, PASS only strictly below it)."""
     counted_groups: int
-    """Criterion 2: the fewest common groups of any comparison."""
+    """Criterion 2: the fewest common groups of any comparison; criterion 3:
+    the decisions judged (not groups)."""
     detail: str
     comparisons: list[PairedComparisonOut] = Field(default_factory=list)
     """Criterion 2 only (D322); empty for criterion 1."""
@@ -245,6 +255,38 @@ class EvalCountsOut(ApiModel):
     (G4 fix round 1, T3)."""
 
 
+class LatencyBucketOut(ApiModel):
+    """Decisions of one snapshot size (V0.14 G6, D324)."""
+
+    decisions: int
+    p99_ms: float | None
+
+
+class LatencyOut(ApiModel):
+    """Decision latency of the evaluated campaigns' ``dispatched`` decisions,
+    from ``plan_decision.decision_ms`` (V0.14 G6, D324; criterion 3).
+    Percentiles are nearest-rank (exact; no interpolation)."""
+
+    decisions: int
+    """Decisions with a stored time."""
+    without_latency: int
+    """Decisions without one (rows written before migration 0033): excluded,
+    never counted as 0."""
+    p50_ms: float | None
+    p99_ms: float | None
+    max_ms: float | None
+    over_budget: int
+    """Decisions slower than ``budget_ms`` (the dispatcher's own rule)."""
+    budget_ms: float
+    """``[controller.planner] decision_latency_budget_ms``."""
+    node_count: int
+    """The snapshot size criterion 3 is judged at (4: the lab fabric)."""
+    min_decisions: int
+    """Fewer decisions at ``node_count`` -> ``too_few_decisions``."""
+    by_node_count: dict[str, LatencyBucketOut]
+    """Snapshot node count (``"unknown"`` = unreadable) -> its decisions."""
+
+
 class EvalReportOut(ApiModel):
     """``planner_eval_report.report`` (``eval_version`` 1)."""
 
@@ -264,6 +306,9 @@ class EvalReportOut(ApiModel):
     families: list[FamilyResultOut]
     calibrations: list[CalibrationUsedOut]
     groups: list[GroupResultOut]
+    latency: LatencyOut | None = None
+    """V0.14 G6 (D324, additive - ``eval_version`` stays 1): null in a report
+    stored before G6."""
 
 
 class EvalReportSummaryOut(ApiModel):

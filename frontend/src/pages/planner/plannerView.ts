@@ -4,7 +4,7 @@
  * nothing here computes a statistic.
  */
 import type { StatusTone } from "../../lib/status";
-import type { PolicyResultOut, VerdictOut, VerdictStatus } from "./plannerApi";
+import type { LatencyOut, PolicyResultOut, VerdictOut, VerdictStatus } from "./plannerApi";
 
 export interface RegretBar {
   key: string;
@@ -43,6 +43,7 @@ export const VERDICT_TONE: Record<VerdictStatus, StatusTone | "neutral"> = {
   FAIL: "failed",
   not_separable: "degraded",
   too_few_groups: "unknown",
+  too_few_decisions: "unknown",
   leaked: "failed",
 };
 
@@ -50,6 +51,33 @@ export const VERDICT_TONE: Record<VerdictStatus, StatusTone | "neutral"> = {
 export function verdictText(v: VerdictOut): string {
   const would = v.status === "leaked" && v.would_be != null ? ` (would be ${v.would_be})` : "";
   return `criterion ${String(v.criterion)}: ${v.status}${would}`;
+}
+
+/** A time in ms: "12.35 ms" or "—". */
+export function ms(value: number | null | undefined): string {
+  return value == null || !Number.isFinite(value) ? "—" : `${value.toFixed(2)} ms`;
+}
+
+/**
+ * V0.14 G6 (D324): the report's decision-latency block as one line (criterion 3 reads the
+ * `node_count` row). Every number is the report's.
+ */
+export function latencyText(l: LatencyOut): string {
+  const parts = [
+    `${String(l.decisions)} dispatched decisions timed (${String(l.without_latency)} without a time)`,
+    `p50 ${ms(l.p50_ms)}`,
+    `p99 ${ms(l.p99_ms)}`,
+    `max ${ms(l.max_ms)}`,
+    `${String(l.over_budget)} over the ${String(l.budget_ms)} ms budget`,
+  ];
+  return parts.join(" · ");
+}
+
+/** "3 nodes: 90 decisions, p99 4.20 ms" per snapshot size (the report's order). */
+export function latencyBuckets(l: LatencyOut): string[] {
+  return Object.entries(l.by_node_count).map(
+    ([nodes, b]) => `${nodes} nodes: ${String(b.decisions)} decisions, p99 ${ms(b.p99_ms)}`,
+  );
 }
 
 /** "12.3 %" or "—". */

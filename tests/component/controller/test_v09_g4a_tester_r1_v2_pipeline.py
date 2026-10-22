@@ -201,7 +201,7 @@ async def test_alembic_has_one_head_0023(pg_settings: DatabaseSettings) -> None:
     from alembic.script import ScriptDirectory
 
     script = ScriptDirectory.from_config(alembic_config(pg_settings))
-    assert script.get_heads() == ["0032"]  # V0.14 G4: migration 0032
+    assert script.get_heads() == ["0033"]  # V0.14 G6: migration 0033
 
 
 async def test_recorder_run_resweeps_with_an_injected_clock_without_real_waits(

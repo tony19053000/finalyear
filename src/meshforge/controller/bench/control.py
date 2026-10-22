@@ -50,6 +50,7 @@ __all__ = [
     "CampaignStatus",
     "RunnerCampaign",
     "Throttle",
+    "campaign_jobs",
     "record_failure_counts",
 ]
 
@@ -108,6 +109,19 @@ class CampaignStatus:
 
 def _bench_key() -> Any:
     return Job.idempotency_key.like(_KEY_LIKE)
+
+
+def campaign_jobs(campaign_ids: Collection[str]) -> Any:
+    """The SQL condition "this ``job`` row is one of the campaigns'
+    benchmark jobs": run jobs of every generation, fillers and warm-ups (their
+    keys all start ``bench:<run_id>``, :mod:`.keys`). Used by :meth:`
+    CampaignControl.cancel` and the evaluator's latency read (V0.14 G6)."""
+    run_of_job = func.split_part(
+        func.substr(Job.idempotency_key, len(KEY_PREFIX) + 1), ":", 1
+    )
+    return _bench_key() & run_of_job.in_(
+        select(BenchRun.id).where(BenchRun.campaign_id.in_(sorted(campaign_ids)))
+    )
 
 
 def _not_bench() -> Any:
@@ -315,20 +329,12 @@ class CampaignControl:
                 raise CampaignStateError(
                     "the campaign is done; nothing to cancel", details={"state": state}
                 )
-            run_of_job = func.split_part(
-                func.substr(Job.idempotency_key, len(KEY_PREFIX) + 1), ":", 1
-            )
             jobs = list(
                 await db.scalars(
                     select(Job.id)
                     .where(
-                        _bench_key(),
+                        campaign_jobs([campaign_id]),
                         Job.state.not_in(_JOB_TERMINAL),
-                        run_of_job.in_(
-                            select(BenchRun.id).where(
-                                BenchRun.campaign_id == campaign_id
-                            )
-                        ),
                     )
                     .order_by(Job.id)
                 )

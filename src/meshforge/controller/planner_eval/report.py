@@ -74,6 +74,37 @@ def _ci_label(level: Any) -> str:
     return "CI"
 
 
+def _latency_lines(latency: Any) -> list[str]:
+    """V0.14 G6 (D324): the decision-latency section (none for a report
+    stored before G6)."""
+    if not isinstance(latency, Mapping):
+        return []
+    lines = [
+        "",
+        "## Decision latency (criterion 3)",
+        "",
+        f"- dispatched decisions timed: {_cell(latency.get('decisions'))} "
+        f"(without a time: {_cell(latency.get('without_latency'))})",
+        f"- p50 {_num(latency.get('p50_ms'))} ms, p99 {_num(latency.get('p99_ms'))} "
+        f"ms, max {_num(latency.get('max_ms'))} ms (nearest rank)",
+        f"- over the {_num(latency.get('budget_ms'), 0)} ms budget: "
+        f"{_cell(latency.get('over_budget'))}",
+        f"- judged at {_cell(latency.get('node_count'))} nodes, at least "
+        f"{_cell(latency.get('min_decisions'))} decisions",
+        "",
+    ]
+    buckets = latency.get("by_node_count")
+    lines += _table(
+        ("snapshot nodes", "decisions", "p99 ms"),
+        [
+            (_cell(nodes), _cell(b.get("decisions")), _num(b.get("p99_ms")))
+            for nodes, b in (buckets.items() if isinstance(buckets, Mapping) else ())
+            if isinstance(b, Mapping)
+        ],
+    )
+    return lines
+
+
 def render_markdown(report: Mapping[str, Any]) -> str:
     """The Markdown rendering of ``report`` (module docstring)."""
     settings = report.get("settings") or {}
@@ -152,6 +183,7 @@ def render_markdown(report: Mapping[str, Any]) -> str:
                 for c in paired
             ],
         )
+    lines += _latency_lines(report.get("latency"))
     lines += ["", "## Policies (regret vs the best measured configuration)", ""]
     lines += _table(
         (

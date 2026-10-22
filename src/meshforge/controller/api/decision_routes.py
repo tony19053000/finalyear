@@ -15,7 +15,8 @@ V0.14 G5 (D300, D320): each term also carries its calibration factor
 on the chosen candidate once its attempt ended ``done``, ``actual_s`` and
 ``ratio`` (the calibration's own term -> phase match; null = no honest phase);
 each decision its ``calibration_version``, ``replay_version`` and
-``margin_sentence``. Derived at read time by
+``margin_sentence``. V0.14 G6 (D324): each decision its ``decision_ms``
+(the dispatcher's wall time; null before migration 0033). Derived at read time by
 ``controller/jobs/decision_explain.py`` - the same strings the CLI prints.
 """
 
@@ -187,6 +188,9 @@ class DecisionOut(ApiModel):
     margin_sentence: str | None = None
     """V0.14 G5 (D300): why a split job was (not) split - the margin test, the
     objective, pruned nodes; null for a job that runs whole."""
+    decision_ms: float | None = None
+    """V0.14 G6 (D324): how long the dispatcher took to make this decision
+    (ms; criterion 3). Null for a row written before migration 0033."""
 
 
 class DecisionList(ApiModel):
@@ -227,6 +231,7 @@ def _out(record: DecisionRecordOut) -> DecisionOut:
         calibration_version=record.calibration_version,
         replay_version=record.replay_version,
         margin_sentence=margin_sentence_of(record),
+        decision_ms=record.decision_ms,
     )
 
 

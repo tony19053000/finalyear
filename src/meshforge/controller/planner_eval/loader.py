@@ -12,6 +12,9 @@ plus the decisions' replays.
   repetition), as :class:`~.model.EvalRecord`. They are column -> value
   mappings exactly as the Parquet export holds them
   (:func:`records_from_rows` takes either).
+* **Latency** (V0.14 G6, D324) - every ``dispatched`` decision of the
+  campaigns' benchmark jobs with its ``decision_ms`` and snapshot size
+  (:func:`load_latency`).
 * **Replays** - per record the ``dispatched`` ``plan_decision`` of its attempt
   (a whole job), or else its job's **first** ``dispatched`` decision (a split
   job's record is the combine's row; the lanes were planned by that first
@@ -28,14 +31,17 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import Any, Final
 
-from sqlalchemy import select
+from sqlalchemy import case, func, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from meshforge.common.errors import ExitCode, FailureType, MeshForgeError
+from meshforge.controller.bench.control import campaign_jobs
+from meshforge.controller.planner_eval.latency import LatencySample
 from meshforge.controller.planner_eval.model import ConfigRef, EvalGroup, EvalRecord
 from meshforge.controller.store.engine import create_session_factory
 from meshforge.controller.store.models.bench import BenchCampaign, BenchRun
+from meshforge.controller.store.models.job import Job
 from meshforge.controller.store.models.plan import PlanDecision
 from meshforge.controller.store.models.telemetry import RunRecord
 from meshforge.controller.telemetry.labels import CampaignLabels, build_labels
@@ -52,8 +58,10 @@ __all__ = [
     "EvalLoadError",
     "EvalTooLargeError",
     "groups_from_labels",
+    "latency_samples",
     "load_campaigns",
     "load_for_jobs",
+    "load_latency",
     "missing_campaigns",
     "records_from_rows",
 ]
@@ -81,6 +89,8 @@ class EvalTooLargeError(MeshForgeError):
 class EvalInputs:
     groups: tuple[EvalGroup, ...]
     records: tuple[EvalRecord, ...]
+    latency: tuple[LatencySample, ...] = ()
+    """V0.14 G6 (D324): the campaigns' dispatched decisions' times."""
 
 
 def _error(exc: BaseException) -> EvalLoadError:
@@ -221,6 +231,68 @@ async def _replays(
     return out
 
 
+def _node_count(nodes: Any, candidates: Any) -> int | None:
+    """A decision's snapshot size: the replay's node count, else the distinct
+    candidate nodes (a row without a replay); None = unreadable."""
+    if isinstance(nodes, int) and not isinstance(nodes, bool) and nodes >= 0:
+        return nodes
+    if not isinstance(candidates, list):
+        return None
+    seen: set[str] = set()
+    for row in candidates:
+        if not isinstance(row, Mapping):
+            continue
+        node = row.get("node_id")
+        if isinstance(node, str):
+            seen.add(node)
+        members = row.get("node_set")
+        if isinstance(members, list):
+            seen.update(m for m in members if isinstance(m, str))
+    return len(seen) if seen else None
+
+
+def latency_samples(rows: Iterable[Sequence[Any]]) -> list[LatencySample]:
+    """``(decision_ms, replay node count, candidates)`` rows as
+    :class:`~.latency.LatencySample` s (pure)."""
+    out: list[LatencySample] = []
+    for ms, nodes, candidates in rows:
+        value = (
+            float(ms)
+            if isinstance(ms, int | float) and not isinstance(ms, bool)
+            else None
+        )
+        out.append(LatencySample(value, _node_count(nodes, candidates)))
+    return out
+
+
+async def load_latency(
+    engine: AsyncEngine, campaign_ids: Sequence[str]
+) -> list[LatencySample]:
+    """V0.14 G6 (D324): every ``dispatched`` decision of the campaigns'
+    benchmark jobs (:func:`~meshforge.controller.bench.control.campaign_jobs`:
+    runs of every generation, fillers, warm-ups) with its ``decision_ms`` and
+    snapshot size - the replay's node count read in SQL (the 64 KiB blob is
+    never loaded), the candidates only for a row without a replay. Ordered
+    by decision id."""
+    nodes = PlanDecision.replay["snapshot"]["nodes"]
+    query = (
+        select(
+            PlanDecision.decision_ms,
+            case(
+                (func.jsonb_typeof(nodes) == "array", func.jsonb_array_length(nodes)),
+                else_=None,
+            ),
+            case((PlanDecision.replay.is_(None), PlanDecision.candidates), else_=None),
+        )
+        .join(Job, Job.id == PlanDecision.job_id)
+        .where(PlanDecision.outcome == "dispatched", campaign_jobs(campaign_ids))
+        .order_by(PlanDecision.id)
+    )
+    async with create_session_factory(engine)() as db:
+        rows = list((await db.execute(query)).all())
+    return latency_samples(rows)
+
+
 async def load_campaigns(
     engine: AsyncEngine, campaign_ids: Sequence[str], *, max_rows: int
 ) -> EvalInputs:
@@ -239,6 +311,7 @@ async def load_campaigns(
             )
             records.extend(records_from_rows(campaign_id, rows))
         with_replays = await _replays(engine, records)
+        latency = await load_latency(engine, campaign_ids)
     except LabelRowsLimitError as exc:
         raise EvalTooLargeError(
             f"a campaign has more than {max_rows} records; evaluate fewer "
@@ -249,7 +322,9 @@ async def load_campaigns(
         raise _error(exc) from exc
     except _DB_ERRORS as exc:
         raise _error(exc) from exc
-    return EvalInputs(groups=tuple(groups), records=tuple(with_replays))
+    return EvalInputs(
+        groups=tuple(groups), records=tuple(with_replays), latency=tuple(latency)
+    )
 
 
 async def load_for_jobs(

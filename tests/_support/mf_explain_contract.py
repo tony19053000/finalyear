@@ -177,6 +177,7 @@ def _whole() -> DecisionRecordOut:
         objective="min_time",
         calibration_version=7,
         replay_version=2,
+        decision_ms=4.25,  # V0.14 G6 (D324)
     )
 
 
@@ -270,6 +271,7 @@ def _split() -> DecisionRecordOut:
             ended_at=_T0 + dt.timedelta(minutes=6),
         ),
         objective="min_network",
+        decision_ms=37.5,  # V0.14 G6 (D324)
     )
 
 

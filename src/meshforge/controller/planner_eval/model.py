@@ -13,6 +13,7 @@ from typing import Any, Final, Literal
 
 from meshforge.bench.stats import BOOTSTRAP_LEVEL, BOOTSTRAP_RESAMPLES
 from meshforge.common.manifest import OBJECTIVES, POLICIES
+from meshforge.controller.planner_eval.latency import LatencyConfig
 
 __all__ = [
     "COST_MODEL",
@@ -94,6 +95,9 @@ class EvalConfig:
     bootstrap_resamples: int = BOOTSTRAP_RESAMPLES
     bootstrap_seed: int = 20_261_022
     ci_level: float = BOOTSTRAP_LEVEL
+    latency: LatencyConfig = field(default_factory=LatencyConfig)
+    """V0.14 G6 (D324): criterion 3's budget, fabric size and minimum count
+    (written into the report's ``latency`` block)."""
 
 
 @dataclass(frozen=True, slots=True)

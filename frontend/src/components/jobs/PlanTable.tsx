@@ -235,6 +235,11 @@ function DecisionHeader({ decision }: { decision: DecisionOut }) {
         <span className="text-fg-muted">
           chosen <span className="font-mono text-fg">{d.chosen_node_id ?? "none"}</span>
         </span>
+        {d.decision_ms != null && (
+          <span className="text-fg-muted" title="How long the dispatcher took to make this decision (criterion 3)">
+            decided in <span className="font-mono text-fg">{d.decision_ms.toFixed(2)} ms</span>
+          </span>
+        )}
         <span className="font-mono text-xs text-fg-muted">{formatTime(d.created_at)}</span>
         <span className="font-mono text-xs text-fg-muted" title={d.snapshot_digest}>
           snapshot {shortDigest(d.snapshot_digest)}

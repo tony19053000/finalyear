@@ -149,6 +149,7 @@ class EvalService:
             campaign_ids=ids,
             holdout=holdout,
             leaked=allow_leak,
+            latency=inputs.latency,  # V0.14 G6 (D324)
         )
 
     async def run(
@@ -186,6 +187,7 @@ class EvalService:
             evaluated_groups=counts["evaluated_groups"],
             records_used=counts["records_used"],
             verdicts={str(v["criterion"]): v["status"] for v in report["verdicts"]},
+            latency_decisions=report["latency"]["decisions"],
             took_s=round(time.monotonic() - started, 3),
         )
         return row
