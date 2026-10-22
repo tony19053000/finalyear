@@ -8,7 +8,7 @@
 >
 > ```
 Read docs/SESSION_HANDOFF.md §1, then docs/STATUS.md, then the V0.15 section of docs/DEVELOPMENT_ROADMAP.md and docs/briefs/V0.15-ml-planner.md (APPROVED; §2 D333–D346, §4 groups).
-V0.15 G1 MERGED 420a3a24 (0.15.1–0.15.3 [x]). G2 brief DRAFTED (§5b, D347–D355, Q11–Q16, `ef694744`) — get the team's answers to Q11–Q16, mark it approved, then implementer → gates → tester → reviewer → merge. Carry into G2 brief: dataset route rebuilds Parquet per request (add cache/lock); failure classifier only if ≥ 50 node-caused failures (D335). Carry to G4 brief: pass pre-calibration raw_s to features + replay-vs-live feature parity test. 0.14.8 🧑 lab open. Known flaky: test_v09_g4a_bench_item0::test_only_benchmark_jobs_get_the_shadow_plan. Normal mode. Parallel agents OK. Don't delete anything without asking.
+V0.15 G1 MERGED 420a3a24 (0.15.1–0.15.3 [x]). G2 brief APPROVED (`e78bfc33`); G2 implementer RUNNING in a worktree (progress: docs/briefs/progress/V0.15-G2.md + `git log feat(V0.15 G2)`; if this session died, resume it from its last committed step), then implementer → gates → tester → reviewer → merge. Carry into G2 brief: dataset route rebuilds Parquet per request (add cache/lock); failure classifier only if ≥ 50 node-caused failures (D335). Carry to G4 brief: pass pre-calibration raw_s to features + replay-vs-live feature parity test. 0.14.8 🧑 lab open. Known flaky: test_v09_g4a_bench_item0::test_only_benchmark_jobs_get_the_shadow_plan. Normal mode. Parallel agents OK. Don't delete anything without asking.
 ```
 >
 > Order of truth: `PROJECT_BRIEF → ARCHITECTURE → ROADMAP → STATUS → this file`. If this file
