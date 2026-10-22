@@ -320,6 +320,11 @@ COMPUTE: Final[dict[str, Entry]] = {
         "report (admin). The Planner page (V0.14 G5, D300) shows stored reports "
         "(GET /v1/planner/eval-reports); until G5 merges this stays CLI-only."
     ),
+    "planner reports": CliOnly(
+        "V0.14 G4 fix round 1 (reviewer N6): lists stored evaluation reports. "
+        "The Planner page (V0.14 G5, D300) lists the same reports; until G5 "
+        "merges this stays CLI-only."
+    ),
 }
 
 #: ``meshforge-controller user ...`` (D176 "users (admin)").

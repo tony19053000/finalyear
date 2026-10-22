@@ -106,6 +106,40 @@ def render_markdown(report: Mapping[str, Any]) -> str:
             for v in report.get("verdicts") or ()
         ],
     )
+    paired = [
+        c
+        for v in report.get("verdicts") or ()
+        if v.get("criterion") == 2
+        for c in v.get("comparisons") or ()
+    ]
+    if paired:  # D322: criterion 2 is paired
+        lines += [
+            "",
+            "### Criterion 2, paired: rule policy regret minus criterion policy "
+            "regret, on the groups counted for both",
+            "",
+        ]
+        lines += _table(
+            (
+                "rule policy",
+                "common groups",
+                "mean difference (% points)",
+                "95 % CI",
+                "unmeasured",
+            ),
+            [
+                (
+                    f"`{_cell(c.get('key'))}`",
+                    _cell(c.get("common_groups")),
+                    _num(c.get("mean_diff_pct")),
+                    _DASH
+                    if c.get("ci_low") is None
+                    else f"[{_num(c.get('ci_low'))}, {_num(c.get('ci_high'))}]",
+                    _cell(c.get("unmeasured_groups")),
+                )
+                for c in paired
+            ],
+        )
     lines += ["", "## Policies (regret vs the best measured configuration)", ""]
     lines += _table(
         (

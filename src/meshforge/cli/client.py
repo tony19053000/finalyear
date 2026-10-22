@@ -415,6 +415,10 @@ class ControllerClient:
             timeout=_TRANSFER_TIMEOUT_S,
         )
 
+    def planner_eval_reports(self, *, limit: int = 50) -> Mapping[str, Any]:
+        """``GET /v1/planner/eval-reports`` (summaries, newest first)."""
+        return self._get("/v1/planner/eval-reports", params={"limit": str(limit)})
+
     def planner_eval_markdown(self, report_id: int) -> str:
         """``GET /v1/planner/eval-reports/{id}?format=markdown``."""
         path = f"/v1/planner/eval-reports/{report_id}"

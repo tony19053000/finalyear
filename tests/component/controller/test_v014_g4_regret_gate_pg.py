@@ -20,6 +20,7 @@ makes calibrated ``cost_model`` pick the other node: worse picks.
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import datetime as dt
 from collections.abc import AsyncIterator
 from typing import Any
@@ -40,6 +41,7 @@ from mf_eval_pg import (
 )
 from sqlalchemy import text
 
+from meshforge.controller import calibration_store
 from meshforge.controller.calibration_store import CalibrationStore
 from meshforge.controller.jobs.execution_store import ExecutionStore
 from meshforge.controller.planner import plan
@@ -154,6 +156,67 @@ async def test_fewer_groups_skip_the_check_and_say_so(engine: Any) -> None:
     assert row.reason.startswith("regret check skipped (too_few_groups: ")
     assert row.fit_inputs["regret_check"] == "skipped"
     assert row.fit_inputs["regret_groups"] < 10
+
+
+async def _advisory_locks(engine: Any) -> int:
+    async with engine.connect() as conn:
+        return int(
+            (
+                await conn.execute(
+                    text("SELECT count(*) FROM pg_locks WHERE locktype = 'advisory'")
+                )
+            ).scalar_one()
+        )
+
+
+async def test_the_regret_check_runs_before_the_refresh_lock(
+    engine: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """G4 fix round 1 (reviewer N2): the expensive D319 work (label reads,
+    replays) holds no advisory lock; the stored result is the same."""
+    await _seed(engine, 10)
+    original = calibration_store.load_for_jobs
+    held: list[int] = []
+
+    async def spy(*args: Any, **kwargs: Any) -> Any:
+        held.append(await _advisory_locks(engine))
+        return await original(*args, **kwargs)
+
+    monkeypatch.setattr(calibration_store, "load_for_jobs", spy)
+    result = await CalibrationStore(engine).refresh(CFG)
+    assert held == [0], held  # ran once, outside the lock
+    assert result.row is not None and result.row.status == "rejected"
+
+
+async def test_a_change_while_unlocked_is_judged_again_under_the_lock(
+    engine: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The prepared result is stale (here: another version was activated in
+    between) -> the refresh refits and re-checks under the lock; the row is
+    still judged and stored correctly, and the check then ran twice."""
+    await _seed(engine, 10)
+    store = CalibrationStore(engine)
+    original = store._prepare
+    calls: list[int] = []
+
+    async def stale(*args: Any, **kwargs: Any) -> Any:
+        prepared = await original(*args, **kwargs)
+        return dataclasses.replace(prepared, active_version=-1)
+
+    real_load = calibration_store.load_for_jobs
+
+    async def count(*args: Any, **kwargs: Any) -> Any:
+        calls.append(await _advisory_locks(engine))
+        return await real_load(*args, **kwargs)
+
+    monkeypatch.setattr(store, "_prepare", stale)
+    monkeypatch.setattr(calibration_store, "load_for_jobs", count)
+    result = await store.refresh(CFG)
+    assert result.row is not None and result.row.status == "rejected"
+    assert result.row.fit_inputs["regret_check"] == "rejected"
+    assert len(calls) == 2 and calls[0] == 0 and calls[1] >= 1  # 2nd under lock
+    statuses = [r.status for r in await _rows(engine)]
+    assert statuses == ["rejected"]
 
 
 async def test_without_the_check_the_same_fit_goes_live(engine: Any) -> None:

@@ -167,6 +167,7 @@ def test_cli_only_is_the_exception() -> None:
         "planner calibrate",
         "planner calibration",
         "planner eval",  # V0.14 G4: until the Planner page (G5) lists reports
+        "planner reports",  # V0.14 G4 fix round 1 (N6): same
     ]
 
 

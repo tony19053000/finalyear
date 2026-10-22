@@ -2457,6 +2457,11 @@
             "title": "No Replay Groups",
             "type": "integer"
           },
+          "non_finite_configs": {
+            "default": 0,
+            "title": "Non Finite Configs",
+            "type": "integer"
+          },
           "records": {
             "title": "Records",
             "type": "integer"
@@ -5537,6 +5542,67 @@
         "title": "PairFailureOut",
         "type": "object"
       },
+      "PairedComparisonOut": {
+        "additionalProperties": false,
+        "description": "Criterion 2 (D322): one rule policy vs calibrated ``cost_model`` on the\ngroups counted for both.",
+        "properties": {
+          "ci_high": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ci High"
+          },
+          "ci_low": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ci Low"
+          },
+          "common_groups": {
+            "title": "Common Groups",
+            "type": "integer"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "mean_diff_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mean Diff Pct"
+          },
+          "unmeasured_groups": {
+            "title": "Unmeasured Groups",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "key",
+          "common_groups",
+          "mean_diff_pct",
+          "ci_low",
+          "ci_high",
+          "unmeasured_groups"
+        ],
+        "title": "PairedComparisonOut",
+        "type": "object"
+      },
       "PickStatus": {
         "enum": [
           "counted",
@@ -7604,6 +7670,13 @@
       "VerdictOut": {
         "additionalProperties": false,
         "properties": {
+          "comparisons": {
+            "items": {
+              "$ref": "#/components/schemas/PairedComparisonOut"
+            },
+            "title": "Comparisons",
+            "type": "array"
+          },
           "counted_groups": {
             "title": "Counted Groups",
             "type": "integer"

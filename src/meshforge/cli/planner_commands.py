@@ -17,6 +17,9 @@ calibration (V0.14 G2, D293/D301/D306).
   planner saw, regret vs the best measured configuration, calibrated rows on
   leave-one-family-out refits - store the report and print the verdicts and
   the per-policy table; ``--md`` also writes the stored report's Markdown.
+* ``reports [--limit N]`` (G4 fix round 1, ``GET /v1/planner/eval-reports``):
+  the stored reports, newest first - id, time, campaigns, held-out family,
+  leaked, evaluated groups and both verdicts.
 
 ``--json`` prints the API document (docs/CLI.md section 3). Every value from
 the controller goes through the renderer's cell / echo scrubbing.
@@ -41,6 +44,7 @@ __all__ = [
     "eval_table",
     "factor_table",
     "planner_app",
+    "reports_table",
 ]
 
 planner_app = typer.Typer(
@@ -282,7 +286,83 @@ def eval_lines(record: Mapping[str, Any]) -> list[str]:
             f"criterion {render.echo(verdict.get('criterion'))}: {status} - "
             f"{render.echo(verdict.get('detail'))}"
         )
+        for c in verdict.get("comparisons") or []:  # D322: paired criterion 2
+            if not isinstance(c, Mapping):
+                continue
+            ci = (
+                _DASH
+                if c.get("ci_low") is None
+                else f"[{_num(c.get('ci_low'), 2)}, {_num(c.get('ci_high'), 2)}]"
+            )
+            lines.append(
+                f"  vs {render.echo(c.get('key'))}: difference "
+                f"{_num(c.get('mean_diff_pct'), 2)} % points, CI {ci} over "
+                f"{render.echo(c.get('common_groups'))} common groups; "
+                f"{render.echo(c.get('unmeasured_groups'))} unmeasured"
+            )
     return lines
+
+
+def _verdict_cell(verdicts: Any, criterion: int) -> str:
+    for verdict in verdicts if isinstance(verdicts, list) else []:
+        if isinstance(verdict, Mapping) and verdict.get("criterion") == criterion:
+            return str(render.echo(verdict.get("status")))
+    return _DASH
+
+
+def reports_table(doc: Mapping[str, Any]) -> Table:
+    """The stored reports, newest first (pure; tests read it)."""
+    table = render.table(
+        "ID",
+        "CREATED",
+        "CAMPAIGNS",
+        "HOLDOUT",
+        "LEAKED",
+        "GROUPS",
+        "CRITERION 1",
+        "CRITERION 2",
+        title="planner evaluation reports",
+    )
+    for row in doc.get("reports") or []:
+        if not isinstance(row, Mapping):
+            continue
+        campaigns = row.get("campaign_ids")
+        table.add_row(
+            render.cell(row.get("id")),
+            render.cell(row.get("created_at")),
+            render.cell(
+                ", ".join(str(c) for c in campaigns)
+                if isinstance(campaigns, list)
+                else None
+            ),
+            render.cell(row.get("holdout") or _DASH),
+            "yes" if row.get("leaked") else "no",
+            render.cell(row.get("evaluated_groups")),
+            _verdict_cell(row.get("verdicts"), 1),
+            _verdict_cell(row.get("verdicts"), 2),
+        )
+    return table
+
+
+@planner_app.command("reports")
+def reports(
+    limit: Annotated[
+        int,
+        typer.Option("--limit", min=1, max=200, help="At most this many reports."),
+    ] = 50,
+    json_output: cli.JsonOption = False,
+) -> None:
+    """List the stored planner evaluation reports, newest first."""
+    settings = cli._settings()
+    with cli._client(settings) as client:
+        doc = cli._fetch(lambda: client.planner_eval_reports(limit=limit))
+    if json_output:
+        cli._echo_json(doc)
+        return
+    if not doc.get("reports"):
+        render.line("no evaluation reports yet (compute planner eval)")
+        return
+    render.show(reports_table(doc))
 
 
 @planner_app.command("eval")

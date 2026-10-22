@@ -1274,11 +1274,19 @@ compute get <JOB_ID>               # outputs -> ./outputs/<JOB_ID>/ (--dest, --f
   regret with a seeded bootstrap 95 % CI (10 000 resamples over groups),
   the share within 15 %, per family, and the two verdicts: criterion 1 (`PASS`
   when calibrated `cost_model` is within 15 % of the oracle in >= 80 % of
-  counted groups) and criterion 2 (`PASS` only when its CI lies entirely below
-  every rule policy's; overlapping -> `not_separable`); under 10 counted groups
-  -> `too_few_groups`, never `PASS`. Reports are stored (`planner_eval_report`,
+  counted groups) and criterion 2, **paired** (D322): for each rule policy the
+  per-group regret difference (rule minus calibrated `cost_model`) over the
+  groups counted for both, with a bootstrap CI - `PASS` only when every such
+  CI lies entirely above 0, `FAIL` when one lies entirely below 0, else
+  `not_separable`; the verdict lists each comparison and every policy's
+  `unmeasured` count (a policy cannot look good by being unmeasured on the
+  hard groups). Under 10 counted (criterion 2: common) groups ->
+  `too_few_groups`, never `PASS`. A non-finite median (a guard; labels never
+  produce one) excludes its group with the reason. Reports are stored (`planner_eval_report`,
   migration 0032) and listed by `GET /v1/planner/eval-reports`; `GET
-  /v1/planner/eval-reports/{id}?format=markdown` renders one. The same
+  /v1/planner/eval-reports/{id}?format=markdown` renders one; `compute planner
+  reports [--limit N] [--json]` lists them (id, time, campaigns, held-out
+  family, leaked, evaluated groups, verdicts). The same
   campaigns give the same report bytes. **Harness campaigns prove the code
   path only; the criteria need real-laptop campaigns (0.14.8).**
   - **Calibration regret check (D319).** A new calibration version that passes
@@ -1289,7 +1297,11 @@ compute get <JOB_ID>               # outputs -> ./outputs/<JOB_ID>/ (--dest, --f
     active row's `reason` says `regret check skipped (too_few_groups: n < 10)`
     (`compute planner calibration` prints it as `note:`). The numbers are in
     the row's `fit_inputs` (`regret_check`, `regret_groups`,
-    `holdout_regret_new` / `_active`).
+    `holdout_regret_new` / `_active`). The check (label reads and replays) runs
+    **before** the refresh takes its database lock; under the lock the refresh
+    only re-checks that the runs and the active version did not change (if they
+    did, it judges the new fit again there). The x 1.05 boundary is compared
+    exactly in decimal.
 - `run -f` streams the logs and exits like the job: `0` succeeded; the workload's own
   exit code (1-125) when it failed; `126` when the fabric failed it (the failure type
   is printed: `node_lost`, `deadline_exceeded`, `output_error` …); `128` cancelled.
