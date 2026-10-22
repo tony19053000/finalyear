@@ -1381,9 +1381,13 @@ compute get <JOB_ID>               # outputs -> ./outputs/<JOB_ID>/ (--dest, --f
   data), `no learned model` (calibration or raw wins - a real outcome) or
   `insufficient data` (< 200 rows or < 3 families: the planner keeps
   calibration); `MALE` = mean absolute log error (0.1 is about 10 %); `vs cal`
-  = `better` / `not separable` / `worse` (paired bootstrap over families);
+  = `better` / `not separable` / `worse` / `no learned model` (paired
+  bootstrap over families; `better` needs at least 5 families, a gain whose
+  95 % CI clears 0.02 log - `--min-effect` - and a learned model picked in at
+  least half the held-out folds and on all data);
   `cover` = share of held-out values inside the 90 % conformal interval (the
-  model would be rejected under 80 %); `usable` = share where ML would be used
+  model would be rejected under 80 % pooled, or under 70 % on any family with
+  20+ held-out rows); `usable` = share where ML would be used
   (in distribution and interval at most x2 wide). `report.json` is
   byte-identical for the same dataset and library versions; `report.md`
   summarises it, with the top features and the failure-classifier line.

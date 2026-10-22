@@ -90,6 +90,27 @@ def test_truth_ii_node_noise_is_never_better_than_calibration(seed: int) -> None
         assert result.verdict["verdict"] in ("not_separable", "worse")
 
 
+@pytest.mark.parametrize("seed", [0, 1])
+def test_pure_noise_with_enough_families_ships_no_learned_model(seed: int) -> None:
+    """D357 at the compare level: y independent of every feature, 6 families
+    (the family floor is met) -> a baseline ships, so the verdict is
+    `no_learned_model` - never `better`, never a bare `not_separable`."""
+    import random
+
+    rows = synthetic_rows(
+        "node_noise", families=6, groups_per_family=5, runs_per_group=10, seed=seed
+    )
+    rng = random.Random(seed + 1000)  # noqa: S311 - test data
+    for row in rows:
+        row["y"] = rng.gauss(0.0, 0.3)
+        row["actual_s"] = row["raw_s"] * math.exp(row["y"])
+    result = _run(rows)
+    assert result.final is not None and not result.final.selected.learned
+    assert result.verdict["verdict"] == "no_learned_model"
+    assert result.verdict["reason"] == "no_learned_model_ships"
+    assert result.verdict["families"] == 6  # the bootstrap numbers stay
+
+
 def test_truth_iii_a_far_family_is_out_of_distribution() -> None:
     result = _run(
         synthetic_rows(
