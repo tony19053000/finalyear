@@ -302,8 +302,17 @@ def test_mode3_set_lanes_chunk_rates_and_combine() -> None:
         obs = by[("lane_stage", node)]
         assert obs.raw_s == stage["seconds"] == 5.0
         assert obs.y == math.log(2.0 / 5.0)
-        assert obs.lanes == 3 and obs.chunk_items == 166
+        # D366 (FEATURE_VERSION 2): a set's lane is the one-lane candidate's
+        # shape (what serving computes), not the set's 3 lanes x 166 items
+        one = lane_row(s, node)
+        assert obs.lanes == 1 and obs.chunk_items == one["chunk_items"] != 166
     for i, node in enumerate(nodes):
+        for term in ("lane_env", "chunk_rate"):
+            shaped = by[(term, node)]
+            assert (shaped.lanes, shaped.chunk_items) == (
+                1,
+                lane_row(s, node)["chunk_items"],
+            )
         env = by[("lane_env", node)]
         assert env.raw_s == 30.0 and env.y == math.log(1.0 / 30.0)
         assert env.attempt_id == f"lane_{i}"
@@ -318,6 +327,7 @@ def test_mode3_set_lanes_chunk_rates_and_combine() -> None:
     assert combine.raw_s == raw
     assert combine.actual_s == 2.0  # stage 0.4 + env skipped (0) + run 1.6
     assert combine.attempt_id == "combine_1"
+    assert (combine.lanes, combine.chunk_items) == (3, 166)  # the set's own
     assert len(rows) == 2 + 3 + 3 + 1
     assert _skips(skipped) == {"exact_by_construction": 1}
 

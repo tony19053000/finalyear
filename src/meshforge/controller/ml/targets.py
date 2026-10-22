@@ -15,7 +15,10 @@ term the row does not hold). A **Mode 3 set** (chosen row ``mode = split``),
 which the calibration does not fit, is matched here: each lane attempt of the
 decision's round against the node's one-lane row of the same decision (the
 very ``stage`` / ``env`` / rate the set was costed with), and the job's combine
-attempt against the set row's ``combine`` term.
+attempt against the set row's ``combine`` term. **D366 (FEATURE_VERSION 2):**
+a set's lane rows carry the one-lane row's shape (``lanes`` 1, its
+``chunk_items``) - what the planner knows of a lane before any set exists, so
+training and serving features are identical; the combine carries the set's.
 
 **Exclusions**, each counted by :class:`Skip` reason: a run whose replay is
 missing or unreadable (once per decision; never imputed), a run the matching
@@ -511,6 +514,10 @@ def _set(run: RunInput, row: Mapping[str, Any], out: _Out) -> None:
             continue
         terms = _terms(lane_row)
         finished = lane.finished_at or outcome.finished_at
+        # D366 (FEATURE_VERSION 2): a lane is featurised as its one-lane
+        # candidate (lanes 1, that row's chunk) - the shape the planner can
+        # compute before any set exists, so serving sees the same numbers
+        lane_lanes, lane_chunk = _plan_shape(lane_row)
         for name, ml_name in (("transfer", "lane_stage"), ("env", "lane_env")):
             term = terms.get(name)
             if not isinstance(term, Mapping):
@@ -530,16 +537,16 @@ def _set(run: RunInput, row: Mapping[str, Any], out: _Out) -> None:
                 raw_s=raw_prediction(term),
                 actual_s=None if actual_ms is None else actual_ms / 1000.0,
                 term=term,
-                lanes=lanes,
-                chunk_items=chunk_items,
+                lanes=lane_lanes,
+                chunk_items=lane_chunk,
             )
         _chunk_rate(
             lane,
             lane_row,
             out,
             fallback=finished,
-            lanes=lanes,
-            chunk_items=chunk_items,
+            lanes=lane_lanes,
+            chunk_items=lane_chunk,
         )
     _combine(run, row, out, lanes=lanes, chunk_items=chunk_items)
 

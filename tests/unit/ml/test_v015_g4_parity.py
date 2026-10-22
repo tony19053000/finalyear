@@ -22,12 +22,12 @@ a term the model corrected (``detail.ml.raw_s``), a calibrated one
 * (b) end to end: the real dataset builder (``dataset.build``) on the chosen
   candidate's outcome gives rows whose features equal the queries'.
 
-**Known, documented difference (progress note, D362):** a *set* decision's
-lane rows carry the set's ``job_lanes`` / ``job_chunk_items`` in the
-dataset, while the planner describes a lane as its one-lane candidate (the
-set's lane count and chunk size depend on the corrected lane rates
-themselves). (b) checks those two features exactly for a one-lane decision
-and every other feature for a set decision.
+**No exception (D366, FEATURE_VERSION 2):** a *set* decision's lane rows
+are featurised with the lane's one-lane candidate shape (``job_lanes`` 1,
+that candidate's ``job_chunk_items``) - the shape the planner can compute
+before any set exists - so they are bit-identical to the live queries too;
+only the set's ``combine`` carries the set's lanes and chunk (and so does its
+live query).
 """
 
 from __future__ import annotations
@@ -70,8 +70,6 @@ from meshforge.controller.planner.replay import canonical_json, project, to_repl
 from meshforge.controller.planner.types import Decision
 
 pytestmark = pytest.mark.unit
-
-_SKEWED = ("job_lanes", "job_chunk_items")
 
 
 def _key(values: Sequence[float]) -> tuple[str, ...]:
@@ -255,14 +253,6 @@ def _query(queries: Sequence[TermQuery], term: str, node_id: str) -> TermQuery:
     return found[0]
 
 
-def _without_skew(values: Sequence[str]) -> list[str]:
-    return [
-        v
-        for name, v in zip(NUMERIC_FEATURES, values, strict=True)
-        if name not in _SKEWED
-    ]
-
-
 def test_dataset_rows_of_a_whole_job_equal_the_live_queries() -> None:
     live = _live(split=False)
     chosen = live.decision.chosen
@@ -346,7 +336,8 @@ def test_dataset_rows_of_a_split_job_equal_the_live_queries(forced: bool) -> Non
     )
     dataset = build([run])
     is_set = chosen_row["mode"] == "split"
-    assert is_set is forced or not forced
+    if forced:
+        assert is_set and len(chosen_row["node_set"]) > 1
     by_term = Counter(row["term"] for row in dataset.rows)
     assert by_term["chunk_rate"] and by_term["combine"], dataset.counts
     for row in dataset.rows:
@@ -357,10 +348,13 @@ def test_dataset_rows_of_a_split_job_equal_the_live_queries(forced: bool) -> Non
             }
             continue
         q = _query(live.queries, row["term"], row["node_id"])
-        if is_set:
-            assert _without_skew(got) == _without_skew(_key(q.features)), row["term"]
-        else:
-            assert got == _key(q.features), row["term"]
+        assert got == _key(q.features), (row["term"], row["node_id"])
+        assert row["job_lanes"] == 1.0  # D366: the one-lane shape, set or not
+    if is_set:
+        (combine,) = [r for r in dataset.rows if r["term"] == "combine"]
+        assert combine["job_lanes"] == float(
+            len(chosen_row["node_set"]) - len(chosen_row.get("inactive", []))
+        )
 
 
 def test_the_features_never_see_a_calibrated_or_corrected_raw() -> None:
