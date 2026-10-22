@@ -63,9 +63,21 @@ def _ci(row: Mapping[str, Any]) -> str:
     return f"[{_num(ci.get('low'))}, {_num(ci.get('high'))}]"
 
 
+def _ci_label(level: Any) -> str:
+    """The CI column header from the report's own level (0.95 -> "95 % CI")."""
+    if (
+        isinstance(level, (int, float))
+        and not isinstance(level, bool)
+        and 0 < level < 1
+    ):
+        return f"{level * 100:g} % CI"
+    return "CI"
+
+
 def render_markdown(report: Mapping[str, Any]) -> str:
     """The Markdown rendering of ``report`` (module docstring)."""
     settings = report.get("settings") or {}
+    ci_label = _ci_label(settings.get("ci_level"))
     counts = report.get("counts") or {}
     lines: list[str] = ["# Planner evaluation report", ""]
     if report.get("leaked"):
@@ -124,7 +136,7 @@ def render_markdown(report: Mapping[str, Any]) -> str:
                 "rule policy",
                 "common groups",
                 "mean difference (% points)",
-                "95 % CI",
+                ci_label,
                 "unmeasured",
             ),
             [
@@ -146,7 +158,7 @@ def render_markdown(report: Mapping[str, Any]) -> str:
             "policy",
             "counted",
             "mean regret %",
-            "95 % CI",
+            ci_label,
             "mean regret ms",
             "within threshold %",
             "zero regret",

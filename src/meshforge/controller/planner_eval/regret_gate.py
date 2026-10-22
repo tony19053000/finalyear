@@ -85,6 +85,17 @@ def regret_gate(
             active_mean,
             f"regret check skipped (too_few_groups: {groups} < {min_groups})",
         )
+    # Lead fix (tester r2 T4): Decimal raises on NaN; a non-finite mean never
+    # passes - it is rejected (unreachable today: T3 keeps non-finite medians
+    # out of the regrets).
+    if not (math.isfinite(new_mean) and math.isfinite(active_mean)):
+        return RegretCheck(
+            "rejected",
+            groups,
+            new_mean,
+            active_mean,
+            f"holdout_regret not finite (new {new_mean}, active {active_mean})",
+        )
     # G4 fix round 1 (T1): compare the decimal values exactly - binary floating
     # point rounds the product below it for some values (1.14 x 1.05 =
     # 1.1969999999999998), which rejected a version exactly x 1.05 the active

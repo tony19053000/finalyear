@@ -53,6 +53,11 @@ set, the fit settings and the active version are unchanged - the normal case
 (another refresh activated a version, new runs finished), it refits and
 re-checks under the lock, so the stored row is always judged against what is
 active when it is written; the one-active invariant is unchanged.
+Not re-checked: the D319 labels (``load_for_jobs``) may change between the
+prepare and the store; they were never under the lock, so this is no new
+race. The re-check path opens a second pooled session for the label reads
+while the locked transaction holds its connection, so the pool needs at
+least 2 connections (the default pool is larger).
 
 **The matched runs** (one bounded read): ``dispatched`` decisions joined to
 their attempt (``done``, ``ended_at`` set), the attempt's run record (workload

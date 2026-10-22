@@ -305,15 +305,7 @@ def test_gate_zero_active_and_edge_values() -> None:
 @pytest.mark.parametrize(
     "bad",
     [
-        pytest.param(
-            float("nan"),
-            marks=pytest.mark.xfail(
-                strict=True,
-                raises=pytest.fail.Exception,
-                reason="DEFECT T4 (minor): regret_gate(nan, x) raises decimal.InvalidOperation "
-                "(pre-fix float code rejected); unreachable while T3 keeps NaN out of the means",
-            ),
-        ),
+        float("nan"),
         float("inf"),
     ],
 )
