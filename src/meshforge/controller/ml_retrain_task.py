@@ -226,9 +226,7 @@ class MlRetrainer:
     @property
     def running(self) -> bool:
         """A retrain holds the lock, or a requested one has not ended yet."""
-        return self._lock.locked() or (
-            self._task is not None and not self._task.done()
-        )
+        return self._lock.locked() or (self._task is not None and not self._task.done())
 
     @property
     def interval_s(self) -> float:

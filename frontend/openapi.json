@@ -5137,6 +5137,353 @@
         "title": "MlFeatureOut",
         "type": "object"
       },
+      "MlInUseOut": {
+        "additionalProperties": false,
+        "properties": {
+          "in_use_set": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "In Use Set"
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kind"
+          },
+          "mode": {
+            "title": "Mode",
+            "type": "string"
+          },
+          "pinned_config": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pinned Config"
+          },
+          "unavailable": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unavailable"
+          }
+        },
+        "required": [
+          "mode",
+          "pinned_config",
+          "kind",
+          "in_use_set",
+          "unavailable"
+        ],
+        "title": "MlInUseOut",
+        "type": "object"
+      },
+      "MlMemberOut": {
+        "additionalProperties": false,
+        "properties": {
+          "algorithm": {
+            "title": "Algorithm",
+            "type": "string"
+          },
+          "artefact_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Artefact Bytes"
+          },
+          "metrics": {
+            "additionalProperties": true,
+            "title": "Metrics",
+            "type": "object"
+          },
+          "params": {
+            "additionalProperties": true,
+            "title": "Params",
+            "type": "object"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "term": {
+            "title": "Term",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "term",
+          "algorithm",
+          "version",
+          "params",
+          "metrics",
+          "reason",
+          "artefact_bytes"
+        ],
+        "title": "MlMemberOut",
+        "type": "object"
+      },
+      "MlModelsOut": {
+        "additionalProperties": false,
+        "properties": {
+          "in_use": {
+            "$ref": "#/components/schemas/MlInUseOut"
+          },
+          "retrain": {
+            "$ref": "#/components/schemas/MlRetrainStateOut"
+          },
+          "serving_set": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Serving Set"
+          },
+          "sets": {
+            "items": {
+              "$ref": "#/components/schemas/MlSetOut"
+            },
+            "title": "Sets",
+            "type": "array"
+          }
+        },
+        "required": [
+          "in_use",
+          "serving_set",
+          "sets",
+          "retrain"
+        ],
+        "title": "MlModelsOut",
+        "type": "object"
+      },
+      "MlRetrainOut": {
+        "additionalProperties": false,
+        "properties": {
+          "created_set": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created Set"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "finished_at": {
+            "$ref": "#/components/schemas/Utc"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "rows": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rows"
+          },
+          "seconds": {
+            "additionalProperties": true,
+            "title": "Seconds",
+            "type": "object"
+          },
+          "skipped": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Skipped"
+          },
+          "started_at": {
+            "$ref": "#/components/schemas/Utc"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "superseded_set": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Superseded Set"
+          },
+          "trigger": {
+            "title": "Trigger",
+            "type": "string"
+          }
+        },
+        "required": [
+          "trigger",
+          "started_at",
+          "finished_at",
+          "created_set",
+          "status",
+          "reason",
+          "skipped",
+          "error",
+          "detail",
+          "superseded_set",
+          "rows",
+          "seconds"
+        ],
+        "title": "MlRetrainOut",
+        "type": "object"
+      },
+      "MlRetrainStateOut": {
+        "additionalProperties": false,
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "failures": {
+            "title": "Failures",
+            "type": "integer"
+          },
+          "interval_s": {
+            "title": "Interval S",
+            "type": "number"
+          },
+          "last": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MlRetrainOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "missing": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Missing",
+            "type": "array"
+          },
+          "retrains": {
+            "title": "Retrains",
+            "type": "integer"
+          },
+          "running": {
+            "title": "Running",
+            "type": "boolean"
+          },
+          "running_since": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Utc"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "available",
+          "missing",
+          "running",
+          "running_since",
+          "retrains",
+          "failures",
+          "last",
+          "interval_s"
+        ],
+        "title": "MlRetrainStateOut",
+        "type": "object"
+      },
       "MlSchemaOut": {
         "additionalProperties": false,
         "properties": {
@@ -5173,6 +5520,132 @@
           "terms"
         ],
         "title": "MlSchemaOut",
+        "type": "object"
+      },
+      "MlSetDetailOut": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "$ref": "#/components/schemas/Utc"
+          },
+          "dataset_digest": {
+            "title": "Dataset Digest",
+            "type": "string"
+          },
+          "feature_version": {
+            "title": "Feature Version",
+            "type": "integer"
+          },
+          "gate": {
+            "additionalProperties": true,
+            "title": "Gate",
+            "type": "object"
+          },
+          "inputs": {
+            "additionalProperties": true,
+            "title": "Inputs",
+            "type": "object"
+          },
+          "members": {
+            "items": {
+              "$ref": "#/components/schemas/MlMemberOut"
+            },
+            "title": "Members",
+            "type": "array"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "set_version": {
+            "title": "Set Version",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "status_changed_at": {
+            "$ref": "#/components/schemas/Utc"
+          }
+        },
+        "required": [
+          "set_version",
+          "created_at",
+          "status_changed_at",
+          "status",
+          "reason",
+          "dataset_digest",
+          "feature_version",
+          "members",
+          "gate",
+          "inputs"
+        ],
+        "title": "MlSetDetailOut",
+        "type": "object"
+      },
+      "MlSetOut": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "$ref": "#/components/schemas/Utc"
+          },
+          "dataset_digest": {
+            "title": "Dataset Digest",
+            "type": "string"
+          },
+          "feature_version": {
+            "title": "Feature Version",
+            "type": "integer"
+          },
+          "members": {
+            "items": {
+              "$ref": "#/components/schemas/MlMemberOut"
+            },
+            "title": "Members",
+            "type": "array"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "set_version": {
+            "title": "Set Version",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "status_changed_at": {
+            "$ref": "#/components/schemas/Utc"
+          }
+        },
+        "required": [
+          "set_version",
+          "created_at",
+          "status_changed_at",
+          "status",
+          "reason",
+          "dataset_digest",
+          "feature_version",
+          "members"
+        ],
+        "title": "MlSetOut",
         "type": "object"
       },
       "MlTermOut": {
@@ -5214,6 +5687,24 @@
           "actual"
         ],
         "title": "MlTermOut",
+        "type": "object"
+      },
+      "MlTrainOut": {
+        "additionalProperties": false,
+        "properties": {
+          "retrain": {
+            "$ref": "#/components/schemas/MlRetrainStateOut"
+          },
+          "started": {
+            "title": "Started",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "started",
+          "retrain"
+        ],
+        "title": "MlTrainOut",
         "type": "object"
       },
       "NetworkOut": {
@@ -15483,6 +15974,672 @@
           }
         },
         "summary": "The ML training dataset (Parquet, or its summary) - admin only",
+        "tags": [
+          "planner"
+        ]
+      }
+    },
+    "/v1/planner/ml/models": {
+      "get": {
+        "description": "The newest model sets and what the planner may use now.",
+        "operationId": "get_models_v1_planner_ml_models_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MlModelsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid input (`invalid_input`)"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No, or no longer a valid, credential (`unauthorized`)"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not allowed: admin only, CSRF, foreign origin (`unauthorized`)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found - also another user's object (`not_found`)"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict (`conflict`, `no_feasible_plan`)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid parameters (`invalid_input`)"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Rate limited; see Retry-After (`resource_busy`)"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "A dependency (the database) is unavailable; retry (`network_error`)"
+          }
+        },
+        "summary": "Get Models",
+        "tags": [
+          "planner"
+        ]
+      }
+    },
+    "/v1/planner/ml/models/{set_version}": {
+      "get": {
+        "description": "One model set with its gate document and training inputs.",
+        "operationId": "get_model_set_v1_planner_ml_models__set_version__get",
+        "parameters": [
+          {
+            "description": "sha256:<64 hex>",
+            "in": "path",
+            "name": "set_version",
+            "required": true,
+            "schema": {
+              "description": "sha256:<64 hex>",
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "title": "Set Version",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MlSetDetailOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid input (`invalid_input`)"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No, or no longer a valid, credential (`unauthorized`)"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not allowed: admin only, CSRF, foreign origin (`unauthorized`)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found - also another user's object (`not_found`)"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict (`conflict`, `no_feasible_plan`)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid parameters (`invalid_input`)"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Rate limited; see Retry-After (`resource_busy`)"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "A dependency (the database) is unavailable; retry (`network_error`)"
+          }
+        },
+        "summary": "Get Model Set",
+        "tags": [
+          "planner"
+        ]
+      }
+    },
+    "/v1/planner/ml/models/{set_version}/pin": {
+      "post": {
+        "description": "Pin a model set: the planner uses it until unpinned (admin).",
+        "operationId": "pin_set_v1_planner_ml_models__set_version__pin_post",
+        "parameters": [
+          {
+            "description": "sha256:<64 hex>",
+            "in": "path",
+            "name": "set_version",
+            "required": true,
+            "schema": {
+              "description": "sha256:<64 hex>",
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "title": "Set Version",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MlSetDetailOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid input (`invalid_input`)"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No, or no longer a valid, credential (`unauthorized`)"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not allowed: admin only, CSRF, foreign origin (`unauthorized`)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found - also another user's object (`not_found`)"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict (`conflict`, `no_feasible_plan`)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid parameters (`invalid_input`)"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Rate limited; see Retry-After (`resource_busy`)"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "A dependency (the database) is unavailable; retry (`network_error`)"
+          }
+        },
+        "summary": "Pin Set",
+        "tags": [
+          "planner"
+        ]
+      }
+    },
+    "/v1/planner/ml/models/{set_version}/unpin": {
+      "post": {
+        "description": "Unpin a model set (admin).",
+        "operationId": "unpin_set_v1_planner_ml_models__set_version__unpin_post",
+        "parameters": [
+          {
+            "description": "sha256:<64 hex>",
+            "in": "path",
+            "name": "set_version",
+            "required": true,
+            "schema": {
+              "description": "sha256:<64 hex>",
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "title": "Set Version",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MlSetDetailOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid input (`invalid_input`)"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No, or no longer a valid, credential (`unauthorized`)"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not allowed: admin only, CSRF, foreign origin (`unauthorized`)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found - also another user's object (`not_found`)"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict (`conflict`, `no_feasible_plan`)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid parameters (`invalid_input`)"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Rate limited; see Retry-After (`resource_busy`)"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "A dependency (the database) is unavailable; retry (`network_error`)"
+          }
+        },
+        "summary": "Unpin Set",
+        "tags": [
+          "planner"
+        ]
+      }
+    },
+    "/v1/planner/ml/train": {
+      "get": {
+        "description": "The retrain task's state and its last result.",
+        "operationId": "get_train_v1_planner_ml_train_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MlRetrainStateOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid input (`invalid_input`)"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No, or no longer a valid, credential (`unauthorized`)"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not allowed: admin only, CSRF, foreign origin (`unauthorized`)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found - also another user's object (`not_found`)"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict (`conflict`, `no_feasible_plan`)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid parameters (`invalid_input`)"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Rate limited; see Retry-After (`resource_busy`)"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "A dependency (the database) is unavailable; retry (`network_error`)"
+          }
+        },
+        "summary": "Get Train",
+        "tags": [
+          "planner"
+        ]
+      },
+      "post": {
+        "description": "Start a retrain now (admin; runs in the background).",
+        "operationId": "train_v1_planner_ml_train_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MlTrainOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid input (`invalid_input`)"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No, or no longer a valid, credential (`unauthorized`)"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not allowed: admin only, CSRF, foreign origin (`unauthorized`)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found - also another user's object (`not_found`)"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict (`conflict`, `no_feasible_plan`)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid parameters (`invalid_input`)"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Rate limited; see Retry-After (`resource_busy`)"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "A dependency (the database) is unavailable; retry (`network_error`)"
+          }
+        },
+        "summary": "Train",
         "tags": [
           "planner"
         ]
