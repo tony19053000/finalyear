@@ -81,6 +81,22 @@ agent = [
     # h11 (already installed via httpx/httpcore; explicit because the agent imports it).
     "h11>=0.16",
 ]
+# V0.15 G2 (D340, Q16): the ML planner's training/comparison library
+# (meshforge.controller.ml.train - the only package allowed to import these, an
+# import-linter contract). Controller-side only: agents never install it, and a
+# controller without it runs exactly as V0.14 (`compute planner ml compare`
+# exits 2). XGBoost comes from the CPU-only `xgboost-cpu` wheel on Linux and
+# Windows (plain `xgboost` pulls the ~200 MB NCCL/CUDA wheel on Linux; both ship
+# the same `xgboost` module); macOS has no xgboost-cpu wheel, so it keeps the
+# plain one there (no NCCL on macOS). Upper bounds: a major version can change
+# model output, and byte-identical reports (D352) hold per library version.
+ml = [
+    "numpy>=2.3,<3",
+    "scikit-learn>=1.9,<2",
+    "lightgbm>=4.7,<5",
+    "xgboost-cpu>=3.4,<4; sys_platform != 'darwin'",
+    "xgboost>=3.4,<4; sys_platform == 'darwin'",
+]
 # CPU/CUDA variant selection (PyTorch wheel index per platform) is decided in V0.2;
 # here torch comes from the default index. Only installed with `--extra gpu`.
 gpu = [
