@@ -126,7 +126,7 @@ def whole_run(
     family: str | None = "cpu.primes",
     fingerprint: str | None = "fp_a",
     finished_at: dt.datetime = T0,
-    replay: Mapping[str, Any] | None | bool = True,
+    replay: Mapping[str, Any] | bool | None = True,
     lanes: tuple[LaneOutcome, ...] = (),
     combine: CombineOutcome | None = None,
 ) -> RunInput:
