@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from typing import Any, Final
 
 from sqlalchemy import select
+from sqlalchemy.orm import defer
 
 from meshforge.controller.jobs.store import JobStore, typed_store_call
 from meshforge.controller.store.models.job import Attempt, AttemptPhaseRow
@@ -38,6 +39,11 @@ class ActualOutcome:
     failure_type: str | None
     phases_ms: Mapping[str, int | None] = field(default_factory=dict)
     """phase -> duration in ms; None = the phase never ran (skipped)."""
+    role: str | None = None
+    """V0.14 G5: ``run`` / ``lane`` / ``combine`` (what
+    :func:`~meshforge.controller.planner.calibration.match` checks)."""
+    ended_at: dt.datetime | None = None
+    """V0.14 G5: None = the attempt has not ended."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,6 +65,12 @@ class DecisionRecordOut:
     objective: str | None = None
     """V0.14 G3 (D295): the objective the decision ranked by (``None`` for a
     row written before migration 0030)."""
+    calibration_version: int | None = None
+    """V0.14 G5 (D300): the calibration its estimates were scaled by (None =
+    uncalibrated)."""
+    replay_version: int | None = None
+    """V0.14 G5 (D300): the replay snapshot's format version; None = the row
+    has no replay (pre-V0.14, or over ``replay_max_bytes``)."""
 
 
 class DecisionReads(JobStore):
@@ -72,6 +84,8 @@ class DecisionReads(JobStore):
         limit = max(1, min(limit, MAX_DECISIONS))
         query = (
             select(PlanDecision)
+            # the replay (up to 64 KiB a row) is never shown, only its version
+            .options(defer(PlanDecision.replay))
             .where(PlanDecision.job_id == job_id)
             .order_by(PlanDecision.id.desc())
             .limit(limit)
@@ -106,6 +120,8 @@ class DecisionReads(JobStore):
                         state=a.state,
                         failure_type=a.failure_type,
                         phases_ms=phases.get(attempt_id, {}),
+                        role=a.role,
+                        ended_at=a.ended_at,
                     )
             return [
                 DecisionRecordOut(
@@ -123,6 +139,12 @@ class DecisionReads(JobStore):
                     shadow_chosen_node_id=r.shadow_chosen_node_id,
                     shadow_estimate_s=r.shadow_estimate_s,
                     objective=r.objective,
+                    calibration_version=None
+                    if r.calibration_version is None
+                    else int(r.calibration_version),
+                    replay_version=None
+                    if r.replay_version is None
+                    else int(r.replay_version),
                 )
                 for r in rows
             ]

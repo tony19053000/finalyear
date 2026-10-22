@@ -29,4 +29,7 @@ export const queryKeys = {
   // --- V0.9 G6 (Benchmarks; admin only) -----------------------------------
   /** Prefix of every campaign entry (pages/benchmarks/benchKeys.ts). */
   bench: ["bench"] as const,
+  // --- V0.14 G5 (Planner page) -------------------------------------------
+  /** Calibration versions and evaluation reports (pages/planner). */
+  planner: ["planner"] as const,
 };

@@ -113,7 +113,8 @@ def test_v014_g3_tester_r1_explain_names_the_link_bandwidth_and_bytes() -> None:
 def test_v014_g3_tester_r1_explain_has_no_risk_column_without_risk() -> None:
     assert "RISK" not in _text(_decision())
     with_risk = _text(_decision(reliability=Reliability(1, 5, 7.0)))
-    assert "RISK" in with_risk and "(history)" in with_risk
+    # V0.14 G5 (D300): the risk cell also names p_fail: "(history, p_fail ...)"
+    assert "RISK" in with_risk and "(history, p_fail " in with_risk
 
 
 def test_v014_g3_tester_r1_explain_survives_hostile_risk_numbers() -> None:

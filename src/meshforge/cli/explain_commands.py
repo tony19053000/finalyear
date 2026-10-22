@@ -8,8 +8,16 @@ V0.6 G4, the node(s) or ``controller`` a transfer's bandwidth came from - one
 per missing tree, D131 - with the age of the controller's transfer history)
 (``measured`` / ``history`` / ``scaled`` / ``assumed`` - checklist 18: nothing
 assumed reads as measured); and, once the attempt ran, predicted vs actual
-(``transfer``~``stage``, ``env``~``env``, ``compute``~``run``,
-``output``~``collect``, ``queue``~``queue``).
+per term with the ratio (V0.14 G5, D320: the API's ``actual_s`` / ``ratio``,
+the calibration's own term -> phase match) and the five measured phases.
+
+**Parity with the Plan tab (V0.14 G5, criterion 4).** Every field this command
+prints is a field of the decisions answer, and the dashboard's Plan tab shows
+the same set (``tests/unit/test_v014_g5_explain_contract.py`` proves it on one
+shared fixture). The sentences - the margin test, a term's note - are computed
+by the controller with ``common/explain_text`` and printed as received; the
+decision header names the objective, calibration version, replay, snapshot and
+a pinned job's shadow pick.
 
 A **split job** (V0.10 G3, D265) also gets a split table: every candidate's
 node set (a Mode 3 row is named ``<fastest node> +N``), its chunking, each
@@ -31,6 +39,7 @@ from rich.table import Table
 
 from meshforge.cli import render
 from meshforge.cli import shared as cli
+from meshforge.common.explain_text import format_seconds, margin_sentence, term_note
 
 __all__ = ["decision_tables", "explain"]
 
@@ -40,101 +49,46 @@ _SPLIT_TERMS: Final = ("items_fetch", "chunk_overhead", "tail", "combine")
 _RISK_TERMS: Final = ("risk",)
 """V0.14 G3 (D296): shown when a decision's candidates carry it."""
 _MAX_SET_NODES: Final = 6
-_ACTUAL_PHASE: Final = {
-    "queue": "queue",
-    "transfer": "stage",
-    "env": "env",
-    "compute": "run",
-    "output": "collect",
-}
+_PHASES: Final = ("queue", "stage", "env", "run", "collect")
+"""The five measured phases of an attempt (``actual.phases_ms``)."""
 _DASH: Final = "-"
 
 
 def _seconds(value: Any) -> str:
-    if isinstance(value, bool) or not isinstance(value, int | float):
-        return _DASH
-    return f"{value:.2f}s"
+    return format_seconds(value)
 
 
-_MAX_ORIGINS: Final = 3
-
-
-def _origin(detail: Mapping[str, Any]) -> str | None:
-    """Where one bandwidth came from: ``controller`` (with the age of its
-    latest transfer when known - D131: that history has no staleness rule),
-    the last 8 characters of a probed holder's node id, or ``default`` for an
-    assumed bandwidth."""
-    from meshforge.cli.render import _num, format_age
-
-    source = detail.get("bw_from")
-    if source == "controller":
-        age = _num(detail.get("last_transfer_age_s"))
-        return "controller" + (
-            f" (last transfer {format_age(age)} ago)" if age is not None else ""
-        )
-    if isinstance(source, str) and source:
-        return source[-8:]
-    return "default" if detail.get("bw_source") == "assumed" else None
-
-
-def _origins(detail: Mapping[str, Any]) -> list[str]:
-    """Every distinct source of a transfer term, in the job's tree order: the
-    term's own when one source carried it all, else one per ``items`` entry
-    (D131: each missing tree is costed by its own source)."""
-    if isinstance(detail.get("bw_from"), str) and detail.get("bw_from"):
-        one = _origin(detail)
-        return [one] if one else []
-    items = detail.get("items")
-    found: list[str] = []
-    for item in items if isinstance(items, list) else []:
-        label = _origin(item) if isinstance(item, Mapping) else None
-        if label and label not in found:
-            found.append(label)
-    return found
-
-
-def _clamped(detail: Mapping[str, Any]) -> bool:
-    items = detail.get("items")
-    return detail.get("bw_clamped") is True or any(
-        isinstance(i, Mapping) and i.get("bw_clamped") is True
-        for i in (items if isinstance(items, list) else [])
-    )
-
-
-def _term_cell(term: Any) -> str:
-    """``<seconds> (<source>)``; a transfer also names where its bandwidth came
-    from (V0.6 G4: ``from <node...>`` for a probed link, ``from controller``
-    with the age of its latest transfer for transfer history; several sources
-    are joined with ``+``, D131), a cached environment says so, a bandwidth
-    raised to the configured floor is flagged, and probed links ignored as
-    stale are counted (checklist 18: a stale probe never counts as a
-    measurement)."""
+def _term_cell(term: Any, name: str | None = None) -> str:
+    """``<seconds> (<source>, <note>, <calibration>)``. The note is the API's
+    ``note`` (``common/explain_text.term_note``, the string the Plan tab shows:
+    where a transfer's bandwidth came from - D131 -, a cached environment, the
+    bandwidth floor, stale probes ignored - checklist 18 -, a risk term's
+    p_fail); an answer without it (a stored row read directly) gets the same
+    function's result. A calibrated term names its factor (D293)."""
     if not isinstance(term, Mapping):
         return _DASH
-    detail = term.get("detail")
-    detail = detail if isinstance(detail, Mapping) else {}
-    extra = ""
-    origins = _origins(detail)
-    if origins:
-        shown = origins[:_MAX_ORIGINS]
-        more = len(origins) - len(shown)
-        extra = ", from " + " + ".join(shown) + (f" + {more} more" if more else "")
-    elif detail.get("env_cached") is True:
-        extra = ", cached"
-    if _clamped(detail):
-        extra += ", at the bandwidth floor"
-    stale = detail.get("stale_links_ignored")
-    if isinstance(stale, list) and stale:
-        extra += f", {len(stale)} stale probe(s) ignored"
-    extra += _calibration_note(detail)  # V0.14 G2 (D293)
+    note = term["note"] if "note" in term else term_note(term, name=name)
+    extra = f", {note}" if isinstance(note, str) and note else ""
+    extra += _calibration_note(term)  # V0.14 G2 (D293)
     return f"{_seconds(term.get('seconds'))} ({term.get('source')}{extra})"
 
 
-def _calibration_note(detail: Mapping[str, Any]) -> str:
+def _calibration_block(term: Mapping[str, Any]) -> Mapping[str, Any] | None:
+    """The API's typed ``calibration`` (V0.14 G5); a stored row's
+    ``detail.calibration`` when the answer has no such key."""
+    if "calibration" in term:
+        block = term.get("calibration")
+    else:
+        detail = term.get("detail")
+        block = detail.get("calibration") if isinstance(detail, Mapping) else None
+    return block if isinstance(block, Mapping) else None
+
+
+def _calibration_note(term: Mapping[str, Any]) -> str:
     """V0.14 G2 (D293): ``, x1.30 calibrated (n=14, node)`` for a term the
     planner scaled by a calibration factor; empty otherwise."""
-    calibration = detail.get("calibration")
-    if not isinstance(calibration, Mapping):
+    calibration = _calibration_block(term)
+    if calibration is None:
         return ""
     factor = calibration.get("factor")
     if isinstance(factor, bool) or not isinstance(factor, int | float):
@@ -165,6 +119,36 @@ def _objective_note(decision: Mapping[str, Any]) -> str:
     return f", objective {objective}" if isinstance(objective, str) else ""
 
 
+def _int_text(value: Any) -> str | None:
+    return None if isinstance(value, bool) or not isinstance(value, int) else str(value)
+
+
+def _facts_note(decision: Mapping[str, Any]) -> str:
+    """V0.14 G5 (D300): the chosen node, calibration version, replay, when,
+    snapshot digest and a pinned job's shadow pick - the Plan tab's header."""
+    calibration = _int_text(decision.get("calibration_version"))
+    replay = _int_text(decision.get("replay_version"))
+    chosen = decision.get("chosen_node_id")
+    parts = [
+        f"chosen {chosen}" if isinstance(chosen, str) and chosen else "none chosen",
+        f"calibration v{calibration}" if calibration else "uncalibrated",
+        f"replay v{replay}" if replay else "no replay",
+    ]
+    created = decision.get("created_at")
+    if isinstance(created, str) and created:
+        parts.append(f"at {created}")
+    digest = decision.get("snapshot_digest")
+    if isinstance(digest, str) and digest:
+        parts.append(f"snapshot {digest[:12]}")
+    shadow = decision.get("shadow_chosen_node_id")
+    if isinstance(shadow, str) and shadow:
+        parts.append(
+            f"unpinned the planner would pick {shadow} "
+            f"({_seconds(decision.get('shadow_estimate_s'))})"
+        )
+    return " - " + ", ".join(parts)
+
+
 def _candidates_table(decision: Mapping[str, Any]) -> Table:
     from meshforge.cli.render import _cell
 
@@ -173,6 +157,7 @@ def _candidates_table(decision: Mapping[str, Any]) -> Table:
         "NODE",
         "MODE",
         "SLOT",
+        "FEASIBLE",
         "SCORE",
         "PREDICTED",
         "REASON",
@@ -180,6 +165,7 @@ def _candidates_table(decision: Mapping[str, Any]) -> Table:
             f"decision {decision.get('id')} - attempt {decision.get('attempt_no')}: "
             f"{decision.get('outcome')} (policy {decision.get('policy')})"
             + _objective_note(decision)
+            + _facts_note(decision)
         ),
     )
     candidates = decision.get("candidates")
@@ -200,11 +186,16 @@ def _candidates_table(decision: Mapping[str, Any]) -> Table:
             _cell(_node_label(c)),
             _cell(c.get("mode")),
             _cell(c.get("slot")),
+            _cell(_yes_no(c.get("feasible"))),
             _score_cell(c.get("score")),
             _seconds(total),
             _cell(reason),
         )
     return table
+
+
+def _yes_no(value: Any) -> str:
+    return "yes" if value is True else "no" if value is False else _DASH
 
 
 def _terms_table(decision: Mapping[str, Any]) -> Table | None:
@@ -238,7 +229,7 @@ def _terms_table(decision: Mapping[str, Any]) -> Table | None:
         lead = (_cell(_node_label(c)), _cell(c.get("mode")))
         table.add_row(
             *lead[: len(heads)],
-            *(_cell(_term_cell(terms.get(t))) for t in names),
+            *(_cell(_term_cell(terms.get(t), t)) for t in names),
             _seconds(estimate.get("total_s")),
         )
     return table
@@ -289,11 +280,18 @@ def _rate_cell(candidate: Mapping[str, Any]) -> str:
     rate = _num(candidate.get("rate_items_s"))
     if rate is None:
         return _DASH
-    return f"{rate:.4g}/s ({candidate.get('rate_source')})"
+    start = _num(candidate.get("start_s"))
+    return f"{rate:.4g}/s ({candidate.get('rate_source')})" + (
+        f", first chunk at {_seconds(start)}" if start is not None else ""
+    )
 
 
 def _margin_cell(candidate: Mapping[str, Any]) -> str:
-    """``pass: 120.88s <= 272.70s`` for a set row; the code of a rejected one."""
+    """``pass: 41.00s <= 46.80s = (1 - 0.1) x 52.00s (node_a)`` for a set row
+    (``, forced: <why>`` when no set was compared, D265); the code of a
+    rejected one."""
+    from meshforge.cli.render import _num
+
     if candidate.get("reject_code"):
         return str(candidate.get("reject_code"))
     test = candidate.get("margin_test")
@@ -301,73 +299,25 @@ def _margin_cell(candidate: Mapping[str, Any]) -> str:
         return _DASH
     verdict = "pass" if test.get("passed") is True else "fail"
     sign = "<=" if test.get("passed") is True else ">"
+    margin = _num(test.get("margin"))
+    forced = test.get("forced")
     return (
         f"{verdict}: {_seconds(test.get('set_s'))} {sign} "
-        f"{_seconds(test.get('threshold_s'))}"
+        f"{_seconds(test.get('threshold_s'))} = (1 - "
+        f"{_DASH if margin is None else f'{margin:g}'}) x "
+        f"{_seconds(test.get('best_single_s'))} ({test.get('best_single_node_id')})"
+        + (f", forced: {forced}" if isinstance(forced, str) and forced else "")
     )
 
 
-def _split_verdict(rows: list[Mapping[str, Any]]) -> str:
-    """One sentence: why the job was (not) split (D265 margin test)."""
-    from meshforge.cli.render import _num
-
-    chosen = next((c for c in rows if c.get("rank") == 1), None)
-    tests = [
-        c.get("margin_test")
-        for c in rows
-        if c.get("mode") == "split" and isinstance(c.get("margin_test"), Mapping)
-    ]
-    refused = next(
-        (c for c in rows if c.get("mode") == "split" and c.get("reject_code")), None
-    )
-
-    def margin(test: Mapping[str, Any]) -> str:
-        number = _num(test.get("margin"))
-        return _DASH if number is None else f"{number:g}"
-
-    if chosen is not None and chosen.get("mode") == "split":
-        test = chosen.get("margin_test")
-        test = test if isinstance(test, Mapping) else {}
-        return (
-            f"split over {len(_node_set(chosen))} nodes: "
-            f"{_seconds(test.get('set_s'))} <= (1 - {margin(test)}) x "
-            f"{_seconds(test.get('best_single_s'))} "
-            f"(best single node {test.get('best_single_node_id')})"
-        )
-    if refused is not None:
-        return f"not split: {refused.get('reject_text')}"
-    best = tests[0] if tests else None
-    if isinstance(best, Mapping) and best.get("passed") is True:
-        # V0.14 G3 (D295): the margin test passed; the job's objective did not
-        return (
-            f"not split: the best set {_seconds(best.get('set_s'))} passed the "
-            "margin test, but the job's objective ranked one node first"
-        )
-    if isinstance(best, Mapping):
-        return (
-            f"not split: the best set {_seconds(best.get('set_s'))} is above "
-            f"{_seconds(best.get('threshold_s'))} = (1 - {margin(best)}) x "
-            f"{_seconds(best.get('best_single_s'))} "
-            f"(best single node {best.get('best_single_node_id')})"
-        )
-    return "not split: the job is pinned to one node"
-
-
-def _pruned_sentence(rows: list[Mapping[str, Any]]) -> str:
-    """V0.14 G3 (D294): which idle nodes sets were skipped for, and why."""
-    pruned = next((c.get("pruned") for c in rows if c.get("pruned")), None)
-    if not isinstance(pruned, list) or not pruned:
-        return ""
-    parts = [
-        f"{p.get('node_id')} (by {p.get('by')})"
-        for p in pruned
-        if isinstance(p, Mapping)
-    ]
-    return (
-        "; sets that only add an idle node were not costed: "
-        + ", ".join(parts)
-        + " - the faster node would finish every item before it could start"
-    )
+def _margin_title(decision: Mapping[str, Any]) -> str:
+    """The API's ``margin_sentence`` (V0.14 G5: the controller computes it with
+    ``common/explain_text.margin_sentence``, the string the Plan tab shows);
+    an answer without the key gets the same function's result."""
+    if "margin_sentence" in decision:
+        sentence = decision.get("margin_sentence")
+        return sentence if isinstance(sentence, str) else _DASH
+    return margin_sentence(decision.get("candidates")) or _DASH
 
 
 def _split_table(decision: Mapping[str, Any]) -> Table | None:
@@ -391,7 +341,7 @@ def _split_table(decision: Mapping[str, Any]) -> Table | None:
         "RATE",
         "PREDICTED",
         "MARGIN TEST",
-        title=_cell(_split_verdict(rows) + _pruned_sentence(rows)),
+        title=_cell(_margin_title(decision)),
     )
     for c in rows:
         estimate = c.get("estimate")
@@ -408,8 +358,27 @@ def _split_table(decision: Mapping[str, Any]) -> Table | None:
     return table
 
 
+def _ratio(value: Any) -> str:
+    from meshforge.cli.render import _num
+
+    number = _num(value)
+    return _DASH if number is None else f"x{number:.2f}"
+
+
+def _actual_title(actual: Mapping[str, Any]) -> str:
+    return (
+        f"actual: attempt {actual.get('attempt_id')} on {actual.get('node_id')} "
+        f"- {actual.get('state')}"
+        + (f" ({actual.get('failure_type')})" if actual.get("failure_type") else "")
+    )
+
+
 def _actual_table(decision: Mapping[str, Any]) -> Table | None:
-    from meshforge.cli.render import _cell, _num
+    """Predicted vs actual **per term** of the chosen candidate (V0.14 G5,
+    D320): the API's ``actual_s`` and ``ratio`` - the calibration's own term
+    -> phase match, ``-`` where no phase honestly measured the term (never a
+    second mapping here)."""
+    from meshforge.cli.render import _cell
 
     actual = decision.get("actual")
     if not isinstance(actual, Mapping):
@@ -425,21 +394,31 @@ def _actual_table(decision: Mapping[str, Any]) -> Table | None:
     estimate = chosen.get("estimate") if isinstance(chosen, Mapping) else None
     terms = estimate.get("terms") if isinstance(estimate, Mapping) else None
     terms = terms if isinstance(terms, Mapping) else {}
+    table = render.table(
+        "TERM", "PREDICTED", "ACTUAL", "RATIO", title=_cell(_actual_title(actual))
+    )
+    for name, term in terms.items():
+        mine = term if isinstance(term, Mapping) else {}
+        table.add_row(
+            _cell(name),
+            _cell(_term_cell(term, str(name))),
+            _seconds(mine.get("actual_s")),
+            _ratio(mine.get("ratio")),
+        )
+    return table
+
+
+def _phases_table(decision: Mapping[str, Any]) -> Table | None:
+    """The attempt's five measured phases as the agent reported them."""
+    from meshforge.cli.render import _num
+
+    actual = decision.get("actual")
+    if not isinstance(actual, Mapping):
+        return None
     phases = actual.get("phases_ms")
     phases = phases if isinstance(phases, Mapping) else {}
-    table = render.table(
-        "TERM",
-        "PREDICTED",
-        "ACTUAL PHASE",
-        "ACTUAL",
-        title=_cell(
-            f"actual: attempt {actual.get('attempt_id')} on {actual.get('node_id')} "
-            f"- {actual.get('state')}"
-            + (f" ({actual.get('failure_type')})" if actual.get("failure_type") else "")
-        ),
-    )
-    for term in _TERMS:
-        phase = _ACTUAL_PHASE[term]
+    table = render.table("PHASE", "ACTUAL", title="measured phases")
+    for phase in _PHASES:
         ms = phases.get(phase)
         number = _num(ms)
         if phase not in phases:
@@ -450,7 +429,7 @@ def _actual_table(decision: Mapping[str, Any]) -> Table | None:
             shown = _DASH
         else:
             shown = _seconds(number / 1000.0)
-        table.add_row(term, _cell(_term_cell(terms.get(term))), phase, shown)
+        table.add_row(phase, shown)
     return table
 
 
@@ -466,6 +445,7 @@ def decision_tables(payload: Mapping[str, Any]) -> list[Table]:
             _split_table(decision),
             _terms_table(decision),
             _actual_table(decision),
+            _phases_table(decision),
         )
         tables.extend(t for t in extras if t is not None)
     return tables

@@ -9,6 +9,14 @@ rejected - its rejection code and text, its predicted terms with their
 assumed is shown as measured, checklist 18), the policy's score and rank; and,
 for a decision that placed an attempt, what actually happened (node, state,
 failure type, the five phase timings). ``compute explain`` prints this.
+
+V0.14 G5 (D300, D320): each term also carries its calibration factor
+(``calibration``), a ``note`` (bandwidth origins, cached env, risk p_fail) and,
+on the chosen candidate once its attempt ended ``done``, ``actual_s`` and
+``ratio`` (the calibration's own term -> phase match; null = no honest phase);
+each decision its ``calibration_version``, ``replay_version`` and
+``margin_sentence``. Derived at read time by
+``controller/jobs/decision_explain.py`` - the same strings the CLI prints.
 """
 
 from __future__ import annotations
@@ -24,13 +32,25 @@ from meshforge.controller.api.auth import CurrentUser
 from meshforge.controller.api.errors import ApiError
 from meshforge.controller.api.job_routes import Jobs
 from meshforge.controller.api.models import ApiModel, Utc
+from meshforge.controller.jobs.decision_explain import (
+    explain_candidates,
+    margin_sentence_of,
+    term_actuals,
+)
 from meshforge.controller.jobs.decision_store import (
     MAX_DECISIONS,
     DecisionReads,
     DecisionRecordOut,
 )
 
-__all__ = ["DecisionList", "DecisionOut", "decision_router"]
+__all__ = [
+    "CandidateOut",
+    "DecisionList",
+    "DecisionOut",
+    "TermCalibrationOut",
+    "TermOut",
+    "decision_router",
+]
 
 DEFAULT_DECISION_LIMIT: Final = 50
 _JOB_ID_MAX: Final = 40
@@ -44,10 +64,34 @@ class _Stored(ApiModel):
     model_config = ConfigDict(extra="ignore", frozen=True)
 
 
+class TermCalibrationOut(_Stored):
+    """V0.14 G2 (D293), shown since G5: the factor a term was scaled by."""
+
+    factor: float
+    n: int | None = None
+    """How many matched runs the factor was fitted on."""
+    key_level: str | None = None
+    """``node_family`` | ``node`` | ``global``."""
+    version: int | None = None
+    raw_s: float | None = None
+    """The uncalibrated prediction (``seconds`` = ``raw_s`` x ``factor``,
+    capped)."""
+
+
 class TermOut(_Stored):
     seconds: float
     source: Literal["measured", "history", "scaled", "assumed"]
     detail: dict[str, Any] = Field(default_factory=dict)
+    calibration: TermCalibrationOut | None = None
+    """V0.14 G5: null = not scaled (uncalibrated, ``measured``, or a row from
+    before V0.14 G2)."""
+    note: str | None = None
+    """V0.14 G5: what ``detail`` adds (``common/explain_text.term_note``)."""
+    actual_s: float | None = None
+    """V0.14 G5 (D320): the measured seconds of the same work - chosen
+    candidate only, after its attempt ended ``done``; null = no honest phase."""
+    ratio: float | None = None
+    """``actual_s / seconds`` (null without an actual or for a 0 s prediction)."""
 
 
 class EstimateOut(_Stored):
@@ -133,6 +177,16 @@ class DecisionOut(ApiModel):
     """V0.14 G3 (D295): the job's resolved objective the decision ranked by
     (``placement.objective`` > manifest > ``default_objective``); read only by
     ``cost_model``. Null for a decision recorded before V0.14."""
+    calibration_version: int | None = None
+    """V0.14 G5 (D300): the calibration version its estimates were scaled by;
+    null = uncalibrated."""
+    replay_version: int | None = None
+    """V0.14 G5 (D300): the stored replay snapshot's format version; null =
+    the decision cannot be replayed (pre-V0.14 row, or over
+    ``replay_max_bytes``)."""
+    margin_sentence: str | None = None
+    """V0.14 G5 (D300): why a split job was (not) split - the margin test, the
+    objective, pruned nodes; null for a job that runs whole."""
 
 
 class DecisionList(ApiModel):
@@ -143,6 +197,11 @@ class DecisionList(ApiModel):
 
 def _out(record: DecisionRecordOut) -> DecisionOut:
     actual = record.actual
+    candidates = explain_candidates(
+        record.candidates,
+        chosen_node_id=record.chosen_node_id,
+        actuals=term_actuals(record),
+    )
     return DecisionOut(
         id=record.id,
         attempt_no=record.attempt_no,
@@ -152,7 +211,7 @@ def _out(record: DecisionRecordOut) -> DecisionOut:
         chosen_node_id=record.chosen_node_id,
         created_at=record.created_at,
         snapshot_digest=record.snapshot_digest,
-        candidates=tuple(CandidateOut.model_validate(c) for c in record.candidates),
+        candidates=tuple(CandidateOut.model_validate(c) for c in candidates),
         actual=None
         if actual is None
         else ActualOut(
@@ -165,6 +224,9 @@ def _out(record: DecisionRecordOut) -> DecisionOut:
         shadow_chosen_node_id=record.shadow_chosen_node_id,
         shadow_estimate_s=record.shadow_estimate_s,
         objective=record.objective,
+        calibration_version=record.calibration_version,
+        replay_version=record.replay_version,
+        margin_sentence=margin_sentence_of(record),
     )
 
 

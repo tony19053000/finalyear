@@ -30,6 +30,7 @@ import gzip
 import io
 import json
 import random
+import re
 from pathlib import Path
 from typing import Any
 
@@ -253,17 +254,22 @@ def test_m2_explain_shows_risk_without_a_factor() -> None:
     )
     text = _explain_text(decision)
     assert "RISK" in text and "calibrated" in text  # the other terms show theirs
+    # V0.14 G5 (D300): the risk cell is "<s> (history, p_fail P% (F of T ends
+    # in Wd))" - its note, then the closing bracket: never "..., x2.00 calibrated"
     risk_seconds = {
-        f"{c.estimate.extra[RISK_TERM].seconds:.2f}s (history)"
+        f"{c.estimate.extra[RISK_TERM].seconds:.2f}s (history, "
         for c in decision.candidates
         if c.estimate is not None
     }
+    whole = {
+        cell: re.compile(re.escape(cell) + r"p_fail [\d.]+% \([^()]*\)\)")
+        for cell in risk_seconds
+    }
     for line in text.splitlines():
-        for cell in risk_seconds:
-            if cell in line:
-                # the risk cell is "<s> (history)" - never "..., x2.00 calibrated"
-                assert f"{cell[:-1]}, x" not in line
-    assert all(cell in text for cell in risk_seconds)
+        for cell, pattern in whole.items():
+            if cell in line and "p_fail" in line:
+                assert pattern.search(line), line
+    assert all(pattern.search(text) for pattern in whole.values())
 
 
 # ---------------------------------------------------------------- M3
