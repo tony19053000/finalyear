@@ -251,7 +251,7 @@ Reviewer non-blocking follow-ups (carry into G2/G3): (1) `mint` should carry `pe
 - Windows: not yet run (first real CI run will cover unit + fresh-clone on windows-latest)
 
 ## Next Recommended Task
-**V0.14 G6** — write brief §5e (Mode 3 loader path for the evaluator per D322 follow-up, cluster harness campaign proving criteria 1–4, latency evidence), then implementer → tester → reviewer; then 🧑 0.14.8 lab. Optional follow-up: admin "Run evaluation" control (D323). Merged worktrees G1–G5 kept (user: removal optional).
+**V0.14 G6** — brief §5e DRAFTED (`d9ead6da`, D324–D328); team to answer Q13–Q16, then implementer (Mode 3 loader path for the evaluator per D322 follow-up, cluster harness campaign proving criteria 1–4, latency evidence), then implementer → tester → reviewer; then 🧑 0.14.8 lab. Optional follow-up: admin "Run evaluation" control (D323). Merged worktrees G1–G5 kept (user: removal optional).
 
 _Older:_ 🧑 **0.10.10** Mode 3 lab run (`lab/checklists/V0.10-mode3.md`). Agent-side: V0.10 tech debt (D287/D288 list under Technical Debt) or V0.14 Unified planner v2 brief (team to choose).
 
