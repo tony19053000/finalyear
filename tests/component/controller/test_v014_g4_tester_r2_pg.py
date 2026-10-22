@@ -198,12 +198,22 @@ async def test_prepare_finished_before_another_refresh_activated(
     assert await _active_count(engine) == 1
     rows = await _rows(engine)
     assert [r.version for r in rows] == sorted({r.version for r in rows})
-    if second.row is not None:
-        # a new row was stored: it was judged against B's version, not "none"
-        assert second.row.version > first.row.version
-        assert second.row.holdout_error_active is not None
+    # same runs as B's fit: nothing new to store, B's version stands
+    assert second.row is None and second.skipped == "no_new_runs"
+    assert [r.version for r in rows] == [first.row.version]
     # B's version is still the only one active unless A's replaced it cleanly
     assert sum(1 for r in rows if r.status == "active") == 1
+
+
+async def _advisory_locks(engine: Any) -> int:
+    async with engine.connect() as conn:
+        return int(
+            (
+                await conn.execute(
+                    text("SELECT count(*) FROM pg_locks WHERE locktype = 'advisory'")
+                )
+            ).scalar_one()
+        )
 
 
 async def test_failure_in_the_unlocked_part_writes_nothing_and_holds_no_lock(
@@ -223,3 +233,116 @@ async def test_failure_in_the_unlocked_part_writes_nothing_and_holds_no_lock(
     monkeypatch.undo()
     ok = await CalibrationStore(engine).refresh(CFG)  # the lock is not stuck
     assert ok.row is not None
+
+
+async def test_new_runs_while_unlocked_force_a_refit_against_the_new_active(
+    engine: Any, pg_settings: DatabaseSettings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A prepared with no active version; B activates; more runs finish; A's
+    stale prepared result must not be stored: the stored row is judged
+    against B's version (``holdout_error_active`` is set) and exactly one row
+    stays active."""
+    await _seed(engine, 4)
+    eng_a, a = await _extra_store(pg_settings)
+    eng_b, b = await _extra_store(pg_settings)
+    calls: list[tuple[str, int]] = []
+    real_load = calibration_store.load_for_jobs
+
+    async def spy(*args: Any, **kwargs: Any) -> Any:
+        calls.append(("lock", await _advisory_locks(engine)))
+        return await real_load(*args, **kwargs)
+
+    monkeypatch.setattr(calibration_store, "load_for_jobs", spy)
+    prepared_done = asyncio.Event()
+    release = asyncio.Event()
+    original = a._prepare
+
+    async def slow(*args: Any, **kwargs: Any) -> Any:
+        result = await original(*args, **kwargs)
+        prepared_done.set()
+        await release.wait()
+        return result
+
+    monkeypatch.setattr(a, "_prepare", slow)
+    try:
+        task = asyncio.create_task(a.refresh(CFG))
+        await asyncio.wait_for(prepared_done.wait(), 120)
+        first = await b.refresh(CFG)
+        assert first.row is not None and first.row.status == "active"
+        await _seed(engine, 4)  # more matched runs land while A is parked
+        before = len(calls)
+        release.set()
+        second = await asyncio.wait_for(task, 120)
+    finally:
+        release.set()
+        await eng_a.dispose()
+        await eng_b.dispose()
+    assert await _active_count(engine) == 1
+    assert second.row is not None, second
+    assert second.row.version > first.row.version
+    assert second.row.holdout_error_active is not None  # judged vs B, not "none"
+    assert second.superseded in (None, first.row.version)
+    # the stale prepared result was thrown away: the D319 check ran again
+    # after the release, and under the advisory lock
+    after = calls[before:]
+    assert after and after[-1][1] >= 1, calls
+
+
+# ------------------------------------------------------------------ API (item 7)
+
+
+async def test_api_report_carries_paired_comparisons_and_markdown(
+    engine: Any,
+) -> None:
+    """Real auth deps (reused from tester r1): the stored report has D322's
+    ``comparisons`` for every rule policy, the markdown shows the paired table,
+    ``limit`` is bounded, and a plain user can read but not create."""
+    from test_v014_g4_tester_r1_pg import ADMIN, USER, _app, _call, _campaign
+
+    campaign_id = await _campaign(engine)
+    app = _app(engine)
+    made = await _call(
+        app,
+        "POST",
+        "/v1/planner/eval-reports",
+        ADMIN,
+        json={"campaign_ids": [campaign_id]},
+    )
+    assert made.status_code == 201, made.text
+    report = made.json()["report"]
+    assert report["counts"]["non_finite_configs"] == 0
+    crit2 = next(v for v in report["verdicts"] if v["criterion"] == 2)
+    assert len(crit2["comparisons"]) == 6
+    for c in crit2["comparisons"]:
+        assert set(c) == {
+            "key",
+            "common_groups",
+            "mean_diff_pct",
+            "ci_low",
+            "ci_high",
+            "unmeasured_groups",
+        }
+    assert crit2["threshold"] == 0.0
+    # 2 groups only: far below the 10-group minimum, never a PASS
+    assert crit2["status"] == "too_few_groups"
+    md = await _call(
+        app,
+        "GET",
+        f"/v1/planner/eval-reports/{made.json()['id']}?format=markdown",
+        USER,
+    )
+    assert md.status_code == 200 and "common" in md.text.lower()
+    for limit, code in ((1, 200), (200, 200), (201, 400), (0, 400), (-1, 400)):
+        r = await _call(app, "GET", f"/v1/planner/eval-reports?limit={limit}", USER)
+        assert r.status_code == code, (limit, r.status_code)
+    listed = (await _call(app, "GET", "/v1/planner/eval-reports?limit=1", USER)).json()
+    assert len(listed["reports"]) == 1
+    assert (
+        await _call(
+            app,
+            "POST",
+            "/v1/planner/eval-reports",
+            USER,
+            json={"campaign_ids": [campaign_id]},
+        )
+    ).status_code == 403
