@@ -27,6 +27,7 @@ from meshforge.controller.ml.targets import (
     Observation,
     Skip,
     check,
+    exact_by_construction,
     observations,
     residual,
 )
@@ -75,26 +76,91 @@ def test_the_term_phase_map_is_the_calibrations() -> None:
 
 
 @pytest.mark.parametrize(
-    ("raw", "actual", "source", "reason"),
+    ("raw", "actual", "reason"),
     [
-        (10.0, 5.0, "measured", Skip.MEASURED),
-        (0.0, 5.0, "history", Skip.RAW_NOT_POSITIVE),
-        (-1.0, 5.0, "history", Skip.RAW_NOT_POSITIVE),
-        (float("nan"), 5.0, "history", Skip.RAW_NOT_POSITIVE),
-        (float("inf"), 5.0, "history", Skip.RAW_NOT_POSITIVE),
-        (None, 5.0, "history", Skip.RAW_NOT_POSITIVE),
-        (10.0, 0.0, "history", Skip.ACTUAL_NOT_POSITIVE),
-        (10.0, float("inf"), "assumed", Skip.ACTUAL_NOT_POSITIVE),
-        (10.0, None, "assumed", Skip.ACTUAL_NOT_POSITIVE),
-        (MIN_PREDICTED_S / 2, 5.0, "scaled", Skip.BELOW_MIN_PREDICTED),
-        (MIN_PREDICTED_S, 5.0, "scaled", None),
-        (10.0, 5.0, None, None),
+        (0.0, 5.0, Skip.RAW_NOT_POSITIVE),
+        (-1.0, 5.0, Skip.RAW_NOT_POSITIVE),
+        (float("nan"), 5.0, Skip.RAW_NOT_POSITIVE),
+        (float("inf"), 5.0, Skip.RAW_NOT_POSITIVE),
+        (None, 5.0, Skip.RAW_NOT_POSITIVE),
+        (10.0, 0.0, Skip.ACTUAL_NOT_POSITIVE),
+        (10.0, float("inf"), Skip.ACTUAL_NOT_POSITIVE),
+        (10.0, None, Skip.ACTUAL_NOT_POSITIVE),
+        (MIN_PREDICTED_S / 2, 5.0, Skip.BELOW_MIN_PREDICTED),
+        (MIN_PREDICTED_S, 5.0, None),
+        (10.0, 5.0, None),
     ],
 )
 def test_check_names_each_reason(
-    raw: float | None, actual: float | None, source: str | None, reason: Skip | None
+    raw: float | None, actual: float | None, reason: Skip | None
 ) -> None:
-    assert check(raw, actual, source) == reason
+    assert check("compute", raw, actual, {}) == reason
+
+
+# --- D345: exact by construction, by term + detail (never by source alone) ---
+
+
+@pytest.mark.parametrize(
+    ("term", "detail", "exact"),
+    [
+        # nothing to move: the node holds every tree
+        ("transfer", {"missing_bytes": 0}, True),
+        ("lane_stage", {"missing_bytes": 0}, True),
+        # bytes move - over a probed link (measured bandwidth) or history: learnable
+        ("transfer", {"missing_bytes": 200_000_000, "bw_source": "probe"}, False),
+        ("lane_stage", {"missing_bytes": 5, "bw_source": "transfer_history"}, False),
+        ("transfer", {"missing_bytes": False}, False),  # not a count
+        ("transfer", {}, False),  # unknown: not exact
+        # the built env is cached: 0 s, exact
+        ("env", {"env_cached": True}, True),
+        ("lane_env", {"env_cached": True}, True),
+        ("env", {"env_cached": False}, False),
+        ("env", {"env_cached": 1}, False),  # only the boolean true
+        # never exact: derived from rates or history
+        ("compute", {"missing_bytes": 0, "env_cached": True}, False),
+        ("output", {"out_bytes": 0}, False),
+        ("chunk_rate", {}, False),
+        ("combine", {"parts_bytes": 0}, False),
+    ],
+)
+def test_exact_by_construction_is_by_term_and_detail(
+    term: str, detail: dict[str, Any], exact: bool
+) -> None:
+    assert exact_by_construction(term, detail) is exact
+    assert (check(term, 10.0, 5.0, detail) == Skip.EXACT) is exact
+
+
+def test_a_measured_source_alone_is_not_exact() -> None:
+    """The calibration's rule (``source == measured``) is not the ML rule."""
+    assert check("transfer", 10.0, 5.0, {"missing_bytes": 10**8}) is None
+    assert check("env", 30.0, 5.0, {"env_cached": False}) is None
+
+
+def test_transfer_over_a_fresh_probed_link_is_learned() -> None:
+    s = stored(pinned="node_001", learnable=False)  # the full probed link matrix
+    terms = chosen(s)["estimate"]["terms"]
+    transfer = terms["transfer"]
+    assert transfer["source"] == "measured"  # measured bandwidth ...
+    assert transfer["detail"]["missing_bytes"] > 0  # ... but a predicted time
+    rows, skipped = observations(whole_run(s, phases=PHASES))
+    obs = _by_term(rows)["transfer"]
+    assert obs.raw_s == transfer["seconds"]
+    assert obs.y == math.log(12.0 / transfer["seconds"])
+    assert obs.source == "measured"  # kept as the source one-hot feature
+    assert "exact_by_construction" not in _skips(skipped)
+
+
+def test_a_cached_env_is_exact() -> None:
+    s = _edit_term(
+        stored(pinned="node_001"),
+        "env",
+        seconds=0.0,
+        source="measured",
+        detail={"env_cached": True, "env_hash": "e" * 64},
+    )
+    rows, skipped = observations(whole_run(s, phases=PHASES))
+    assert "env" not in {o.term for o in rows}
+    assert _skips(skipped) == {"exact_by_construction": 1}
 
 
 # ------------------------------------------------------------------ whole job
@@ -120,11 +186,12 @@ def test_mode1_whole_job_every_term_is_ln_actual_over_stored_raw() -> None:
     assert _skips(skipped) == {}
 
 
-def test_local_measured_transfer_is_excluded_not_learned() -> None:
-    s = stored()  # local on node_000: transfer 0 s measured
+def test_local_transfer_of_nothing_is_exact_not_learned() -> None:
+    s = stored()  # local on node_000: holds the tree, transfer 0 s, 0 bytes
+    assert chosen(s)["estimate"]["terms"]["transfer"]["detail"]["missing_bytes"] == 0
     rows, skipped = observations(whole_run(s, phases=PHASES))
     assert {o.term for o in rows} == {"env", "compute", "output"}
-    assert _skips(skipped) == {"measured": 1}
+    assert _skips(skipped) == {"exact_by_construction": 1}
 
 
 def test_a_calibrated_decision_learns_against_the_raw_prediction() -> None:
@@ -176,7 +243,7 @@ def _edit_term(s: Any, name: str, **changes: Any) -> Any:
         ("output", {"drop": True}, "missing_term"),
         ("output", {"seconds": 0.0}, "raw_not_positive"),
         ("output", {"seconds": 0.01}, "below_min_predicted"),
-        ("env", {"source": "measured"}, "measured"),
+        ("env", {"detail": {"env_cached": True}}, "exact_by_construction"),
     ],
 )
 def test_term_reasons(name: str, changes: dict[str, Any], reason: str) -> None:
@@ -252,7 +319,7 @@ def test_mode3_set_lanes_chunk_rates_and_combine() -> None:
     assert combine.actual_s == 2.0  # stage 0.4 + env skipped (0) + run 1.6
     assert combine.attempt_id == "combine_1"
     assert len(rows) == 2 + 3 + 3 + 1
-    assert _skips(skipped) == {"measured": 1}
+    assert _skips(skipped) == {"exact_by_construction": 1}
 
 
 def test_chunk_rate_arithmetic_ignores_uncommitted_and_unmeasured_chunks() -> None:
@@ -276,7 +343,7 @@ def test_a_lane_without_committed_chunks_counts_no_chunks() -> None:
     chunks = {"node_002": (ChunkOutcome(items=10, run_ms=100, outcome="lost"),)}
     rows, skipped = observations(set_run(s, chunks=chunks))
     assert ("chunk_rate", "node_002") not in {(o.term, o.node_id) for o in rows}
-    assert _skips(skipped) == {"measured": 1, "no_chunks": 1}
+    assert _skips(skipped) == {"exact_by_construction": 1, "no_chunks": 1}
 
 
 def test_a_tiny_lane_rate_prediction_is_below_the_floor() -> None:
@@ -288,14 +355,14 @@ def test_a_tiny_lane_rate_prediction_is_below_the_floor() -> None:
     s = dataclasses.replace(s, candidates=candidates)
     chunks = {"node_001": (ChunkOutcome(items=10, run_ms=100, outcome="committed"),)}
     _, skipped = observations(set_run(s, chunks=chunks))
-    assert _skips(skipped) == {"measured": 1, "below_min_predicted": 1}
+    assert _skips(skipped) == {"exact_by_construction": 1, "below_min_predicted": 1}
 
 
 def test_lane_not_done_and_missing_lane_row_skip_its_three_terms() -> None:
     s = stored(forced_set=True)
     rows, skipped = observations(set_run(s, lane_states={"node_001": "failed"}))
     assert all(o.node_id != "node_001" for o in rows)
-    assert _skips(skipped) == {"measured": 1, "lane_not_done": 3}
+    assert _skips(skipped) == {"exact_by_construction": 1, "lane_not_done": 3}
     candidates = [
         r
         for r in s.candidates
@@ -304,7 +371,7 @@ def test_lane_not_done_and_missing_lane_row_skip_its_three_terms() -> None:
     gone = dataclasses.replace(s, candidates=candidates)
     rows, skipped = observations(set_run(gone))
     assert all(o.node_id != "node_002" for o in rows)
-    assert _skips(skipped) == {"measured": 1, "missing_lane_row": 3}
+    assert _skips(skipped) == {"exact_by_construction": 1, "missing_lane_row": 3}
 
 
 @pytest.mark.parametrize(
@@ -320,7 +387,29 @@ def test_combine_reasons(kw: dict[str, Any], reason: str) -> None:
     s = stored(forced_set=True)
     rows, skipped = observations(set_run(s, **kw))
     assert "combine" not in {o.term for o in rows}
-    assert _skips(skipped) == {"measured": 1, reason: 1}
+    assert _skips(skipped) == {"exact_by_construction": 1, reason: 1}
+
+
+@pytest.mark.parametrize(
+    ("phases", "actual_s"),
+    [
+        # D346: stage (the other lanes' parts fetched) + env + run (process
+        # start and the combine itself); collect is the job's `output` term
+        ({"stage": 400, "env": 100, "run": 1500, "collect": 30}, 2.0),
+        ({"stage": 400, "env": 100, "run": 1500, "collect": 99_999}, 2.0),
+        ({"stage": 1500, "env": None, "run": 500}, 2.0),  # skipped env = 0 s
+        ({"stage": 0, "env": 0, "run": 2000}, 2.0),  # nothing staged: still run
+    ],
+)
+def test_combine_actual_is_stage_env_run_never_collect(
+    phases: dict[str, int | None], actual_s: float
+) -> None:
+    s = stored(forced_set=True)
+    raw = chosen(s)["estimate"]["terms"]["combine"]["seconds"]
+    rows, _ = observations(set_run(s, combine_phases=phases))
+    combine = next(o for o in rows if o.term == "combine")
+    assert combine.actual_s == actual_s
+    assert combine.y == math.log(actual_s / raw)
 
 
 def test_no_combine_attempt_gives_no_combine_row_and_no_skip() -> None:
@@ -328,7 +417,7 @@ def test_no_combine_attempt_gives_no_combine_row_and_no_skip() -> None:
     run = dataclasses.replace(set_run(s), combine=None)
     rows, skipped = observations(run)
     assert "combine" not in {o.term for o in rows}
-    assert _skips(skipped) == {"measured": 1}
+    assert _skips(skipped) == {"exact_by_construction": 1}
 
 
 def test_a_set_whose_lead_lane_is_not_done_is_unmatched() -> None:

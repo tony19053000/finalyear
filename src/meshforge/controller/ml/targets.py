@@ -19,8 +19,11 @@ attempt against the set row's ``combine`` term.
 
 **Exclusions**, each counted by :class:`Skip` reason: a run whose replay is
 missing or unreadable (once per decision; never imputed), a run the matching
-refuses, and per term: a missing term, a missing or skipped phase, a
-``measured`` term (not learnable: it is exact by construction), a raw or actual
+refuses, and per term: a missing term, a missing or skipped phase, a term
+whose prediction is **exact by construction** (D345,
+:func:`exact_by_construction` - by term and detail, *not* the calibration's
+``measured``-source rule: a transfer over a fresh probed link is learnable;
+the calibration itself is unchanged), a raw or actual
 value that is not a positive finite number, a raw prediction under
 :data:`~meshforge.controller.planner.calibration.MIN_PREDICTED_S` (its ratio is
 noise; ``chunk_rate``: the lane's predicted compute seconds for its items), a
@@ -38,7 +41,7 @@ from collections import Counter
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any
+from typing import Any, Final
 
 from meshforge.controller.planner.calibration import (
     CALIBRATED_TERMS,
@@ -50,7 +53,6 @@ from meshforge.controller.planner.calibration import (
     match,
     raw_prediction,
 )
-from meshforge.controller.planner.types import TermSource
 
 __all__ = [
     "ChunkOutcome",
@@ -59,6 +61,8 @@ __all__ = [
     "Observation",
     "RunInput",
     "Skip",
+    "check",
+    "exact_by_construction",
     "observations",
     "residual",
 ]
@@ -73,7 +77,7 @@ class Skip(StrEnum):
     MISSING_TERM = "missing_term"
     MISSING_PHASE = "missing_phase"
     SKIPPED_PHASE = "skipped_phase"
-    MEASURED = "measured"
+    EXACT = "exact_by_construction"
     RAW_NOT_POSITIVE = "raw_not_positive"
     ACTUAL_NOT_POSITIVE = "actual_not_positive"
     BELOW_MIN_PREDICTED = "below_min_predicted"
@@ -164,18 +168,51 @@ def _positive(value: float | None) -> bool:
     return value is not None and math.isfinite(value) and value > 0.0
 
 
+_STAGE_TERMS: Final = frozenset({"transfer", "lane_stage"})
+_ENV_TERMS: Final = frozenset({"env", "lane_env"})
+
+
+def exact_by_construction(term: str, detail: Mapping[str, Any]) -> bool:
+    """D345: the term's prediction is **exact by construction** - a
+    structural 0 s, not a time derived from a rate or a history - so there is
+    no residual to learn. The rule is by term and ``detail``, never by
+    ``source`` alone (a transfer over a fresh probed link is ``measured``
+    bandwidth but a *predicted* time: learnable):
+
+    * ``transfer`` / ``lane_stage`` with ``detail.missing_bytes == 0`` - the
+      node holds every tree, nothing moves;
+    * ``env`` / ``lane_env`` with ``detail.env_cached`` true - the built
+      environment is in the node's cache.
+
+    ``queue`` is never a dataset term (always 0 s, a feasible node has a free
+    slot). Every other term (``compute``, ``output``, ``chunk_rate``,
+    ``combine``, a transfer that moves bytes, an env that is built) is
+    learnable; a 0 s prediction that is *not* structural (an output nobody
+    recorded) is ``raw_not_positive``, not exact."""
+    if term in _STAGE_TERMS:
+        missing = detail.get("missing_bytes")
+        return (
+            isinstance(missing, int) and not isinstance(missing, bool) and missing == 0
+        )
+    if term in _ENV_TERMS:
+        return detail.get("env_cached") is True
+    return False
+
+
 def check(
+    term: str,
     raw_s: float | None,
     actual_s: float | None,
-    source: str | None,
+    detail: Mapping[str, Any],
     *,
     min_check_s: float | None = None,
 ) -> Skip | None:
-    """Why ``(raw, actual)`` gives no target; None = learnable. Order:
-    measured, raw, actual, under the floor (``min_check_s`` = the seconds the
-    floor applies to, default ``raw_s``)."""
-    if source == TermSource.MEASURED.value:
-        return Skip.MEASURED
+    """Why ``(raw, actual)`` of ``term`` gives no target; None = learnable.
+    Order: exact by construction (:func:`exact_by_construction`), raw,
+    actual, under the floor (``min_check_s`` = the seconds the floor applies
+    to, default ``raw_s``)."""
+    if exact_by_construction(term, detail):
+        return Skip.EXACT
     if not _positive(raw_s):
         return Skip.RAW_NOT_POSITIVE
     if not _positive(actual_s):
@@ -313,7 +350,7 @@ def _add(
     min_check_s: float | None = None,
 ) -> None:
     src = _source(term) if source is None else source
-    reason = check(raw_s, actual_s, src, min_check_s=min_check_s)
+    reason = check(name, raw_s, actual_s, _detail(term), min_check_s=min_check_s)
     if reason is not None or raw_s is None or actual_s is None:
         out.skip(reason or Skip.RAW_NOT_POSITIVE)  # check() rejects None
         return
@@ -403,6 +440,15 @@ def _combine(
     lanes: int,
     chunk_items: int | None,
 ) -> None:
+    """D346: the actual covers exactly what ``planner/split.py::_combine``
+    models - ``t_o`` (``chunk_overhead``: start the attempt's process + its
+    stage + upload; ``[controller.split] chunk_overhead_s`` until chunk history
+    measures it) **plus** the other lanes' share of the chunk results moved to
+    the combine node (``parts_bytes / bw``, fetched in the combine's ``stage``
+    phase). So actual = ``stage + env + run``; ``collect`` uploads the job's
+    output, which the set's own ``output`` term (``output_term`` on the
+    combiner) predicts, so it is not counted twice. Not ``split_combine_ms``:
+    that is the run phase only and misses the parts fetch."""
     combine = run.combine
     if combine is None:
         return  # not this decision's (a later round's) or never ran

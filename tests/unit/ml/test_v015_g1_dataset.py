@@ -85,7 +85,9 @@ def test_rows_ids_groups_and_counts() -> None:
     assert counts["rows"] == len(rows)
     assert counts["skipped"]["missing_replay"] == 1
     assert counts["skipped"]["unreadable_replay"] == 1
-    assert counts["skipped"]["measured"] == 3 + 1  # 3 local transfers + 1 lane
+    assert (
+        counts["skipped"]["exact_by_construction"] == 3 + 1
+    )  # 3 local 0-byte transfers + 1 lane
     assert set(counts["skipped"]) == {s.value for s in Skip}
     assert counts["rows_by_term"]["chunk_rate"] == 3
     assert counts["rows_by_term"]["combine"] == 1
