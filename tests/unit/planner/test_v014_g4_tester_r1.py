@@ -489,16 +489,18 @@ def test_empty_campaign_does_not_crash() -> None:
 
 
 def test_criterion_2_pass_requires_cost_ci_strictly_below_every_rule_ci() -> None:
+    """D322 (G4 fix round 1): criterion 2 is paired - PASS iff every rule
+    policy's difference CI (rule - cost_model, common groups) is above 0."""
     groups, recs = _world(24, 0)
     report = _eval(groups, recs)
     v = _verdict(report, 2)
-    cost = _row(report, COST)
     rules = [r for r in report["policies"] if r["kind"] == "rule"]
     assert rules
+    assert {c["key"] for c in v["comparisons"]} == {r["key"] for r in rules}
     if v["status"] == "PASS":
-        assert all(cost["ci_pct"]["high"] < r["ci_pct"]["low"] for r in rules)
+        assert all(c["ci_low"] > 0 for c in v["comparisons"])
     else:  # pragma: no cover - documents the converse
-        assert any(not cost["ci_pct"]["high"] < r["ci_pct"]["low"] for r in rules)
+        assert any(not c["ci_low"] > 0 for c in v["comparisons"])
 
 
 def test_criterion_2_never_pass_when_cis_overlap_or_touch() -> None:
@@ -644,23 +646,9 @@ def test_duplicate_policy_rows_are_refused() -> None:
     [
         0.0,
         -5.0,
-        pytest.param(
-            float("nan"),
-            marks=pytest.mark.xfail(
-                strict=True,
-                raises=ValueError,
-                reason="DEFECT T3 (minor): a non-finite median reaches report_text "
-                "(allow_nan=False) -> unhandled ValueError (HTTP 500)",
-            ),
-        ),
-        pytest.param(
-            float("inf"),
-            marks=pytest.mark.xfail(
-                strict=True,
-                raises=ValueError,
-                reason="DEFECT T3 (minor): see nan",
-            ),
-        ),
+        # T3 fixed in G4 fix round 1: the group is excluded, never NaN in JSON
+        float("nan"),
+        float("inf"),
     ],
 )
 def test_non_positive_or_non_finite_medians_never_crash_or_poison(
@@ -754,10 +742,6 @@ def test_gate_group_count_boundary() -> None:
     assert skipped.reason and "too_few_groups" in skipped.reason
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="DEFECT T1 (minor): D319 boundary x1.05 rejected for some decimals (float)",
-)
 def test_gate_exact_decimal_boundary_sweep_documented_defect() -> None:
     """Every (active, active x 1.05) pair that is exact in decimal must pass.
 
@@ -795,11 +779,6 @@ def test_regret_threshold_sweep_exact_15_percent_is_within() -> None:
     assert not bad, bad[:5]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="DEFECT T2 (minor): relative regret is compared to the 15 % threshold "
-    "unrounded; non-representable medians give 15.000000000000002 > 15",
-)
 def test_regret_threshold_float_noise_defect() -> None:
     best = 14.714285714285714
     pick = best * 1.15

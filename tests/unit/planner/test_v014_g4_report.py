@@ -103,6 +103,7 @@ def test_pure_modules_import_nothing_impure() -> None:
         "collections",
         "dataclasses",
         "datetime",
+        "decimal",
         "hashlib",
         "json",
         "math",

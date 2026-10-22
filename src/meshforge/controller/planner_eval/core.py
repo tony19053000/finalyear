@@ -33,7 +33,11 @@ condition, measured under several configurations):
 5. **Regret** (D315) = ``(median(pick) - median(best)) / median(best)`` x 100,
    and ``median(pick) - median(best)`` ms; **0** when the pick is the best or
    in the tie set. ``median(best)`` = the lowest median of the group's
-   measured configurations. An ``unmeasured`` pick is never counted.
+   measured configurations. An ``unmeasured`` pick is never counted. Regrets
+   are rounded to 6 decimals (the reported precision) before any comparison
+   with the threshold (G4 fix round 1, T2). A group with a non-finite median
+   (never produced by the labels; a guard) is excluded with the reason and
+   counted in ``counts.non_finite_configs`` (T3) - it never reaches the JSON.
 
 **Per policy**: mean relative regret over its counted groups with a seeded
 bootstrap CI (:func:`meshforge.bench.stats.bootstrap_mean_ci`, D317), mean
@@ -45,11 +49,17 @@ same without CI.
 
 * criterion 1 - ``PASS`` iff at least ``within_target_pct`` % of its counted
   groups are within ``regret_threshold_pct`` %; else ``FAIL``;
-* criterion 2 - ``PASS`` iff its CI upper bound is below **every** rule
-  policy's CI lower bound; ``FAIL`` when some rule policy's CI is entirely
-  below its own; otherwise ``not_separable``;
-* fewer than ``min_groups`` counted groups (for criterion 2: in any row it
-  compares) -> ``too_few_groups``, never ``PASS``;
+* criterion 2 - **paired** (D322): for each rule policy, the per-group
+  regret difference ``rule - calibrated cost_model`` over the groups counted
+  for **both**, with a seeded bootstrap CI of its mean. ``PASS`` iff every
+  difference CI lies entirely above 0; ``FAIL`` when some difference CI lies
+  entirely below 0 (that rule policy is better); otherwise
+  ``not_separable``. Pairing removes selection bias: a policy whose picks are
+  ``unmeasured`` on the hard groups would otherwise look better on the easy
+  ones it kept. The verdict lists every comparison with the rule policy's
+  ``unmeasured`` count; the unpaired per-policy means stay for display;
+* fewer than ``min_groups`` counted groups (criterion 2: common groups in any
+  comparison) -> ``too_few_groups``, never ``PASS``;
 * a ``leaked`` report (``allow_leak``) -> every verdict ``leaked``, with
   ``would_be`` the verdict above (D299: never a claim on training data).
 """
@@ -207,6 +217,18 @@ class GroupPick:
     votes: Mapping[str, int]
 
 
+def _non_finite(group: EvalGroup) -> list[str]:
+    return sorted(
+        c.config_id
+        for c in group.configs
+        if c.median_ms is not None and not math.isfinite(c.median_ms)
+    )
+
+
+def _finite(value: float | None) -> float | None:
+    return value if value is not None and math.isfinite(value) else None
+
+
 def _best_median(configs: Sequence[ConfigRef]) -> float | None:
     medians = [
         c.median_ms
@@ -239,7 +261,8 @@ def group_regret(
     if config is None or config.state != "measured" or config.median_ms is None:
         return None
     delta = config.median_ms - best_ms
-    return delta / best_ms * 100.0, delta
+    # G4 fix round 1 (T2): the reported precision decides, not float noise
+    return round(delta / best_ms * 100.0, _ROUND), round(delta, _ROUND)
 
 
 def group_pick(
@@ -290,6 +313,10 @@ def _evaluate_group(
 
     if group.label not in EVALUATED_LABELS:
         return result("excluded", f"{group.label}: {group.reason or 'not labelled'}")
+    odd = _non_finite(group)
+    if odd:  # G4 fix round 1 (T3): never planned, never written as NaN
+        skipped["non_finite_configs"] += len(odd)
+        return result("excluded", "non-finite median: " + ", ".join(odd[:5]))
     best_ms = _best_median(group.configs)
     if best_ms is None or not math.isfinite(best_ms) or best_ms <= 0.0:
         return result("excluded", "no positive median to compare with")
@@ -391,6 +418,7 @@ def _verdict(
     counted: int,
     detail: str,
     leaked: bool,
+    comparisons: Sequence[Mapping[str, Any]] = (),
 ) -> dict[str, Any]:
     return {
         "criterion": criterion,
@@ -400,12 +428,18 @@ def _verdict(
         "threshold": _r(threshold),
         "counted_groups": counted,
         "detail": detail,
+        "comparisons": [dict(c) for c in comparisons],
     }
 
 
 def _verdicts(
-    rows: Mapping[str, Mapping[str, Any]], config: EvalConfig, leaked: bool
+    rows: Mapping[str, Mapping[str, Any]],
+    regrets: Mapping[str, Mapping[tuple[str, str], float]],
+    config: EvalConfig,
+    leaked: bool,
 ) -> list[dict[str, Any]]:
+    """``rows`` = the policy rows; ``regrets`` = policy key -> (campaign,
+    group) -> regret % of its counted groups (the pairing of criterion 2)."""
     key = CRITERION_POLICY.key
     row = rows.get(key)
     n = 0 if row is None else int(row["counted_groups"])
@@ -439,55 +473,82 @@ def _verdicts(
                 leaked,
             )
         )
-    # ---- criterion 2
-    rules = [rows[p] for p in RULE_POLICIES if p in rows]
-    short = [r["key"] for r in rules if int(r["counted_groups"]) < config.min_groups]
-    high = None if row is None else row["ci_pct"]["high"]
-    low = None if row is None else row["ci_pct"]["low"]
-    if row is None or n < config.min_groups or short or not rules or high is None:
+    # ---- criterion 2 (D322: paired)
+    crit = regrets.get(key, {})
+    comparisons: list[dict[str, Any]] = []
+    for policy in RULE_POLICIES:
+        if policy not in rows:
+            continue
+        mine = regrets.get(policy, {})
+        common = sorted(crit.keys() & mine.keys())
+        diffs = [round(mine[g] - crit[g], _ROUND) for g in common]
+        low = high = mean = None
+        if len(common) >= config.min_groups:
+            ci = bootstrap_mean_ci(
+                diffs,
+                seed=config.bootstrap_seed,
+                resamples=config.bootstrap_resamples,
+                level=config.ci_level,
+            )
+            low, high, mean = _r(ci.low), _r(ci.high), _r(ci.mean)
+        elif diffs:
+            mean = _r(math.fsum(diffs) / len(diffs))
+        comparisons.append(
+            {
+                "key": policy,
+                "common_groups": len(common),
+                "mean_diff_pct": mean,
+                "ci_low": low,
+                "ci_high": high,
+                "unmeasured_groups": int(rows[policy]["unmeasured_groups"]),
+            }
+        )
+    unmeasured = 0 if row is None else int(row["unmeasured_groups"])
+    note = f"{key} unmeasured in {unmeasured} group(s); "
+    common_min = min((c["common_groups"] for c in comparisons), default=0)
+    short = [c["key"] for c in comparisons if c["common_groups"] < config.min_groups]
+    if row is None or not comparisons or short:
         why = (
-            f"{n} counted group(s) for {key}"
-            if row is None or n < config.min_groups
-            else "too few counted groups for " + ", ".join(short)
-            if short
-            else "no rule policy evaluated"
+            "no rule policy evaluated"
+            if row is None or not comparisons
+            else "too few groups counted for both with " + ", ".join(short)
         )
         out.append(
             _verdict(
                 2,
                 "too_few_groups",
-                high,
                 None,
-                n,
-                f"{why}; at least {config.min_groups} needed",
+                0.0,
+                common_min,
+                f"{note}{why}; at least {config.min_groups} common groups needed",
                 leaked,
+                comparisons,
             )
         )
         return out
-    lows = [r["ci_pct"]["low"] for r in rules]
-    highs = [r["ci_pct"]["high"] for r in rules]
+    lows = [float(c["ci_low"]) for c in comparisons]
     floor = min(lows)
-    if all(high < other for other in lows):
+    if all(v > 0.0 for v in lows):
         status, text = (
             "PASS",
             (
-                f"{key} CI upper {high:.3f} % < every rule policy's CI lower "
-                f"(lowest {floor:.3f} %)"
+                f"{note}every rule policy's regret minus {key}'s has a CI above 0 "
+                f"(weakest lower bound {floor:.3f} %)"
             ),
         )
-    elif low is not None and any(other < low for other in highs):
-        better = [r["key"] for r in rules if r["ci_pct"]["high"] < low]
+    elif any(float(c["ci_high"]) < 0.0 for c in comparisons):
+        better = [c["key"] for c in comparisons if float(c["ci_high"]) < 0.0]
         status, text = (
             "FAIL",
-            (f"rule policies with a CI entirely below {key}'s: " + ", ".join(better)),
+            (f"{note}rule policies paired-better than {key}: " + ", ".join(better)),
         )
     else:
-        overlap = [r["key"] for r in rules if not high < r["ci_pct"]["low"]]
+        unclear = [c["key"] for c in comparisons if not float(c["ci_low"]) > 0.0]
         status, text = (
             "not_separable",
-            (f"{key} CI [{low:.3f}, {high:.3f}] % overlaps: " + ", ".join(overlap)),
+            (f"{note}difference CI reaches 0 for: " + ", ".join(unclear)),
         )
-    out.append(_verdict(2, status, high, floor, n, text, leaked))
+    out.append(_verdict(2, status, floor, 0.0, common_min, text, leaked, comparisons))
     return out
 
 
@@ -499,7 +560,7 @@ def _config_json(config: ConfigRef) -> dict[str, Any]:
         "origin_node_id": config.origin_node_id,
         "node_set": sorted(config.node_set),
         "state": config.state,
-        "median_ms": _r(config.median_ms),
+        "median_ms": _r(_finite(config.median_ms)),
         "repetitions": config.repetitions,
     }
 
@@ -550,6 +611,19 @@ def _choice_json(choice: CalibrationChoice) -> dict[str, Any]:
 
 
 # ------------------------------------------------------------ evaluate
+
+
+def _regrets(
+    results: Sequence[_GroupResult], keys: Sequence[str]
+) -> dict[str, dict[tuple[str, str], float]]:
+    """key -> (campaign, group) -> regret % of every counted pick."""
+    out: dict[str, dict[tuple[str, str], float]] = {k: {} for k in keys}
+    for result in results:
+        where = (result.group.campaign_id, result.group.group_id)
+        for pick in result.picks:
+            if pick.status == "counted" and pick.regret_pct is not None:
+                out[pick.key][where] = pick.regret_pct
+    return out
 
 
 def _picks(result: _GroupResult, key: str) -> tuple[GroupPick, ...]:
@@ -645,8 +719,9 @@ def evaluate(
             "records": sum(r.records for r in results),
             "records_used": sum(r.records_used for r in results),
             "records_skipped": {k: skipped.get(k, 0) for k in SKIP_REASONS},
+            "non_finite_configs": skipped.get("non_finite_configs", 0),
         },
-        "verdicts": _verdicts(rows, config, leaked),
+        "verdicts": _verdicts(rows, _regrets(results, keys), config, leaked),
         "policies": [rows[k] for k in keys],
         "families": families,
         "calibrations": [

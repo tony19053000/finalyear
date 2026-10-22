@@ -315,3 +315,24 @@ def test_criterion_policy_is_in_the_default_rows_and_oracle_is_last() -> None:
     assert CRITERION_POLICY.key in keys
     assert keys[-1] == ORACLE
     assert len(keys) == len(set(keys)) == 6 + 6 + 1
+
+
+@pytest.mark.parametrize("odd", [float("nan"), float("inf")])
+def test_a_non_finite_median_excludes_its_group_with_the_reason(odd: float) -> None:
+    """G4 fix round 1 (T3): never planned, never NaN/Infinity in the JSON."""
+    request, snapshot = fabric(FAST_B)
+    mixed = group("g12", {"node_a": 300, "node_b": 100, "node_c": odd})
+    fine = group("g13", {"node_a": 300, "node_b": 100})
+    report = _run(
+        [mixed, fine],
+        records(mixed, request, snapshot) + records(fine, request, snapshot),
+    )
+    by_id = {g["group_id"]: g for g in report["groups"]}
+    assert by_id["g12"]["status"] == "excluded"
+    assert by_id["g12"]["excluded_reason"] == "non-finite median: " + config_id(
+        "g12", "mode1", "node_c"
+    )
+    assert by_id["g13"]["status"] == "evaluated"
+    assert report["counts"]["non_finite_configs"] == 1
+    text = report_text(report)  # allow_nan=False: raises on NaN / Infinity
+    assert "NaN" not in text and "Infinity" not in text

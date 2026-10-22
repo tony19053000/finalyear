@@ -25,6 +25,7 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from decimal import Decimal
 from typing import Any, Final, Literal
 
 from meshforge.controller.planner.calibration import Calibration
@@ -84,8 +85,12 @@ def regret_gate(
             active_mean,
             f"regret check skipped (too_few_groups: {groups} < {min_groups})",
         )
-    limit = active_mean * (1.0 + TOLERANCE)
-    if new_mean <= limit:
+    # G4 fix round 1 (T1): compare the decimal values exactly - binary floating
+    # point rounds the product below it for some values (1.14 x 1.05 =
+    # 1.1969999999999998), which rejected a version exactly x 1.05 the active
+    # one. ``str`` of a float is its shortest round-trip decimal.
+    limit = Decimal(str(active_mean)) * (1 + Decimal(str(TOLERANCE)))
+    if Decimal(str(new_mean)) <= limit:
         return RegretCheck("passed", groups, new_mean, active_mean, None)
     return RegretCheck(
         "rejected",

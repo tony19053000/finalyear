@@ -17,10 +17,13 @@ and how much slower is that than the best measured configuration?*
   (ms), and the share of counted groups within ``regret_threshold_pct``.
 * ``families`` - the same per workload family (no CI).
 * ``verdicts`` - criterion 1 (calibrated ``cost_model`` within 15 % of the
-  oracle in >= 80 % of counted groups) and criterion 2 (its CI entirely below
-  every rule policy's); ``too_few_groups`` below ``min_groups`` counted
-  groups, never ``PASS``; ``leaked`` when the report was made with
-  ``allow_leak`` (``would_be`` then says what it would have been).
+  oracle in >= 80 % of counted groups) and criterion 2 (**paired**, D322: for
+  every rule policy the bootstrap CI of the per-group regret difference
+  ``rule - cost_model`` over the groups counted for both lies entirely above
+  0; each comparison is in ``comparisons``); ``too_few_groups`` below
+  ``min_groups`` counted (criterion 2: common) groups, never ``PASS``;
+  ``leaked`` when the report was made with ``allow_leak`` (``would_be`` then
+  says what it would have been).
 * ``calibrations`` - per family, the calibration the calibrated rows used: a
   leave-one-family-out refit (D316, ``refit``), or the live active version
   (``active``, only with ``allow_leak``), or ``none``.
@@ -58,6 +61,7 @@ __all__ = [
     "FamilyResultOut",
     "GroupPickOut",
     "GroupResultOut",
+    "PairedComparisonOut",
     "PolicyResultOut",
     "VerdictOut",
 ]
@@ -132,19 +136,38 @@ class FamilyResultOut(ApiModel):
     within_threshold_pct: float | None
 
 
+class PairedComparisonOut(ApiModel):
+    """Criterion 2 (D322): one rule policy vs calibrated ``cost_model`` on the
+    groups counted for both."""
+
+    key: str
+    """The rule policy."""
+    common_groups: int
+    mean_diff_pct: float | None
+    """Mean of ``regret(rule) - regret(cost_model)`` (% points); > 0 = the
+    criterion policy picked better."""
+    ci_low: float | None
+    ci_high: float | None
+    """Bootstrap CI of that mean (None below ``min_groups`` common groups)."""
+    unmeasured_groups: int
+    """Groups where the rule policy's pick was never measured (not paired)."""
+
+
 class VerdictOut(ApiModel):
     criterion: Literal[1, 2]
     status: VerdictStatus
     would_be: VerdictStatus | None
     """With ``leaked``: the verdict the numbers would give (never a claim)."""
     value: float | None
-    """Criterion 1: % within the threshold; criterion 2: the criterion
-    policy's CI upper bound (%)."""
+    """Criterion 1: % within the threshold; criterion 2: the lowest
+    difference-CI lower bound over the rule policies (% points)."""
     threshold: float | None
-    """Criterion 1: the target %; criterion 2: the lowest rule-policy CI
-    lower bound (%)."""
+    """Criterion 1: the target %; criterion 2: 0."""
     counted_groups: int
+    """Criterion 2: the fewest common groups of any comparison."""
     detail: str
+    comparisons: list[PairedComparisonOut] = Field(default_factory=list)
+    """Criterion 2 only (D322); empty for criterion 1."""
 
 
 class CalibrationUsedOut(ApiModel):
@@ -215,7 +238,11 @@ class EvalCountsOut(ApiModel):
     records: int
     records_used: int
     records_skipped: dict[str, int]
-    """``no_replay`` / ``replay_unreadable`` / ``no_shadow`` -> records."""
+    """``no_replay`` / ``replay_unreadable`` / ``no_shadow`` /
+    ``replay_unplannable`` -> records."""
+    non_finite_configs: int = 0
+    """Configurations with a non-finite median; their groups are excluded
+    (G4 fix round 1, T3)."""
 
 
 class EvalReportOut(ApiModel):
