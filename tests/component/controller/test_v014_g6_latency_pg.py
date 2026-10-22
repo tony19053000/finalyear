@@ -203,6 +203,15 @@ async def test_a_real_dispatch_stores_decision_ms_and_the_evaluator_reads_it(
             text("UPDATE plan_decision SET decision_ms = NULL WHERE job_id = :j"),
             {"j": dispatched[1].job_id},
         )
+        # a campaign job's earlier `waiting` row: a decision, not a dispatch
+        await conn.execute(
+            text(
+                "INSERT INTO plan_decision (job_id, attempt_no, outcome, policy, "
+                "snapshot_digest, reason_key, candidates, decision_ms) VALUES "
+                "(:j, 1, 'waiting', 'cost_model', 'd', 'r', '[]'::jsonb, 5.0)"
+            ),
+            {"j": dispatched[2].job_id},
+        )
 
     samples = await load_latency(engine, [campaign_id])
     assert len(samples) == 18  # the campaign's dispatched rows, not the user's
