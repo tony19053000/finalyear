@@ -248,23 +248,13 @@ def test_an_unwritable_out_is_exit_1_not_a_traceback(
     _no_traceback(proc)
 
 
-_T1_D4 = pytest.mark.xfail(
-    strict=True,
-    reason="DEFECT T1-D4 (major): a schema-valid file with a NaN/inf y or an inf "
-    "feature (corrupt/hand-edited data) crashes the child with a raw Python "
-    "traceback (exit 1): __main__.py:136 calls compare() outside any try, and "
-    "scikit-learn's ValueError ('Input y contains NaN') escapes from "
-    "algorithms.py:259-274. Expected: a one-line message, exit 1 (or 2).",
-)
-
-
 @pytest.mark.parametrize(
     "bad",
     [
-        pytest.param("nan_y", marks=_T1_D4),
-        pytest.param("inf_y", marks=_T1_D4),
+        "nan_y",
+        "inf_y",
         "null_y",
-        pytest.param("inf_x", marks=_T1_D4),
+        "inf_x",
         "null_x",
     ],
 )

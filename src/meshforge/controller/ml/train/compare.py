@@ -24,7 +24,11 @@ model, D348):
   bootstrap** of MALE(model) - MALE(calibration) (``better`` /
   ``not_separable`` / ``worse``), and **would-reject** flags: pooled
   coverage < 80 %, or a family whose MALE is worse than calibration's by
-  more than ``family_tolerance_log`` (0.05).
+  more than ``family_tolerance_log`` (0.05), or (D356) a family with >= 20
+  held-out rows covered < 70 %. **D357**: ``better`` only with >= 5 families,
+  the CI's upper end below ``-min_effect_log`` (0.02), and a learned model
+  selected in >= half of the outer folds and shipped; no learned model
+  shipped -> ``no_learned_model``; the verdict carries its ``reason``.
 * **Permutation importance** of each fold's learned model on its held-out
   rows (one seeded permutation per feature; MALE increase, weighted by the
   fold's rows; folds that picked a baseline add 0) - the top 10.
@@ -62,6 +66,8 @@ from meshforge.controller.ml.train.algorithms import (
 from meshforge.controller.ml.train.conformal import ALPHA, conformal_q
 from meshforge.controller.ml.train.data import FloatArray, IntArray, Table
 from meshforge.controller.ml.train.metrics import (
+    MIN_EFFECT_LOG,
+    MIN_VERDICT_FAMILIES,
     HeldOut,
     male,
     paired_verdict,
@@ -104,6 +110,15 @@ class CompareSettings:
     family_tolerance_log: float = 0.05
     """D351 ``ml_family_tolerance_log``."""
     coverage_reject: float = 0.80
+    family_coverage_reject: float = 0.70
+    """D356 (amended): a family with at least ``family_coverage_min_rows``
+    held-out rows and a coverage below this also sets ``would_reject``."""
+    family_coverage_min_rows: int = 20
+    min_effect_log: float = MIN_EFFECT_LOG
+    """D357 ``ml_min_effect_log``: ``better`` needs the CI's upper end below
+    minus this."""
+    min_verdict_families: int = MIN_VERDICT_FAMILIES
+    """D357: fewer held-out families -> ``not_separable``."""
     bootstrap_resamples: int = 2000
     bootstrap_seed: int = 20_261_022
     seed: int = 0
@@ -279,6 +294,22 @@ def _fold(
     )
 
 
+def _learned_gate(
+    verdict: dict[str, Any], folds: Sequence[FoldResult], final: Selection
+) -> dict[str, Any]:
+    """D357 (a): ``better`` only for a learned model that is the shipped
+    all-rows candidate **and** was selected in at least half of the outer
+    folds; no learned model shipped -> ``no_learned_model``. The bootstrap
+    numbers stay in the verdict either way."""
+    learned_folds = sum(1 for f in folds if f.selected.learned)
+    out = {**verdict, "learned_folds": learned_folds, "folds": len(folds)}
+    if not final.selected.learned:
+        out.update(verdict="no_learned_model", reason="no_learned_model_ships")
+    elif out["verdict"] == "better" and 2 * learned_folds < len(folds):
+        out.update(verdict="not_separable", reason="learned_in_under_half_the_folds")
+    return out
+
+
 def compare_term(
     table: Table,
     term: str,
@@ -367,7 +398,11 @@ def _compare_term(
         for reason in sorted({r for r in reasons if r})
     }
     verdict = paired_verdict(
-        deltas, seed=settings.bootstrap_seed, resamples=settings.bootstrap_resamples
+        deltas,
+        seed=settings.bootstrap_seed,
+        resamples=settings.bootstrap_resamples,
+        min_effect=settings.min_effect_log,
+        min_families=settings.min_verdict_families,
     )
     worse = sorted(
         name
@@ -375,6 +410,12 @@ def _compare_term(
         if part["male_model"] - part["male_calibration"] > settings.family_tolerance_log
     )
     coverage_low = pooled["coverage"] < settings.coverage_reject
+    families_low = sorted(
+        name
+        for name, part in per_family.items()
+        if part["rows"] >= settings.family_coverage_min_rows
+        and part["coverage"] < settings.family_coverage_reject
+    )
     quantile = None
     if collected.q_low:
         low = np.concatenate(collected.q_low)
@@ -396,6 +437,7 @@ def _compare_term(
         final_ctx, rows, configs, inner_k=settings.inner_k, seed=settings.seed
     )
     final_q = conformal_q(final.oof_residuals, settings.alpha)
+    verdict = _learned_gate(verdict, folds, final)
     return TermResult(
         term,
         "trained" if final.selected.learned else "no_learned_model",
@@ -409,7 +451,8 @@ def _compare_term(
         would_reject={
             "coverage_below": coverage_low,
             "families_worse": worse,
-            "any": coverage_low or bool(worse),
+            "families_low_coverage": families_low,
+            "any": coverage_low or bool(worse) or bool(families_low),
         },
         quantile=quantile,
         importance=tuple(ranked[: settings.importance_top]) if any_learned else (),

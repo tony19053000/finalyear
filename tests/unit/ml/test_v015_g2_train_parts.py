@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import dataclasses
 import math
+import re
 from pathlib import Path
 
 import pytest
@@ -361,11 +362,23 @@ def test_nan_features_stay_nan_in_the_table() -> None:
 
 def test_paired_verdict() -> None:
     kw = {"seed": 1, "resamples": 2000}
-    assert paired_verdict([-0.1, -0.12, -0.09, -0.11], **kw)["verdict"] == "better"
-    assert paired_verdict([0.1, 0.12, 0.09, 0.11], **kw)["verdict"] == "worse"
-    assert paired_verdict([-0.1, 0.1, -0.05, 0.08], **kw)["verdict"] == "not_separable"
-    assert paired_verdict([-0.5], **kw)["verdict"] == "not_separable"  # one family
+    five_better = [-0.1, -0.12, -0.09, -0.11, -0.1]
+    assert paired_verdict(five_better, **kw)["verdict"] == "better"
+    assert paired_verdict([0.1, 0.12, 0.09, 0.11, 0.1], **kw)["verdict"] == "worse"
+    mixed = paired_verdict([-0.1, 0.1, -0.05, 0.08, 0.0], **kw)
+    assert (mixed["verdict"], mixed["reason"]) == (
+        "not_separable",
+        "ci_not_beyond_min_effect",
+    )
+    # D357 (c): fewer than 5 families can never be `better`
+    four = paired_verdict(five_better[:4], **kw)
+    assert (four["verdict"], four["reason"]) == ("not_separable", "too_few_families")
+    assert paired_verdict([-0.5], **kw)["verdict"] == "not_separable"
     assert paired_verdict([], **kw)["verdict"] == "not_separable"
+    # D357 (b): a real but tiny gain (< 0.02 log) is not `better`
+    tiny = paired_verdict([-0.010, -0.012, -0.011, -0.009, -0.010], **kw)
+    assert tiny["high"] < 0.0 and tiny["verdict"] == "not_separable"
+    assert paired_verdict([-0.010] * 5, min_effect=0.005, **kw)["verdict"] == "better"
     a = paired_verdict([-0.1, 0.02, -0.3], **kw)
     assert a == paired_verdict([-0.3, -0.1, 0.02], **kw)  # order-free, seeded
 
@@ -399,3 +412,54 @@ def test_conformal_residuals_are_out_of_fold_never_in_sample() -> None:
     np.testing.assert_array_equal(sel.oof_residuals, expected)
     in_sample = np.abs(table.y - alg.fit_one(deep, ctx, rows).predict(table.X, rows))
     assert in_sample.mean() < sel.oof_residuals.mean()  # the two really differ
+
+
+# ------------------------------------------------------------------ fix round 1
+
+
+@pytest.mark.parametrize(
+    ("column", "value", "message"),
+    [
+        ("y", NAN, "1 row(s) with a non-finite y"),
+        ("y", math.inf, "1 row(s) with a non-finite y"),
+        ("raw_s", 0.0, "non-positive raw_s"),
+        ("load_cpu_percent", math.inf, "1 infinite feature value(s)"),
+    ],
+)
+def test_values_g1_never_writes_are_refused_with_a_count(
+    column: str, value: float, message: str
+) -> None:
+    from meshforge.controller.ml.train.data import DatasetValueError
+
+    rows = synthetic_rows("signal", families=2, groups_per_family=2, runs_per_group=3)
+    rows[4][column] = value
+    with pytest.raises(DatasetValueError, match=re.escape(message)):
+        table_from_rows(rows)
+    if column == "load_cpu_percent":
+        rows[4][column] = NAN
+        table_from_rows(rows)  # a missing feature (NaN) is fine
+
+
+def test_the_learned_gate() -> None:
+    from meshforge.controller.ml.train.compare import FoldResult, _learned_gate
+    from meshforge.controller.ml.train.select import Selection
+
+    ridge = alg.Config("ridge", (("alpha", 1.0),), 1)
+    cal = alg.Config("calibration")
+
+    def fold(config: alg.Config) -> FoldResult:
+        return FoldResult("f", 1, 1, config, config, 0.1, 5, None, None)
+
+    def final(config: alg.Config) -> Selection:
+        return Selection((), config, config, 5, np.zeros(1), np.zeros(1, dtype=np.intp))
+
+    better = {"verdict": "better", "reason": "ci_below_min_effect"}
+    ok = _learned_gate(better, [fold(ridge), fold(ridge), fold(cal)], final(ridge))
+    assert ok["verdict"] == "better" and ok["learned_folds"] == 2
+    few = _learned_gate(better, [fold(ridge), fold(cal), fold(cal)], final(ridge))
+    assert (few["verdict"], few["reason"]) == (
+        "not_separable",
+        "learned_in_under_half_the_folds",
+    )
+    none = _learned_gate(better, [fold(ridge)] * 3, final(cal))
+    assert none["verdict"] == "no_learned_model"

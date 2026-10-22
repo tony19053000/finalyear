@@ -142,7 +142,7 @@ def test_the_child_gets_this_interpreter_and_every_flag(
         [
             "planner", "ml", "compare", "--dataset", str(dataset), "--terms", "compute,env",
             "--algorithms", "ridge", "--with-family", "--min-rows", "50",
-            "--min-families", "2", "--out", str(out),
+            "--min-families", "2", "--min-effect", "0.05", "--out", str(out),
         ],
     )  # fmt: skip
     assert result.exit_code == 0, result.output
@@ -159,6 +159,7 @@ def test_the_child_gets_this_interpreter_and_every_flag(
     assert argv[argv.index("--algorithms") + 1] == "ridge"
     assert argv[argv.index("--min-rows") + 1] == "50"
     assert argv[argv.index("--min-families") + 1] == "2"
+    assert argv[argv.index("--min-effect") + 1] == "0.05"
     assert "--with-family" in argv
     assert (out / "report.json").exists()  # --out keeps it
     assert f"wrote {out / 'report.json'}" in result.output

@@ -210,6 +210,10 @@ def report(
                 "max_interval_log": settings.max_interval_log,
                 "family_tolerance_log": settings.family_tolerance_log,
                 "coverage_reject": settings.coverage_reject,
+                "family_coverage_reject": settings.family_coverage_reject,
+                "family_coverage_min_rows": settings.family_coverage_min_rows,
+                "min_effect_log": settings.min_effect_log,
+                "min_verdict_families": settings.min_verdict_families,
                 "bootstrap_resamples": settings.bootstrap_resamples,
                 "bootstrap_seed": settings.bootstrap_seed,
                 "seed": settings.seed,
@@ -317,6 +321,9 @@ def markdown(doc: Mapping[str, Any]) -> str:
         flags = []
         if reject.get("coverage_below"):
             flags.append("held-out coverage below the limit")
+        if reject.get("families_low_coverage"):
+            low = ", ".join(reject["families_low_coverage"])
+            flags.append(f"coverage under 70 % on {low}")
         if reject.get("families_worse"):
             flags.append(
                 "worse than calibration on " + ", ".join(reject["families_worse"])

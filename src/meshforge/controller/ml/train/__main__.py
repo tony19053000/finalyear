@@ -3,6 +3,7 @@
 
     compare --dataset FILE --out DIR [--terms a,b] [--algorithms a,b]
             [--with-family] [--min-rows N] [--min-families N]
+            [--min-effect X]
 
 Reads the G1 dataset ``FILE`` (and its sidecar ``FILE.json`` when present),
 runs :func:`~.compare.compare` in this process (no server) and writes
@@ -52,6 +53,13 @@ def _parser() -> argparse.ArgumentParser:
     cmp.add_argument("--with-family", action="store_true")
     cmp.add_argument("--min-rows", type=int, default=None)
     cmp.add_argument("--min-families", type=int, default=None)
+    cmp.add_argument(
+        "--min-effect",
+        type=float,
+        default=None,
+        help="D357 ml_min_effect_log: `better` needs the CI's upper end below "
+        "minus this (default 0.02)",
+    )
     return parser
 
 
@@ -104,6 +112,10 @@ def _settings(args: argparse.Namespace) -> CompareSettings:
         settings = replace(settings, min_rows=max(1, args.min_rows))
     if args.min_families is not None:
         settings = replace(settings, min_families=max(1, args.min_families))
+    if args.min_effect is not None:
+        if not args.min_effect >= 0.0:  # NaN too
+            raise ValueError("--min-effect must be >= 0")
+        settings = replace(settings, min_effect_log=args.min_effect)
     return settings
 
 
@@ -114,7 +126,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         _err(f"compare needs {', '.join(missing)} (not installed): {EXTRA_HINT}")
         return int(ExitCode.USAGE_ERROR)
     from meshforge.controller.ml.train.compare import compare
-    from meshforge.controller.ml.train.data import DatasetVersionError, load
+    from meshforge.controller.ml.train.data import (
+        DatasetValueError,
+        DatasetVersionError,
+        load,
+    )
     from meshforge.controller.ml.train.report import canonical_json, markdown, report
 
     try:
@@ -128,14 +144,24 @@ def main(argv: Sequence[str] | None = None) -> int:
     except DatasetVersionError as exc:
         _err(f"{args.dataset}: {exc}")
         return int(ExitCode.USAGE_ERROR)
+    except DatasetValueError as exc:
+        _err(f"{args.dataset}: {exc}")
+        return int(ExitCode.FAILURE)
     except Exception as exc:  # noqa: BLE001 - any unreadable file is one answer
         _err(f"{args.dataset}: cannot read the dataset ({type(exc).__name__})")
         return int(ExitCode.FAILURE)
     loaded = time.monotonic()
     node_failures, sidecar = _sidecar(args.dataset, table.digest)
-    results = compare(table, settings)
+    try:
+        results = compare(table, settings)
+        doc = report(
+            table, settings, results, node_failures=node_failures, sidecar=sidecar
+        )
+    except Exception as exc:  # noqa: BLE001 - one line for the operator, no traceback
+        detail = str(exc).splitlines()[0] if str(exc) else "no detail"
+        _err(f"{args.dataset}: the comparison failed ({type(exc).__name__}: {detail})")
+        return int(ExitCode.FAILURE)
     compared = time.monotonic()
-    doc = report(table, settings, results, node_failures=node_failures, sidecar=sidecar)
     try:
         args.out.mkdir(parents=True, exist_ok=True)
         json_path = args.out / "report.json"

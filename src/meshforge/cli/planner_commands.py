@@ -31,7 +31,7 @@ calibration (V0.14 G2, D293/D301/D306).
   names the same digest (the dataset did not change in between).
 
 * ``ml compare --dataset FILE [--terms a,b] [--algorithms a,b] [--with-family]
-  [--min-rows N] [--min-families N] [--out DIR]`` (V0.15 G2, D353): offline,
+  [--min-rows N] [--min-families N] [--min-effect X] [--out DIR]`` (V0.15 G2, D353): offline,
   no controller needed - per term, does any learned model predict the
   residual better than the calibration on held-out families? Runs ``python
   -m meshforge.controller.ml.train compare`` in a child process with this
@@ -787,6 +787,15 @@ def ml_compare(
             "--min-families", min=1, help="Family floor per term (default 3)."
         ),
     ] = None,
+    min_effect: Annotated[
+        float | None,
+        typer.Option(
+            "--min-effect",
+            min=0.0,
+            help="`better` needs the held-out log-error gain's CI beyond this "
+            "(default 0.02, about 2 %).",
+        ),
+    ] = None,
     out: Annotated[
         Path | None,
         typer.Option(
@@ -825,6 +834,7 @@ def ml_compare(
             ("--algorithms", algorithms),
             ("--min-rows", min_rows),
             ("--min-families", min_families),
+            ("--min-effect", min_effect),
         ):
             if value is not None:
                 argv += [flag, str(value)]

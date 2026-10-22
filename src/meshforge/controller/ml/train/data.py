@@ -48,6 +48,7 @@ from meshforge.controller.ml.splits import NO_FAMILY, group_families
 
 __all__ = [
     "KNOWN_VERSIONS",
+    "DatasetValueError",
     "DatasetVersionError",
     "FloatArray",
     "IntArray",
@@ -67,6 +68,12 @@ KNOWN_VERSIONS: Final = frozenset({(DATASET_VERSION, FEATURE_VERSION)})
 
 class DatasetVersionError(ValueError):
     """The file is not a dataset this code knows (version or columns)."""
+
+
+class DatasetValueError(ValueError):
+    """The file has the right schema but numbers G1 never writes: a
+    non-finite ``y``, a non-finite or non-positive ``raw_s`` / ``actual_s``,
+    or an infinite feature (a missing feature is NaN - fine - never inf)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -132,6 +139,28 @@ def _version(metadata: Mapping[bytes, bytes] | None, key: bytes) -> int:
         return -1
 
 
+def _check_values(
+    X: FloatArray, y: FloatArray, raw_s: FloatArray, actual_s: FloatArray
+) -> None:
+    """:class:`DatasetValueError` naming how many rows are bad (G1 never
+    writes these values; a hand-edited or corrupt file is refused whole)."""
+    problems = []
+    bad_y = int(np.count_nonzero(~np.isfinite(y)))
+    if bad_y:
+        problems.append(f"{bad_y} row(s) with a non-finite y")
+    for name, values in (("raw_s", raw_s), ("actual_s", actual_s)):
+        bad = int(np.count_nonzero(~np.isfinite(values) | (values <= 0.0)))
+        if bad:
+            problems.append(f"{bad} row(s) with a non-finite or non-positive {name}")
+    bad_x = int(np.count_nonzero(np.isinf(X)))
+    if bad_x:
+        problems.append(f"{bad_x} infinite feature value(s)")
+    if problems:
+        raise DatasetValueError(
+            "the dataset holds values G1 never writes: " + "; ".join(problems)
+        )
+
+
 def table_from_rows(rows: Sequence[Mapping[str, Any]]) -> Table:
     """A :class:`Table` of dataset rows (any order; mappings with every
     :data:`~..dataset.COLUMN_NAMES` key)."""
@@ -146,6 +175,7 @@ def table_from_rows(rows: Sequence[Mapping[str, Any]]) -> Table:
     def column(name: str) -> FloatArray:
         return np.asarray([float(row[name]) for row in ordered], dtype=np.float64)
 
+    _check_values(matrix, column("y"), column("raw_s"), column("actual_s"))
     family_raw = tuple(str(row["family"]) if row["family"] else None for row in ordered)
     return Table(
         digest=digest,
@@ -190,7 +220,8 @@ def _from_arrow(table: pa.Table) -> Table:
 
 def load(path: Path) -> Table:
     """The dataset in ``path`` (module docstring); :class:`DatasetVersionError`
-    for an unknown version or column list, ``OSError`` /
+    for an unknown version or column list, :class:`DatasetValueError` for
+    values G1 never writes, ``OSError`` /
     ``pyarrow.ArrowInvalid`` for an unreadable file."""
     return _from_arrow(pq.read_table(path))
 

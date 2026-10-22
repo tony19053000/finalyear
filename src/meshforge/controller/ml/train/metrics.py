@@ -16,9 +16,10 @@ Per set of held-out rows (one family, or all of them pooled):
 ``d_f`` = MALE(model) - MALE(calibration) on that family's rows; the
 percentile bootstrap CI of the mean of the ``d_f`` (families resampled,
 :func:`meshforge.bench.stats.bootstrap_mean_ci` - the planner evaluator's
-helper, seeded). ``better`` iff the CI's upper end < 0, ``worse`` iff its
-lower end > 0, else ``not_separable``; fewer than two families ->
-``not_separable`` (one family cannot show a spread).
+helper, seeded). D357: ``better`` iff at least 5 families **and** the CI's
+upper end < ``-ml_min_effect_log`` (0.02), ``worse`` iff its lower end > 0,
+else ``not_separable`` (fewer than 5 families: reason ``too_few_families``);
+:func:`~.compare.compare_term` adds the learned-model conditions.
 """
 
 from __future__ import annotations
@@ -26,14 +27,27 @@ from __future__ import annotations
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Final
 
 import numpy as np
 
 from meshforge.bench.stats import bootstrap_mean_ci
 from meshforge.controller.ml.train.data import FloatArray
 
-__all__ = ["HeldOut", "male", "paired_verdict", "summary"]
+__all__ = [
+    "MIN_EFFECT_LOG",
+    "MIN_VERDICT_FAMILIES",
+    "HeldOut",
+    "male",
+    "paired_verdict",
+    "summary",
+]
+
+MIN_EFFECT_LOG: Final = 0.02
+"""D357 ``ml_min_effect_log``: ``better`` needs the CI's upper end below
+minus this (about 2 % in log error)."""
+MIN_VERDICT_FAMILIES: Final = 5
+"""D357: fewer held-out families -> ``not_separable`` (``too_few_families``)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,10 +87,13 @@ def male(y: FloatArray, y_hat: FloatArray) -> float:
 
 
 def _ape(held: HeldOut, y_hat: FloatArray) -> FloatArray:
-    predicted = held.raw_s * np.exp(y_hat)
-    return np.asarray(
-        np.abs(predicted - held.actual_s) / held.actual_s, dtype=np.float64
-    )
+    # a model extrapolating far out of distribution can overflow exp(): the
+    # value becomes inf (written as null) - silently, never a RuntimeWarning
+    with np.errstate(over="ignore", invalid="ignore"):
+        predicted = held.raw_s * np.exp(y_hat)
+        return np.asarray(
+            np.abs(predicted - held.actual_s) / held.actual_s, dtype=np.float64
+        )
 
 
 def summary(held: HeldOut, *, max_interval_log: float) -> dict[str, Any]:
@@ -105,10 +122,20 @@ def summary(held: HeldOut, *, max_interval_log: float) -> dict[str, Any]:
 
 
 def paired_verdict(
-    deltas: Sequence[float], *, seed: int, resamples: int, level: float = 0.95
+    deltas: Sequence[float],
+    *,
+    seed: int,
+    resamples: int,
+    min_effect: float = MIN_EFFECT_LOG,
+    min_families: int = MIN_VERDICT_FAMILIES,
+    level: float = 0.95,
 ) -> dict[str, Any]:
     """The paired family bootstrap of ``deltas`` (one per family, module
-    docstring)."""
+    docstring; D357): ``better`` iff at least ``min_families`` families and
+    the CI's upper end is below ``-min_effect``; ``worse`` iff (with enough
+    families) its lower end is above 0; else ``not_separable``. ``reason``
+    says why. The learned-model conditions are the caller's
+    (:func:`~.compare.compare_term`)."""
     values = [d for d in deltas if math.isfinite(d)]
     if not values:
         return {
@@ -116,22 +143,27 @@ def paired_verdict(
             "mean": None,
             "low": None,
             "high": None,
+            "level": level,
+            "min_effect": min_effect,
             "verdict": "not_separable",
+            "reason": "too_few_families",
         }
     ci = bootstrap_mean_ci(values, seed=seed, resamples=resamples, level=level)
-    if len(values) < 2:
-        verdict = "not_separable"
-    elif ci.high < 0.0:
-        verdict = "better"
+    if len(values) < min_families:
+        verdict, reason = "not_separable", "too_few_families"
+    elif ci.high < -min_effect:
+        verdict, reason = "better", "ci_below_min_effect"
     elif ci.low > 0.0:
-        verdict = "worse"
+        verdict, reason = "worse", "ci_above_zero"
     else:
-        verdict = "not_separable"
+        verdict, reason = "not_separable", "ci_not_beyond_min_effect"
     return {
         "families": len(values),
         "mean": ci.mean,
         "low": ci.low,
         "high": ci.high,
         "level": level,
+        "min_effect": min_effect,
         "verdict": verdict,
+        "reason": reason,
     }

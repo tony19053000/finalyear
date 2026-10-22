@@ -140,13 +140,6 @@ def test_the_family_label_itself_is_not_a_feature_by_default() -> None:
     assert a.pooled["male_model"] == pytest.approx(b.pooled["male_model"], abs=1e-12)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="DEFECT T1-D3 (minor): metrics._ape does np.exp(y_hat) on a model's "
-    "extrapolation to an out-of-distribution family -> RuntimeWarning overflow "
-    "leaks to the CLI's stderr (metrics.py:76); the value is later nulled, so "
-    "only the noise is wrong",
-)
 def test_an_extreme_out_of_distribution_family_does_not_warn() -> None:
     import warnings
 

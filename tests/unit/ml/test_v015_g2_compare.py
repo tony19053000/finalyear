@@ -152,7 +152,8 @@ def test_one_family_with_the_floor_lowered_still_answers() -> None:
     (fold,) = result.folds
     assert fold.train_rows == 0 and fold.selected.algorithm == "calibration"
     assert fold.inner_k is None and math.isinf(fold.q)
-    assert result.verdict["verdict"] == "not_separable"  # one family: no spread
+    # one family: no spread (or no learned model ships at all, D357)
+    assert result.verdict["verdict"] in ("not_separable", "no_learned_model")
     assert result.status in ("trained", "no_learned_model")
 
 

@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import math
 import random
+import warnings
 from typing import Any
 
 import pytest
@@ -120,17 +121,6 @@ def _zero_mean_noise(seed: int, families: int) -> list[dict[str, Any]]:
     return rows
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="DEFECT T1-D1 (major): on pure zero-mean noise (y independent of "
-    "every feature) every fold selects `raw` - a BASELINE, not a learned "
-    "model - yet vs_calibration.verdict is `better` (compare.py:324-338, "
-    "metrics.paired_verdict): `model` = the selected config even when it is "
-    "raw/calibration, and there is no minimum effect size, so a 0.2-0.8 % MALE "
-    "gain that is just calibration over-fitting its per-node factors is "
-    "declared `better` (15 of 48 pure-noise runs). The report's headline "
-    "verdict must not read `better` when no learned model was selected.",
-)
 @pytest.mark.parametrize("seed", [10, 2, 7])
 def test_pure_noise_is_never_better_when_no_learned_model_was_selected(
     seed: int,
@@ -182,14 +172,6 @@ def test_conformal_coverage_is_reported_honestly_under_distribution_shift() -> N
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="DEFECT T1-D2 (minor, = progress-note Q1): would_reject only looks "
-    "at POOLED coverage (compare.py:340-346), so one family whose interval "
-    "covers 0 % of its rows does not raise would_reject while the other five "
-    "cover ~95 % (pooled ~80 %+). A per-family coverage floor is needed for "
-    "'honest intervals on families never seen'.",
-)
 def test_one_uncovered_family_raises_would_reject() -> None:
     rows = synthetic_rows(
         "signal", families=8, groups_per_family=5, runs_per_group=12, noise=0.05
@@ -262,7 +244,10 @@ def test_huge_and_tiny_targets_give_a_finite_canonical_report(scale: float) -> N
     settings = CompareSettings(
         terms=("compute",), min_rows=50, algorithms=("ridge", "tree")
     )
-    with pytest.warns(RuntimeWarning) if scale > 1 else _no_warning_check():
+    # G2 fix round 1 (T1-D3): exp() overflow is silent now - no RuntimeWarning
+    # at any scale (the overflowed value is still written as null)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
         results = compare(table, settings)
     doc = report(table, settings, results, node_failures=None, sidecar="missing")
     text = canonical_json(doc)
@@ -270,11 +255,3 @@ def test_huge_and_tiny_targets_give_a_finite_canonical_report(scale: float) -> N
     json.loads(text)
     term = next(t for t in results if t.term == "compute")
     assert term.status in ("trained", "no_learned_model")
-
-
-class _no_warning_check:  # noqa: N801 - a tiny context manager
-    def __enter__(self) -> None:
-        return None
-
-    def __exit__(self, *exc: object) -> None:
-        return None
