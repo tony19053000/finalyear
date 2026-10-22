@@ -42,7 +42,8 @@ CFG = LatencyConfig(budget_ms=100.0, node_count=4, min_decisions=30)
 
 
 def _four(values: list[float]) -> list[LatencySample]:
-    return [LatencySample(v, 4) for v in values]
+    """Decisions on 4 live laptops (4 node rows, all live)."""
+    return [LatencySample(v, 4, 4) for v in values]
 
 
 # ---------------------------------------------------------------- percentiles
@@ -84,7 +85,9 @@ def test_an_empty_block() -> None:
         "budget_ms": 100.0,
         "node_count": 4,
         "min_decisions": 30,
+        "judged_on": "live_nodes",
         "by_node_count": {},
+        "by_live_node_count": {},
         "judged": {"decisions": 0, "p99_ms": None},
     }
 
@@ -160,8 +163,8 @@ def test_p99_not_max_decides() -> None:
 
 
 def test_only_snapshots_of_at_least_the_criterion_size_are_judged() -> None:
-    fast_three = [LatencySample(1.0, 3) for _ in range(100)]
-    slow_four = [LatencySample(500.0, 4) for _ in range(30)]
+    fast_three = [LatencySample(1.0, 3, 3) for _ in range(100)]
+    slow_four = [LatencySample(500.0, 4, 4) for _ in range(30)]
     block = latency_block(fast_three + slow_four, CFG)
     assert block["p99_ms"] == 500.0
     assert block["judged"] == {"decisions": 30, "p99_ms": 500.0}
@@ -173,14 +176,34 @@ def test_only_snapshots_of_at_least_the_criterion_size_are_judged() -> None:
 
 
 def test_a_larger_snapshot_counts_toward_the_criterion() -> None:
-    # 4 laptops + an old revoked row: every snapshot holds 5 nodes
-    five = [LatencySample(float(i), 5) for i in range(1, 41)]
+    # 4 laptops + an old revoked row: every snapshot holds 5 rows, 4 live
+    five = [LatencySample(float(i), 5, 4) for i in range(1, 41)]
     unknown = [LatencySample(999.0, None) for _ in range(5)]
     block = latency_block(five + unknown, CFG)
     assert block["judged"] == {"decisions": 40, "p99_ms": 40.0}
     v = latency_verdict(block, leaked=False)
     assert (v["status"], v["value"], v["counted_groups"]) == ("PASS", 40.0, 40)
-    assert ">= 4 nodes" in v["detail"]
+    assert ">= 4 live nodes" in v["detail"]
+    assert list(block["by_live_node_count"]) == ["4", "unknown"]
+
+
+def test_stale_rows_do_not_make_three_laptops_four_d332() -> None:
+    # 3 live laptops + 2 stale/revoked rows: 5 node rows, 3 live -> not judged
+    stale = [LatencySample(1.0, 5, 3) for _ in range(40)]
+    block = latency_block(stale, CFG)
+    assert block["by_node_count"] == {"5": {"decisions": 40, "p99_ms": 1.0}}
+    assert block["by_live_node_count"] == {"3": {"decisions": 40, "p99_ms": 1.0}}
+    assert block["judged"] == {"decisions": 0, "p99_ms": None}
+    v = latency_verdict(block, leaked=False)
+    assert v["status"] == "too_few_decisions" and v["counted_groups"] == 0
+    assert "0 dispatched decision(s) with >= 4 live nodes" in v["detail"]
+
+
+def test_a_decision_without_a_live_count_is_never_judged() -> None:
+    # 4 node rows read from the candidates (no replay): live unknown
+    block = latency_block([LatencySample(1.0, 4, None) for _ in range(40)], CFG)
+    assert block["judged"]["decisions"] == 0
+    assert block["by_live_node_count"] == {"unknown": {"decisions": 40, "p99_ms": 1.0}}
 
 
 def test_a_leaked_report_stamps_criterion_3_too() -> None:
@@ -213,9 +236,9 @@ def _report(samples: list[LatencySample], **kw: object) -> dict:  # type: ignore
     )
 
 
-SAMPLES = [LatencySample(float(i % 17) + 0.25, 4) for i in range(40)] + [
-    LatencySample(None, 4),
-    LatencySample(3.5, 3),
+SAMPLES = [LatencySample(float(i % 17) + 0.25, 4, 4) for i in range(40)] + [
+    LatencySample(None, 4, 4),
+    LatencySample(3.5, 3, 3),
 ]
 
 
@@ -240,7 +263,16 @@ def test_markdown_shows_the_latency_section() -> None:
     assert "## Decision latency (criterion 3)" in text
     assert "dispatched decisions timed: 41 (without a time: 1)" in text
     assert "| 3 | 1 | 3.50 |" in text and "| 4 | 40 |" in text
-    assert "criterion 3 judges snapshots of >= 4 nodes: 40 decisions" in text
+    assert (
+        "criterion 3 judges snapshots of >= 4 live nodes (online, connected, "
+        "accepting jobs): 40 decisions" in text
+    )
+    assert "| live nodes | decisions | p99 ms |" in text
+    older = _report(SAMPLES)
+    del older["latency"]["judged_on"], older["latency"]["by_live_node_count"]
+    older_text = render_markdown(older)  # a G6 report: judged every node row
+    assert "criterion 3 judges snapshots of >= 4 nodes: 40 decisions" in older_text
+    assert "| live nodes |" not in older_text
     assert "| 3 | PASS |" in text  # 40 four-node decisions, p99 16.25 ms
     report = _report(SAMPLES)
     del report["latency"]  # a report stored before G6
@@ -252,8 +284,9 @@ def test_cli_lines_and_the_reports_table_show_it() -> None:
     lines = latency_lines(report["latency"])
     assert lines[0].startswith("decision latency: 41 dispatched decision(s) timed")
     assert "(1 without a time)" in lines[0] and "over the 100 ms budget" in lines[0]
-    assert "4 nodes: 40 decision(s)" in lines[1]
-    assert lines[2].startswith("  criterion 3 judges snapshots of >= 4 nodes: 40 ")
+    assert lines[1].startswith("  by snapshot size: ") and "4 nodes: 40 " in lines[1]
+    assert lines[2].startswith("  by live nodes: ") and "4 nodes: 40 " in lines[2]
+    assert lines[3].startswith("  criterion 3 judges snapshots of >= 4 live nodes: 40 ")
     assert latency_lines(None) == []
     record = {"id": 3, "report": report}
     assert any(line.startswith("criterion 3: PASS") for line in eval_lines(record))
@@ -270,18 +303,18 @@ def test_cli_lines_and_the_reports_table_show_it() -> None:
 
 def test_latency_samples_reads_the_replay_node_count_else_the_candidates() -> None:
     rows = [
-        (12.5, 4, None),
-        (None, 4, None),
-        (7.0, None, [{"node_id": "a"}, {"node_id": "b", "node_set": ["b", "c"]}]),
-        (True, 3, None),
-        ("x", None, None),
-        (1.0, None, []),
+        (12.5, 4, 3, None),
+        (None, 4, 4, None),
+        (7.0, None, None, [{"node_id": "a"}, {"node_id": "b", "node_set": ["b", "c"]}]),
+        (True, 3, True, None),
+        ("x", None, -1, None),
+        (1.0, None, None, []),
     ]
     assert latency_samples(rows) == [
-        LatencySample(12.5, 4),
-        LatencySample(None, 4),
-        LatencySample(7.0, 3),
-        LatencySample(None, 3),
-        LatencySample(None, None),
-        LatencySample(1.0, None),
+        LatencySample(12.5, 4, 3),
+        LatencySample(None, 4, 4),
+        LatencySample(7.0, 3, None),  # candidates give rows, never live nodes
+        LatencySample(None, 3, None),
+        LatencySample(None, None, None),
+        LatencySample(1.0, None, None),
     ]

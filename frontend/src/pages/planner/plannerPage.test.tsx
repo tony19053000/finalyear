@@ -13,6 +13,7 @@ import { USER_SESSION, fakeController, json, renderApp, type Handler } from "../
 import {
   ACTIVE_CALIBRATION,
   EMPTY_REPORTS,
+  LATENCY,
   LEAKED_RECORD,
   NO_CALIBRATION,
   ONE_REPORT,
@@ -203,10 +204,24 @@ describe("Planner page", () => {
       "90 dispatched decisions timed (2 without a time) · p50 12.50 ms · p99 41.25 ms · max 133.75 ms · 1 over the 100 ms budget",
     );
     expect(row.textContent).toContain("3 nodes: 26 decisions, p99 9.50 ms");
-    expect(row.textContent).toContain("4 nodes: 64 decisions, p99 41.25 ms");
+    expect(row.textContent).toContain("5 nodes: 64 decisions, p99 41.25 ms");
+    // G6F (D332): both counts, and criterion 3 judges the live one
+    expect(row.textContent).toContain("3 live nodes: 26 decisions, p99 9.50 ms");
+    expect(row.textContent).toContain("4 live nodes: 64 decisions, p99 41.25 ms");
     expect(row.textContent).toContain(
-      "criterion 3 judges snapshots of ≥ 4 nodes: 64 decisions (at least 30 needed), p99 41.25 ms, PASS strictly below 100 ms",
+      "criterion 3 judges snapshots of ≥ 4 live nodes (online, connected, accepting jobs): 64 decisions (at least 30 needed), p99 41.25 ms, PASS strictly below 100 ms",
     );
+  });
+
+  it("criterion 3: a report made before D332 (no live counts) says it judged node rows", async () => {
+    const latency = { ...LATENCY, judged_on: "snapshot_nodes" as const, by_live_node_count: null };
+    const older = { ...REPORT_RECORD, report: { ...REPORT_RECORD.report, latency } };
+    fakeController(routes({ "GET /v1/planner/eval-reports/4": () => json(200, older) }));
+    renderApp("/planner");
+    const detail = await screen.findByTestId("eval-report-detail");
+    const row = within(detail).getByTestId("eval-latency");
+    expect(row.textContent).toContain("criterion 3 judges snapshots of ≥ 4 nodes: 64 decisions");
+    expect(row.textContent).not.toContain("live nodes");
   });
 
   it("criterion 3: too few decisions, and a report stored before decision times", async () => {

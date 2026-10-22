@@ -1311,11 +1311,12 @@ compute get <JOB_ID>               # outputs -> ./outputs/<JOB_ID>/ (--dest, --f
     block over the evaluated campaigns' `dispatched` decisions (their run jobs
     of every generation, fillers and warm-ups): count, rows without a time
     (counted, never as 0), nearest-rank p50 / p99 / max, decisions over
-    `decision_latency_budget_ms`, per snapshot size; and a **criterion 3**
-    verdict: `PASS` iff the p99 of the decisions whose snapshot held **at
-    least 4 nodes** is strictly below the budget (the snapshot holds every
-    registered node row, offline and revoked ones too), `too_few_decisions`
-    below 30 of them. `compute planner eval` prints `decision latency: ...`,
+    `decision_latency_budget_ms`, per snapshot size (every registered node
+    row, offline and revoked ones too) and per number of **live** snapshot
+    nodes (online, connected, accepting jobs at decision time; G6F, D332);
+    and a **criterion 3** verdict: `PASS` iff the p99 of the decisions whose
+    snapshot held **at least 4 live nodes** is strictly below the budget,
+    `too_few_decisions` below 30 of them. `compute planner eval` prints `decision latency: ...`,
     `compute planner reports` a `CRITERION 3` column, the Planner page a
     "Decision latency" row.
   - **Evaluating the planner on lab data (0.14.8).** The procedure, with what
@@ -1334,7 +1335,8 @@ compute get <JOB_ID>               # outputs -> ./outputs/<JOB_ID>/ (--dest, --f
 
     Criteria 1 and 2 need >= 10 counted groups per evaluation and campaigns
     run on a V0.14 build (decisions without a replay are `no_replay`);
-    criterion 3 needs >= 30 decisions made with all 4 laptops registered.
+    criterion 3 needs >= 30 decisions made while all 4 laptops were online
+    and accepting jobs (the report's `by_live_node_count` shows it).
 - `run -f` streams the logs and exits like the job: `0` succeeded; the workload's own
   exit code (1-125) when it failed; `126` when the fabric failed it (the failure type
   is printed: `node_lost`, `deadline_exceeded`, `output_error` …); `128` cancelled.

@@ -13,8 +13,8 @@ plus the decisions' replays.
   mappings exactly as the Parquet export holds them
   (:func:`records_from_rows` takes either).
 * **Latency** (V0.14 G6, D324) - every ``dispatched`` decision of the
-  campaigns' benchmark jobs with its ``decision_ms`` and snapshot size
-  (:func:`load_latency`).
+  campaigns' benchmark jobs with its ``decision_ms``, snapshot size and
+  live snapshot nodes (D332) (:func:`load_latency`).
 * **Replays** - per record the ``dispatched`` ``plan_decision`` of its attempt
   (a whole job), or else its job's **first** ``dispatched`` decision (a split
   job's record is the combine's row; the lanes were planned by that first
@@ -31,13 +31,18 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import Any, Final
 
-from sqlalchemy import case, func, select
+from sqlalchemy import case, cast, column, func, literal, select
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from meshforge.common.errors import ExitCode, FailureType, MeshForgeError
 from meshforge.controller.bench.control import campaign_jobs
-from meshforge.controller.planner_eval.latency import LatencySample
+from meshforge.controller.planner_eval.latency import (
+    LIVE_CAPABILITY,
+    LIVE_STATE,
+    LatencySample,
+)
 from meshforge.controller.planner_eval.model import ConfigRef, EvalGroup, EvalRecord
 from meshforge.controller.store.engine import create_session_factory
 from meshforge.controller.store.models.bench import BenchCampaign, BenchRun
@@ -267,17 +272,25 @@ def _node_count(nodes: Any, candidates: Any) -> int | None:
     return len(seen) if seen else None
 
 
+def _count(value: Any) -> int | None:
+    """A non-negative integer count, else None."""
+    if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+        return value
+    return None
+
+
 def latency_samples(rows: Iterable[Sequence[Any]]) -> list[LatencySample]:
-    """``(decision_ms, replay node count, candidates)`` rows as
-    :class:`~.latency.LatencySample` s (pure)."""
+    """``(decision_ms, replay node count, replay live node count,
+    candidates)`` rows as :class:`~.latency.LatencySample` s (pure). The live
+    count has no fallback: a row without a replay is never judged (D332)."""
     out: list[LatencySample] = []
-    for ms, nodes, candidates in rows:
+    for ms, nodes, live, candidates in rows:
         value = (
             float(ms)
             if isinstance(ms, int | float) and not isinstance(ms, bool)
             else None
         )
-        out.append(LatencySample(value, _node_count(nodes, candidates)))
+        out.append(LatencySample(value, _node_count(nodes, candidates), _count(live)))
     return out
 
 
@@ -288,16 +301,32 @@ async def load_latency(
     benchmark jobs (:func:`~meshforge.controller.bench.control.campaign_jobs`:
     runs of every generation, fillers, warm-ups) with its ``decision_ms`` and
     snapshot size - the replay's node count read in SQL (the 64 KiB blob is
-    never loaded), the candidates only for a row without a replay. Ordered
-    by decision id."""
+    never loaded), the candidates only for a row without a replay - and
+    (D332) the replay's live nodes, also counted in SQL: a correlated count
+    over the snapshot's node rows that are ``online``, ``connected`` and
+    accept jobs (:data:`~.latency.LIVE_STATE`,
+    :data:`~.latency.LIVE_CAPABILITY`). Ordered by decision id."""
     nodes = PlanDecision.replay["snapshot"]["nodes"]
+    is_array = func.jsonb_typeof(nodes) == "array"
+    rows_of = func.jsonb_array_elements(
+        case((is_array, nodes), else_=cast(literal("[]"), JSONB))
+    ).table_valued(column("value", JSONB))
+    node = rows_of.c.value
+    live = (
+        select(func.count())
+        .select_from(rows_of)
+        .where(
+            node["state"].astext == LIVE_STATE,
+            node["connected"] == cast(literal("true"), JSONB),
+            node["capabilities"].contains([LIVE_CAPABILITY]),
+        )
+        .scalar_subquery()
+    )
     query = (
         select(
             PlanDecision.decision_ms,
-            case(
-                (func.jsonb_typeof(nodes) == "array", func.jsonb_array_length(nodes)),
-                else_=None,
-            ),
+            case((is_array, func.jsonb_array_length(nodes)), else_=None),
+            case((is_array, live), else_=None),
             case((PlanDecision.replay.is_(None), PlanDecision.candidates), else_=None),
         )
         .join(Job, Job.id == PlanDecision.job_id)

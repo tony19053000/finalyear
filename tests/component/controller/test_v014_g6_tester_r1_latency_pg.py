@@ -267,8 +267,10 @@ async def _set_ms(engine: Any, jobs: list[str], values: list[Any]) -> None:
 
 
 async def _set_snapshot_nodes(engine: Any, jobs: list[str], count: int) -> None:
-    """Make the stored replays say the snapshot held ``count`` nodes."""
-    nodes = "[" + ",".join(["{}"] * count) + "]"
+    """Make the stored replays say the snapshot held ``count`` nodes, all live
+    (G6F D332: criterion 3 counts online + connected + exec rows)."""
+    live = '{"state": "online", "connected": true, "capabilities": ["exec"]}'
+    nodes = "[" + ",".join([live] * count) + "]"
     async with engine.begin() as conn:
         await conn.execute(
             text(
