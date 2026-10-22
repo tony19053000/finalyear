@@ -148,18 +148,8 @@ def test_weird_phase_values_never_crash(bad: Any) -> None:
 @pytest.mark.parametrize(
     "bad",
     [
-        pytest.param(
-            float("nan"),
-            marks=pytest.mark.xfail(
-                strict=True, reason="DEFECT minor: targets.py:474 int(NaN) raises"
-            ),
-        ),
-        pytest.param(
-            float("inf"),
-            marks=pytest.mark.xfail(
-                strict=True, reason="DEFECT minor: targets.py:474 int(inf) raises"
-            ),
-        ),
+        float("nan"),
+        float("inf"),
         -1,
         True,
         None,

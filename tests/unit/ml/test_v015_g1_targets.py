@@ -465,3 +465,13 @@ def test_one_lane_split_learns_lane_terms_rate_and_combine() -> None:
     assert got["chunk_rate"].finished_at == run.outcome.finished_at  # lane had none
     assert got["combine"].actual_s == 1.2
     assert _skips(skipped) == {}
+
+
+def test_combine_without_predicted_node_is_node_unknown() -> None:
+    """Reviewer item 4: a combine term with no ``combine_node_id`` cannot be
+    matched to the node that ran it, so it is a counted skip, never a row."""
+    s = stored(forced_set=True)
+    del chosen(s)["estimate"]["terms"]["combine"]["detail"]["combine_node_id"]
+    rows, skipped = observations(set_run(s, combine_node="node_000"))
+    assert "combine" not in {o.term for o in rows}
+    assert _skips(skipped) == {"exact_by_construction": 1, "node_unknown": 1}

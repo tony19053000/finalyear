@@ -154,7 +154,7 @@ async def _split_parts(
             elif attempt.state == "done" and attempt.ended_at is not None:
                 held = combines.get(attempt.job_id)
                 if held is None or (attempt.ended_at, attempt.id) > (
-                    held.ended_at or dt.datetime.min.replace(tzinfo=dt.UTC),
+                    held.ended_at,  # never None: only ended attempts are held
                     held.id,
                 ):
                     combines[attempt.job_id] = attempt
@@ -228,6 +228,10 @@ async def _page(db: AsyncSession, outcomes: list[DecisionOutcome]) -> list[RunIn
         job_lanes: tuple[LaneOutcome, ...] = ()
         combine: CombineOutcome | None = None
         if _is_split(outcome):
+            # A round's lanes: fencing tokens in [attempt_no, next dispatched
+            # attempt_no). Relies on split/lanes.create_lanes giving a round's
+            # lanes consecutive tokens from the decision's attempt_no in the
+            # dispatch transaction; a later round always starts above them.
             tokens = dispatched.get(decision.job_id, [])
             later = [t for t in tokens if t > decision.attempt_no]
             end = min(later) if later else None

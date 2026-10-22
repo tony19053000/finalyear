@@ -85,6 +85,7 @@ class Skip(StrEnum):
     MISSING_LANE_ROW = "missing_lane_row"
     NO_CHUNKS = "no_chunks"
     NODE_MISMATCH = "node_mismatch"
+    NODE_UNKNOWN = "node_unknown"
 
 
 # ------------------------------------------------------------------ inputs
@@ -457,7 +458,10 @@ def _combine(
         out.skip(Skip.MISSING_TERM)
         return
     predicted_node = _detail(term).get("combine_node_id")
-    if predicted_node is not None and predicted_node != combine.node_id:
+    if predicted_node is None:  # cannot tell whether the prediction was for this node
+        out.skip(Skip.NODE_UNKNOWN)
+        return
+    if predicted_node != combine.node_id:
         out.skip(Skip.NODE_MISMATCH)
         return
     phases = combine.phases_ms
@@ -471,7 +475,12 @@ def _combine(
             out.skip(Skip.MISSING_PHASE)
             return
         value = phases[phase]
-        total_ms += 0 if value is None else max(0, int(value))  # skipped = no work
+        if value is None:  # skipped = no work
+            continue
+        if not math.isfinite(value):
+            out.skip(Skip.MISSING_PHASE)
+            return
+        total_ms += max(0, int(value))
     _add(
         out,
         "combine",
