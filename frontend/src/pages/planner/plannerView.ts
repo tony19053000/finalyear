@@ -73,17 +73,28 @@ export function latencyText(l: LatencyOut): string {
   return parts.join(" · ");
 }
 
-/** "3 nodes: 90 decisions, p99 4.20 ms" per snapshot size (the report's order). */
+/**
+ * "3 nodes: 90 decisions, p99 4.20 ms" per snapshot size (every registered node row), then
+ * (V0.14 G6F, D332) "3 live nodes: …" per number of live snapshot nodes - the report's order.
+ */
 export function latencyBuckets(l: LatencyOut): string[] {
-  return Object.entries(l.by_node_count).map(
+  const rows = Object.entries(l.by_node_count).map(
     ([nodes, b]) => `${nodes} nodes: ${String(b.decisions)} decisions, p99 ${ms(b.p99_ms)}`,
   );
+  const live = Object.entries(l.by_live_node_count ?? {}).map(
+    ([nodes, b]) => `${nodes} live nodes: ${String(b.decisions)} decisions, p99 ${ms(b.p99_ms)}`,
+  );
+  return [...rows, ...live];
 }
 
-/** What criterion 3 judges: snapshots of at least `node_count` nodes (a snapshot holds every registered node). */
+/**
+ * What criterion 3 judges: snapshots with at least `node_count` live nodes (online, connected,
+ * accepting jobs; D332) - or, in a report made before D332, node rows of any state.
+ */
 export function judgedText(l: LatencyOut): string {
+  const what = l.judged_on === "live_nodes" ? "live nodes (online, connected, accepting jobs)" : "nodes";
   return (
-    `criterion 3 judges snapshots of ≥ ${String(l.node_count)} nodes: ${String(l.judged.decisions)} decisions ` +
+    `criterion 3 judges snapshots of ≥ ${String(l.node_count)} ${what}: ${String(l.judged.decisions)} decisions ` +
     `(at least ${String(l.min_decisions)} needed), p99 ${ms(l.judged.p99_ms)}, PASS strictly below ${String(l.budget_ms)} ms`
   );
 }

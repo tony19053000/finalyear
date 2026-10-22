@@ -216,6 +216,7 @@ async def test_a_real_dispatch_stores_decision_ms_and_the_evaluator_reads_it(
     samples = await load_latency(engine, [campaign_id])
     assert len(samples) == 18  # the campaign's dispatched rows, not the user's
     assert all(s.node_count == 3 for s in samples)  # the replay's snapshot
+    assert all(s.live_node_count == 3 for s in samples)  # G6F D332: all live
     assert sum(1 for s in samples if s.decision_ms is None) == 1
     assert await load_latency(engine, []) == []
 

@@ -264,6 +264,11 @@ def _check_latency(report: dict[str, Any], pg_settings: Any) -> None:
     assert latency["p50_ms"] <= latency["p99_ms"] <= latency["max_ms"], latency
     assert list(latency["by_node_count"]) == ["3"], latency
     assert latency["by_node_count"]["3"]["decisions"] == latency["decisions"]
+    # G6F (D332): live nodes counted from each replay; 3 agents -> never >= 4
+    live = latency["by_live_node_count"]
+    assert latency["judged_on"] == "live_nodes" and "3" in live, latency
+    assert set(live) <= {"0", "1", "2", "3"}, latency
+    assert sum(b["decisions"] for b in live.values()) == latency["decisions"], latency
     (c3,) = [v for v in report["verdicts"] if v["criterion"] == 3]
     assert c3["status"] == "too_few_decisions" and c3["counted_groups"] == 0, c3
 

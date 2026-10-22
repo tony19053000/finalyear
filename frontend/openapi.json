@@ -4481,6 +4481,20 @@
             "title": "Budget Ms",
             "type": "number"
           },
+          "by_live_node_count": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/LatencyBucketOut"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "By Live Node Count"
+          },
           "by_node_count": {
             "additionalProperties": {
               "$ref": "#/components/schemas/LatencyBucketOut"
@@ -4494,6 +4508,15 @@
           },
           "judged": {
             "$ref": "#/components/schemas/LatencyBucketOut"
+          },
+          "judged_on": {
+            "default": "snapshot_nodes",
+            "enum": [
+              "snapshot_nodes",
+              "live_nodes"
+            ],
+            "title": "Judged On",
+            "type": "string"
           },
           "max_ms": {
             "anyOf": [

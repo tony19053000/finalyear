@@ -40,8 +40,16 @@ pytestmark = pytest.mark.unit
 CFG = LatencyConfig(budget_ms=100.0, node_count=4, min_decisions=30)
 
 
-def _s(values: list[float | None], nodes: int | None = 4) -> list[LatencySample]:
-    return [LatencySample(v, nodes) for v in values]
+_ALL: Any = object()
+
+
+def _s(
+    values: list[float | None], nodes: int | None = 4, live: int | None = _ALL
+) -> list[LatencySample]:
+    """Samples of ``nodes`` node rows, ``live`` of them live (default: all,
+    G6F D332)."""
+    count = nodes if live is _ALL else live
+    return [LatencySample(v, nodes, count) for v in values]
 
 
 def _verdict(samples: list[LatencySample], cfg: LatencyConfig = CFG) -> dict[str, Any]:
@@ -251,11 +259,14 @@ def test_a_slow_bigger_snapshot_fails_it() -> None:
     assert _verdict(samples)["status"] == "FAIL"
 
 
-def test_three_live_plus_two_stale_rows_is_a_five_node_snapshot_and_counts() -> None:
-    # reviewer note, pinned as the documented behaviour: the snapshot's size
-    # is what is judged, regardless of how many of those nodes are alive
-    assert _verdict(_s([1.0] * 30, nodes=5))["status"] == "PASS"
-    assert _verdict(_s([1.0] * 30, nodes=5))["counted_groups"] == 30
+def test_three_live_plus_two_stale_rows_is_a_five_node_snapshot_and_not_judged() -> (
+    None
+):
+    # reviewer note; G6 judged the snapshot's size (PASS here). D332 (G6F)
+    # judges live nodes: 3 laptops + 2 stale rows are not 4 laptops
+    assert _verdict(_s([1.0] * 30, nodes=5, live=3))["status"] == "too_few_decisions"
+    assert _verdict(_s([1.0] * 30, nodes=5, live=3))["counted_groups"] == 0
+    assert _verdict(_s([1.0] * 30, nodes=5, live=4))["status"] == "PASS"
 
 
 def test_a_leaked_report_hides_the_verdict_but_keeps_what_it_would_be() -> None:
@@ -368,9 +379,15 @@ def test_cli_numbers_equal_the_api_block() -> None:
             f"{nodes} nodes: {bucket.decisions} decision(s), p99 {bucket.p99_ms:.2f} ms"
             in lines[1]
         )
+    assert block.by_live_node_count is not None
+    for nodes, bucket in block.by_live_node_count.items():
+        assert (
+            f"{nodes} nodes: {bucket.decisions} decision(s), p99 {bucket.p99_ms:.2f} ms"
+            in lines[2]
+        )
     assert (
         f"{block.judged.decisions} decision(s), p99 {block.judged.p99_ms:.2f} ms"
-        in lines[2]
+        in lines[3]
     )
     (c3,) = [v for v in report["verdicts"] if v["criterion"] == 3]
     assert f"criterion 3: {c3['status']}" in "\n".join(

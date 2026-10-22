@@ -12,7 +12,9 @@ real PostgreSQL, for the evaluator's component tests.
 * :func:`finish_runs` - every attempt ended ``done`` (with a measured ``run``
   phase), its ``bench_run`` ``done`` and a run record with the given total -
   so the labels, the matched runs (calibration) and the evaluator all read
-  what a real campaign leaves behind.
+  what a real campaign leaves behind;
+* :func:`preferred_node` - the node uncalibrated ``cost_model`` picks for a
+  dispatched run (its stored shadow plan, re-planned).
 """
 
 from __future__ import annotations
@@ -28,7 +30,7 @@ import pytest
 
 pytest.importorskip("sqlalchemy", reason="needs the controller extra")
 
-from sqlalchemy import insert, text, update
+from sqlalchemy import insert, select, text, update
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from meshforge.bench.campaign import NodeRef, expand, parse_spec, spec_digest
@@ -44,10 +46,13 @@ from meshforge.controller.jobs.execution_store import ExecutionStore
 from meshforge.controller.jobs.planning import DispatchPlanner
 from meshforge.controller.jobs.store import JobScheduling
 from meshforge.controller.liveness import NodeState
+from meshforge.controller.planner import plan
+from meshforge.controller.planner.replay import shadow_from_replay
 from meshforge.controller.registry import Registry
 from meshforge.controller.settings import JobApiSettings, PlannerSettings
 from meshforge.controller.store.engine import create_session_factory
 from meshforge.controller.store.models.bench import BenchRun
+from meshforge.controller.store.models.plan import PlanDecision
 from meshforge.controller.store.models.telemetry import RunRecord
 from meshforge.controller.telemetry.schema import COLUMN_NAMES, SCHEMA_VERSION
 
@@ -61,6 +66,7 @@ __all__ = [
     "make_campaign",
     "medians",
     "planner",
+    "preferred_node",
     "register_nodes",
 ]
 
@@ -285,6 +291,23 @@ async def finish_runs(
             next(_N)
         if rows:
             await db.execute(insert(RunRecord), rows)
+
+
+async def preferred_node(engine: AsyncEngine, item: Dispatched) -> str:
+    """The node uncalibrated ``cost_model`` picks for ``item`` (its shadow)."""
+    async with engine.connect() as conn:
+        replay = (
+            await conn.execute(
+                select(PlanDecision.replay).where(
+                    PlanDecision.attempt_id == item.attempt_id
+                )
+            )
+        ).scalar_one()
+    shadow = shadow_from_replay(replay)
+    assert shadow is not None
+    decision = plan(shadow[0], shadow[1], "cost_model", shadow[2])
+    assert decision.chosen is not None
+    return decision.chosen.node_id
 
 
 def medians(by_node: Mapping[str, int]) -> Callable[[RunRow], int]:

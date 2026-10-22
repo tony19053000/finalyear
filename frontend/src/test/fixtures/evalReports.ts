@@ -87,7 +87,10 @@ export const LATENCY: LatencyOut = {
   budget_ms: 100,
   node_count: 4,
   min_decisions: 30,
-  by_node_count: { "3": { decisions: 26, p99_ms: 9.5 }, "4": { decisions: 64, p99_ms: 41.25 } },
+  judged_on: "live_nodes",
+  // D332: 4 laptops + an old row -> 5 node rows, 4 of them live
+  by_node_count: { "3": { decisions: 26, p99_ms: 9.5 }, "5": { decisions: 64, p99_ms: 41.25 } },
+  by_live_node_count: { "3": { decisions: 26, p99_ms: 9.5 }, "4": { decisions: 64, p99_ms: 41.25 } },
   judged: { decisions: 64, p99_ms: 41.25 },
 };
 

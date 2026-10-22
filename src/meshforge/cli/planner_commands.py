@@ -317,22 +317,27 @@ def latency_lines(latency: Any) -> list[str]:
         f"ms; {render.echo(latency.get('over_budget'))} over the "
         f"{_num(latency.get('budget_ms'), 0)} ms budget"
     ]
-    buckets = latency.get("by_node_count")
-    if isinstance(buckets, Mapping) and buckets:
-        lines.append(
-            "  by snapshot size: "
-            + "; ".join(
-                f"{render.echo(nodes)} nodes: {render.echo(b.get('decisions'))} "
-                f"decision(s), p99 {_num(b.get('p99_ms'), 2)} ms"
-                for nodes, b in buckets.items()
-                if isinstance(b, Mapping)
+    for title, key in (
+        ("by snapshot size", "by_node_count"),
+        ("by live nodes", "by_live_node_count"),  # D332
+    ):
+        buckets = latency.get(key)
+        if isinstance(buckets, Mapping) and buckets:
+            lines.append(
+                f"  {title}: "
+                + "; ".join(
+                    f"{render.echo(nodes)} nodes: {render.echo(b.get('decisions'))} "
+                    f"decision(s), p99 {_num(b.get('p99_ms'), 2)} ms"
+                    for nodes, b in buckets.items()
+                    if isinstance(b, Mapping)
+                )
             )
-        )
     judged = latency.get("judged")
     if isinstance(judged, Mapping):
+        what = "live nodes" if latency.get("judged_on") == "live_nodes" else "nodes"
         lines.append(
             f"  criterion 3 judges snapshots of >= "
-            f"{render.echo(latency.get('node_count'))} nodes: "
+            f"{render.echo(latency.get('node_count'))} {what}: "
             f"{render.echo(judged.get('decisions'))} decision(s), p99 "
             f"{_num(judged.get('p99_ms'), 2)} ms (at least "
             f"{render.echo(latency.get('min_decisions'))} needed)"

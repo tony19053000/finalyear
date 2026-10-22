@@ -81,6 +81,8 @@ def _latency_lines(latency: Any) -> list[str]:
         return []
     judged = latency.get("judged")
     judged = judged if isinstance(judged, Mapping) else {}
+    live = latency.get("judged_on") == "live_nodes"  # D332; older: every row
+    what = "live nodes (online, connected, accepting jobs)" if live else "nodes"
     lines = [
         "",
         "## Decision latency (criterion 3)",
@@ -92,7 +94,7 @@ def _latency_lines(latency: Any) -> list[str]:
         f"- over the {_num(latency.get('budget_ms'), 0)} ms budget: "
         f"{_cell(latency.get('over_budget'))}",
         f"- criterion 3 judges snapshots of >= {_cell(latency.get('node_count'))} "
-        f"nodes: {_cell(judged.get('decisions'))} decisions, p99 "
+        f"{what}: {_cell(judged.get('decisions'))} decisions, p99 "
         f"{_num(judged.get('p99_ms'))} ms (at least "
         f"{_cell(latency.get('min_decisions'))} needed)",
         "",
@@ -106,6 +108,17 @@ def _latency_lines(latency: Any) -> list[str]:
             if isinstance(b, Mapping)
         ],
     )
+    live_buckets = latency.get("by_live_node_count")
+    if isinstance(live_buckets, Mapping) and live_buckets:  # as the CLI
+        lines.append("")
+        lines += _table(
+            ("live nodes", "decisions", "p99 ms"),
+            [
+                (_cell(nodes), _cell(b.get("decisions")), _num(b.get("p99_ms")))
+                for nodes, b in live_buckets.items()
+                if isinstance(b, Mapping)
+            ],
+        )
     return lines
 
 

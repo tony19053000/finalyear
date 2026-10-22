@@ -37,6 +37,7 @@ from mf_eval_pg import (
     finish_runs,
     make_campaign,
     planner,
+    preferred_node,
     register_nodes,
 )
 from sqlalchemy import text
@@ -44,9 +45,7 @@ from sqlalchemy import text
 from meshforge.controller import calibration_store
 from meshforge.controller.calibration_store import CalibrationStore
 from meshforge.controller.jobs.execution_store import ExecutionStore
-from meshforge.controller.planner import plan
 from meshforge.controller.planner.calibration import CalibrationConfig
-from meshforge.controller.planner.replay import shadow_from_replay
 from meshforge.controller.store.engine import create_engine
 from meshforge.controller.store.migrate import alembic_config
 from meshforge.controller.store.settings import DatabaseSettings
@@ -69,18 +68,7 @@ async def engine(pg_settings: DatabaseSettings) -> AsyncIterator[Any]:
 
 async def _preferred(engine: Any, item: Dispatched) -> str:
     """The node uncalibrated cost_model picks for this run (its shadow)."""
-    async with engine.connect() as conn:
-        replay = (
-            await conn.execute(
-                text("SELECT replay FROM plan_decision WHERE attempt_id = :a"),
-                {"a": item.attempt_id},
-            )
-        ).scalar_one()
-    shadow = shadow_from_replay(replay)
-    assert shadow is not None
-    decision = plan(shadow[0], shadow[1], "cost_model", shadow[2])
-    assert decision.chosen is not None
-    return decision.chosen.node_id
+    return await preferred_node(engine, item)
 
 
 async def _seed(engine: Any, groups: int) -> str:

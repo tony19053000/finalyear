@@ -280,16 +280,24 @@ class LatencyOut(ApiModel):
     budget_ms: float
     """``[controller.planner] decision_latency_budget_ms``."""
     node_count: int
-    """Criterion 3 judges snapshots of at least this many nodes (4: the lab
-    fabric; a snapshot holds every registered node row, offline and revoked
-    ones too)."""
+    """Criterion 3 judges snapshots of at least this many live nodes (4: the
+    lab laptops; D332)."""
     min_decisions: int
     """Fewer judged decisions -> ``too_few_decisions``."""
+    judged_on: Literal["snapshot_nodes", "live_nodes"] = "snapshot_nodes"
+    """What ``judged`` counts: ``live_nodes`` (V0.14 G6F, D332) = snapshot
+    nodes online, connected and accepting jobs at decision time;
+    ``snapshot_nodes`` = every node row (a report stored before D332, which
+    lacks the key)."""
     by_node_count: dict[str, LatencyBucketOut]
-    """Snapshot node count (``"unknown"`` = unreadable) -> its decisions."""
+    """Snapshot node rows - offline and revoked ones too - (``"unknown"`` =
+    unreadable) -> its decisions."""
+    by_live_node_count: dict[str, LatencyBucketOut] | None = None
+    """D332: live snapshot nodes (``"unknown"`` = a decision without a
+    replay) -> its decisions; None in a report stored before D332."""
     judged: LatencyBucketOut
     """The decisions criterion 3 judges (snapshots of >= ``node_count``
-    nodes) and their p99."""
+    nodes, counted as ``judged_on`` says) and their p99."""
 
 
 class EvalReportOut(ApiModel):
