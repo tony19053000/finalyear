@@ -166,6 +166,10 @@ def test_cli_only_is_the_exception() -> None:
         # V0.14 G2: an operator action; the Planner page (V0.14 G5) shows
         # every version it writes (`planner calibration` is InUi since G5)
         "planner calibrate",
+        # V0.14 G4: runs an evaluation (admin); the dashboard has no control
+        # that starts one - the Planner page shows the stored reports
+        # (`planner reports` is InUi since the G4 + G5 merge, D321)
+        "planner eval",
     ]
 
 

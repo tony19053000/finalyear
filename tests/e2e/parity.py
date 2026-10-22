@@ -324,13 +324,19 @@ COMPUTE: Final[dict[str, Entry]] = {
     ),
     "planner eval": CliOnly(
         "V0.14 G4 (D297/D318): evaluates benchmark campaigns and stores the "
-        "report (admin). The Planner page (V0.14 G5, D300) shows stored reports "
-        "(GET /v1/planner/eval-reports); until G5 merges this stays CLI-only."
+        "report (admin; replays every record under every policy - an operator "
+        "action, like `planner calibrate`). The dashboard has no control that "
+        "starts an evaluation: the Planner page (V0.14 G5, D300) shows the "
+        "reports it stores (`planner reports`), not the run itself (D321: kept "
+        "CLI-only rather than claim a parity that does not exist)."
     ),
-    "planner reports": CliOnly(
-        "V0.14 G4 fix round 1 (reviewer N6): lists stored evaluation reports. "
-        "The Planner page (V0.14 G5, D300) lists the same reports; until G5 "
-        "merges this stays CLI-only."
+    "planner reports": InUi(
+        "/planner",
+        "Planner page, Evaluation: the stored reports newest first (id, time, "
+        "campaigns, held-out family, evaluated groups, LEAKED, criterion 1 / 2 "
+        "verdicts); a report opens its per-policy regret with CI, criterion 2's "
+        "paired comparisons, families, calibrations used and counts",
+        (PLAN_AND_PLANNER,),
     ),
 }
 
