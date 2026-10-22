@@ -338,6 +338,13 @@ COMPUTE: Final[dict[str, Entry]] = {
         "paired comparisons, families, calibrations used and counts",
         (PLAN_AND_PLANNER,),
     ),
+    # ------------------------------------------------------------ ML (V0.15)
+    "planner ml dataset": CliOnly(
+        "V0.15 G1 (D333): downloads the ML training dataset (admin) - a data "
+        "export for training and offline analysis, with no UI in G1 by the "
+        "brief (§5a 'no UI'); the Planner page's Models section (V0.15 G5, "
+        "D342) shows what is trained on it."
+    ),
 }
 
 #: ``meshforge-controller user ...`` (D176 "users (admin)").

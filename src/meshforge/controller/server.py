@@ -60,6 +60,7 @@ from meshforge.controller.api.auth_routes import AuthApi
 from meshforge.controller.api.bench_routes import BenchApi
 from meshforge.controller.api.fabric_routes import InviteApi
 from meshforge.controller.api.job_routes import JobApi
+from meshforge.controller.api.ml_routes import MlDatasetApi
 from meshforge.controller.api.network_routes import NetworkApi
 from meshforge.controller.api.planner_eval_routes import PlannerEvalApi
 from meshforge.controller.api.planner_routes import PlannerApi
@@ -839,6 +840,8 @@ class ControllerRuntime:
                     ),
                 )
             ),
+            # V0.15 G1 (D333): the ML training dataset
+            ml_dataset=MlDatasetApi(engine, max_runs=cfg.planner.ml_dataset_max_runs),
         )
         http_config = uvicorn.Config(
             http_app,

@@ -4949,6 +4949,268 @@
         "title": "MissingFields",
         "type": "object"
       },
+      "MlColumnOut": {
+        "additionalProperties": false,
+        "properties": {
+          "group": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Group"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "nullable": {
+            "title": "Nullable",
+            "type": "boolean"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit"
+          }
+        },
+        "required": [
+          "name",
+          "type",
+          "nullable",
+          "group",
+          "unit"
+        ],
+        "title": "MlColumnOut",
+        "type": "object"
+      },
+      "MlCountsOut": {
+        "additionalProperties": false,
+        "properties": {
+          "rows": {
+            "title": "Rows",
+            "type": "integer"
+          },
+          "rows_by_family": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Rows By Family",
+            "type": "object"
+          },
+          "rows_by_term": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Rows By Term",
+            "type": "object"
+          },
+          "runs": {
+            "title": "Runs",
+            "type": "integer"
+          },
+          "runs_with_rows": {
+            "title": "Runs With Rows",
+            "type": "integer"
+          },
+          "skipped": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Skipped",
+            "type": "object"
+          }
+        },
+        "required": [
+          "runs",
+          "runs_with_rows",
+          "rows",
+          "rows_by_term",
+          "rows_by_family",
+          "skipped"
+        ],
+        "title": "MlCountsOut",
+        "type": "object"
+      },
+      "MlDatasetSummaryOut": {
+        "additionalProperties": false,
+        "description": "The dataset's JSON sidecar (``?format=summary``).",
+        "properties": {
+          "bytes": {
+            "title": "Bytes",
+            "type": "integer"
+          },
+          "counts": {
+            "$ref": "#/components/schemas/MlCountsOut"
+          },
+          "dataset_schema": {
+            "$ref": "#/components/schemas/MlSchemaOut"
+          },
+          "dataset_version": {
+            "title": "Dataset Version",
+            "type": "integer"
+          },
+          "digest": {
+            "title": "Digest",
+            "type": "string"
+          },
+          "feature_version": {
+            "title": "Feature Version",
+            "type": "integer"
+          },
+          "max_runs": {
+            "title": "Max Runs",
+            "type": "integer"
+          },
+          "rows": {
+            "title": "Rows",
+            "type": "integer"
+          },
+          "truncated": {
+            "title": "Truncated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "dataset_version",
+          "feature_version",
+          "digest",
+          "bytes",
+          "rows",
+          "max_runs",
+          "truncated",
+          "counts",
+          "dataset_schema"
+        ],
+        "title": "MlDatasetSummaryOut",
+        "type": "object"
+      },
+      "MlFeatureOut": {
+        "additionalProperties": false,
+        "properties": {
+          "doc": {
+            "title": "Doc",
+            "type": "string"
+          },
+          "group": {
+            "title": "Group",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "unit": {
+            "title": "Unit",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "kind",
+          "unit",
+          "group",
+          "doc"
+        ],
+        "title": "MlFeatureOut",
+        "type": "object"
+      },
+      "MlSchemaOut": {
+        "additionalProperties": false,
+        "properties": {
+          "columns": {
+            "items": {
+              "$ref": "#/components/schemas/MlColumnOut"
+            },
+            "title": "Columns",
+            "type": "array"
+          },
+          "features": {
+            "items": {
+              "$ref": "#/components/schemas/MlFeatureOut"
+            },
+            "title": "Features",
+            "type": "array"
+          },
+          "fingerprint": {
+            "title": "Fingerprint",
+            "type": "string"
+          },
+          "terms": {
+            "items": {
+              "$ref": "#/components/schemas/MlTermOut"
+            },
+            "title": "Terms",
+            "type": "array"
+          }
+        },
+        "required": [
+          "fingerprint",
+          "columns",
+          "features",
+          "terms"
+        ],
+        "title": "MlSchemaOut",
+        "type": "object"
+      },
+      "MlTermOut": {
+        "additionalProperties": false,
+        "properties": {
+          "actual": {
+            "title": "Actual",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "phase": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Phase"
+          },
+          "planner_term": {
+            "title": "Planner Term",
+            "type": "string"
+          },
+          "scope": {
+            "title": "Scope",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "scope",
+          "planner_term",
+          "phase",
+          "actual"
+        ],
+        "title": "MlTermOut",
+        "type": "object"
+      },
       "NetworkOut": {
         "additionalProperties": false,
         "properties": {
@@ -15096,6 +15358,126 @@
           }
         },
         "summary": "One planner evaluation report (JSON or Markdown)",
+        "tags": [
+          "planner"
+        ]
+      }
+    },
+    "/v1/planner/ml/dataset": {
+      "get": {
+        "operationId": "get_ml_dataset_v1_planner_ml_dataset_get",
+        "parameters": [
+          {
+            "description": "parquet = the file (default); summary = the sidecar.",
+            "in": "query",
+            "name": "format",
+            "required": false,
+            "schema": {
+              "default": "parquet",
+              "description": "parquet = the file (default); summary = the sidecar.",
+              "enum": [
+                "parquet",
+                "summary"
+              ],
+              "title": "Format",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MlDatasetSummaryOut"
+                }
+              },
+              "application/vnd.apache.parquet": {}
+            },
+            "description": "format=parquet: the dataset file; format=summary: JSON"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid input (`invalid_input`)"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No, or no longer a valid, credential (`unauthorized`)"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not allowed: admin only, CSRF, foreign origin (`unauthorized`)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found - also another user's object (`not_found`)"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict (`conflict`, `no_feasible_plan`)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid parameters (`invalid_input`)"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Rate limited; see Retry-After (`resource_busy`)"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "A dependency (the database) is unavailable; retry (`network_error`)"
+          }
+        },
+        "summary": "The ML training dataset (Parquet, or its summary) - admin only",
         "tags": [
           "planner"
         ]

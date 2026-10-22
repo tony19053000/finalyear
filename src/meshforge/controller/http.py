@@ -60,6 +60,9 @@ from meshforge.controller.api.fabric_routes import (
 )
 from meshforge.controller.api.job_routes import JOBS_STATE_KEY, JobApi, job_router
 from meshforge.controller.api.log_routes import log_router
+
+# V0.15 G1 (D333): the ML training dataset
+from meshforge.controller.api.ml_routes import ML_STATE_KEY, MlDatasetApi, ml_router
 from meshforge.controller.api.network_routes import (
     NETWORK_STATE_KEY,
     NetworkApi,
@@ -152,6 +155,7 @@ def create_http_app(
     bench: BenchApi | None = None,
     planner: PlannerApi | None = None,
     planner_eval: PlannerEvalApi | None = None,
+    ml_dataset: MlDatasetApi | None = None,
     web_dist: Path | None = DEFAULT_DIST,
     wall_clock: Callable[[], float] = time.time,
 ) -> FastAPI:
@@ -271,6 +275,9 @@ def create_http_app(
     if planner_eval is not None:
         setattr(app.state, PLANNER_EVAL_STATE_KEY, planner_eval)
         app.include_router(planner_eval_router)  # V0.14 G4 eval reports (D318)
+    if ml_dataset is not None:
+        setattr(app.state, ML_STATE_KEY, ml_dataset)
+        app.include_router(ml_router)  # V0.15 G1 ML training dataset (D333)
     return app
 
 
@@ -303,6 +310,7 @@ def openapi_document() -> dict[str, Any]:
         bench=inert(),
         planner=inert(),
         planner_eval=inert(),
+        ml_dataset=inert(),
         web_dist=None,
     )
     return app.openapi()

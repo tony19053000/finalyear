@@ -170,6 +170,9 @@ def test_cli_only_is_the_exception() -> None:
         # that starts one - the Planner page shows the stored reports
         # (`planner reports` is InUi since the G4 + G5 merge, D321)
         "planner eval",
+        # V0.15 G1 (D333): the ML dataset export (admin); no UI in G1 by the
+        # brief - the Planner page's Models section (G5) shows its use
+        "planner ml dataset",
     ]
 
 

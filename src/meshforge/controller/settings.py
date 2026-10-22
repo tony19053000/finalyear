@@ -614,6 +614,19 @@ class PlannerSettings(SectionModel):
         ),
     )
 
+    # ------------------------------------------------ V0.15 G1 (D333)
+    ml_dataset_max_runs: int = Field(
+        default=50_000,
+        ge=1,
+        le=1_000_000,
+        description=(
+            "V0.15 D333: the ML training dataset (GET /v1/planner/ml/dataset, "
+            "compute planner ml dataset) is built from at most this many "
+            "newest matched (decision, outcome) runs; the summary says when "
+            "older runs were left out (truncated)."
+        ),
+    )
+
     @field_validator("calibration", mode="before")
     @classmethod
     def _calibration(cls, value: object) -> str:

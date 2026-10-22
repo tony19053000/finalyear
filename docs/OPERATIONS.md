@@ -1339,6 +1339,28 @@ compute get <JOB_ID>               # outputs -> ./outputs/<JOB_ID>/ (--dest, --f
     run on a V0.14 build (decisions without a replay are `no_replay`);
     criterion 3 needs >= 30 decisions made while all 4 laptops were online
     and accepting jobs (the report's `by_live_node_count` shows it).
+- **ML training dataset (V0.15 G1, D333-D335; ADR-0021).** `compute planner ml
+  dataset [--json]` (admin; `GET /v1/planner/ml/dataset?format=summary`)
+  prints what the ML planner would train on; `compute planner ml dataset --out
+  ds.parquet` also downloads it (`GET /v1/planner/ml/dataset`) and writes
+  `ds.parquet.json`, the sidecar (versions, digest, counts, schema). Rows: one
+  per matched (decision, outcome) run - the **same** matching the calibration
+  fits on - and learnable term: a whole job's `transfer` / `env` / `compute` /
+  `output`; a split job's per-lane `lane_stage` / `lane_env` / `chunk_rate`
+  (seconds per item from the lane's committed chunks) and its `combine`. Each
+  row's features come from the decision's **replay snapshot** (what the
+  planner saw: node scores, load, cache, links, job size, the analytical raw
+  prediction and its source; a missing input is NaN, never 0) and its target is
+  `y = ln(actual / raw)` (0 = the analytical model was exact). Nothing is
+  imputed: a decision without a replay (`missing_replay`), an unreadable one,
+  a skipped or missing phase, a term exact by construction (nothing to move, a cached env - D345; a transfer over a probed link IS learned), a prediction under 0.05 s, a
+  lane without a committed chunk ... is **counted by reason** in the summary's
+  `skipped`. The file is byte-identical for the same runs (its `digest` is the
+  dataset's identity for V0.15 training); at most `[controller.planner]
+  ml_dataset_max_runs` (50 000) newest runs are read - `truncated: true` says
+  older ones were left out. It is built per request (bounded, paged reads; a
+  few seconds per ten thousand runs). Harness data proves the pipeline; the
+  V0.15 criteria are judged on the lab campaign of 0.15.11 only.
 - `run -f` streams the logs and exits like the job: `0` succeeded; the workload's own
   exit code (1-125) when it failed; `126` when the fabric failed it (the failure type
   is printed: `node_lost`, `deadline_exceeded`, `output_error` …); `128` cancelled.
