@@ -21,12 +21,24 @@ calibration (V0.14 G2, D293/D301/D306).
   the stored reports, newest first - id, time, campaigns, held-out family,
   leaked, evaluated groups and both verdicts.
 
+* ``ml dataset [--out FILE] [--summary]`` (**admin**, V0.15 G1, ``GET
+  /v1/planner/ml/dataset``): the ML training dataset - one row per matched
+  (decision, outcome) run and learnable term, features from the decision's
+  replay, target ``ln(actual / raw)``. Without ``--out`` (or with
+  ``--summary``): its summary (rows per term and family, skips by reason,
+  digest). ``--out FILE``: the Parquet file (new file only, its digest
+  checked) and ``FILE.json``, the sidecar - written only when the summary
+  names the same digest (the dataset did not change in between).
+
 ``--json`` prints the API document (docs/CLI.md section 3). Every value from
 the controller goes through the renderer's cell / echo scrubbing.
 """
 
 from __future__ import annotations
 
+import hashlib
+import json
+import os
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Annotated, Any, Final
@@ -43,13 +55,15 @@ __all__ = [
     "eval_lines",
     "eval_table",
     "factor_table",
+    "ml_app",
+    "ml_dataset_lines",
     "planner_app",
     "reports_table",
 ]
 
 planner_app = typer.Typer(
     name="planner",
-    help="The planner's calibration and offline evaluation (V0.14).",
+    help="The planner's calibration, offline evaluation (V0.14) and ML data (V0.15).",
     no_args_is_help=True,
     rich_markup_mode=None,
 )
@@ -471,3 +485,148 @@ def evaluate(
         render.show(eval_table(report))
     if md is not None and text is not None:
         render.line(f"wrote {md}")
+
+
+# ------------------------------------------------------- V0.15 G1 (D333)
+
+ml_app = typer.Typer(
+    name="ml",
+    help="The ML planner's training data (V0.15).",
+    no_args_is_help=True,
+    rich_markup_mode=None,
+)
+planner_app.add_typer(ml_app)
+
+
+def ml_dataset_lines(doc: Mapping[str, Any]) -> list[str]:
+    """The dataset summary as lines (pure; tests read them)."""
+    counts = doc.get("counts")
+    counts = counts if isinstance(counts, Mapping) else {}
+    lines = [
+        f"ML dataset v{render.echo(doc.get('dataset_version'))} (features "
+        f"v{render.echo(doc.get('feature_version'))}): "
+        f"{render.echo(doc.get('rows'))} rows from {render.echo(counts.get('runs'))} "
+        f"matched runs ({render.echo(counts.get('runs_with_rows'))} with rows)",
+        f"digest {render.echo(doc.get('digest'))}",
+    ]
+    if doc.get("truncated") is True:
+        lines.append(
+            f"truncated: only the newest {render.echo(doc.get('max_runs'))} runs "
+            "were read ([controller.planner] ml_dataset_max_runs)"
+        )
+    for label, key in (
+        ("rows per term", "rows_by_term"),
+        ("per family", "rows_by_family"),
+    ):
+        part = counts.get(key)
+        if isinstance(part, Mapping):
+            lines.append(
+                f"{label}: "
+                + ", ".join(
+                    f"{render.echo(k)} {render.echo(v)}" for k, v in part.items()
+                )
+            )
+    skipped = counts.get("skipped")
+    if isinstance(skipped, Mapping):
+        shown = [f"{render.echo(k)} {render.echo(v)}" for k, v in skipped.items() if v]
+        lines.append("skipped: " + (", ".join(shown) if shown else "none"))
+    return lines
+
+
+def _sidecar_text(doc: Mapping[str, Any]) -> str:
+    """The sidecar as the controller writes it (sorted keys, 2-space indent)."""
+    return json.dumps(doc, sort_keys=True, indent=2, allow_nan=False) + "\n"
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(block)
+    return "sha256:" + digest.hexdigest()
+
+
+@ml_app.command("dataset")
+def ml_dataset(
+    out: Annotated[
+        Path | None,
+        typer.Option(
+            "--out",
+            "-o",
+            help="Write the dataset (Parquet) to this new file and its summary "
+            "to FILE.json.",
+        ),
+    ] = None,
+    summary_only: Annotated[
+        bool,
+        typer.Option(
+            "--summary", help="Only print the summary (the default without --out)."
+        ),
+    ] = False,
+    json_output: cli.JsonOption = False,
+) -> None:
+    """The ML training dataset: matched runs -> per-term residual rows (admin)."""
+    if out is not None and summary_only:
+        cli._die("--out and --summary exclude each other", CliExit.USAGE_ERROR)
+    settings = cli._settings()
+    if out is None:
+        with cli._client(settings) as client:
+            doc = cli._fetch(client.planner_ml_dataset_summary)
+        if json_output:
+            cli._echo_json(doc)
+            return
+        for line in ml_dataset_lines(doc):
+            render.line(line)
+        return
+    sidecar = out.with_name(out.name + ".json")
+    for target in (out, sidecar):
+        if os.path.lexists(target):  # a dangling symlink too: never followed
+            cli._die(f"{target} exists; choose a new file", CliExit.USAGE_ERROR)
+    with cli._client(settings) as client:
+        try:
+            size, header = cli._fetch(lambda: client.planner_ml_dataset(out))
+        except FileExistsError:
+            cli._die(f"{out} exists; choose a new file", CliExit.USAGE_ERROR)
+        except OSError as exc:
+            cli._die(
+                f"cannot write {out}: {exc.strerror or type(exc).__name__}",
+                CliExit.FAILURE,
+            )
+        written = _sha256_file(out)
+        if header is not None and written != header:
+            out.unlink(missing_ok=True)
+            cli._die(
+                f"{out}: the download does not match its digest; removed - retry",
+                CliExit.FAILURE,
+            )
+        doc = cli._fetch(client.planner_ml_dataset_summary)
+    if doc.get("digest") != written:
+        cli._die(
+            "the dataset changed between the file and its summary (new runs "
+            f"finished); {out} kept, {sidecar} not written - run again",
+            CliExit.FAILURE,
+        )
+    try:
+        with sidecar.open("x", encoding="utf-8") as handle:
+            handle.write(_sidecar_text(doc))
+    except FileExistsError:
+        cli._die(f"{sidecar} exists; choose a new file", CliExit.USAGE_ERROR)
+    except OSError as exc:
+        cli._die(
+            f"cannot write {sidecar}: {exc.strerror or type(exc).__name__}",
+            CliExit.FAILURE,
+        )
+    if json_output:
+        cli._echo_json(
+            {
+                "file": str(out),
+                "sidecar": str(sidecar),
+                "bytes": size,
+                "rows": doc.get("rows"),
+                "digest": written,
+            }
+        )
+        return
+    for line in ml_dataset_lines(doc):
+        render.line(line)
+    render.line(f"wrote {out} ({size} bytes) and {sidecar}")

@@ -427,6 +427,35 @@ class ControllerClient:
             self._decode(response, path)  # raises the typed error
         return response.text
 
+    # V0.15 G1 (D333): the ML training dataset (admin)
+    def planner_ml_dataset_summary(self) -> Mapping[str, Any]:
+        """``GET /v1/planner/ml/dataset?format=summary`` (the JSON sidecar).
+        The controller builds the dataset per request: the transfer timeout
+        applies."""
+        return self._request(
+            "GET",
+            "/v1/planner/ml/dataset",
+            params={"format": "summary"},
+            timeout=_TRANSFER_TIMEOUT_S,
+        )
+
+    def planner_ml_dataset(self, dest: Path) -> tuple[int, str | None]:
+        """Stream ``GET /v1/planner/ml/dataset`` (Parquet) into ``dest``
+        (created, never overwritten); ``(bytes, digest header)``."""
+        path = "/v1/planner/ml/dataset"
+        try:
+            with self._client.stream(
+                "GET", path, timeout=_TRANSFER_TIMEOUT_S
+            ) as response:
+                if response.status_code >= httpx.codes.BAD_REQUEST:
+                    response.read()
+                    raise self._envelope_error(response, _json_or_none(response), path)
+                digest = response.headers.get("x-meshforge-dataset-digest")
+                size = _download_new_file(response, dest)
+                return size, digest
+        except httpx.HTTPError as exc:
+            raise self._transport_error(exc, path) from exc
+
     # V0.7 G2 join codes (D135, D151: fabric token = interim admin)
     def create_invite(
         self, *, ttl_s: int | None, replace_node_id: str | None
