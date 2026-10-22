@@ -50,6 +50,12 @@ def _in_train(path: Path) -> bool:
     return TRAIN in path.parents
 
 
+SERVE = Path(ml_pkg.__file__).parent / "serve.py"
+SERVE_LIBS = {"lightgbm", "xgboost"}
+"""V0.15 G3 (D359): serving loads LightGBM / XGBoost models with their own
+library - never scikit-learn, never threadpoolctl."""
+
+
 def test_ml_libraries_only_in_the_train_package() -> None:
     offenders = [
         f"{path.relative_to(SRC)} imports {module}"
@@ -57,6 +63,7 @@ def test_ml_libraries_only_in_the_train_package() -> None:
         if not _in_train(path)
         for module in _imports(path)
         if module.split(".")[0] in ML_LIBS
+        and not (path == SERVE and module.split(".")[0] in SERVE_LIBS)
     ]
     assert offenders == []
     used = {
@@ -111,6 +118,11 @@ def test_the_import_contract_is_declared() -> None:
     assert set(contract["forbidden_modules"]) == {"sklearn", "lightgbm", "xgboost"}
     assert all(
         rule.startswith("meshforge.controller.ml.train.")
+        or rule
+        in (
+            "meshforge.controller.ml.serve -> lightgbm",
+            "meshforge.controller.ml.serve -> xgboost",
+        )
         for rule in contract["ignore_imports"]
     )
     extra = data["project"]["optional-dependencies"]["ml"]
