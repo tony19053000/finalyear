@@ -1318,7 +1318,9 @@ compute get <JOB_ID>               # outputs -> ./outputs/<JOB_ID>/ (--dest, --f
     snapshot held **at least 4 live nodes** is strictly below the budget,
     `too_few_decisions` below 30 of them. `compute planner eval` prints `decision latency: ...`,
     `compute planner reports` a `CRITERION 3` column, the Planner page a
-    "Decision latency" row.
+    "Decision latency" row. A report made before D332 judged all snapshot rows
+    (it says "nodes", not "live nodes"): its criterion 3 verdict is not comparable
+    with a new one - re-run the evaluation.
   - **Evaluating the planner on lab data (0.14.8).** The procedure, with what
     to paste back, is [lab/checklists/V0.14-planner.md](../lab/checklists/V0.14-planner.md).
     In short (admin, on the controller laptop):

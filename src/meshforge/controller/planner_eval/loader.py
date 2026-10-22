@@ -317,6 +317,8 @@ async def load_latency(
         .select_from(rows_of)
         .where(
             node["state"].astext == LIVE_STATE,
+            # JSONB equality, not ``.astext == "true"``: the string "true"
+            # must not count as connected.
             node["connected"] == cast(literal("true"), JSONB),
             node["capabilities"].contains([LIVE_CAPABILITY]),
         )

@@ -109,7 +109,7 @@ def _latency_lines(latency: Any) -> list[str]:
         ],
     )
     live_buckets = latency.get("by_live_node_count")
-    if isinstance(live_buckets, Mapping):
+    if isinstance(live_buckets, Mapping) and live_buckets:  # as the CLI
         lines.append("")
         lines += _table(
             ("live nodes", "decisions", "p99 ms"),
