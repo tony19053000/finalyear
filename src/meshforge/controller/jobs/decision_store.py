@@ -10,6 +10,7 @@ explain`` prints predicted terms next to these actual phases.
 from __future__ import annotations
 
 import datetime as dt
+import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Final
@@ -148,8 +149,10 @@ class DecisionReads(JobStore):
                     replay_version=None
                     if r.replay_version is None
                     else int(r.replay_version),
+                    # Non-finite stored values (hand-edited rows; the check
+                    # admits NaN/inf) read as unknown, as the evaluator does.
                     decision_ms=None
-                    if r.decision_ms is None
+                    if r.decision_ms is None or not math.isfinite(r.decision_ms)
                     else round(float(r.decision_ms), 3),
                 )
                 for r in rows

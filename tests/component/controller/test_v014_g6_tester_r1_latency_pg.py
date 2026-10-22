@@ -463,14 +463,8 @@ async def test_a_report_stored_before_g6_is_still_served(engine: Any) -> None:
 @pytest.mark.parametrize(
     "stored",
     [
-        pytest.param(
-            math.nan,
-            marks=pytest.mark.xfail(strict=True, reason="DEFECT T1: NaN reaches JSON"),
-        ),
-        pytest.param(
-            math.inf,
-            marks=pytest.mark.xfail(strict=True, reason="DEFECT T1: inf reaches JSON"),
-        ),
+        math.nan,
+        math.inf,
         None,
         0.0,
     ],
