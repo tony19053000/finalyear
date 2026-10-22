@@ -6,7 +6,9 @@ controller's own protection: before every pass the pins are recomputed from
 PostgreSQL - the tree, bundle, split item list (V0.10), committed chunk
 results and parts index (V0.10 G4), outputs and final logs of every
 **non-terminal** job, the input trees of those jobs, and every
-**pinned named input**. A tree pin protects its manifest and every member
+**pinned named input**, and (V0.15 G3) the artefacts of the active, pinned and
+newest ``ml_keep_superseded`` superseded ML model sets. A tree pin protects
+its manifest and every member
 (members recorded from the stored manifest). Blobs used within ``min_age_s``
 (an upload, a ``have`` answer, a download) are never evicted, which covers
 the window between a client's
@@ -46,6 +48,7 @@ from meshforge.common.hashing import Digest
 from meshforge.common.logging import get_logger
 from meshforge.common.states import JOB_TERMINAL_STATES
 from meshforge.controller.blobs import BlobStore
+from meshforge.controller.ml.registry import protected_artefacts
 from meshforge.controller.split.lanes import QUEUE_KIND as SPLIT_QUEUE_KIND
 from meshforge.controller.store.engine import create_session_factory
 from meshforge.controller.store.models.data import JobInput, NamedInput
@@ -101,8 +104,11 @@ class ControllerGc:
         batch: int = 256,
         wall: Callable[[], float] = time.time,
         clock: Callable[[], float] = time.monotonic,
+        ml_keep_superseded: int = 5,
     ) -> None:
         self.blobs = blobs
+        self.ml_keep_superseded = ml_keep_superseded
+        """V0.15 G3: superseded model sets whose artefacts stay (rollback)."""
         self.index = GcIndex(index_dir, wall=wall)
         self._sessions = create_session_factory(engine)
         self.quota_bytes = quota_bytes
@@ -225,6 +231,8 @@ class ControllerGc:
                         and (h := _hex(entry.get("digest"))) is not None
                     ):
                         out.blobs.add(h)
+            # V0.15 G3: the ML model artefacts that may still be loaded
+            out.blobs.update(await protected_artefacts(db, self.ml_keep_superseded))
         return out
 
     async def run_pass(self, reason: str = "manual") -> GcPassReport:

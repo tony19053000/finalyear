@@ -340,3 +340,7 @@ app.add_typer(telemetry_app)
 from meshforge.cli.planner_commands import planner_app  # noqa: E402
 
 app.add_typer(planner_app)
+
+# V0.15 G3: `compute planner ml train|models|pin|unpin` (registered on the
+# planner's `ml` group by importing the module).
+from meshforge.cli import ml_model_commands  # noqa: E402, F401
