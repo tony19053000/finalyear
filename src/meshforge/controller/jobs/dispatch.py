@@ -51,6 +51,7 @@ from meshforge.controller.jobs.retry import RetryReason
 from meshforge.controller.jobs.spec import execution_spec
 from meshforge.controller.jobs.store import AttemptRecord, JobRecord
 from meshforge.controller.jobs.transitions import AttemptEvent
+from meshforge.controller.ml.predictor import ModelSource
 from meshforge.controller.named_inputs import NamedInputStore, ResolvedInput
 from meshforge.controller.resources import ResourceTracker
 from meshforge.controller.secret_box import (
@@ -229,6 +230,8 @@ class DispatchSteps:
     _split: SplitService | None
     _calibration: CalibrationSource | None
     """V0.14 G2 (D293): where the tick's calibration comes from (None = none)."""
+    _ml: ModelSource | None
+    """V0.15 G4 (D336): where the tick's ML model comes from (None = none)."""
     stats: DispatcherStats
 
     if TYPE_CHECKING:  # the dispatcher's (never shadowed at run time)
@@ -245,6 +248,16 @@ class DispatchSteps:
             # loaded only when the active version changed); a failed read
             # keeps the version in use - never blocks the dispatch
             self._planner.calibration = await self._calibration.refresh()
+        if self._ml is not None:
+            # V0.15 G4 (D336): one read per tick; a failed read keeps the
+            # model in use - never blocks the dispatch (D363)
+            try:
+                self._planner.ml = await self._ml.current()
+            except Exception as exc:  # noqa: BLE001 - a model never stops dispatch
+                log.warning(
+                    "controller.dispatcher.ml_source_failed",
+                    error_type=type(exc).__name__,
+                )
         results = await self._store.dispatch_planned(
             self._planner.decide,
             limit=self._settings.dispatch_batch,

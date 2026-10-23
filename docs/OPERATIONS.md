@@ -1393,6 +1393,31 @@ compute get <JOB_ID>               # outputs -> ./outputs/<JOB_ID>/ (--dest, --f
   summarises it, with the top features and the failure-classifier line.
   `--terms` / `--algorithms` cut the run time (about 6-7 min for 20 000 rows
   on one core; a harness dataset takes seconds).
+- **The planner with an ML model (V0.15 G4, D336/D363).** When a model is
+  loaded (G3's registry; until it is merged, no model is configured and every
+  decision is exactly V0.14's), each learnable term of each candidate uses the
+  model only where it is trusted - in distribution and its interval at most
+  `[controller.planner] ml_max_interval_log` wide (ln 2: x2) - else the
+  calibration factor, else the raw estimate. `compute explain` shows it per
+  term: `ML 12.00s -> 9.40s (<version>, x0.78, +-18 %)` or `ML not used:
+  ood (range:hw_cpu_gflops)` / `no_model` / `interval_too_wide` /
+  `exact_by_construction` / `below_min_predicted` / `predictor_error`; every
+  candidate row names `ml_model_version`. **A broken or slow model never stops
+  planning:** an error, a malformed answer or a `predict` call slower than
+  `ml_predict_budget_ms` (20) makes that decision fall back to calibration
+  (rows say `ml_fallback: predictor_error`), the controller logs
+  `controller.jobs.ml_predictor_error` at most once a minute - if you see it,
+  check the model version it names. Measured (D365): with a model on every
+  term (LightGBM 400 trees, OOD reference 20 000 rows) a 4-node decision takes
+  about 10-13 ms p99. A model is **warmed up** when it is loaded (one
+  representative batch, outside the budget), so the first decision after an
+  activation is not a cold ~28 ms call that would fall back; a model whose
+  warm-up fails is not used (`controller.ml.model_warm_up_failed`, the planner
+  keeps calibration). **A CPU-saturated controller can lose ML for some
+  decisions** - a `predict` call that misses the 20 ms budget because the
+  machine is busy falls back to calibration (`budget_exceeded`, counted in
+  `ml_predictor_errors` and logged at most once a minute). That is the
+  intended D363 behaviour: planning never waits for the model.
 - `run -f` streams the logs and exits like the job: `0` succeeded; the workload's own
   exit code (1-125) when it failed; `126` when the fabric failed it (the failure type
   is printed: `node_lost`, `deadline_exceeded`, `output_error` …); `128` cancelled.

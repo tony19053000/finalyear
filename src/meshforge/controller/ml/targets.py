@@ -15,7 +15,10 @@ term the row does not hold). A **Mode 3 set** (chosen row ``mode = split``),
 which the calibration does not fit, is matched here: each lane attempt of the
 decision's round against the node's one-lane row of the same decision (the
 very ``stage`` / ``env`` / rate the set was costed with), and the job's combine
-attempt against the set row's ``combine`` term.
+attempt against the set row's ``combine`` term. **D366 (FEATURE_VERSION 2):**
+a set's lane rows carry the one-lane row's shape (``lanes`` 1, its
+``chunk_items``) - what the planner knows of a lane before any set exists, so
+training and serving features are identical; the combine carries the set's.
 
 **Exclusions**, each counted by :class:`Skip` reason: a run whose replay is
 missing or unreadable (once per decision; never imputed), a run the matching
@@ -41,7 +44,7 @@ from collections import Counter
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any, Final
+from typing import Any
 
 from meshforge.controller.planner.calibration import (
     CALIBRATED_TERMS,
@@ -53,6 +56,10 @@ from meshforge.controller.planner.calibration import (
     match,
     raw_prediction,
 )
+
+# V0.15 G4: the D345 rule moved to the planner (it skips the model for these
+# terms too, and may not import controller.ml); re-exported here unchanged
+from meshforge.controller.planner.predictor import exact_by_construction
 
 __all__ = [
     "ChunkOutcome",
@@ -167,37 +174,6 @@ def residual(raw_s: float, actual_s: float) -> float:
 
 def _positive(value: float | None) -> bool:
     return value is not None and math.isfinite(value) and value > 0.0
-
-
-_STAGE_TERMS: Final = frozenset({"transfer", "lane_stage"})
-_ENV_TERMS: Final = frozenset({"env", "lane_env"})
-
-
-def exact_by_construction(term: str, detail: Mapping[str, Any]) -> bool:
-    """D345: the term's prediction is **exact by construction** - a
-    structural 0 s, not a time derived from a rate or a history - so there is
-    no residual to learn. The rule is by term and ``detail``, never by
-    ``source`` alone (a transfer over a fresh probed link is ``measured``
-    bandwidth but a *predicted* time: learnable):
-
-    * ``transfer`` / ``lane_stage`` with ``detail.missing_bytes == 0`` - the
-      node holds every tree, nothing moves;
-    * ``env`` / ``lane_env`` with ``detail.env_cached`` true - the built
-      environment is in the node's cache.
-
-    ``queue`` is never a dataset term (always 0 s, a feasible node has a free
-    slot). Every other term (``compute``, ``output``, ``chunk_rate``,
-    ``combine``, a transfer that moves bytes, an env that is built) is
-    learnable; a 0 s prediction that is *not* structural (an output nobody
-    recorded) is ``raw_not_positive``, not exact."""
-    if term in _STAGE_TERMS:
-        missing = detail.get("missing_bytes")
-        return (
-            isinstance(missing, int) and not isinstance(missing, bool) and missing == 0
-        )
-    if term in _ENV_TERMS:
-        return detail.get("env_cached") is True
-    return False
 
 
 def check(
@@ -391,6 +367,28 @@ def _one_lane_row(outcome: DecisionOutcome, node_id: str) -> Mapping[str, Any] |
     return None
 
 
+def _raw_seconds_per_item(lane_row: Mapping[str, Any]) -> float | None:
+    """The one-lane row's **analytical** seconds per item: ``1 /
+    rate_items_s``; V0.15 G4 (D336/D362): when the ML model corrected the
+    lane's rate, the row's rate is the corrected one and the analytical value
+    is the rate's block nested in the ``compute`` term's ``detail.ml.rate``
+    (G4 fix r1: seconds per item; the compute term's own ``detail.ml`` is in
+    its seconds)."""
+    compute = _terms(lane_row).get("compute")
+    if isinstance(compute, Mapping):
+        outer = _detail(compute).get("ml")
+        ml = outer.get("rate") if isinstance(outer, Mapping) else None
+        if isinstance(ml, Mapping) and ml.get("used") is True:
+            raw = ml.get("raw_s")
+            if not isinstance(raw, bool) and isinstance(raw, int | float):
+                return float(raw) if _positive(float(raw)) else None
+            return None
+    rate = lane_row.get("rate_items_s")
+    if isinstance(rate, bool) or not isinstance(rate, int | float):
+        return None
+    return 1.0 / float(rate) if _positive(float(rate)) else None
+
+
 def _chunk_rate(
     lane: LaneOutcome,
     lane_row: Mapping[str, Any],
@@ -400,11 +398,7 @@ def _chunk_rate(
     lanes: int,
     chunk_items: int | None,
 ) -> None:
-    rate = lane_row.get("rate_items_s")
-    rate_s = None
-    if not isinstance(rate, bool) and isinstance(rate, int | float):
-        rate_s = float(rate)
-    raw_spi = 1.0 / rate_s if rate_s is not None and _positive(rate_s) else None
+    raw_spi = _raw_seconds_per_item(lane_row)
     committed = [
         chunk
         for chunk in lane.chunks
@@ -522,6 +516,10 @@ def _set(run: RunInput, row: Mapping[str, Any], out: _Out) -> None:
             continue
         terms = _terms(lane_row)
         finished = lane.finished_at or outcome.finished_at
+        # D366 (FEATURE_VERSION 2): a lane is featurised as its one-lane
+        # candidate (lanes 1, that row's chunk) - the shape the planner can
+        # compute before any set exists, so serving sees the same numbers
+        lane_lanes, lane_chunk = _plan_shape(lane_row)
         for name, ml_name in (("transfer", "lane_stage"), ("env", "lane_env")):
             term = terms.get(name)
             if not isinstance(term, Mapping):
@@ -541,16 +539,16 @@ def _set(run: RunInput, row: Mapping[str, Any], out: _Out) -> None:
                 raw_s=raw_prediction(term),
                 actual_s=None if actual_ms is None else actual_ms / 1000.0,
                 term=term,
-                lanes=lanes,
-                chunk_items=chunk_items,
+                lanes=lane_lanes,
+                chunk_items=lane_chunk,
             )
         _chunk_rate(
             lane,
             lane_row,
             out,
             fallback=finished,
-            lanes=lanes,
-            chunk_items=chunk_items,
+            lanes=lane_lanes,
+            chunk_items=lane_chunk,
         )
     _combine(run, row, out, lanes=lanes, chunk_items=chunk_items)
 

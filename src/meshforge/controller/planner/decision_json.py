@@ -31,6 +31,13 @@ generator pruned dominated nodes every row of the split job adds
 ``"pruned": [{"node_id", "by"}]`` (absent when nothing was pruned, so older
 rows stay byte-identical).
 
+**V0.15 G4 (D336, Q21: JSON, no migration).** A decision planned with an ML
+model adds to **every** row ``"ml_model_version"`` (the model set's version)
+and, when the predictor failed and the decision fell back to calibration
+(D363), ``"ml_fallback": "predictor_error"``; each learnable term's
+``detail.ml`` says what the model did for it. A decision without a model has
+neither key (byte-identical to V0.14).
+
 **Never a non-finite number (D131).** PostgreSQL's ``jsonb`` refuses
 ``Infinity``/``NaN``, and one refused row would undo the whole dispatch
 tick's transaction. :func:`json_safe` therefore replaces any non-finite float
@@ -179,4 +186,9 @@ def candidates_json(decision: Decision) -> list[dict[str, Any]]:
         for row in rows:
             if "node_set" in row:
                 row["pruned"] = dominated
+    if decision.ml is not None:  # V0.15 G4 (D336, Q21)
+        for row in rows:
+            row["ml_model_version"] = decision.ml.version
+            if decision.ml.error is not None:
+                row["ml_fallback"] = "predictor_error"
     return rows

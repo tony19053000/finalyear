@@ -122,6 +122,7 @@ from meshforge.controller.jobs.recovery import RecoverySteps, _Offline, _Reconci
 from meshforge.controller.jobs.reports import parse_status
 from meshforge.controller.jobs.store import JobRecord, JobStoreError
 from meshforge.controller.liveness import LivenessEvent
+from meshforge.controller.ml.predictor import ModelSource
 from meshforge.controller.named_inputs import NamedInputStore
 from meshforge.controller.resources import ResourceTracker
 from meshforge.controller.secret_store import SecretStore
@@ -211,10 +212,13 @@ class Dispatcher(RecoverySteps):
         split: SplitSettings | None = None,
         on_split_change: Callable[[str | None], None] | None = None,
         calibration: CalibrationSource | None = None,
+        ml: ModelSource | None = None,
     ) -> None:
         self._store = store
         self._calibration = calibration
         """V0.14 G2 (D293): the planner calibration read once per tick."""
+        self._ml = ml
+        """V0.15 G4 (D336): the ML model read once per tick (None = none)."""
         self._on_split_change = on_split_change
         """V0.10 G7 (D270): a split job's chunk rows may have changed (job id;
         None = any job's - a lease expiry). The progress tracker re-reads."""

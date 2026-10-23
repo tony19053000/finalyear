@@ -207,9 +207,16 @@ def _from_arrow(table: pa.Table) -> Table:
         _version(metadata, FEATURE_METADATA_KEY),
     )
     if versions not in KNOWN_VERSIONS:
+        hint = (
+            "; feature_version 1 datasets are not read since D366 (a Mode 3 "
+            "set's lane features changed): rebuild it with `compute planner ml "
+            "dataset --out FILE`"
+            if versions[1] == 1
+            else ""
+        )
         raise DatasetVersionError(
             f"dataset_version {versions[0]} / feature_version {versions[1]} is not "
-            f"one this code knows ({sorted(KNOWN_VERSIONS)})"
+            f"one this code knows ({sorted(KNOWN_VERSIONS)}){hint}"
         )
     if tuple(table.column_names) != COLUMN_NAMES:
         raise DatasetVersionError(

@@ -121,6 +121,9 @@ from meshforge.controller.jobs.execution_store import ExecutionStore
 from meshforge.controller.jobs.logs import LogHub
 from meshforge.controller.jobs.peers import PeerSources
 from meshforge.controller.liveness import LivenessEvent
+
+# V0.15 G4 (D336): the ML model source (G3's registry loader implements it)
+from meshforge.controller.ml.predictor import ModelSource
 from meshforge.controller.named_inputs import NamedInputStore, PinBroadcaster
 from meshforge.controller.network import NetworkProber, NetworkStore
 from meshforge.controller.peer_signing import (
@@ -223,6 +226,9 @@ class ControllerRuntime:
         self.calibration: CalibrationSource | None = None
         """V0.14 G2 (D293): the calibration the dispatcher plans with."""
         self.calibration_refresher: CalibrationRefresher | None = None
+        self.ml_source: ModelSource | None = None
+        """V0.15 G4 (D336): the ML model the dispatcher plans with (None = no
+        model; G3's registry loader sets it)."""
         self.bench: BenchStore | None = None
         self.bench_submitter: BenchSubmitter | None = None
         """V0.9 G1: the run-record sweep (:mod:`.telemetry.recorder`)."""
@@ -586,6 +592,7 @@ class ControllerRuntime:
             split=cfg.split,
             on_split_change=tracker.touch,
             calibration=self.calibration,
+            ml=self.ml_source,  # V0.15 G4 (D336)
             on_integrity_failure=(
                 functools.partial(
                     self.scrubber.suspect_tree_soon, why="attempt_integrity_error"

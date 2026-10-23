@@ -23,7 +23,14 @@ import meshforge.controller.planner as planner_pkg
 pytestmark = pytest.mark.unit
 
 ML_ROOT = Path(ml_pkg.__file__).parent
-PURE = ("schema.py", "features.py", "targets.py", "splits.py", "dataset.py")
+PURE = (
+    "schema.py",
+    "features.py",
+    "targets.py",
+    "splits.py",
+    "dataset.py",
+    "replay.py",  # V0.15 G4: re-plan with the stored model version (pure)
+)
 ALLOWED_STD = {
     "__future__",
     "collections",
@@ -84,7 +91,15 @@ def test_pure_modules_import_nothing_impure(name: str) -> None:
 def test_every_ml_module_is_listed_as_pure_or_io() -> None:
     names = {p.name for p in ML_ROOT.glob("*.py")}
     # V0.15 G2: cache.py (D355, I/O through loader / export)
-    assert names == {*PURE, "__init__.py", "loader.py", "export.py", "cache.py"}
+    # V0.15 G4: predictor.py (the planner input + budget clock, D336/D363)
+    assert names == {
+        *PURE,
+        "__init__.py",
+        "loader.py",
+        "export.py",
+        "cache.py",
+        "predictor.py",
+    }
 
 
 @pytest.mark.parametrize("path", sorted(ML_ROOT.glob("*.py")), ids=lambda p: p.name)

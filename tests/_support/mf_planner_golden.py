@@ -72,7 +72,8 @@ def fields_text(decision: Decision) -> str:
     fields = dataclasses.asdict(decision)
     # V0.14 G3: fields added after the corpus was recorded count only when
     # set - at their default they are the pre-G3 decision exactly
-    for name, unset in (("objective", None), ("pruned", ())):
+    # (V0.15 G4: ``ml`` likewise)
+    for name, unset in (("objective", None), ("pruned", ()), ("ml", None)):
         if fields.get(name) == unset:
             fields.pop(name, None)
     return canonical(typed(_walk(fields)))

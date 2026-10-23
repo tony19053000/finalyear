@@ -48,6 +48,15 @@ and an absent key always decodes to the uncalibrated / pre-G3 planner. The
 bump marks "written by a planner that knows every V0.14 key"; it changes no
 byte of what a v1 replay decodes to.
 
+**V0.15 G4 optional key (D364).** A decision planned with an ML model adds
+``ml: {version}`` (the model set's version) and, when its predictor failed
+and it fell back to calibration (D363), ``ml.fallback`` (the error) - absent
+= no model. ``REPLAY_VERSION`` stays 2: an absent key decodes to the planner
+without a model, so every older replay reproduces unchanged.
+:func:`ml_from_replay` reads it; re-planning needs the **same** model
+version (``controller/ml/replay.py``: ``ml_model_unavailable`` when it is
+gone - never a silent re-plan with calibration).
+
 Canonical: sorted keys, no whitespace, no ``NaN``/``Infinity`` literals. A
 float that is not finite, or so large that PostgreSQL's ``jsonb`` (which keeps
 numbers as ``numeric``) would hand it back as an integer, is written
@@ -94,6 +103,7 @@ from meshforge.controller.planner.types import (
     GpuNeed,
     History,
     LinkStat,
+    MlUse,
     NodeSnapshot,
     PlannerConfig,
     PlanRequest,
@@ -114,6 +124,7 @@ __all__ = [
     "canonical_json",
     "from_replay",
     "idle_snapshot",
+    "ml_from_replay",
     "project",
     "replay_size",
     "shadow_from_replay",
@@ -528,6 +539,7 @@ def to_replay(
     shadow: PlanRequest | None = None,
     projected: bool = True,
     calibration: Calibration | None = None,
+    ml: MlUse | None = None,
 ) -> dict[str, Any]:
     """The replay of ``plan(request, snapshot, policy, now)`` (module
     docstring). ``projected=False`` keeps the whole snapshot (tests that
@@ -558,6 +570,12 @@ def to_replay(
             "version": calibration.version,
             "factors": calibration_json(calibration),
         }
+    # ------------------------------------------------ V0.15 G4 (D364)
+    if ml is not None:
+        out["ml"] = {
+            "version": ml.version,
+            **({} if ml.error is None else {"fallback": ml.error}),
+        }
     return out
 
 
@@ -585,10 +603,13 @@ def bounded_replay(
     max_bytes: int,
     shadow: PlanRequest | None = None,
     calibration: Calibration | None = None,
+    ml: MlUse | None = None,
 ) -> tuple[dict[str, Any] | None, int]:
     """``(replay, size)``; the replay is None when it is larger than
     ``max_bytes`` (the caller counts and logs it, never fails on it)."""
-    replay = to_replay(request, snapshot, now, shadow=shadow, calibration=calibration)
+    replay = to_replay(
+        request, snapshot, now, shadow=shadow, calibration=calibration, ml=ml
+    )
     size = replay_size(replay)
     if size > max_bytes:
         return None, size
@@ -927,3 +948,26 @@ def calibration_from_replay(replay: Mapping[str, Any]) -> Calibration | None:
         raise ReplayError(
             f"malformed calibration block ({type(exc).__name__})"
         ) from None
+
+
+# ------------------------------------------------------- V0.15 G4 (D364)
+
+
+def ml_from_replay(replay: Mapping[str, Any]) -> MlUse | None:
+    """The model a stored decision was planned with (version, and the
+    predictor's error when it fell back - D363); None = the replay has no
+    ``ml`` key (no model - every replay before G4). :class:`ReplayError`
+    when the key is malformed."""
+    _version(replay)
+    block = replay.get("ml")
+    if block is None:
+        return None
+    if not isinstance(block, Mapping):
+        raise ReplayError("the replay's ml block is not an object")
+    version = block.get("version")
+    if not isinstance(version, str) or not version:
+        raise ReplayError("the replay's ml version is not a string")
+    fallback = block.get("fallback")
+    if fallback is not None and not isinstance(fallback, str):
+        raise ReplayError("the replay's ml fallback is not a string")
+    return MlUse(version=version, error=fallback)
