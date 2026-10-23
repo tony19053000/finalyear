@@ -7,8 +7,8 @@
 > **Cold-start prompt** (paste this as the first message on the new account):
 >
 > ```
-Read docs/SESSION_HANDOFF.md §1, then docs/STATUS.md, then V0.15 in docs/DEVELOPMENT_ROADMAP.md and docs/briefs/V0.15-ml-planner.md §5h/§5i (G6 brief DRAFT, D375–D380).
-STOPPED by user 2026-10-23 (clean: no agents running, nothing uncommitted). V0.15 G5 CLOSED 2026-10-23: 0.15.8 [x] (G5a merge 193e008d), 0.15.9 [x] (G5b merge 086a1b4b); main gates green (unit 24801, mypy src, frontend 901). G5 reviewer non-blocking items are in STATUS Technical Debt.
+Read docs/SESSION_HANDOFF.md §1, then docs/STATUS.md, then V0.15 in docs/DEVELOPMENT_ROADMAP.md and docs/briefs/V0.15-ml-planner.md §5h/§5i (G6, APPROVED 2026-10-23, D375–D380), then the worktree progress notes docs/briefs/progress/V0.15-G6a.md and V0.15-G6b.md (inside each worktree).
+Done so far: V0.15 G1–G5 CLOSED (0.15.1–0.15.9 [x]); main gates green at G5 close (unit 24801, mypy src, frontend 901).
 STOPPED by user 2026-10-24 (no agents running). G6 brief APPROVED (§5h). G6a implementer stopped at gates (unit green, component suite next) in worktree agent-ade3e46ad6a0ca9ae; G6b implementer stopped near the end (checklist wording) in worktree agent-a38292e895ca84279. All work committed (wip) in both. Progress notes docs/briefs/progress/V0.15-G6a.md, -G6b.md. NEXT: finish both implementers (G6a: component + cluster gates; G6b: finish + all gates) → tester ∥ reviewer each → merge. `uv sync --all-extras` in worktrees. Known flaky: test_v09_g4a_bench_item0::test_only_benchmark_jobs_get_the_shadow_plan. Normal mode. Parallel agents OK. Don't delete anything without asking.
 ```
 >
