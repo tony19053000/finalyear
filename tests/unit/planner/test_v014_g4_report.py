@@ -78,7 +78,8 @@ def test_same_inputs_same_bytes_at_the_real_resample_count() -> None:
 def test_the_report_validates_against_the_api_model_field_for_field() -> None:
     report = _report()
     model = EvalReportOut.model_validate(report)
-    assert model.eval_version == EVAL_VERSION == 1
+    # V0.15 G5a (D369): eval_version 2 (the ml block); v1 reports still read
+    assert model.eval_version == EVAL_VERSION == 2
     # the model's JSON is the report: nothing dropped, nothing invented
     assert json.loads(model.model_dump_json()) == json.loads(report_text(report))
     leaked = EvalReportOut.model_validate(_report(leaked=True))

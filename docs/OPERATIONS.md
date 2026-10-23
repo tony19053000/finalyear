@@ -1408,8 +1408,11 @@ compute get <JOB_ID>               # outputs -> ./outputs/<JOB_ID>/ (--dest, --f
   90 % intervals honest (>= 80 % coverage), be within 0.05 log error of the
   calibration on every family, and beat the calibration somewhere by more
   than 0.02 - else it is stored `rejected` with the rule that failed
-  (`compute planner ml models`, `--set VERSION` for the numbers; the planner
-  regret part of the gate is `pending_g4` until V0.15 G5). **Rollback:**
+  (`compute planner ml models`, `--set VERSION` for the numbers). Since V0.15
+  G5a (D371) the gate also re-plans the held-out benchmark decisions with the
+  candidate: worse planner regret than the set in use (+5 %) -> `rejected`
+  `regret_worse`; fewer than 10 labelled groups -> `skipped`, the error gate
+  alone decides (sets stored earlier show `pending_g4`). **Rollback:**
   `compute planner ml pin VERSION` (any active or superseded set; refused for
   a rejected one or one whose artefacts the GC removed - the GC keeps the
   active, the pinned and the `ml_keep_superseded` = 5 newest superseded sets);
@@ -1447,6 +1450,14 @@ compute get <JOB_ID>               # outputs -> ./outputs/<JOB_ID>/ (--dest, --f
     `controller.planner.ml_set_stale_features` info line, the planner keeps
     the calibration until the next retrain (`compute planner ml train`)
     stores a set of the new version.
+  * (V0.15 G5a) only **one training child runs at a time** on a controller:
+    a retrain waits while a planner evaluation trains a fold model and the
+    other way round (log `controller.ml.retrain_waits_for_training_child`).
+    `compute planner eval` trains one fold model per evaluated family, all
+    within `[controller.planner] ml_eval_timeout_s` (3 000 s); the families
+    left when it is spent are evaluated without ML (fold reason
+    `eval_budget_exhausted`). The CLI waits 3 000 + 600 s - raising the
+    setting needs the HTTP request to be allowed to last as long.
 - **The planner with an ML model (V0.15 G4, D336/D363).** When a model set
   serves (the registry above: pinned, else active; with none, or `ml = "off"`,
   every decision is exactly V0.14's), each learnable term of each candidate uses the

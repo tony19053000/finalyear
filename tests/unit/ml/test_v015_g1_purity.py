@@ -30,6 +30,7 @@ PURE = (
     "splits.py",
     "dataset.py",
     "replay.py",  # V0.15 G4: re-plan with the stored model version (pure)
+    "holdout.py",  # V0.15 G5a: the D329 slice shared by both gate checks (pure)
 )
 ALLOWED_STD = {
     "__future__",
@@ -115,6 +116,12 @@ def test_every_ml_module_is_listed_as_pure_or_io() -> None:
         "registry.py",
         "source.py",
         "predictor.py",
+        # V0.15 G5a: the training child seen from the controller, the
+        # evaluator's fold models, the D371 regret check, sets by version
+        "child.py",
+        "folds.py",
+        "regret.py",
+        "registry_loader.py",
     }
 
 

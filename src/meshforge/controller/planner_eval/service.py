@@ -9,6 +9,9 @@
    evaluated family from the matched runs (D316,
    :func:`~.heldout.refit_choices`), or with ``allow_leak`` the active version
    for all (:func:`~.heldout.leaked_choices`);
+4b. (V0.15 G5a, D368/D369) the ML rows' inputs - one fold model per
+   evaluated family, or ``ml_unavailable`` (:mod:`.ml_inputs`; no provider
+   = ``ml_unavailable`` too);
 5. the pure evaluation (:func:`~.core.evaluate`) in a worker thread - it
    replays every record under every policy and must not stall the event loop;
 6. a report larger than :data:`MAX_REPORT_BYTES` is refused
@@ -43,7 +46,13 @@ from meshforge.controller.planner_eval.loader import (
     load_campaigns,
     missing_campaigns,
 )
-from meshforge.controller.planner_eval.model import EvalConfig, default_policies
+from meshforge.controller.planner_eval.ml_inputs import EvalMlInputs
+from meshforge.controller.planner_eval.model import (
+    ML_UNAVAILABLE,
+    EvalConfig,
+    EvalMl,
+    default_policies,
+)
 from meshforge.controller.planner_eval.report import report_text
 from meshforge.controller.planner_eval.store import EvalReportRow, EvalReportStore
 
@@ -94,6 +103,7 @@ class EvalService:
         *,
         max_rows: int,
         config: EvalConfig | None = None,
+        ml: EvalMlInputs | None = None,
     ) -> None:
         self._engine = engine
         self._calibrations = calibrations
@@ -101,6 +111,7 @@ class EvalService:
         self._calibration_config = calibration_config
         self._max_rows = max_rows
         self._config = config or EvalConfig()
+        self._ml = ml
         self._lock = asyncio.Lock()
 
     async def report(
@@ -139,17 +150,23 @@ class EvalService:
             choices = await asyncio.to_thread(
                 refit_choices, runs, families, self._calibration_config
             )
+        ml = (
+            EvalMl(ML_UNAVAILABLE, "the controller has no ML evaluation inputs")
+            if self._ml is None
+            else await self._ml.prepare(families, allow_leak=allow_leak)
+        )
         return await asyncio.to_thread(
             evaluate,
             inputs.groups,
             inputs.records,
             choices,
-            default_policies(),
+            default_policies(ml=True),
             self._config,
             campaign_ids=ids,
             holdout=holdout,
             leaked=allow_leak,
             latency=inputs.latency,  # V0.14 G6 (D324)
+            ml=ml,  # V0.15 G5a (D368/D369)
         )
 
     async def run(
@@ -187,6 +204,8 @@ class EvalService:
             evaluated_groups=counts["evaluated_groups"],
             records_used=counts["records_used"],
             verdicts={str(v["criterion"]): v["status"] for v in report["verdicts"]},
+            ml_status=report["ml"]["status"],
+            ml_verdicts={str(v["name"]): v["status"] for v in report["ml"]["verdicts"]},
             latency_decisions=report["latency"]["decisions"],
             took_s=round(time.monotonic() - started, 3),
         )

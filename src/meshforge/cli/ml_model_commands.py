@@ -35,7 +35,13 @@ from meshforge.cli import shared as cli
 from meshforge.cli.exits import CliExit
 from meshforge.cli.planner_commands import ml_app
 
-__all__ = ["ml_models_lines", "ml_set_table", "ml_sets_table", "retrain_line"]
+__all__ = [
+    "ml_models_lines",
+    "ml_set_table",
+    "ml_sets_table",
+    "regret_text",
+    "retrain_line",
+]
 
 _SET_RE: Final = re.compile(r"^sha256:[0-9a-f]{64}$")
 _POLL_S: Final = 2.0
@@ -192,8 +198,31 @@ def _show_set(doc: Mapping[str, Any]) -> None:
                 if isinstance(failed, list) and failed
                 else ""
             )
-            + f"; regret {render.echo(gate.get('regret'))}"
+            + f"; regret {regret_text(gate.get('regret'))}"
         )
+
+
+def regret_text(regret: Any) -> str:
+    """The gate's regret part (pure): G3 rows hold the string
+    ``pending_g4``; V0.15 G5a (D371) a block - ``passed`` / ``rejected`` /
+    ``skipped`` / ``not_run`` with the groups and both mean regrets."""
+    if not isinstance(regret, Mapping):
+        return render.echo(regret)
+    status = render.echo(regret.get("status"))
+    if regret.get("groups") and regret.get("regret_candidate_pct") is not None:
+        current = regret.get("current")
+        against = (
+            render.echo(current.get("set_version") or current.get("kind"))
+            if isinstance(current, Mapping)
+            else "-"
+        )
+        return (
+            f"{status} (candidate {render.echo(regret.get('regret_candidate_pct'))} % "
+            f"vs {against} {render.echo(regret.get('regret_current_pct'))} % over "
+            f"{render.echo(regret.get('groups'))} groups)"
+        )
+    reason = regret.get("reason")
+    return f"{status} ({render.echo(reason)})" if reason else status
 
 
 @ml_app.command("models")

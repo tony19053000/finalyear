@@ -59,10 +59,10 @@ from __future__ import annotations
 
 import datetime as dt
 import math
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Hashable, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any, Final, Protocol
+from typing import Any, Final, Protocol, cast
 
 from meshforge.controller.planner.calibration import MIN_PREDICTED_S
 from meshforge.controller.planner.estimator import bounded
@@ -263,6 +263,10 @@ class MlReason(StrEnum):
     EXACT = "exact_by_construction"
     BELOW_MIN = "below_min_predicted"
     PREDICTOR_ERROR = "predictor_error"
+    COMBINE_NODE_UNKNOWN = "combine_node_unknown"
+    """V0.15 G5a: a ``combine`` term whose detail names no combine node -
+    its features cannot be built, so the model is not asked (never a
+    silent guess of the node)."""
 
 
 class PredictorFailed(Exception):  # noqa: N818 - a signal, named for what happened
@@ -341,9 +345,42 @@ class MlSession:
         self.now = now
         self.error = failed if failed is not None else ml.fallback
         """None = the predictor is asked; else the decision falls back."""
+        self._features: dict[Hashable, tuple[float, ...]] = {}
+        """V0.15 G5a (G3/G4 reviewer debt): feature rows already built in
+        this decision, by the full term context (:func:`_context_key`)."""
 
     def use(self) -> MlUse:
         return MlUse(version=self.version, error=self.error)
+
+    def _row(self, ctx: TermContext) -> tuple[float, ...]:
+        """``ctx``'s feature row, built once per decision for one context
+        (V0.15 G5a): the feature builder is a pure function of the
+        decision's request, snapshot and ``now`` (fixed for the session) and
+        the context, so a context seen before gets the same row. A context
+        whose detail cannot be keyed is built every time."""
+        key = _context_key(ctx)
+        if key is not None:
+            found = self._features.get(key)
+            if found is not None:
+                return found
+        row = self.ml.features(self.request, self.snapshot, self.now, ctx)
+        if key is not None:
+            self._features[key] = row
+        return row
+
+    def skip(self, term: str, reason: MlReason) -> MlOutcome:
+        """The outcome of a ``term`` the caller cannot ask the model for
+        (``reason``, e.g. :attr:`MlReason.COMBINE_NODE_UNKNOWN`), with the
+        precedence of the module docstring before it: a failed decision is
+        ``predictor_error``, a term without a model ``no_model``. Raises
+        :class:`PredictorFailed` when asking for the model raises (D363)."""
+        if self.error is not None:
+            return MlOutcome(False, MlReason.PREDICTOR_ERROR)
+        try:
+            known = self.ml.predictor.has_model(term)
+        except Exception as exc:
+            raise PredictorFailed(type(exc).__name__) from exc
+        return MlOutcome(False, reason if known else MlReason.NO_MODEL)
 
     def resolve(self, contexts: Sequence[TermContext]) -> list[MlOutcome]:
         """One :class:`MlOutcome` per context, asking the predictor **once**
@@ -364,10 +401,7 @@ class MlSession:
                 elif _too_small(ctx):
                     out[index] = MlOutcome(False, MlReason.BELOW_MIN)
                 else:
-                    features = self.ml.features(
-                        self.request, self.snapshot, self.now, ctx
-                    )
-                    queries.append(TermQuery(ctx.term, ctx.node_id, features))
+                    queries.append(TermQuery(ctx.term, ctx.node_id, self._row(ctx)))
                     asked.append(index)
             answers = list(predictor.predict(queries)) if queries else []
         except PredictorFailed:
@@ -387,6 +421,35 @@ class MlSession:
         return [
             o if o is not None else MlOutcome(False, MlReason.NO_MODEL) for o in out
         ]
+
+
+def _freeze(value: Any) -> Hashable:
+    """``value`` as a hashable key (mappings by sorted items, sequences as
+    tuples); ``TypeError`` for anything else unhashable."""
+    if isinstance(value, Mapping):
+        return tuple(sorted((str(k), _freeze(v)) for k, v in value.items()))
+    if isinstance(value, list | tuple):
+        return tuple(_freeze(v) for v in value)
+    hash(value)  # TypeError for an unhashable leaf
+    return cast("Hashable", value)
+
+
+def _context_key(ctx: TermContext) -> Hashable | None:
+    """Everything of ``ctx`` a feature row may depend on; None = not
+    keyable (the row is then never cached)."""
+    try:
+        detail = _freeze(ctx.detail)
+    except TypeError:
+        return None
+    return (
+        ctx.term,
+        ctx.node_id,
+        ctx.raw_s,
+        ctx.source,
+        ctx.lanes,
+        ctx.chunk_items,
+        detail,
+    )
 
 
 def _r(value: float) -> float:

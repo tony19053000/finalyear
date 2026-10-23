@@ -17,6 +17,13 @@ version make the planner pick worse configurations?**
 * Else the new version passes iff its mean regret <= the active one's x
   (1 + :data:`TOLERANCE`) - the boundary itself passes, like D306.
 
+**V0.15 G5a (D371): the same check for a new ML model set.**
+:func:`ml_regret_check` evaluates ``cost_model:ml`` (``min_time``) twice on
+the slice's groups - once with the candidate set, once with what serves now
+(the active / pinned set; None = no set serves: calibration only) - both on
+the **same** calibration (the live one), paired on the groups counted under
+both, with the same :func:`regret_gate` rule and minimum.
+
 Pure (the store reads the inputs and runs this in a worker thread).
 """
 
@@ -29,16 +36,27 @@ from decimal import Decimal
 from typing import Any, Final, Literal
 
 from meshforge.controller.planner.calibration import Calibration
+from meshforge.controller.planner.predictor import MlInput
 from meshforge.controller.planner_eval.core import evaluate
 from meshforge.controller.planner_eval.heldout import CalibrationChoice
 from meshforge.controller.planner_eval.model import (
     CRITERION_POLICY,
+    ML_CRITERION_POLICY,
+    ML_EVALUATED,
     EvalConfig,
     EvalGroup,
+    EvalMl,
     EvalRecord,
 )
 
-__all__ = ["MIN_GROUPS", "TOLERANCE", "RegretCheck", "regret_check", "regret_gate"]
+__all__ = [
+    "MIN_GROUPS",
+    "TOLERANCE",
+    "RegretCheck",
+    "ml_regret_check",
+    "regret_check",
+    "regret_gate",
+]
 
 MIN_GROUPS: Final = 10
 TOLERANCE: Final = 0.05
@@ -113,8 +131,9 @@ def regret_gate(
     )
 
 
-def _regrets(report: Mapping[str, Any]) -> dict[tuple[str, str], float]:
-    key = CRITERION_POLICY.key
+def _regrets(
+    report: Mapping[str, Any], key: str = CRITERION_POLICY.key
+) -> dict[tuple[str, str], float]:
     out: dict[tuple[str, str], float] = {}
     for group in report["groups"]:
         for pick in group["picks"]:
@@ -164,6 +183,14 @@ def regret_check(
         for calibration in (new, active)
     ]
     new_regret, active_regret = (_regrets(r) for r in reports)
+    return _paired(new_regret, active_regret, min_groups)
+
+
+def _paired(
+    new_regret: Mapping[tuple[str, str], float],
+    active_regret: Mapping[tuple[str, str], float],
+    min_groups: int,
+) -> RegretCheck:
     common = sorted(new_regret.keys() & active_regret.keys())
     if not common:
         return regret_gate(None, None, 0, min_groups=min_groups)
@@ -172,3 +199,34 @@ def regret_check(
     return regret_gate(
         round(mean_new, 6), round(mean_active, 6), len(common), min_groups=min_groups
     )
+
+
+def ml_regret_check(
+    groups: Sequence[EvalGroup],
+    records: Sequence[EvalRecord],
+    calibration: Calibration | None,
+    candidate: MlInput,
+    current: MlInput | None,
+    *,
+    min_groups: int = MIN_GROUPS,
+) -> RegretCheck:
+    """V0.15 G5a (D371, module docstring): the candidate model set vs what
+    serves now, paired; ``regret_new`` = the candidate's mean regret,
+    ``regret_active`` = the current serving's."""
+    campaigns = sorted({g.campaign_id for g in groups})
+    families = sorted({g.family for g in groups})
+    choices = _choices(groups, calibration)
+    reports = [
+        evaluate(
+            groups,
+            records,
+            choices,
+            (ML_CRITERION_POLICY,),
+            _CONFIG,
+            campaign_ids=campaigns,
+            ml=EvalMl(ML_EVALUATED, inputs=dict.fromkeys(families, model)),
+        )
+        for model in (candidate, current)
+    ]
+    new_regret, current_regret = (_regrets(r, ML_CRITERION_POLICY.key) for r in reports)
+    return _paired(new_regret, current_regret, min_groups)

@@ -19,6 +19,7 @@ width ``2 q`` (default limit ln 2: the interval spans at most a factor 2).
 from __future__ import annotations
 
 import math
+from fractions import Fraction
 from typing import Final
 
 import numpy as np
@@ -28,17 +29,18 @@ from meshforge.controller.ml.train.data import FloatArray
 __all__ = ["ALPHA", "conformal_q", "conformal_rank", "covered"]
 
 ALPHA: Final = 0.1
-_RANK_SLACK: Final = 1e-9
 
 
 def conformal_rank(n: int, alpha: float) -> int:
-    """``ceil((n + 1)(1 - alpha))`` robust to binary floating point (V0.15
-    G3, G2 tech debt): ``(n + 1)(1 - alpha)`` that is an integer on paper
-    (``alpha`` 0.1, ``n`` 9 -> 9) can come out as 9.000000000000002 in
-    floats, and a bare ``ceil`` would then ask for one residual more than
-    the level needs. A slack of ``1e-9`` (far below any real fractional
-    part for ``n`` < 10^6) removes that."""
-    return math.ceil((n + 1) * (1.0 - alpha) - _RANK_SLACK)
+    """``ceil((n + 1)(1 - alpha))`` in exact integer arithmetic (V0.15 G5a,
+    G2 tech debt): ``alpha`` is read as the decimal it is written as
+    (``repr``: 0.1 -> 1/10) and the ceiling is taken on that rational - so
+    ``(n + 1)(1 - alpha)`` that is an integer on paper (``alpha`` 0.1, ``n``
+    9 -> 9) is that integer, for every ``n`` (G3 used a ``1e-9`` float
+    slack, which is right only while ``n`` is small)."""
+    exact = Fraction(repr(float(alpha)))
+    level = (n + 1) * (1 - exact)
+    return -((-level.numerator) // level.denominator)
 
 
 def conformal_q(residuals: FloatArray, alpha: float = ALPHA) -> float:

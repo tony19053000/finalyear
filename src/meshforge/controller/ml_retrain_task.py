@@ -18,7 +18,15 @@ planner ml train``). One retrain:
    process** (``nice``d where the platform has ``nice``) with a timeout
    (``ml_retrain_timeout_s``; killed when it overruns): training, the
    activation gate, artefacts - never on the event loop, never in the
-   controller's memory;
+   controller's memory; the child holds the controller-wide
+   :data:`~.ml.child.TRAINING_GUARD` (it waits while an evaluator fold
+   model trains, G5a B1; the wait is not part of the timeout);
+3b. (V0.15 G5a, D371) when the child's error gate accepted the set, the
+   **regret check** (:mod:`.ml.regret`): the candidate vs what serves now,
+   paired on the held-out slice's labelled benchmark groups, on the live
+   calibration; ``rejected`` -> the set is stored ``rejected`` with rule
+   ``regret_worse``; the gate document's ``regret`` block records it
+   (``passed`` / ``rejected`` / ``skipped``);
 4. store the result (:meth:`~meshforge.controller.ml.registry.ModelRegistry.
    store`: artefacts into the CAS, the set ``active`` or ``rejected`` with
    the gate's reason) and refresh the :class:`~.ml.source.ModelSource`.
@@ -39,13 +47,9 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import datetime as dt
-import importlib.util
 import json
-import os
-import shutil
 import sys
-import tempfile
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Final
@@ -55,7 +59,21 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from meshforge.common.logging import get_logger
-from meshforge.controller.ml import export, loader
+from meshforge.controller.ml import export, loader, regret
+from meshforge.controller.ml.child import (
+    ML_TRAIN_LIBRARIES,
+    TRAIN_MODULE,
+    TRAINING_GUARD,
+    ChildOutputError,
+    ChildRunner,
+    describe,
+    ml_missing,
+    niced,
+    read_output,
+    run_child,
+    scratch_dir,
+)
+from meshforge.controller.ml.folds import train_settings_argv
 from meshforge.controller.ml.loader import MlLoadError
 from meshforge.controller.ml.registry import (
     MlRegistryError,
@@ -63,37 +81,36 @@ from meshforge.controller.ml.registry import (
     SetRow,
     StoreResult,
 )
+from meshforge.controller.ml.registry_loader import RegistryLoader
 from meshforge.controller.ml.source import ModelSource
+from meshforge.controller.planner.calibration import Calibration
+from meshforge.controller.planner_eval.loader import EvalLoadError
 from meshforge.controller.settings import PlannerSettings
 
 __all__ = [
     "ML_TRAIN_LIBRARIES",
+    "TRAINING_GUARD",
+    "ChildOutputError",
+    "ChildRunner",
     "MlRetrainer",
     "RetrainResult",
     "ml_missing",
+    "run_child",
     "train_argv",
 ]
 
 log = get_logger(__name__)
 
-ML_TRAIN_LIBRARIES: Final = ("numpy", "pyarrow", "sklearn", "lightgbm", "xgboost")
-"""What the ``fit`` child imports (the ``controller`` + ``ml`` extras)."""
-_TRAIN_MODULE: Final = "meshforge.controller.ml.train"
 _MIN_INTERVAL_S: Final = 1.0
-_NICE: Final = 10
-_STDERR_TAIL: Final = 2000
+_MAX_LABEL_ROWS: Final = 200_000
+"""The D371 slice's label-read cap when the server does not pass its
+``[controller.telemetry] export_max_rows``."""
 _SESSION_LOCK: Final = (
     "SELECT pg_try_advisory_lock(hashtextextended('meshforge.ml_retrain', 0))"
 )
 _SESSION_UNLOCK: Final = (
     "SELECT pg_advisory_unlock(hashtextextended('meshforge.ml_retrain', 0))"
 )
-
-
-def ml_missing() -> list[str]:
-    """The :data:`ML_TRAIN_LIBRARIES` that are missing (``find_spec``,
-    nothing imported)."""
-    return [m for m in ML_TRAIN_LIBRARIES if importlib.util.find_spec(m) is None]
 
 
 @dataclass(frozen=True, slots=True)
@@ -128,27 +145,17 @@ def train_argv(
     argv = [
         python,
         "-m",
-        _TRAIN_MODULE,
+        TRAIN_MODULE,
         "fit",
         "--dataset",
         str(dataset),
         "--out",
         str(out),
-        "--min-rows",
-        str(settings.ml_min_rows),
-        "--min-families",
-        str(settings.ml_min_families),
-        "--min-effect",
-        repr(settings.ml_min_effect_log),
-        "--max-interval-log",
-        repr(settings.ml_max_interval_log),
-        "--family-tolerance-log",
-        repr(settings.ml_family_tolerance_log),
+        *train_settings_argv(settings),
     ]
     if reference is not None:
         argv += ["--reference", str(reference)]
-    nice = shutil.which("nice") if os.name == "posix" else None
-    return [nice, "-n", str(_NICE), *argv] if nice else argv
+    return niced(argv)
 
 
 def _settings_key(settings: PlannerSettings) -> dict[str, Any]:
@@ -160,33 +167,6 @@ def _settings_key(settings: PlannerSettings) -> dict[str, Any]:
         "max_interval_log": settings.ml_max_interval_log,
         "family_tolerance_log": settings.ml_family_tolerance_log,
     }
-
-
-type ChildRunner = Callable[[Sequence[str], float], Awaitable[tuple[int, str]]]
-
-
-async def run_child(argv: Sequence[str], timeout_s: float) -> tuple[int, str]:
-    """Run ``argv``; ``(exit code, stderr tail)``. ``TimeoutError`` after
-    killing a child that overran."""
-    proc = await asyncio.create_subprocess_exec(
-        *argv,
-        stdin=asyncio.subprocess.DEVNULL,
-        stdout=asyncio.subprocess.DEVNULL,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    try:
-        _, stderr = await asyncio.wait_for(proc.communicate(), timeout_s)
-    except TimeoutError:
-        with contextlib.suppress(ProcessLookupError):
-            proc.kill()
-        await proc.wait()
-        raise
-    except asyncio.CancelledError:
-        with contextlib.suppress(ProcessLookupError):
-            proc.kill()
-        raise
-    tail = (stderr or b"").decode("utf-8", "replace").strip()[-_STDERR_TAIL:]
-    return int(proc.returncode or 0), tail
 
 
 class MlRetrainer:
@@ -202,8 +182,18 @@ class MlRetrainer:
         python: str = sys.executable,
         child: ChildRunner = run_child,
         clock: Callable[[], dt.datetime] = lambda: dt.datetime.now(dt.UTC),
+        set_loader: RegistryLoader | None = None,
+        calibration: Callable[[], Awaitable[Calibration | None]] | None = None,
+        max_label_rows: int = _MAX_LABEL_ROWS,
     ) -> None:
         self._engine = engine
+        # V0.15 G5a (D371): the regret check's inputs - the reference set by
+        # version, the planner's live calibration, the D319 label-read cap
+        self._loader = set_loader or RegistryLoader(
+            registry, max_interval_log=settings.ml_max_interval_log
+        )
+        self._calibration = calibration
+        self._max_label_rows = max_label_rows
         self._registry = registry
         self._source = source
         self._settings = settings
@@ -359,7 +349,7 @@ class MlRetrainer:
                     with contextlib.suppress(Exception):
                         await conn.execute(text(_SESSION_UNLOCK))
                         await conn.commit()
-        except (MlLoadError, MlRegistryError) as exc:
+        except (MlLoadError, MlRegistryError, EvalLoadError) as exc:
             return RetrainResult(
                 trigger,
                 started,
@@ -432,8 +422,7 @@ class MlRetrainer:
         built = await export.build_dataset(
             self._engine, max_runs=self._settings.ml_dataset_max_runs
         )
-        with tempfile.TemporaryDirectory(prefix="meshforge-ml-retrain-") as scratch:
-            work = Path(scratch)
+        async with scratch_dir("meshforge-ml-retrain-") as work:
             dataset = work / "dataset.parquet"
             await asyncio.to_thread(dataset.write_bytes, built.dataset.parquet)
             reference_version = await self._write_reference(work / "reference")
@@ -446,9 +435,13 @@ class MlRetrainer:
                 self._settings,
             )
             try:
-                code, stderr = await self._child(
-                    argv, self._settings.ml_retrain_timeout_s
-                )
+                if TRAINING_GUARD.busy():
+                    log.info("controller.ml.retrain_waits_for_training_child")
+                # one training child at a time (an evaluator fold may run)
+                async with TRAINING_GUARD.held():
+                    code, stderr = await self._child(
+                        argv, self._settings.ml_retrain_timeout_s
+                    )
             except TimeoutError:
                 return RetrainResult(
                     trigger,
@@ -481,6 +474,10 @@ class MlRetrainer:
                 skipped="insufficient_data",
                 rows=rows,
                 seconds=timings,
+            )
+        if doc.get("accepted") is True:
+            doc = await self._regret(
+                built.dataset.rows, doc, artefacts, reference_version
             )
         inputs = {
             **key,
@@ -523,6 +520,41 @@ class MlRetrainer:
             seconds=timings,
         )
 
+    async def _regret(
+        self,
+        rows: Any,
+        doc: dict[str, Any],
+        artefacts: Mapping[str, bytes],
+        reference_version: str | None,
+    ) -> dict[str, Any]:
+        """``doc`` after the D371 regret check (module docstring, step 3b).
+        Database failures raise (the retrain fails ``database``; nothing is
+        stored)."""
+        calibration = None if self._calibration is None else await self._calibration()
+        outcome = await regret.check_candidate(
+            self._engine,
+            rows,
+            doc,
+            artefacts,
+            reference_version=reference_version,
+            loader=self._loader,
+            calibration=calibration,
+            max_label_rows=self._max_label_rows,
+            max_interval_log=self._settings.ml_max_interval_log,
+        )
+        check = outcome.check
+        log.info(
+            "controller.planner.ml_regret_check",
+            ml_set_version=doc.get("set_version"),
+            status=check.status,
+            groups=check.groups,
+            regret_candidate=check.regret_new,
+            regret_current=check.regret_active,
+            current_set=outcome.current_version,
+            reason=check.reason,
+        )
+        return regret.apply(doc, outcome)
+
     def _invalid_output(
         self, trigger: str, started: dt.datetime, detail: str
     ) -> RetrainResult:
@@ -535,41 +567,6 @@ class MlRetrainer:
         )
 
 
-class ChildOutputError(Exception):
-    """The ``fit`` child exited 0 but its output cannot be read (reviewer #4):
-    a missing / malformed ``set.json``, a member without its fields, an
-    artefact file that is not there. Message = a short description."""
-
-
-def _describe(exc: BaseException) -> str:
-    if isinstance(exc, KeyError):
-        return f"missing field {exc.args[0]!r}" if exc.args else "missing field"
-    return f"{type(exc).__name__}: {str(exc)[:200]}"
-
-
-def _object(value: Any, name: str = "set") -> dict[str, Any]:
-    if not isinstance(value, dict):
-        raise TypeError(f"{name}.json is not an object")
-    return value
-
-
-def _read_output(out: Path) -> tuple[dict[str, Any], dict[str, bytes], dict[str, Any]]:
-    """The child's ``set.json``, its artefacts and timings;
-    :class:`ChildOutputError` when they cannot be read."""
-    try:
-        doc = _object(json.loads((out / "set.json").read_text(encoding="utf-8")))
-        artefacts: dict[str, bytes] = {}
-        for member in doc.get("members", []):
-            name = member.get("artefact")
-            if name:
-                version = member["version"]
-                artefacts[version] = (out / str(name)).read_bytes()
-        timings_path = out / "timings.json"
-        timings = (
-            _object(json.loads(timings_path.read_text(encoding="utf-8")), "timings")
-            if timings_path.exists()
-            else {}
-        )
-    except (OSError, KeyError, TypeError, ValueError, AttributeError) as exc:
-        raise ChildOutputError(_describe(exc)) from exc
-    return doc, artefacts, timings
+_read_output = read_output
+"""G3 name (tests)."""
+_describe = describe

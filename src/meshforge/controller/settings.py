@@ -33,6 +33,7 @@ from meshforge.common.manifest import (
     ObjectiveName,
     PolicyName,
 )
+from meshforge.common.ml_eval import DEFAULT_ML_EVAL_TIMEOUT_S
 from meshforge.common.netaddr import is_loopback_host, parse_bind
 from meshforge.common.pki import PkiError, validate_san_host
 from meshforge.controller.fabric_ca import (
@@ -679,6 +680,19 @@ class PlannerSettings(SectionModel):
         description=(
             "V0.15 D361: a retrain (a child process) that runs longer is "
             "killed; nothing is stored."
+        ),
+    )
+    ml_eval_timeout_s: float = Field(
+        default=DEFAULT_ML_EVAL_TIMEOUT_S,
+        ge=1.0,
+        le=86_400.0,
+        description=(
+            "V0.15 G5a (D368): total time one planner evaluation may spend "
+            "training its fold models (one per evaluated family, one after "
+            "another). A fold still running when it is spent is killed and "
+            "the families left are evaluated without an ML model "
+            "(no_fold_model, reason eval_budget_exhausted). compute planner "
+            "eval waits this default plus 600 s."
         ),
     )
     ml_min_rows: int = Field(
