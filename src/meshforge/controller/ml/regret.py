@@ -45,6 +45,7 @@ from meshforge.controller.ml.folds import loaded_set, planner_input
 from meshforge.controller.ml.holdout import held_out_decisions, rows_of_dataset
 from meshforge.controller.ml.registry_loader import RegistryLoader
 from meshforge.controller.planner.calibration import Calibration
+from meshforge.controller.planner.predictor import MlInput
 from meshforge.controller.planner_eval.loader import EvalTooLargeError, load_for_jobs
 from meshforge.controller.planner_eval.regret_gate import (
     MIN_GROUPS,
@@ -96,6 +97,12 @@ def regret_block(outcome: RegretOutcome) -> dict[str, Any]:
     }
 
 
+def _candidate(
+    doc: Mapping[str, Any], artefacts: Mapping[str, bytes], max_interval_log: float
+) -> MlInput | None:
+    return planner_input(loaded_set(doc, artefacts), max_interval_log)
+
+
 async def check_candidate(
     engine: AsyncEngine,
     rows: Sequence[Mapping[str, Any]],
@@ -112,8 +119,10 @@ async def check_candidate(
     the dataset rows the child trained and gated on. Raises
     :class:`~meshforge.controller.planner_eval.loader.EvalLoadError` /
     :class:`~.registry.MlRegistryError` when the database fails."""
-    try:
-        candidate = planner_input(loaded_set(doc, artefacts), max_interval_log)
+    try:  # artefact decoding + the warm-up batch: off the event loop
+        candidate = await asyncio.to_thread(
+            _candidate, doc, artefacts, max_interval_log
+        )
     except (ArtefactError, KeyError, TypeError, ValueError):
         candidate = None
     current = None

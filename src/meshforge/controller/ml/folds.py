@@ -27,6 +27,7 @@ calibration only and count it ``no_fold_model``) and says why in its
 
 from __future__ import annotations
 
+import asyncio
 import datetime as dt
 import json
 import math
@@ -243,7 +244,9 @@ async def train_fold(
     groups_path: Path | None = None
     if groups:
         groups_path = work / "groups.json"
-        groups_path.write_text(json.dumps(groups), encoding="utf-8")
+        await asyncio.to_thread(
+            groups_path.write_text, json.dumps(groups), encoding="utf-8"
+        )
     argv = fold_argv(python, dataset, out, family, until, groups_path, settings)
     try:
         code, stderr = await child(argv, settings.ml_retrain_timeout_s)
@@ -271,7 +274,10 @@ async def train_fold(
             ),
         )
     try:
-        return read_fold(out, family, until, settings.ml_max_interval_log)
+        # artefact decoding + the warm-up batch: off the event loop
+        return await asyncio.to_thread(
+            read_fold, out, family, until, settings.ml_max_interval_log
+        )
     except ChildOutputError as exc:
         return FoldOutcome(
             family,
