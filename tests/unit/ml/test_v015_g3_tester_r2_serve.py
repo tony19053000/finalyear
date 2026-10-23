@@ -6,12 +6,11 @@ from __future__ import annotations
 
 import json
 
-import numpy as np
 import pytest
 
 pytest.importorskip("sklearn", reason="needs the ml extra")
 pytest.importorskip("lightgbm", reason="needs the ml extra")
-
+import numpy as np
 from mf_ml_synthetic import synthetic_rows
 
 from meshforge.controller.ml.artefact import ArtefactError, digest, encode

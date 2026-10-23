@@ -14,8 +14,11 @@ import datetime as dt
 import math
 from fractions import Fraction
 
-import numpy as np
 import pytest
+
+pytest.importorskip("numpy", reason="needs the controller extra")
+
+import numpy as np
 
 from meshforge.controller.ml.loader import Watermark
 from meshforge.controller.ml.train.conformal import conformal_q, conformal_rank

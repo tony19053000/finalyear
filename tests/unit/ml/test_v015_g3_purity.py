@@ -21,8 +21,11 @@ import subprocess
 import sys
 from pathlib import Path
 
-import numpy as np
 import pytest
+
+pytest.importorskip("numpy", reason="needs the controller extra")
+
+import numpy as np
 
 import meshforge
 

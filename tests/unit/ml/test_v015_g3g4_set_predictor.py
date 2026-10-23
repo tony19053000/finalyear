@@ -21,14 +21,13 @@ import math
 from dataclasses import replace
 from typing import Any
 
-import numpy as np
 import pytest
 import structlog
 
 pytest.importorskip("pyarrow", reason="needs the controller extra")
 pytest.importorskip("sklearn", reason="needs the ml extra")
 pytest.importorskip("lightgbm", reason="needs the ml extra")
-
+import numpy as np
 from mf_ml_synthetic import synthetic_rows
 
 from meshforge.controller.ml.artefact import ArtefactError

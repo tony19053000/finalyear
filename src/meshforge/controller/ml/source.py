@@ -323,7 +323,8 @@ class RegistryMlInputSource:
             self._loaded = self._input = None
             return None
         if loaded is not self._loaded:
-            self._loaded = loaded
+            # cleared first: a raising build never leaves the old set's input
+            self._loaded, self._input = loaded, None
             # warm-up = one batch per modelled term: off the event loop
             self._input = await asyncio.to_thread(
                 ml_input,
