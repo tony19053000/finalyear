@@ -231,3 +231,31 @@ def test_an_answer_without_a_report_id_is_an_error(
     result = runner.invoke(cli_app.app, ["planner", "eval", "--campaign", CAMP])
     assert result.exit_code == 1
     assert "did not say which report" in result.stderr
+
+
+def test_json_is_the_polled_record_plus_schema_version(
+    runner: CliRunner, controller: TransportFactory
+) -> None:
+    """docs/CLI.md section 3: ``planner eval --json`` prints the record of
+    ``GET /v1/planner/eval-reports/{report_id}`` on one sorted line."""
+    from meshforge.cli.render import JSON_SCHEMA_VERSION
+
+    done = _done()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST":
+            return httpx.Response(202, json={"report_id": 9, "status": "running"})
+        return httpx.Response(200, json=done)
+
+    controller(handler)
+    result = runner.invoke(
+        cli_app.app, ["planner", "eval", "--campaign", CAMP, "--json"]
+    )
+    assert result.exit_code == 0, result.output
+    expected = json.dumps(
+        {**done, "schema_version": JSON_SCHEMA_VERSION},
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    assert result.stdout == expected + "\n"
+    assert result.stderr == ""  # no "started" note with --json

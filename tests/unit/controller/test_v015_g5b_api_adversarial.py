@@ -72,6 +72,10 @@ async def test_empty_registry_answers_an_empty_list_not_an_error() -> None:
         "term": None,
         "set": None,
         "points": [],
+        # V0.15 G6b (G5 debt): calibration versions beyond the per-request cap
+        "calibration_versions_cap": 16,
+        "calibration_versions_skipped": 0,
+        "calibration_skipped_points": 0,
     }
 
 

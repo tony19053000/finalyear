@@ -328,7 +328,10 @@ COMPUTE: Final[dict[str, Entry]] = {
         "action, like `planner calibrate`). The dashboard has no control that "
         "starts an evaluation: the Planner page (V0.14 G5, D300) shows the "
         "reports it stores (`planner reports`), not the run itself (D321: kept "
-        "CLI-only rather than claim a parity that does not exist)."
+        "CLI-only rather than claim a parity that does not exist). V0.15 G6b "
+        "(D378): the Planner page now has a Run evaluation form (admins) with "
+        "the running report's progress, covered by vitest only - it moves to "
+        "InUi once an end-to-end test proves it."
     ),
     "planner reports": InUi(
         "/planner",
