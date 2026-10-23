@@ -28,6 +28,7 @@ from meshforge.controller.api.models import ApiModel
 from meshforge.controller.calibration_store import CalibrationStore
 from meshforge.controller.ml.predictions import (
     DEFAULT_LIMIT,
+    MAX_CALIBRATION_VERSIONS,
     MAX_LIMIT,
     PredictionsError,
     read_predictions,
@@ -107,6 +108,15 @@ class MlPredictionsOut(ApiModel):
     term: str | None
     set: str | None
     points: list[MlPredictionPointOut]
+    calibration_versions_cap: int
+    """V0.15 G6b (G5 debt): the newest this many distinct calibration
+    versions are read per request."""
+    calibration_versions_skipped: int
+    """Older calibration versions of the read decisions that were not read."""
+    calibration_skipped_points: int
+    """Points whose ``calibrated_s`` is null because their decision's
+    calibration version was skipped (the other null ``calibrated_s``: a
+    version that cannot be read)."""
 
 
 @ml_predictions_router.get(
@@ -173,4 +183,7 @@ async def get_ml_predictions(
             )
             for p in read.points
         ],
+        calibration_versions_cap=MAX_CALIBRATION_VERSIONS,
+        calibration_versions_skipped=read.calibration_versions_skipped,
+        calibration_skipped_points=read.calibration_skipped_points,
     )

@@ -6,12 +6,16 @@ One row per ``compute planner eval`` / ``POST /v1/planner/eval-reports``:
 * ``holdout`` - the one workload family evaluated (``--holdout``), or NULL
   for every family (each with its own leave-one-family-out calibration);
 * ``leaked`` - made with ``--allow-leak`` (every verdict stamped ``leaked``);
-* ``report`` - the report itself (``eval_version`` 1, the shape of
-  :class:`~meshforge.controller.api.planner_eval_models.EvalReportOut`).
+* ``report`` - the report itself (``eval_version`` 1 or 2, the shape of
+  :class:`~meshforge.controller.api.planner_eval_models.EvalReportOut`), or
+  - V0.15 G6b (D378, start-then-poll, no migration) - a ``run_state``
+  document while the evaluation runs or after it failed.
 
 Written only by :class:`~meshforge.controller.planner_eval.store.
-EvalReportStore`; rows are never changed. ``created_at`` is the row's, never
-part of the report (the same inputs give the same report bytes).
+EvalReportStore`; a row changes at most once, from ``running`` to ``done``
+(the report) or ``failed``; a done row is never changed. ``created_at`` is
+the row's (the evaluation's start), never part of the report (the same inputs
+give the same report bytes).
 """
 
 from __future__ import annotations

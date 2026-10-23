@@ -43,7 +43,10 @@ from meshforge.controller.ml.export import BuiltDataset
 from meshforge.controller.ml.folds import train_fold
 from meshforge.controller.ml_retrain_task import MlRetrainer
 from meshforge.controller.planner_eval.core import evaluate
-from meshforge.controller.planner_eval.ml_inputs import FoldMlInputs
+from meshforge.controller.planner_eval.ml_inputs import (
+    FOLD_BUDGET_EPSILON_S,
+    FoldMlInputs,
+)
 from meshforge.controller.planner_eval.model import (
     ML_EVALUATED,
     EvalConfig,
@@ -295,7 +298,8 @@ def test_the_running_fold_is_stopped_and_its_child_cancelled() -> None:
     ml = asyncio.run(inputs.prepare(families, allow_leak=False))
     assert time.monotonic() - started < 10.0
     assert cancelled == [True]
-    assert timeouts and timeouts[0] <= 1.0  # never more than the budget left
+    # V0.15 G6b (D378): the budget left + epsilon - the evaluation deadline wins
+    assert timeouts and timeouts[0] <= 1.0 + FOLD_BUDGET_EPSILON_S
     assert [f["reason"] for f in ml.folds] == [
         "eval_budget_exhausted: stopped, ml_eval_timeout_s = 1 s",
         "eval_budget_exhausted: not trained, ml_eval_timeout_s = 1 s",

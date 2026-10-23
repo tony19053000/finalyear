@@ -120,8 +120,16 @@ class TrainingGuard:
         return lock
 
     def busy(self) -> bool:
-        """A training child holds the guard on the running loop."""
-        return self._lock().locked()
+        """A training child holds the guard on the running loop. Outside an
+        event loop (a worker thread, a synchronous caller; V0.15 G6b, G5
+        debt): whether a child holds it on **any** loop - never raises, and
+        never creates a lock."""
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return any(lock.locked() for lock in list(self._locks.values()))
+        lock = self._locks.get(loop)
+        return lock is not None and lock.locked()
 
     @contextlib.asynccontextmanager
     async def held(self) -> AsyncIterator[None]:

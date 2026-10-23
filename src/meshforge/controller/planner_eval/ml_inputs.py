@@ -17,7 +17,10 @@ D368/D369). I/O: the dataset, the training child, the registry.
   guard (never next to a retrain), all together under
   ``ml_eval_timeout_s`` (G5a reviewer B2): a fold still waiting or training
   when it is spent is stopped (its child killed) and every family left gets
-  no model, reason ``eval_budget_exhausted``. A family whose fold has no
+  no model, reason ``eval_budget_exhausted`` (the fold child's own limit is
+  the budget left + :data:`FOLD_BUDGET_EPSILON_S`, so the evaluation's
+  deadline fires first and the reason never reads ``timeout`` when both
+  would expire together - V0.15 G6b, D378). A family whose fold has no
   usable model plans with calibration only (``no_fold_model``), with the
   reason in its ``folds`` entry;
 * ``allow_leak`` (debugging): the **serving** set (pinned, else active)
@@ -36,7 +39,7 @@ import sys
 import time
 from collections.abc import Awaitable, Callable, Mapping
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Final, Protocol
 
 from meshforge.common.logging import get_logger
 from meshforge.controller.ml.child import (
@@ -60,9 +63,30 @@ from meshforge.controller.planner_eval.loader import EvalLoadError
 from meshforge.controller.planner_eval.model import ML_EVALUATED, ML_UNAVAILABLE, EvalMl
 from meshforge.controller.settings import PlannerSettings
 
-__all__ = ["EvalMlInputs", "FoldMlInputs"]
+__all__ = [
+    "FOLD_BUDGET_EPSILON_S",
+    "EvalMlInputs",
+    "FoldMlInputs",
+    "fold_child_timeout",
+]
 
 log = get_logger(__name__)
+
+FOLD_BUDGET_EPSILON_S: Final = 1.0
+"""V0.15 G6b (D378): what a fold child gets on top of the evaluation budget
+left, so the evaluation's own deadline always fires first and the fold reads
+``eval_budget_exhausted``, never ``timeout``, when both would expire
+together."""
+
+
+def fold_child_timeout(retrain_timeout_s: float, remaining_s: float) -> float:
+    """The fold child's own limit: ``ml_retrain_timeout_s`` when it ends
+    before the evaluation budget left (a genuine ``timeout`` of that fold),
+    else the budget left + :data:`FOLD_BUDGET_EPSILON_S` (the evaluation's
+    deadline stops it: ``eval_budget_exhausted``)."""
+    if retrain_timeout_s < remaining_s:
+        return retrain_timeout_s
+    return remaining_s + FOLD_BUDGET_EPSILON_S
 
 
 class EvalMlInputs(Protocol):
@@ -226,7 +250,9 @@ class FoldMlInputs:
                     until=until,
                     settings=self._settings,
                     child=self._child,
-                    timeout_s=min(self._settings.ml_retrain_timeout_s, remaining_s),
+                    timeout_s=fold_child_timeout(
+                        self._settings.ml_retrain_timeout_s, remaining_s
+                    ),
                 )
         except TimeoutError:
             # the budget ran out mid-fold: the cancel killed the child
