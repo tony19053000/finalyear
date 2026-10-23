@@ -184,7 +184,12 @@ def test_raw_prediction_and_explain_line_are_sane_for_one_lane_compute(
         note = _ml_note(compute)
         assert note.startswith(", ML ") and " -> " in note and "x" in note
         cell = _term_cell(compute, "compute")
-        assert cell.count("->") == 1
+        # V0.15 G5b (D373): the nested lane rate is printed too, after
+        # "; rate: " - the compute correction itself appears exactly once
+        term_part, _, rate_part = cell.partition("; rate: ")
+        assert term_part.count("->") == 1
+        if outer.get("rate"):
+            assert rate_part.count("->") <= 1 and "ms/item" in rate_part
         # the note's left number is the analytical seconds, formatted
         left = note.split("ML ", 1)[1].split(" -> ", 1)[0]
         right = note.split(" -> ", 1)[1].split(" ", 1)[0]
