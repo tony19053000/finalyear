@@ -121,6 +121,9 @@ export const PREDICTIONS: MlPredictionsOut = {
   decisions_read: 7,
   term: null,
   set: null,
+  calibration_versions_cap: 16,
+  calibration_versions_skipped: 0,
+  calibration_skipped_points: 0,
   points: [
     { decision_id: 11, term: "compute", node_id: "node_L1", family: "matmul", analytical_s: 10, calibrated_s: 12, ml_s: 9.5, used: true, reason: null, actual_s: 9.2, ml_model_version: SET_B },
     { decision_id: 12, term: "compute", node_id: "node_L2", family: "matmul", analytical_s: 20, calibrated_s: 25, ml_s: 18, used: true, reason: null, actual_s: 17.5, ml_model_version: SET_B },

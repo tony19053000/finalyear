@@ -2754,7 +2754,7 @@
       },
       "EvalReportRecordOut": {
         "additionalProperties": false,
-        "description": "One stored report (``GET /v1/planner/eval-reports/{id}``, and what\n``POST`` answers).",
+        "description": "One report (``GET /v1/planner/eval-reports/{id}``): poll it after\n``POST`` until ``status`` is no longer ``running`` (V0.15 G6b, D378).",
         "properties": {
           "campaign_ids": {
             "items": {
@@ -2765,6 +2765,17 @@
           },
           "created_at": {
             "$ref": "#/components/schemas/Utc"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
           },
           "holdout": {
             "anyOf": [
@@ -2785,8 +2796,29 @@
             "title": "Leaked",
             "type": "boolean"
           },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
           "report": {
-            "$ref": "#/components/schemas/EvalReportOut"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EvalReportOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/EvalReportStatus"
           }
         },
         "required": [
@@ -2795,14 +2827,25 @@
           "campaign_ids",
           "holdout",
           "leaked",
+          "status",
+          "reason",
+          "detail",
           "report"
         ],
         "title": "EvalReportRecordOut",
         "type": "object"
       },
+      "EvalReportStatus": {
+        "enum": [
+          "running",
+          "done",
+          "failed"
+        ],
+        "type": "string"
+      },
       "EvalReportSummaryOut": {
         "additionalProperties": false,
-        "description": "One stored report in the list (no groups).",
+        "description": "One stored report in the list (no groups). A ``running`` or\n``failed`` report has ``eval_version`` 0, no evaluated groups and no\nverdicts (V0.15 G6b, D378).",
         "properties": {
           "campaign_ids": {
             "items": {
@@ -2841,6 +2884,20 @@
             "title": "Leaked",
             "type": "boolean"
           },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "status": {
+            "$ref": "#/components/schemas/EvalReportStatus"
+          },
           "verdicts": {
             "items": {
               "$ref": "#/components/schemas/VerdictOut"
@@ -2857,20 +2914,34 @@
           "leaked",
           "eval_version",
           "evaluated_groups",
-          "verdicts"
+          "verdicts",
+          "status",
+          "reason"
         ],
         "title": "EvalReportSummaryOut",
         "type": "object"
       },
       "EvalRequestIn": {
         "additionalProperties": false,
-        "description": "``POST /v1/planner/eval-reports`` (admin): evaluate and store.",
+        "description": "``POST /v1/planner/eval-reports`` (admin): start an evaluation.",
         "properties": {
           "allow_leak": {
             "default": false,
             "description": "Debugging only: use the live calibration instead of held-out refits; every verdict is stamped 'leaked'.",
             "title": "Allow Leak",
             "type": "boolean"
+          },
+          "background": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Must be true (V0.15 G6b, D378): the evaluation runs in the background; the answer is 202 {report_id} and GET /v1/planner/eval-reports/{report_id} reports its progress. A request without it (a client from before the change, which expects the report in the answer) is refused with 400 eval_requires_background.",
+            "title": "Background"
           },
           "campaign_ids": {
             "description": "The benchmark campaigns to evaluate (their labelled groups).",
@@ -2948,6 +3019,27 @@
           "criterion_policy"
         ],
         "title": "EvalSettingsOut",
+        "type": "object"
+      },
+      "EvalStartOut": {
+        "additionalProperties": false,
+        "description": "``POST /v1/planner/eval-reports`` (202): the evaluation runs in the\nbackground; poll ``GET /v1/planner/eval-reports/{report_id}``.",
+        "properties": {
+          "report_id": {
+            "title": "Report Id",
+            "type": "integer"
+          },
+          "status": {
+            "const": "running",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "report_id",
+          "status"
+        ],
+        "title": "EvalStartOut",
         "type": "object"
       },
       "ExpansionSummary": {
@@ -5811,6 +5903,18 @@
       "MlPredictionsOut": {
         "additionalProperties": false,
         "properties": {
+          "calibration_skipped_points": {
+            "title": "Calibration Skipped Points",
+            "type": "integer"
+          },
+          "calibration_versions_cap": {
+            "title": "Calibration Versions Cap",
+            "type": "integer"
+          },
+          "calibration_versions_skipped": {
+            "title": "Calibration Versions Skipped",
+            "type": "integer"
+          },
           "decisions_read": {
             "title": "Decisions Read",
             "type": "integer"
@@ -5854,7 +5958,10 @@
           "decisions_read",
           "term",
           "set",
-          "points"
+          "points",
+          "calibration_versions_cap",
+          "calibration_versions_skipped",
+          "calibration_skipped_points"
         ],
         "title": "MlPredictionsOut",
         "type": "object"
@@ -16645,7 +16752,7 @@
         ]
       },
       "post": {
-        "description": "Evaluate and store a report (module docstring).",
+        "description": "Start an evaluation in the background (module docstring).",
         "operationId": "create_eval_report_v1_planner_eval_reports_post",
         "requestBody": {
           "content": {
@@ -16658,11 +16765,11 @@
           "required": true
         },
         "responses": {
-          "201": {
+          "202": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/EvalReportRecordOut"
+                  "$ref": "#/components/schemas/EvalStartOut"
                 }
               }
             },
@@ -16749,7 +16856,7 @@
             "description": "A dependency (the database) is unavailable; retry (`network_error`)"
           }
         },
-        "summary": "Evaluate benchmark campaigns: regret of every policy (admin)",
+        "summary": "Start evaluating benchmark campaigns: regret of every policy (admin)",
         "tags": [
           "planner"
         ]
@@ -16797,7 +16904,7 @@
               },
               "text/markdown; charset=utf-8": {}
             },
-            "description": "JSON (default) or, with format=markdown, the report rendered as Markdown"
+            "description": "JSON (default) or, with format=markdown, the report rendered as Markdown (409 eval_report_not_done before it is done)"
           },
           "400": {
             "content": {
@@ -16880,7 +16987,7 @@
             "description": "A dependency (the database) is unavailable; retry (`network_error`)"
           }
         },
-        "summary": "One planner evaluation report (JSON or Markdown)",
+        "summary": "One planner evaluation report: its status, and once done the report (JSON or Markdown)",
         "tags": [
           "planner"
         ]

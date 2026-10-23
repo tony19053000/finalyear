@@ -10,6 +10,7 @@ import type {
   CalibrationView,
   EvalReportListOut,
   EvalReportOut,
+  DoneEvalRecord,
   EvalReportRecordOut,
   LatencyOut,
   PairedComparisonOut,
@@ -146,25 +147,67 @@ function report(leaked: boolean): EvalReportOut {
 
 export const EMPTY_REPORTS: EvalReportListOut = { reports: [] };
 
-export const REPORT_RECORD: EvalReportRecordOut = {
+export const REPORT_RECORD: DoneEvalRecord = {
   id: 4,
   created_at: "2026-10-22T08:00:00Z",
   campaign_ids: report(false).campaign_ids,
   holdout: "cpu_sleep",
   leaked: false,
+  status: "done",
+  reason: null,
+  detail: null,
   report: report(false),
 };
 
-export const LEAKED_RECORD: EvalReportRecordOut = {
+export const LEAKED_RECORD: DoneEvalRecord = {
   id: 5,
   created_at: "2026-10-22T09:00:00Z",
   campaign_ids: report(true).campaign_ids,
   holdout: null,
   leaked: true,
+  status: "done",
+  reason: null,
+  detail: null,
   report: report(true),
 };
 
-function summary(record: EvalReportRecordOut): EvalReportListOut["reports"][number] {
+/** V0.15 G6b (D378): a report still evaluating, and one that failed. */
+export const RUNNING_RECORD: EvalReportRecordOut = {
+  id: 6,
+  created_at: "2026-10-23T09:00:00Z",
+  campaign_ids: ["camp_01HQ0000000000000000000000"],
+  holdout: null,
+  leaked: false,
+  status: "running",
+  reason: null,
+  detail: null,
+  report: null,
+};
+
+export const FAILED_RECORD: EvalReportRecordOut = {
+  ...RUNNING_RECORD,
+  id: 7,
+  status: "failed",
+  reason: "controller_restart",
+  detail: "the controller stopped while this evaluation ran; run it again",
+};
+
+export function stateSummary(record: EvalReportRecordOut): EvalReportListOut["reports"][number] {
+  return {
+    id: record.id,
+    created_at: record.created_at,
+    campaign_ids: record.campaign_ids,
+    holdout: record.holdout,
+    leaked: record.leaked,
+    eval_version: 0,
+    evaluated_groups: 0,
+    verdicts: [],
+    status: record.status,
+    reason: record.reason,
+  };
+}
+
+function summary(record: DoneEvalRecord): EvalReportListOut["reports"][number] {
   return {
     id: record.id,
     created_at: record.created_at,
@@ -174,6 +217,8 @@ function summary(record: EvalReportRecordOut): EvalReportListOut["reports"][numb
     eval_version: record.report.eval_version,
     evaluated_groups: record.report.counts.evaluated_groups,
     verdicts: record.report.verdicts,
+    status: "done",
+    reason: null,
   };
 }
 

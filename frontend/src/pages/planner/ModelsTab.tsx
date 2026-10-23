@@ -55,6 +55,7 @@ import {
 } from "./mlApi";
 import {
   busiestTerm,
+  calibrationGapText,
   canPin,
   canUnpin,
   fallbackRows,
@@ -63,6 +64,7 @@ import {
   learnedText,
   liveText,
   mlState,
+  plottedText,
   retrainText,
   scatterOf,
   secondsText,
@@ -332,7 +334,11 @@ function ScatterPlot({ data }: { data: ScatterData }) {
   const unit = unitOf(data.term);
   const title = `${data.term}: predicted vs actual (${unit}, log axes)`;
   if (data.domain === null) {
-    return <p className="text-sm text-fg-muted">No point of {data.term} can be plotted (every value is missing or zero).</p>;
+    return (
+      <p className="text-sm text-fg-muted">
+        No point of {data.term} can be plotted (every value is missing or zero). <span data-testid="ml-plotted">{plottedText(data)}</span>.
+      </p>
+    );
   }
   const [lo, hi] = data.domain;
   return (
@@ -349,6 +355,11 @@ function ScatterPlot({ data }: { data: ScatterData }) {
         </li>
         <li>dashed: y = x (a perfect prediction)</li>
       </ul>
+      <p className="text-xs text-fg-muted" data-testid="ml-plotted">
+        {plottedText(data)}
+        {data.noCalibrated > 0 &&
+          ` · ${String(data.noCalibrated)} without a calibrated value (only their ML point, if any, is shown)`}
+      </p>
       <div
         role="img"
         aria-label={`${title}: ${String(data.calibration.length)} calibration points and ${String(data.ml.length)} ML points; the numbers are in the table below.`}
@@ -463,6 +474,7 @@ function Predictions({ serving }: { serving: string | null }) {
   const points = onlyServing && serving !== null ? all.filter((p) => p.ml_model_version === serving) : all;
   const terms = termsOf(points);
   const shown = term !== null && terms.includes(term) ? term : busiestTerm(points);
+  const gap = calibrationGapText(query.data);
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-3 text-sm">
@@ -514,6 +526,11 @@ function Predictions({ serving }: { serving: string | null }) {
           {query.data.decisions_read} matched runs read · {points.length} points
         </span>
       </div>
+      {gap !== null && (
+        <p className="text-xs text-fg-muted" data-testid="ml-calibration-gap">
+          {gap}
+        </p>
+      )}
       {shown === null ? (
         <EmptyState title="No predicted-vs-actual points yet">
           Points appear once dispatched decisions have finished runs with a measured time for a learnable term.
