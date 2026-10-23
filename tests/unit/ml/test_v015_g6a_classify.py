@@ -348,3 +348,30 @@ def test_the_markdown_section() -> None:
         "lightgbm",
         "cost_model",
     ]
+
+
+def test_the_compare_report_gets_the_section(tmp_path: Path) -> None:
+    from mf_ml_synthetic import parquet_file, synthetic_rows
+
+    from meshforge.controller.ml.train import __main__ as train_main
+
+    rows = synthetic_rows("signal", families=3, groups_per_family=2, runs_per_group=4)
+    dataset = parquet_file(rows, tmp_path / "d.parquet")
+    examples = tmp_path / "examples.json"
+    examples.write_text(json.dumps(_doc()), encoding="utf-8")
+    out = tmp_path / "o"
+    base = ["compare", "--dataset", str(dataset), "--out", str(out)]
+    fast = ["--min-rows", "10", "--algorithms", "ridge", "--terms", "compute"]
+    assert train_main.main([*base, *fast, "--classify-examples", str(examples)]) == 0
+    doc = json.loads((out / "report.json").read_text(encoding="utf-8"))
+    assert doc["classifier"] == json.loads(canonical_json(cl.classify(_doc())))
+    md = (out / "report.md").read_text(encoding="utf-8")
+    assert "## Classifier vs cost regression" in md
+    # an unreadable examples file is a usage error, nothing written
+    bad = tmp_path / "bad.json"
+    bad.write_text("{", encoding="utf-8")
+    other = tmp_path / "o2"
+    argv = ["compare", "--dataset", str(dataset), "--out", str(other), *fast]
+    code = train_main.main([*argv, "--classify-examples", str(bad)])
+    assert code == 2
+    assert not other.exists()

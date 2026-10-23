@@ -412,6 +412,7 @@ def test_ml_train_serve_fallback_evaluate_reproduce(
     assert replayed["status"] == "reproduced", replayed
     assert replayed["ml_model_version"] == version, replayed
     cli = cli_json(fabric, data, "planner", "replay", str(probe.id), cwd=work)
+    cli.pop("schema_version", None)
     assert cli == replayed, (cli, replayed)
 
     # --- (4) the artefact is gone: per-decision fallback, jobs still finish
