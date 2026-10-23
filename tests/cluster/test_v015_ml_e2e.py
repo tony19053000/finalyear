@@ -9,10 +9,10 @@ harness, subprocess runtime; numpy jobs from the local wheelhouse).
 Everything the operator does goes through the real ``compute`` CLI.
 
 **Campaigns (step 1).** Three whole-job families with ``[local, mode1]``
-(``cpu.primes`` 3 sizes, ``cpu.zlib`` 3 sizes, ``cpu.integrate`` 2 sizes;
-3 configurations x 2 repetitions) and one Mode 3 family with ``[local,
-mode1, mode3]`` (``split.montecarlo_range``, 2 sizes, 4 configurations x 2
-repetitions): 10 labelled groups, 64 runs. The training floors are lowered
+(``cpu.primes``, ``cpu.zlib``, ``cpu.integrate``; 2 sizes x 3
+configurations x 3 repetitions each) and one Mode 3 family with ``[local,
+mode1, mode3]`` (``split.montecarlo_range``, 2 sizes x 4 configurations x 3
+repetitions): 8 labelled groups, 78 runs. The training floors are lowered
 for harness volume (``ml_min_rows`` 20, ``ml_min_families`` 3); everything
 else is production defaults.
 
@@ -69,7 +69,7 @@ pytest.importorskip("sklearn", reason="needs the controller's ml extra")
 
 from mf_cluster import Fabric
 from mf_planner_cluster import cli_json, create_campaign, start_campaign, wait_campaigns
-from mf_split_cluster import compute, split_fabric, sql
+from mf_split_cluster import split_fabric, sql
 
 pytestmark = [pytest.mark.cluster, pytest.mark.slow, pytest.mark.timeout(2400)]
 
@@ -79,12 +79,22 @@ ML_SETTINGS: Final = {
     "ml_eval_timeout_s": 900.0,
     "ml_retrain_timeout_s": 900.0,
 }
-WHOLE: Final = {
-    "cpu.primes": ("limit", [100_000_000, 105_000_000, 110_000_000], {"repeats": 4}),
-    "cpu.zlib": ("size_mb", [64, 68, 72], {"repeats": 2}),
-    "cpu.integrate": ("points_m", [70, 75], {}),
+WHOLE_STRATEGIES: Final = "[local, mode1]"
+SPLIT_STRATEGIES: Final = "[local, mode1, mode3]"
+FAMILIES: Final[dict[str, tuple[str, list[int], dict[str, Any], str]]] = {
+    "cpu.primes": (
+        "limit",
+        [100_000_000, 110_000_000],
+        {"repeats": 4},
+        WHOLE_STRATEGIES,
+    ),
+    "cpu.zlib": ("size_mb", [64, 72], {"repeats": 2}, WHOLE_STRATEGIES),
+    "cpu.integrate": ("points_m", [70, 80], {}, WHOLE_STRATEGIES),
+    "split.montecarlo_range": ("items", [1200, 1400], {}, SPLIT_STRATEGIES),
 }
-SPLIT: Final = ("split.montecarlo_range", "items", [1200, 1300])
+"""family -> (size parameter, its values, fixed parameters, strategies)."""
+REPETITIONS: Final = 3
+"""The campaign minimum (labels need 3 repetitions)."""
 GATE_REASONS: Final = (
     "too_few_held_out",
     "coverage",
@@ -139,15 +149,14 @@ def _run_campaigns(
     origin: str,
     tag: str,
     *,
-    sizes: int | None,
-    repetitions: int,
+    families: list[str],
+    sizes: int | None = None,
 ) -> list[str]:
     """One campaign per family (``sizes`` = keep only that many parameter
     values), all started, waited for; their ids."""
     ids: list[str] = []
-    seed = 150
-    for family, (key, values, fixed) in WHOLE.items():
-        seed += 1
+    for seed, family in enumerate(families, start=150):
+        key, values, fixed, strategies = FAMILIES[family]
         spec = _spec(
             f"{tag}-{family}",
             seed,
@@ -155,26 +164,12 @@ def _run_campaigns(
             key,
             values[:sizes],
             fixed,
-            "[local, mode1]",
+            strategies,
             origin,
-            repetitions,
+            REPETITIONS,
         )
         cid, _ = create_campaign(fabric, data, spec, f"{tag}-{family}", cwd=work)
         ids.append(cid)
-    family, key, split_values = SPLIT
-    spec = _spec(
-        f"{tag}-{family}",
-        seed + 1,
-        family,
-        key,
-        split_values[:sizes],
-        {},
-        "[local, mode1, mode3]",
-        origin,
-        repetitions,
-    )
-    cid, _ = create_campaign(fabric, data, spec, f"{tag}-{family}", cwd=work)
-    ids.append(cid)
     for cid in ids:
         start_campaign(fabric, data, cid, cwd=work, per_node=2, cooldown_s=0.0)
     wait_campaigns(fabric, data, ids, cwd=work, within=CAMPAIGNS_WITHIN_S)
@@ -217,14 +212,13 @@ def _wait_in_use(
 
 
 def _decisions(pg_settings: Any, campaign_ids: list[str]) -> list[Any]:
-    marks = ", ".join(f":c{i}" for i in range(len(campaign_ids)))
     return sql(
         pg_settings,
         "SELECT pd.id, pd.job_id, pd.candidates, pd.decision_ms "
         "FROM plan_decision pd JOIN bench_run br ON br.job_id = pd.job_id "
-        f"WHERE br.campaign_id IN ({marks}) AND pd.outcome = 'dispatched' "
+        "WHERE br.campaign_id = ANY(:ids) AND pd.outcome = 'dispatched' "
         "ORDER BY pd.id",
-        **{f"c{i}": c for i, c in enumerate(campaign_ids)},
+        ids=list(campaign_ids),
     )
 
 
@@ -344,10 +338,10 @@ def test_ml_train_serve_fallback_evaluate_reproduce(
 
     # --- (1) the campaigns
     campaigns = _run_campaigns(
-        fabric, data, work, origin.node_id, "g6a", sizes=None, repetitions=2
+        fabric, data, work, origin.node_id, "g6a", families=list(FAMILIES)
     )
     timings["campaigns_s"] = time.monotonic() - started
-    families = {*WHOLE, SPLIT[0]}
+    families = set(FAMILIES)
 
     # --- (2) train through the CLI
     mark = time.monotonic()
@@ -402,7 +396,13 @@ def test_ml_train_serve_fallback_evaluate_reproduce(
         assert n == 1
     _wait_in_use(fabric, data, work, lambda u: u["in_use_set"] == version)
     served = _run_campaigns(
-        fabric, data, work, origin.node_id, "g6a-ml", sizes=1, repetitions=1
+        fabric,
+        data,
+        work,
+        origin.node_id,
+        "g6a-ml",
+        families=["cpu.primes", "split.montecarlo_range"],
+        sizes=1,
     )
     rows = _decisions(pg_settings, served)
     times = _check_ml_decisions(rows, version)
@@ -429,7 +429,7 @@ def test_ml_train_serve_fallback_evaluate_reproduce(
     assert gone["status"] == "ml_model_unavailable", gone
     assert gone["ml_model_version"] == version, gone
     fallback = _run_campaigns(
-        fabric, data, work, origin.node_id, "g6a-gone", sizes=1, repetitions=1
+        fabric, data, work, origin.node_id, "g6a-gone", families=["cpu.primes"], sizes=1
     )
     for row in _decisions(pg_settings, fallback):
         for cand in row.candidates:

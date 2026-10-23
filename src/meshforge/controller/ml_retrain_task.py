@@ -49,6 +49,7 @@ import contextlib
 import datetime as dt
 import json
 import sys
+import time
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -102,6 +103,9 @@ __all__ = [
 log = get_logger(__name__)
 
 _MIN_INTERVAL_S: Final = 1.0
+_GUARD_WAIT_LOG_S: Final = 1.0
+"""A retrain that waited at least this long for the training-child guard
+logs the wait even when the guard looked free when it asked."""
 _MAX_LABEL_ROWS: Final = 200_000
 """The D371 slice's label-read cap when the server does not pass its
 ``[controller.telemetry] export_max_rows``."""
@@ -182,6 +186,7 @@ class MlRetrainer:
         python: str = sys.executable,
         child: ChildRunner = run_child,
         clock: Callable[[], dt.datetime] = lambda: dt.datetime.now(dt.UTC),
+        monotonic: Callable[[], float] = time.monotonic,
         set_loader: RegistryLoader | None = None,
         calibration: Callable[[], Awaitable[Calibration | None]] | None = None,
         max_label_rows: int = _MAX_LABEL_ROWS,
@@ -200,6 +205,7 @@ class MlRetrainer:
         self._python = python
         self._child = child
         self._clock = clock
+        self._monotonic = monotonic
         self._lock = asyncio.Lock()
         self._stop = asyncio.Event()
         self._task: asyncio.Task[RetrainResult] | None = None
@@ -435,10 +441,21 @@ class MlRetrainer:
                 self._settings,
             )
             try:
-                if TRAINING_GUARD.busy():
+                waiting = TRAINING_GUARD.busy()
+                if waiting:
                     log.info("controller.ml.retrain_waits_for_training_child")
+                wait_started = self._monotonic()
                 # one training child at a time (an evaluator fold may run)
                 async with TRAINING_GUARD.held():
+                    # V0.15 G6a (G5 debt): how long the retrain queued
+                    # behind another training child (not part of its timeout)
+                    waited_s = round(self._monotonic() - wait_started, 3)
+                    if waiting or waited_s >= _GUARD_WAIT_LOG_S:
+                        log.info(
+                            "controller.ml.retrain_guard_acquired",
+                            trigger=trigger,
+                            waited_s=waited_s,
+                        )
                     code, stderr = await self._child(
                         argv, self._settings.ml_retrain_timeout_s
                     )

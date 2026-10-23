@@ -409,8 +409,8 @@ def classify(
                 "reason": (
                     f"{len(examples)} labelled group(s) in {len(families)} "
                     f"family(ies); at least {settings.min_groups} groups in "
-                    f"{settings.min_families} families needed - no accuracy or "
-                    "regret is reported on fewer"
+                    f"{settings.min_families} families needed - no classifier is "
+                    "trained or scored on fewer"
                 ),
             }
         )
