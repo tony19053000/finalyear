@@ -5,7 +5,7 @@
 **Last updated:** 2026-10-23
 
 ```
-TOTAL   ██████████████▒▒░░░░  69%  110/158 done, 16 in progress
+TOTAL   ██████████████▒▒░░░░  70%  112/158 done, 16 in progress
 
 V0.1    █████████████████▒▒▒  83%  10/12  Foundations & engineering system
 V0.2    ██▒▒▒▒▒▒▒▒▒▒▒▒▒░░░░░   9%   1/11  Lab setup & feasibility validation
@@ -18,14 +18,14 @@ V0.8    ██████████████████░░  90%   9/10
 V0.9    ██████████████████░░  90%   9/10  Benchmark & telemetry system v1
 V0.10   ██████████████████░░  90%   9/10  Mode 3 Task Splitting
 V0.14   ██████████████████▒▒  87%   7/8   Unified planner v2
-V0.15   ████████████░░░░░░░░  58%   7/12  ML planner
+V0.15   ███████████████░░░░░  75%   9/12  ML planner
 V0.17   ░░░░░░░░░░░░░░░░░░░░   0%   0/8   Productization
 V1.0    ░░░░░░░░░░░░░░░░░░░░   0%   0/8   Release hardening & final evaluation
 ```
 █ done `[x]` · ▒ in progress or waiting on a 🧑 lab step `[~]` · ░ not started
 
 ## Current Version
-**V0.15 — ML planner** · started 2026-10-22 (team: approve all, start G1) · brief `docs/briefs/V0.15-ml-planner.md` (D333–D344, APPROVED) · ADR-0021 Proposed · 0.15.11 🧑 lab added (D344) · **G1 CLOSED** (0.15.1–0.15.3 `[x]`, merge `420a3a24`, D345/D346) · **G2 CLOSED** (0.15.4/0.15.5 `[x]`, merge `43aeec43`, D347–D357) · **G3 + G4 CLOSED** (0.15.6 `[x]` merge `80767722`, 0.15.7 `[x]` merge `2eb065b2`, D362–D367; ML now live in the controller via `server.ml_source`) · **G5 brief DRAFTED** (§5f, awaiting Q24–Q30)
+**V0.15 — ML planner** · started 2026-10-22 (team: approve all, start G1) · brief `docs/briefs/V0.15-ml-planner.md` (D333–D344, APPROVED) · ADR-0021 Proposed · 0.15.11 🧑 lab added (D344) · **G1 CLOSED** (0.15.1–0.15.3 `[x]`, merge `420a3a24`, D345/D346) · **G2 CLOSED** (0.15.4/0.15.5 `[x]`, merge `43aeec43`, D347–D357) · **G3 + G4 CLOSED** (0.15.6 `[x]` merge `80767722`, 0.15.7 `[x]` merge `2eb065b2`, D362–D367; ML now live in the controller via `server.ml_source`) · **G5 CLOSED** (0.15.8 `[x]` merge `193e008d`, 0.15.9 `[x]` merge `086a1b4b`, D368–D374) · next: G6 brief
 **V0.14 — Unified planner v2** · started 2026-10-21 (team: "start V0.14", §7 on Lead recommendations) · brief `docs/briefs/V0.14-unified-planner-v2.md` (D290–D303) · ADR-0020 Proposed · **G1 CLOSED** (0.14.1 `[x]`, merge `f72681c0`) · **G2 CLOSED** (0.14.3 `[x]`, merge `092b60c7`, 2026-10-22) · **G3 CLOSED** (0.14.2/0.14.4/0.14.5 `[x]`, merge `3392fe49`, REPLAY_VERSION 2, D309–D312) · **G4+G5 CLOSED** (0.14.6/0.14.7 `[x]`, D321–D323) · **G6 MERGED** (`dbfe3a59`, D324–D331; 0.14.8 `[~]`) · **agent-side complete** · closes on 🧑 0.14.8 (`lab/checklists/V0.14-planner.md`)
 **V0.10 — Mode 3 Task Splitting** · started 2026-10-19 (team: proceed while away) · brief `docs/briefs/V0.10-task-splitting.md` (DRAFT, D259–D276) · ADR-0019 Proposed · **G1–G9 CLOSED** (D277–D288; 0.10.1–0.10.9 `[x]`) · **agent-side complete** · closes on 🧑 0.10.10 (`lab/checklists/V0.10-mode3.md`)
 **V0.9 — Benchmark & telemetry v1** · started 2026-10-17 · brief `docs/briefs/V0.9-benchmark-telemetry.md` (D211–D224, approved) · ADR-0018 · **G0, G1, G2 CLOSED** (D226, D231, D225; 0.9.1 + 0.9.2 `[x]`) · **G3 CLOSED** (D242; 0.9.3 + 0.9.4 `[x]`) · **G4 CLOSED** (D241–D245; 0.9.5 `[x]`, 2026-10-19) · **G5, G5c, G6 CLOSED** (D246–D258; 0.9.6–0.9.9 `[x]`) · **G7 CLOSED** (`c35ff3d`) · **agent-side complete**; closes on 🧑 0.9.10 (checklist part O)
@@ -44,6 +44,8 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 > V0.10. 129 tasks vs 140–180 capacity → **~1.5 tasks/session**. Needs the other three team members' approval.
 
 ## Current Task
+
+- **2026-10-23 (latest):** **V0.15 G5a + G5b MERGED** → **0.15.8, 0.15.9 `[x]`**. G5a: reviewer REQUEST_CHANGES (B1 shared training-child guard, B2 total fold budget `ml_eval_timeout_s`) → fix r1 `90c852e7` → tester r2 PASS (behavioural guard + budget break tests), reviewer delta APPROVE. G5b: tester r1 PASS (113 adversarial tests; D1 scatter spread overflow fixed by Lead `52116bbd`), reviewer APPROVE. Merge conflicts (schema.d.ts regenerated via `npm run gen:api`, docstring, purity list union). Main gates: ruff/format/mypy src (517) clean, frontend lint/typecheck/vitest 901/build/check:api green, full unit **24801 passed, 78 skipped, 7 xfailed, exit 0** (extra skips = main venv lacks the `ml` extra; ML suites ran full in the worktrees: G5a 25134, G5b 25049).
 
 - **2026-10-23 (latest):** **V0.15 G4 + G3 MERGED** → **0.15.6, 0.15.7 `[x]`**. G4: tester r2 PASS, reviewer APPROVE, Lead O-1b replay version guard `b8e52dcf`. G3: tester r2 FAIL (N1–N3 minor) → fix r2 + merge-of-main integration (`MlInputSource` rename, single `server.ml_source`, `SetPredictor`, stale-feature skip, GC touch on dedup, `child_output_invalid`) → tester r3 behaviour all pass (2 repo-gate fixes by Lead `dc03e98f`), reviewer APPROVE ×2. Main: ruff/format/mypy src/lint-imports clean; unit 24539 passed + 1 env-only test fixed (main venv lacks the ml extra; ML suites ran full in the worktrees). D367 recorded.
 
@@ -237,6 +239,7 @@ Reviewer non-blocking follow-ups (carry into G2/G3): (1) `mint` should carry `pe
 - Fixed this session: secret leak + O(n²) in log scrubber; duplicate IDs after fork; plain-`uv sync` test collection crash; CRLF-dependent codegen output.
 
 ## Technical Debt
+- **V0.15 G5 (reviewer non-blocking):** `POST /v1/planner/eval-reports` is synchronous (held up to `ml_eval_timeout_s` + replay; make it start-then-poll like `ml/train`); CLI eval timeout follows the *default* budget only (add `--timeout`); fold reason may read `timeout` instead of `eval_budget_exhausted` when both expire together (give child remaining+ε); retrain guard-wait duration not logged; `TrainingGuard` is per-process only; `TrainingGuard.busy()` raises outside a loop; `replay_decision` has no production caller (use `RegistryLoader.blocking` when wired); Models tab: calibrated_s null for calibration versions older than the newest 16 is not counted/explained, add "N of M plotted"; `PREDICTIONS_LIMITS` duplicated in TS (test against openapi `maximum`); pin `_point` behaviour for `|y_hat| > MAX_Y_HAT`; check Models tab gate line against a real G5a gate document.
 - **V0.15 G3/G4 (reviewer non-blocking):** `BudgetedPredictor` budget is wall-clock → live decisions timing-dependent (document + expose `last_ms`/`ml_predictor_errors` metrics); `MlSession.resolve` recomputes features per term (cache per node,term); `_ml_combine` falls back to `node_ids[0]` silently; `ml/replay` loader not wired to the registry (G5); `RegistryMlInputSource` awaited even with ml off; `SetPredictor` drops None slots silently; `_refused_value` matches DataError by name; main venv lacks the `ml` extra (run `uv sync --extra ml` for full local ML coverage); `bench/workloads/kernels/_support.py:161` mypy error seen in a worktree env.
 - **V0.15 G2 (reviewer non-blocking):** `compute planner ml compare` child process has no timeout; conformal rank `ceil((n+1)(1-α))` uses float math (add −1e-9 or integer form); D355 cache key misses relabels of existing rows (add run_record max updated_at or document); report.md should say baseline folds count as Δ=0; permutation importance should report how many folds it came from.
 - **V0.14 G2/G3 (D309–D312):** index on `attempt(ended_at)` for the per-tick reliability read (needs next migration); `env_error` counts against the node even when the requirements file is bad (could require "succeeded elsewhere"); `_attach_replay(calibration=)` should be a required kwarg; latency perf test has no calibrated variant; calibration log reason for a pin that turns rejected after startup; split lane chunk time is uncalibrated (no measured phase).
@@ -266,7 +269,9 @@ Reviewer non-blocking follow-ups (carry into G2/G3): (1) `mint` should carry `pe
 - Windows: not yet run (first real CI run will cover unit + fresh-clone on windows-latest)
 
 ## Next Recommended Task
-**V0.15 G5 brief DRAFTED** (brief §5f/§5g, D368–D374) — team to answer **Q24–Q30**, then G5a ∥ G5b implementers. Scope: regret gate via TermPredictor (D360), typed `TermOut.ml` / `DecisionOut.ml_model_version` in the API, Models page in the dashboard, wire `ml/replay` loader to the registry; fold in G3/G4 tech-debt above. 🧑 0.14.8 lab still open. Merged worktrees kept (removal optional, ask first).
+**V0.15 G6 brief** (brief §5, the remaining V0.15 tasks after 0.15.9) — Lead drafts, team approves. 🧑 0.14.8 lab still open. Merged worktrees kept (removal optional, ask first).
+
+_Older:_ **V0.15 G5 brief DRAFTED** (brief §5f/§5g, D368–D374) — team to answer **Q24–Q30**, then G5a ∥ G5b implementers. Scope: regret gate via TermPredictor (D360), typed `TermOut.ml` / `DecisionOut.ml_model_version` in the API, Models page in the dashboard, wire `ml/replay` loader to the registry; fold in G3/G4 tech-debt above. 🧑 0.14.8 lab still open. Merged worktrees kept (removal optional, ask first).
 
 _Older:_ 🧑 **0.14.8 lab** (`lab/checklists/V0.14-planner.md`): part A regret check must NOT be `skipped` (D329); part C pastes `by_live_node_count` (D332). Agent-side: **V0.15 G3 ∥ G4 briefs DRAFTED** (brief §5c/§5d, D358–D365) — APPROVED. **G4** (agent-a80327d0439205cff): fix r1 done @26c63eef, tester r2 + reviewer to re-run. **G3** (agent-a4720f4e9d07293c7): fix r1 committed c31a0156, gates unconfirmed, then tester r2 + reviewer. See SESSION_HANDOFF cold-start prompt. (Brief §2/§3: G3 registry migration 0034 + artefacts + retrain + activation gate, 0.15.7; G4 TermPredictor planner integration, 0.15.6 — carry pre-calibration raw_s to features + replay-vs-live parity test; fold in G2 tech-debt items where natural). Merged worktrees (V0.14 G1–G6F, V0.15 G1) kept (removal optional, ask first).
 
