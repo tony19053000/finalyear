@@ -62,13 +62,13 @@ from typing import Any, Final
 
 import numpy as np
 
+from meshforge.controller.ml.holdout import held_out_decisions
 from meshforge.controller.ml.serve import LoadedModel, load_model
 from meshforge.controller.ml.train.algorithms import Config, FitContext, fit_one
 from meshforge.controller.ml.train.compare import CompareSettings
 from meshforge.controller.ml.train.data import FloatArray, IntArray, Table
 from meshforge.controller.ml.train.fit import TrainResult, train_set
 from meshforge.controller.ml.train.report import clean
-from meshforge.controller.ml.holdout import held_out_decisions
 from meshforge.controller.planner.calibration import GATE_TOLERANCE
 
 __all__ = [

@@ -391,9 +391,7 @@ def _ml_combine(items: Sequence[SetEstimate], session: MlSession) -> list[SetEst
         )
     resolved = iter(session.resolve(contexts)) if contexts else iter(())
     outcomes = [
-        next(resolved)
-        if ok
-        else session.skip("combine", MlReason.COMBINE_NODE_UNKNOWN)
+        next(resolved) if ok else session.skip("combine", MlReason.COMBINE_NODE_UNKNOWN)
         for ok in known
     ]
     out: list[SetEstimate] = []
