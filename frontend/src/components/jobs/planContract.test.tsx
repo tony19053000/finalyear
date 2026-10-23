@@ -68,4 +68,22 @@ describe("explain contract (criterion 4): the Plan tab shows every field compute
     expect(shown).toContain("NOTE-FROM-THE-SERVER");
     expect(shown).not.toContain("split over 3 nodes");
   });
+
+  it.each((contract.ml_lines as { path: (string | number)[]; text: string }[]).map((l) => [l.path.join("."), l.text] as const))(
+    "V0.15 D373: %s shows the ML text compute explain prints",
+    (_path, line) => {
+      expect(base).toContain(line);
+    },
+  );
+
+  it("V0.15 D373: a V0.14 decision (no ML fields) shows no ML text", () => {
+    const list = structuredClone(payload);
+    for (const d of list.decisions) {
+      d.ml_model_version = null;
+      d.ml_fallback = null;
+      for (const c of d.candidates) for (const t of Object.values(c.estimate?.terms ?? {})) t.ml = null;
+    }
+    const shown = text(list);
+    expect(shown).not.toContain("ML ");
+  });
 });
