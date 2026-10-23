@@ -172,7 +172,10 @@ async def test_202_then_running_then_done(engine: Any) -> None:
         app, "POST", EVAL_PATH, json=bg({"campaign_ids": [campaign_id]})
     )
     assert started.status_code == 202, started.text
-    assert started.json() == {"report_id": started.json()["report_id"], "status": "running"}
+    assert started.json() == {
+        "report_id": started.json()["report_id"],
+        "status": "running",
+    }
     rid = started.json()["report_id"]
     await asyncio.wait_for(gate.entered.wait(), 60)
 
@@ -227,9 +230,9 @@ async def test_two_concurrent_posts_one_runs_one_409(engine: Any) -> None:
     assert (await wait_for_report(_getter(app), rid)).json()["status"] == "done"
     again = await _call(app, "POST", EVAL_PATH, json=body)  # free again
     assert again.status_code == 202
-    assert (
-        await wait_for_report(_getter(app), again.json()["report_id"])
-    ).json()["status"] == "done"
+    assert (await wait_for_report(_getter(app), again.json()["report_id"])).json()[
+        "status"
+    ] == "done"
 
 
 # ------------------------------------------------------------------ failures
@@ -369,8 +372,7 @@ async def test_restart_while_running_never_leaves_it_running(
         assert (await _stored(engine, left.id))["run_state"] == {
             "status": "failed",
             "reason": "controller_restart",
-            "detail": "the controller stopped while this evaluation ran; "
-            "run it again",
+            "detail": "the controller stopped while this evaluation ran; run it again",
         }
         async with api_client(rt, token=token_of(rt)) as client:
             for rid in (first, left.id):

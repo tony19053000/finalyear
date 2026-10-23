@@ -64,6 +64,7 @@ __all__ = [
     "PredictionPoint",
     "PredictionsError",
     "PredictionsRead",
+    "calibration_skips",
     "points_of",
     "read_predictions",
 ]
@@ -309,7 +310,6 @@ async def read_predictions(
             details={"cause": type(exc).__name__},
         ) from exc
     wanted = sorted({v for v in versions.values() if v is not None}, reverse=True)
-    skipped = set(wanted[MAX_CALIBRATION_VERSIONS:])
     calibrations: dict[int, Calibration | None] = {}
     try:
         for version in wanted[:MAX_CALIBRATION_VERSIONS]:
@@ -326,13 +326,27 @@ async def read_predictions(
         term=term,
         set_version=set_version,
     )
+    skipped_versions, skipped_points = calibration_skips(points, versions)
     return PredictionsRead(
         points=points,
         decisions_read=len(outcomes),
-        calibration_versions_skipped=len(skipped),
-        calibration_skipped_points=sum(
-            1
-            for p in points
-            if p.calibrated_s is None and versions.get(p.decision_id) in skipped
-        ),
+        calibration_versions_skipped=skipped_versions,
+        calibration_skipped_points=skipped_points,
     )
+
+
+def calibration_skips(
+    points: Sequence[PredictionPoint], versions: Mapping[int, int | None]
+) -> tuple[int, int]:
+    """V0.15 G6b (G5 debt): ``(versions, points)`` - how many distinct
+    calibration versions of the read decisions are older than the newest
+    :data:`MAX_CALIBRATION_VERSIONS` (never read), and how many points have
+    ``calibrated_s`` null because of it."""
+    wanted = sorted({v for v in versions.values() if v is not None}, reverse=True)
+    skipped = set(wanted[MAX_CALIBRATION_VERSIONS:])
+    points_skipped = sum(
+        1
+        for p in points
+        if p.calibrated_s is None and versions.get(p.decision_id) in skipped
+    )
+    return len(skipped), points_skipped
