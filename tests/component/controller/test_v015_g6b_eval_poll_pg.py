@@ -341,7 +341,7 @@ async def test_restart_while_running_never_leaves_it_running(
     async with running_controller(settings) as rt:
         assert rt.planner_eval is not None
         gate = _Gate()
-        rt.planner_eval._ml = gate  # noqa: SLF001 - hold the evaluation open
+        rt.planner_eval._ml = gate
         async with api_client(rt, token=token_of(rt)) as client:
             started = await client.post(
                 EVAL_PATH, json=bg({"campaign_ids": [campaign_id]})

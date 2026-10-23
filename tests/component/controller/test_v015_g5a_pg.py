@@ -37,7 +37,6 @@ pytest.importorskip("lightgbm", reason="needs the ml extra")
 import httpx
 from alembic import command
 from fastapi import FastAPI
-from mf_eval_poll import bg, wait_for_report
 from mf_eval_pg import (
     FAMILY,
     dispatch_runs,
@@ -46,6 +45,7 @@ from mf_eval_pg import (
     planner,
     register_nodes,
 )
+from mf_eval_poll import bg, wait_for_report
 from mf_ml_synthetic import parquet_file, synthetic_rows
 from sqlalchemy import text
 

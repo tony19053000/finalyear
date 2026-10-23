@@ -28,7 +28,6 @@ pytest.importorskip("fastapi", reason="needs the controller extra")
 import httpx
 from alembic import command
 from fastapi import Depends, FastAPI
-from mf_eval_poll import bg, wait_for_report
 from mf_eval_pg import (
     dispatch_runs,
     finish_runs,
@@ -36,6 +35,7 @@ from mf_eval_pg import (
     planner,
     register_nodes,
 )
+from mf_eval_poll import bg, wait_for_report
 from sqlalchemy import text
 
 from meshforge.common.api_token import API_TOKEN_PREFIX

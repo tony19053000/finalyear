@@ -56,13 +56,13 @@ PHASES = {"stage": 12_000, "env": 25_000, "run": 400_000, "collect": 300}
 def test_busy_outside_a_loop_never_raises_and_creates_no_lock() -> None:
     guard = TrainingGuard()
     assert guard.busy() is False
-    assert len(guard._locks) == 0  # noqa: SLF001
+    assert len(guard._locks) == 0
 
     async def inside() -> bool:
         return guard.busy()
 
     assert asyncio.run(inside()) is False
-    assert len(guard._locks) == 0  # noqa: SLF001 - a read creates nothing
+    assert len(guard._locks) == 0
 
 
 def test_busy_from_another_thread_sees_a_child_held_on_the_loop() -> None:

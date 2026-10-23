@@ -31,7 +31,6 @@ pytest.importorskip("fastapi", reason="needs the controller extra")
 import httpx
 from alembic import command
 from fastapi import Depends, FastAPI
-from mf_eval_poll import bg, wait_for_report
 from mf_eval_pg import (
     dispatch_runs,
     finish_runs,
@@ -40,6 +39,7 @@ from mf_eval_pg import (
     planner,
     register_nodes,
 )
+from mf_eval_poll import bg, wait_for_report
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 
@@ -359,33 +359,25 @@ async def test_campaign_filter_hostile_rows_budget_boundary_api_and_cli(
     assert c3a["counted_groups"] == 15
 
     await _set_ms(engine, jobs_b, [100.0] * 18)  # p99 exactly the budget
-    at = (
-        await _post(app, {"campaign_ids": [camp_a, camp_b]})
-    ).json()["report"]
+    at = (await _post(app, {"campaign_ids": [camp_a, camp_b]})).json()["report"]
     (c3_at,) = [v for v in at["verdicts"] if v["criterion"] == 3]
     assert at["latency"]["p99_ms"] == 100.0 and at["latency"]["over_budget"] == 0
     assert c3_at["status"] == "FAIL", "p99 == budget must not pass (< 100 ms)"
 
     await _set_ms(engine, jobs_b, [99.5] * 18)
-    below = (
-        await _post(app, {"campaign_ids": [camp_a, camp_b]})
-    ).json()["report"]
+    below = (await _post(app, {"campaign_ids": [camp_a, camp_b]})).json()["report"]
     (c3_below,) = [v for v in below["verdicts"] if v["criterion"] == 3]
     assert c3_below["status"] == "PASS" and c3_below["value"] == 99.5
 
     # a configured budget moves the boundary
     tight = _app(_service(engine, budget_ms=50.0))
-    strict = (
-        await _post(tight, {"campaign_ids": [camp_a, camp_b]})
-    ).json()["report"]
+    strict = (await _post(tight, {"campaign_ids": [camp_a, camp_b]})).json()["report"]
     (c3_strict,) = [v for v in strict["verdicts"] if v["criterion"] == 3]
     assert strict["latency"]["budget_ms"] == 50.0 and c3_strict["status"] == "FAIL"
     assert strict["latency"]["over_budget"] == 18
 
     # --- API == stored == CLI ------------------------------------------------
-    rid = (
-        await _post(app, {"campaign_ids": [camp_a, camp_b]})
-    ).json()["id"]
+    rid = (await _post(app, {"campaign_ids": [camp_a, camp_b]})).json()["id"]
     got = (
         await _call(app, "GET", f"/v1/planner/eval-reports/{rid}", token=USER)
     ).json()

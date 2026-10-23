@@ -23,7 +23,6 @@ import pytest_asyncio
 pytest.importorskip("sqlalchemy", reason="needs the controller extra")
 
 from alembic import command
-from mf_eval_poll import bg, wait_for_report
 from mf_eval_pg import (
     Dispatched,
     dispatch_runs,
@@ -32,6 +31,7 @@ from mf_eval_pg import (
     planner,
     register_nodes,
 )
+from mf_eval_poll import bg, wait_for_report
 from sqlalchemy import text
 
 from meshforge.controller import calibration_store

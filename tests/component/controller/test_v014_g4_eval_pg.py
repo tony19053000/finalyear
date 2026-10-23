@@ -34,7 +34,6 @@ pytest.importorskip("fastapi", reason="needs the controller extra")
 import httpx
 from alembic import command
 from fastapi import FastAPI
-from mf_eval_poll import bg, wait_for_report
 from mf_eval_pg import (
     FAMILY,
     dispatch_runs,
@@ -43,6 +42,7 @@ from mf_eval_pg import (
     planner,
     register_nodes,
 )
+from mf_eval_poll import bg, wait_for_report
 from sqlalchemy import text
 
 from meshforge.cli.planner_commands import eval_lines, eval_table
@@ -321,9 +321,7 @@ async def test_errors_unknown_campaign_report_family_and_database_down(
         app,
         "POST",
         "/v1/planner/eval-reports",
-        json=bg(
-            {"campaign_ids": [campaign_id], "holdout": FAMILY, "allow_leak": True}
-        ),
+        json=bg({"campaign_ids": [campaign_id], "holdout": FAMILY, "allow_leak": True}),
     )
     assert held.status_code == 202, held.text
     body = (
