@@ -188,6 +188,9 @@ def test_no_fold_sees_its_family_or_its_workload(
     examples = _doc()["examples"]
     # a group of fam.b runs the same workload as one of fam.a
     examples[3]["fingerprint"] = examples[0]["fingerprint"]
+    # family-less fingerprints: only the family rule keeps these out
+    examples[1]["fingerprint"] = None
+    examples[7]["fingerprint"] = None
     seen: list[tuple[set[str], set[str | None], set[str]]] = []
     real = cl._fit_predict
 
@@ -205,7 +208,7 @@ def test_no_fold_sees_its_family_or_its_workload(
                 {e.family for e in test},
             )
         )
-        test_prints = {e.fingerprint for e in test}
+        test_prints = {e.fingerprint for e in test if e.fingerprint is not None}
         assert not test_prints & {e.fingerprint for e in train}
         return real(model, train, test, width, settings)
 
