@@ -70,6 +70,13 @@ ALLOWED: dict[tuple[str, str], str] = {
         "V0.14 G4: workload fingerprints (a public digest of what a job runs) "
         "as a set-membership filter for held-out calibration runs - no secret"
     ),
+    ("controller/ml/train/classify.py", "e.fingerprint not in prints"): (
+        "V0.15 G6a: workload fingerprints (public digests) as the classifier "
+        "fold's same-workload filter - no secret"
+    ),
+    ("controller/ml/train/classify.py", "e.fingerprint in prints"): (
+        "V0.15 G6a: counting the same-workload groups a fold dropped - no secret"
+    ),
     ("controller/auth/users.py", "ApiToken.token_hash == wanted"): (
         "a SQL WHERE on the SHA-256 of a 256-bit random token (an index lookup "
         "in PostgreSQL, not a Python compare); timing could reveal at most a "

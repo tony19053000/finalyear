@@ -123,6 +123,9 @@ def test_every_ml_module_is_listed_as_pure_or_io() -> None:
         "child.py",
         "folds.py",
         "regret.py",
+        # V0.15 G6a: a stored decision re-planned by version (I/O: the row,
+        # the registry loader)
+        "decision_replay.py",
         "registry_loader.py",
         "predictions.py",
     }

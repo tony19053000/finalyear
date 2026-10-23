@@ -371,6 +371,15 @@ COMPUTE: Final[dict[str, Entry]] = {
         "V0.15 G3: an operator action (admin) that ends a pin; the Models "
         "section of the Planner page is V0.15 G5 (D342) by the brief."
     ),
+    "planner ml classify": CliOnly(
+        "V0.15 G6a (D343, D375): the 0.15.10 classifier experiment - a report "
+        "only offline run on the operator's machine (the ml child), never used "
+        "by the planner; nothing to show on a page."
+    ),
+    "planner replay": CliOnly(
+        "V0.15 G6a (D364): an admin diagnostic that re-plans one stored "
+        "decision; the Plan tab already shows the stored decision itself."
+    ),
 }
 
 #: ``meshforge-controller user ...`` (D176 "users (admin)").
