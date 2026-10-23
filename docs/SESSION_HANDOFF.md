@@ -9,7 +9,7 @@
 > ```
 Read docs/SESSION_HANDOFF.md §1, then docs/STATUS.md, then V0.15 in docs/DEVELOPMENT_ROADMAP.md and docs/briefs/V0.15-ml-planner.md §5h/§5i (G6 brief DRAFT, D375–D380).
 STOPPED by user 2026-10-23 (clean: no agents running, nothing uncommitted). V0.15 G5 CLOSED 2026-10-23: 0.15.8 [x] (G5a merge 193e008d), 0.15.9 [x] (G5b merge 086a1b4b); main gates green (unit 24801, mypy src, frontend 901). G5 reviewer non-blocking items are in STATUS Technical Debt.
-NEXT: G6 brief DRAFTED 2026-10-23 (§5h), waiting for team answers to Q31–Q37 (§5i). On approval: G6a ∥ G6b implementers in worktrees. `uv sync --all-extras` in worktrees. Known flaky: test_v09_g4a_bench_item0::test_only_benchmark_jobs_get_the_shadow_plan. Normal mode. Parallel agents OK. Don't delete anything without asking.
+NEXT: G6 brief APPROVED 2026-10-23 (§5h). G6a ∥ G6b implementers RUNNING in worktrees (check `git worktree list`; resume via progress notes docs/briefs/progress/V0.15-G6a.md, -G6b.md). `uv sync --all-extras` in worktrees. Known flaky: test_v09_g4a_bench_item0::test_only_benchmark_jobs_get_the_shadow_plan. Normal mode. Parallel agents OK. Don't delete anything without asking.
 ```
 >
 > Order of truth: `PROJECT_BRIEF → ARCHITECTURE → ROADMAP → STATUS → this file`. If this file
