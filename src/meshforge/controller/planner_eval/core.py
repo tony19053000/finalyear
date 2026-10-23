@@ -65,6 +65,33 @@ same without CI.
 * criterion 3 (V0.14 G6, D324) - decision latency p99 at the lab's fabric
   size from the stored ``decision_ms`` of the campaigns' dispatched decisions
   (:mod:`.latency`); ``too_few_decisions`` below its minimum, never ``PASS``.
+
+**ML rows and verdicts** (V0.15 G5a, D368-D370; ``eval_version`` 2). With an
+evaluated :class:`~.model.EvalMl`, the ``cost_model:ml`` rows (one per
+objective) re-plan every record with the family's held-out calibration
+**and** its fold model (``plan(..., calibration=, ml=)``, the D336
+precedence); a family whose fold has no usable model plans with calibration
+only. Per family the criterion ML row's decisions are counted: those without
+a fold model (``no_fold_model``), those whose predictor failed
+(``predictor_error``, D363), and per learnable term of the **chosen**
+candidate whether ML was used or why not (``detail.ml.reason``). The ``ml``
+block's verdicts, on :data:`~.model.ML_CRITERION_POLICY` vs
+:data:`~.model.CRITERION_POLICY`:
+
+* ``ml_criterion_1`` - per group counted under both, ``d = regret(ML) -
+  regret(calibrated)``; seeded bootstrap CI of the mean ``d``: ``PASS`` iff
+  its upper end < 0, ``FAIL`` iff its lower end > 0, else
+  ``not_separable``; fewer than ``min_groups`` common groups ->
+  ``too_few_groups``;
+* ``ml_criterion_2`` - per family with at least ``ml_min_family_groups``
+  common groups: ML mean regret <= calibrated mean regret +
+  ``ml_family_tolerance_pp`` **percentage points** (an absolute margin, not
+  a ratio). ``PASS`` only if every such family passes; smaller families are
+  listed ``too_few_groups`` and never counted as passes; no family large
+  enough -> ``too_few_groups``;
+* a ``leaked`` report marks both ``leaked`` (``would_be`` as above); without
+  an evaluated ML input both are its status (``ml_unavailable``), never
+  ``FAIL``.
 """
 
 from __future__ import annotations
@@ -80,6 +107,7 @@ from typing import Any, Final, cast
 from meshforge.bench.stats import bootstrap_mean_ci
 from meshforge.controller.planner.calibration import Calibration
 from meshforge.controller.planner.plan import plan
+from meshforge.controller.planner.predictor import MlInput
 from meshforge.controller.planner.replay import (
     ReplayError,
     from_replay,
@@ -87,6 +115,7 @@ from meshforge.controller.planner.replay import (
 )
 from meshforge.controller.planner.types import (
     ClusterSnapshot,
+    Decision,
     Objective,
     PlanRequest,
 )
@@ -104,23 +133,28 @@ from meshforge.controller.planner_eval.model import (
     COST_MODEL,
     CRITERION_POLICY,
     EVAL_VERSION,
+    ML_CRITERION_POLICY,
+    ML_UNAVAILABLE,
     ORACLE,
     RULE_POLICIES,
     UNMEASURED,
     ConfigRef,
     EvalConfig,
     EvalGroup,
+    EvalMl,
     EvalRecord,
     PolicySpec,
 )
 
 __all__ = [
+    "ML_VERDICTS",
     "SKIP_REASONS",
     "GroupPick",
     "PlannedInputs",
     "evaluate",
     "group_pick",
     "group_regret",
+    "ml_fallback",
     "planned_inputs",
     "vote",
 ]
@@ -134,6 +168,9 @@ SKIP_REASONS: Final = (
 """Why a record's replay could not be used (``counts.records_skipped``)."""
 EVALUATED_LABELS: Final = frozenset({"best", "tie"})
 _ROUND: Final = 6
+ML_VERDICTS: Final = ("ml_criterion_1", "ml_criterion_2")
+NO_FOLD_MODEL: Final = "no_fold_model"
+PREDICTOR_ERROR: Final = "predictor_error"
 
 type PlannedInputs = tuple[PlanRequest, ClusterSnapshot, dt.datetime | None]
 
@@ -172,15 +209,48 @@ def _calibration(
     return choice.calibration
 
 
+def ml_fallback(decision: Decision) -> Counter[str]:
+    """V0.15 G5a (D369): what ML did in one decision - ``decisions`` 1, plus
+    ``no_fold_model`` (planned without a model) or ``predictor_error`` (the
+    model failed, D363), plus one count per learnable term of the **chosen**
+    candidate: ``used`` or its ``detail.ml.reason`` (``ood``,
+    ``interval_too_wide``, ``no_model``, ...). A Mode 3 compute term's
+    nested ``ml.rate`` block describes the same correction and is not
+    counted again."""
+    out: Counter[str] = Counter(decisions=1)
+    if decision.ml is None:
+        out[NO_FOLD_MODEL] += 1
+        return out
+    if decision.ml.error is not None:
+        out[PREDICTOR_ERROR] += 1
+    chosen = decision.chosen
+    if chosen is None or chosen.estimate is None:
+        return out
+    for term in chosen.estimate.terms().values():
+        block = term.detail.get("ml") if isinstance(term.detail, Mapping) else None
+        if not isinstance(block, Mapping):
+            continue
+        if block.get("used") is True:
+            out["term:used"] += 1
+        else:
+            out[f"term:{block.get('reason') or 'unknown'}"] += 1
+    return out
+
+
 def _votes_of(
     inputs: PlannedInputs,
     origin: str,
     configs: Sequence[ConfigRef],
     policies: Sequence[PolicySpec],
     choice: CalibrationChoice | None,
+    ml: MlInput | None = None,
+    ml_counts: Counter[str] | None = None,
 ) -> dict[str, str]:
     """policy key -> the configuration id (or ``unmeasured``) this record's
-    replay picks under each policy (the oracle is not planned)."""
+    replay picks under each policy (the oracle is not planned). ML rows
+    (V0.15 G5a) plan with ``ml`` (the family's fold model) on top of the
+    calibration; the criterion ML row's decision is counted into
+    ``ml_counts`` (:func:`ml_fallback`)."""
     request, snapshot, now = inputs
     out: dict[str, str] = {}
     for spec in policies:
@@ -192,8 +262,15 @@ def _votes_of(
                 request, objective=cast("Objective | None", spec.objective)
             )
         decision = plan(
-            asked, snapshot, spec.policy, now, calibration=_calibration(spec, choice)
+            asked,
+            snapshot,
+            spec.policy,
+            now,
+            calibration=_calibration(spec, choice),
+            ml=ml if spec.ml else None,
         )
+        if spec.ml and ml_counts is not None and spec.key == ML_CRITERION_POLICY.key:
+            ml_counts.update(ml_fallback(decision))
         found = config_for(pick_of(decision), origin, configs)
         out[spec.key] = UNMEASURED if found is None else found.config_id
     return out
@@ -296,6 +373,8 @@ class _GroupResult:
     records: int
     records_used: int
     picks: tuple[GroupPick, ...]
+    ml_counts: Counter[str] = dataclasses.field(default_factory=Counter)
+    """V0.15 G5a: :func:`ml_fallback` summed over the used records."""
 
 
 def _origin(record: EvalRecord, configs: Mapping[str, ConfigRef]) -> str | None:
@@ -309,7 +388,10 @@ def _evaluate_group(
     policies: Sequence[PolicySpec],
     choice: CalibrationChoice | None,
     skipped: Counter[str],
+    ml: MlInput | None = None,
 ) -> _GroupResult:
+    counts: Counter[str] = Counter()
+
     def result(
         status: str,
         reason: str | None,
@@ -317,7 +399,9 @@ def _evaluate_group(
         used: int = 0,
         picks: tuple[GroupPick, ...] = (),
     ) -> _GroupResult:
-        return _GroupResult(group, status, reason, best, len(records), used, picks)
+        return _GroupResult(
+            group, status, reason, best, len(records), used, picks, counts
+        )
 
     if group.label not in EVALUATED_LABELS:
         return result("excluded", f"{group.label}: {group.reason or 'not labelled'}")
@@ -340,11 +424,15 @@ def _evaluate_group(
         if origin is None:  # a record of a configuration the labels do not know
             skipped["replay_unplannable"] += 1
             continue
+        mine: Counter[str] = Counter()
         try:
-            picked = _votes_of(inputs, origin, group.configs, policies, choice)
+            picked = _votes_of(
+                inputs, origin, group.configs, policies, choice, ml, mine
+            )
         except (ValueError, KeyError, TypeError, ArithmeticError):
             skipped["replay_unplannable"] += 1
             continue
+        counts.update(mine)
         used += 1
         for key, config_id in picked.items():
             votes[key][config_id] += 1
@@ -560,6 +648,238 @@ def _verdicts(
     return out
 
 
+def _ml_verdict(
+    name: str,
+    status: str,
+    detail: str,
+    leaked: bool,
+    **numbers: Any,
+) -> dict[str, Any]:
+    base: dict[str, Any] = {
+        "name": name,
+        "status": "leaked" if leaked else status,
+        "would_be": status if leaked else None,
+        "detail": detail,
+        "common_groups": 0,
+        "mean_diff_pct": None,
+        "ci_low": None,
+        "ci_high": None,
+        "threshold": None,
+        "families": [],
+    }
+    base.update(numbers)
+    return base
+
+
+def _ml_criterion_1(
+    ml: Mapping[tuple[str, str], float],
+    cal: Mapping[tuple[str, str], float],
+    config: EvalConfig,
+    leaked: bool,
+) -> dict[str, Any]:
+    """D370 criterion 1 (module docstring): paired, on common groups."""
+    common = sorted(ml.keys() & cal.keys())
+    diffs = [round(ml[g] - cal[g], _ROUND) for g in common]
+    mean = _r(math.fsum(diffs) / len(diffs)) if diffs else None
+    if len(common) < config.min_groups:
+        return _ml_verdict(
+            "ml_criterion_1",
+            "too_few_groups",
+            f"{len(common)} group(s) counted for both {ML_CRITERION_POLICY.key} and "
+            f"{CRITERION_POLICY.key}; at least {config.min_groups} needed",
+            leaked,
+            common_groups=len(common),
+            mean_diff_pct=mean,
+            threshold=0.0,
+        )
+    ci = bootstrap_mean_ci(
+        diffs,
+        seed=config.bootstrap_seed,
+        resamples=config.bootstrap_resamples,
+        level=config.ci_level,
+    )
+    low, high = round(ci.low, _ROUND), round(ci.high, _ROUND)
+    if high < 0.0:
+        status = "PASS"
+        text = f"ML regret minus calibrated regret: CI [{low:.3f}, {high:.3f}] % < 0"
+    elif low > 0.0:
+        status = "FAIL"
+        text = f"ML regret minus calibrated regret: CI [{low:.3f}, {high:.3f}] % > 0"
+    else:
+        status = "not_separable"
+        text = (
+            f"ML regret minus calibrated regret: CI [{low:.3f}, {high:.3f}] % reaches 0"
+        )
+    return _ml_verdict(
+        "ml_criterion_1",
+        status,
+        f"{text} over {len(common)} common groups",
+        leaked,
+        common_groups=len(common),
+        mean_diff_pct=_r(ci.mean),
+        ci_low=low,
+        ci_high=high,
+        threshold=0.0,
+    )
+
+
+def _ml_criterion_2(
+    ml: Mapping[tuple[str, str], float],
+    cal: Mapping[tuple[str, str], float],
+    family_of: Mapping[tuple[str, str], str],
+    config: EvalConfig,
+    leaked: bool,
+) -> dict[str, Any]:
+    """D370 criterion 2 (module docstring): per family, an absolute
+    percentage-point margin; small families never pass."""
+    common = sorted(ml.keys() & cal.keys())
+    by_family: dict[str, list[tuple[str, str]]] = {}
+    for key in common:
+        by_family.setdefault(family_of[key], []).append(key)
+    tolerance = config.ml_family_tolerance_pp
+    families: list[dict[str, Any]] = []
+    failed: list[str] = []
+    small: list[str] = []
+    for family in sorted(by_family):
+        keys = by_family[family]
+        mean_ml = round(math.fsum(ml[k] for k in keys) / len(keys), _ROUND)
+        mean_cal = round(math.fsum(cal[k] for k in keys) / len(keys), _ROUND)
+        if len(keys) < config.ml_min_family_groups:
+            state = "too_few_groups"
+            small.append(family)
+        elif mean_ml <= round(mean_cal + tolerance, _ROUND):
+            state = "pass"
+        else:
+            state = "fail"
+            failed.append(family)
+        families.append(
+            {
+                "family": family,
+                "common_groups": len(keys),
+                "mean_regret_ml_pct": mean_ml,
+                "mean_regret_calibrated_pct": mean_cal,
+                "diff_pct": _r(mean_ml - mean_cal),
+                "status": state,
+            }
+        )
+    judged = [f for f in families if f["status"] != "too_few_groups"]
+    note = (
+        f"; too few groups (< {config.ml_min_family_groups}, not counted): "
+        + ", ".join(small)
+        if small
+        else ""
+    )
+    if not judged:
+        status = "too_few_groups"
+        text = (
+            f"no family has {config.ml_min_family_groups} or more groups counted for "
+            f"both rows{note}"
+        )
+    elif failed:
+        status = "FAIL"
+        text = (
+            f"ML mean regret above calibrated + {tolerance:g} % points on: "
+            + ", ".join(failed)
+            + note
+        )
+    else:
+        status = "PASS"
+        text = (
+            f"every family with >= {config.ml_min_family_groups} common groups "
+            f"({len(judged)}) within calibrated + {tolerance:g} % points{note}"
+        )
+    return _ml_verdict(
+        "ml_criterion_2",
+        status,
+        text,
+        leaked,
+        common_groups=len(common),
+        threshold=tolerance,
+        families=families,
+    )
+
+
+def _fallback_json(counts: Counter[str]) -> dict[str, Any]:
+    terms = {
+        key.split(":", 1)[1]: n
+        for key, n in sorted(counts.items())
+        if key.startswith("term:")
+    }
+    asked = sum(terms.values())
+    used = terms.get("used", 0)
+    return {
+        "decisions": counts.get("decisions", 0),
+        NO_FOLD_MODEL: counts.get(NO_FOLD_MODEL, 0),
+        PREDICTOR_ERROR: counts.get(PREDICTOR_ERROR, 0),
+        "terms": terms,
+        "used_rate": _r(used / asked) if asked else None,
+    }
+
+
+def _ml_block(
+    ml: EvalMl | None,
+    results: Sequence[_GroupResult],
+    regrets: Mapping[str, Mapping[tuple[str, str], float]],
+    config: EvalConfig,
+    leaked: bool,
+) -> dict[str, Any]:
+    """The report's ``ml`` block (module docstring)."""
+    settings = {
+        "criterion_policy": ML_CRITERION_POLICY.key,
+        "compared_with": CRITERION_POLICY.key,
+        "family_tolerance_pp": config.ml_family_tolerance_pp,
+        "min_family_groups": config.ml_min_family_groups,
+        "min_groups": config.min_groups,
+    }
+    if ml is None or not ml.evaluated:
+        status = ML_UNAVAILABLE if ml is None else ml.status
+        reason = "no ML input given" if ml is None else ml.reason
+        text = f"ML not evaluated ({status}: {reason or 'no reason'})"
+        return {
+            "status": status,
+            "reason": reason,
+            "settings": settings,
+            "verdicts": [
+                # never ``leaked``: nothing was claimed, on any data
+                _ml_verdict(name, status, text, leaked=False)
+                for name in ML_VERDICTS
+            ],
+            "fallback": {"total": _fallback_json(Counter()), "families": []},
+            "folds": [dict(f) for f in (ml.folds if ml is not None else ())],
+            "terms": dict(ml.terms) if ml is not None else {},
+        }
+    mine = regrets.get(ML_CRITERION_POLICY.key, {})
+    cal = regrets.get(CRITERION_POLICY.key, {})
+    family_of = {
+        (r.group.campaign_id, r.group.group_id): r.group.family for r in results
+    }
+    total: Counter[str] = Counter()
+    per_family: dict[str, Counter[str]] = {}
+    for r in results:
+        if r.status != "evaluated":
+            continue
+        total.update(r.ml_counts)
+        per_family.setdefault(r.group.family, Counter()).update(r.ml_counts)
+    return {
+        "status": ml.status,
+        "reason": ml.reason,
+        "settings": settings,
+        "verdicts": [
+            _ml_criterion_1(mine, cal, config, leaked),
+            _ml_criterion_2(mine, cal, family_of, config, leaked),
+        ],
+        "fallback": {
+            "total": _fallback_json(total),
+            "families": [
+                {"family": family} | _fallback_json(per_family[family])
+                for family in sorted(per_family)
+            ],
+        },
+        "folds": [dict(f) for f in ml.folds],
+        "terms": dict(ml.terms),
+    }
+
+
 def _config_json(config: ConfigRef) -> dict[str, Any]:
     return {
         "config_id": config.config_id,
@@ -653,13 +973,19 @@ def evaluate(
     holdout: str | None = None,
     leaked: bool = False,
     latency: Sequence[LatencySample] = (),
+    ml: EvalMl | None = None,
 ) -> dict[str, Any]:
     """The evaluation report (module docstring) as a JSON-ready dict.
     ``calibrations`` = family -> the calibration its calibrated rows use
     (:mod:`.heldout`); ``holdout`` restricts the groups to that family.
     ``latency`` = the campaigns' dispatched decisions (V0.14 G6, D324: the
     ``latency`` block and criterion 3, :mod:`.latency`; never filtered by
-    ``holdout`` - a decision's latency does not depend on the family)."""
+    ``holdout`` - a decision's latency does not depend on the family).
+    ``ml`` (V0.15 G5a) = the fold models of the ML rows; the ML policy rows
+    in ``policies`` are dropped unless it is evaluated."""
+    if ml is None or not ml.evaluated:
+        policies = [spec for spec in policies if not spec.ml]
+    inputs = ml.inputs if ml is not None and ml.evaluated else {}
     keys = [spec.key for spec in policies]
     if len(set(keys)) != len(keys):
         raise ValueError("a policy row is listed twice")
@@ -679,7 +1005,12 @@ def evaluate(
         )
         results.append(
             _evaluate_group(
-                group, mine, policies, calibrations.get(group.family), skipped
+                group,
+                mine,
+                policies,
+                calibrations.get(group.family),
+                skipped,
+                inputs.get(group.family),
             )
         )
     evaluated = [r for r in results if r.status == "evaluated"]
@@ -707,6 +1038,7 @@ def evaluate(
     labels = Counter(r.group.label for r in results)
     timing = latency_block(latency, config.latency)
     used_families = sorted({r.group.family for r in evaluated})
+    regrets = _regrets(results, keys)
     return {
         "eval_version": EVAL_VERSION,
         "campaign_ids": sorted(set(campaign_ids)),
@@ -735,9 +1067,10 @@ def evaluate(
             "non_finite_configs": skipped.get("non_finite_configs", 0),
         },
         "verdicts": [
-            *_verdicts(rows, _regrets(results, keys), config, leaked),
+            *_verdicts(rows, regrets, config, leaked),
             latency_verdict(timing, leaked=leaked),  # V0.14 G6 (D324)
         ],
+        "ml": _ml_block(ml, results, regrets, config, leaked),  # V0.15 G5a
         "latency": timing,
         "policies": [rows[k] for k in keys],
         "families": families,

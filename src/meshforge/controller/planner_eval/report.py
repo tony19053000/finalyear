@@ -8,6 +8,10 @@
   no-replay counts), the per-family table of the criterion policy and the
   oracle, the counts and the calibrations used. Every value comes from the
   report; nothing is recomputed, so JSON and Markdown cannot disagree.
+  V0.15 G5a (``eval_version`` 2): the ML section - its two criteria (the
+  per-family table of criterion 2), the fold models, the fallback counts
+  and the fold models' per-term prediction error; a version 1 report has no
+  ``ml`` block and renders as before.
 
 Pure (no I/O).
 """
@@ -122,6 +126,160 @@ def _latency_lines(latency: Any) -> list[str]:
     return lines
 
 
+def _map(value: Any) -> Mapping[str, Any]:
+    return value if isinstance(value, Mapping) else {}
+
+
+def _ml_lines(ml: Any) -> list[str]:
+    """V0.15 G5a (D369/D370): the ML section (none for a version 1
+    report)."""
+    if not isinstance(ml, Mapping):
+        return []
+    settings = _map(ml.get("settings"))
+    lines = [
+        "",
+        "## ML planner (cost_model:ml vs calibrated analytical)",
+        "",
+        f"- status: {_cell(ml.get('status'))}"
+        + (f" ({_cell(ml.get('reason'))})" if ml.get("reason") else ""),
+        f"- criterion row `{_cell(settings.get('criterion_policy'))}` vs "
+        f"`{_cell(settings.get('compared_with'))}`; family tolerance "
+        f"{_num(settings.get('family_tolerance_pp'))} % points, families need >= "
+        f"{_cell(settings.get('min_family_groups'))} common groups",
+        "",
+    ]
+    verdicts = [v for v in ml.get("verdicts") or () if isinstance(v, Mapping)]
+    lines += _table(
+        ("verdict", "status", "would be", "groups", "mean diff %", "CI", "detail"),
+        [
+            (
+                _cell(v.get("name")),
+                _cell(v.get("status")),
+                _cell(v.get("would_be")),
+                _cell(v.get("common_groups")),
+                _num(v.get("mean_diff_pct")),
+                _DASH
+                if v.get("ci_low") is None
+                else f"[{_num(v.get('ci_low'))}, {_num(v.get('ci_high'))}]",
+                _cell(v.get("detail")),
+            )
+            for v in verdicts
+        ],
+    )
+    families = [
+        f
+        for v in verdicts
+        if v.get("name") == "ml_criterion_2"
+        for f in v.get("families") or ()
+        if isinstance(f, Mapping)
+    ]
+    if families:
+        lines += ["", "### ML criterion 2 per family", ""]
+        lines += _table(
+            (
+                "family",
+                "groups",
+                "ML regret %",
+                "calibrated regret %",
+                "diff",
+                "status",
+            ),
+            [
+                (
+                    _cell(f.get("family")),
+                    _cell(f.get("common_groups")),
+                    _num(f.get("mean_regret_ml_pct")),
+                    _num(f.get("mean_regret_calibrated_pct")),
+                    _num(f.get("diff_pct")),
+                    _cell(f.get("status")),
+                )
+                for f in families
+            ],
+        )
+    folds = [f for f in ml.get("folds") or () if isinstance(f, Mapping)]
+    if folds:
+        lines += ["", "### Fold models (one per held-out family, never registered)", ""]
+        lines += _table(
+            ("family", "set version", "training rows", "model", "why not"),
+            [
+                (
+                    _cell(f.get("family")),
+                    _cell(f.get("set_version")),
+                    _cell(f.get("train_rows")),
+                    _cell(", ".join(f.get("learned_terms") or ()) or None),
+                    _cell(f.get("reason")),
+                )
+                for f in folds
+            ],
+        )
+    fallback = _map(ml.get("fallback"))
+    rows = [
+        ("all", fallback.get("total")),
+        *(
+            (f.get("family"), f)
+            for f in fallback.get("families") or ()
+            if isinstance(f, Mapping)
+        ),
+    ]
+    lines += ["", "### What ML did in the chosen plans", ""]
+    lines += _table(
+        (
+            "family",
+            "decisions",
+            "no fold model",
+            "predictor error",
+            "used rate",
+            "terms",
+        ),
+        [
+            (
+                _cell(name),
+                _cell(block.get("decisions")),
+                _cell(block.get("no_fold_model")),
+                _cell(block.get("predictor_error")),
+                _num(block.get("used_rate")),
+                _cell(
+                    ", ".join(
+                        f"{k} {v}"
+                        for k, v in sorted((block.get("terms") or {}).items())
+                    )
+                    or None
+                ),
+            )
+            for name, block in rows
+            if isinstance(block, Mapping)
+        ],
+    )
+    terms = _map(ml.get("terms"))
+    if terms:
+        lines += ["", "### Fold models' held-out prediction error per term", ""]
+        lines += _table(
+            (
+                "term",
+                "rows",
+                "MALE model",
+                "MALE raw",
+                "MAPE model",
+                "coverage",
+                "usable",
+            ),
+            [
+                (
+                    _cell(term),
+                    _cell(t.get("rows")),
+                    _num(t.get("male_model"), 3),
+                    _num(t.get("male_raw"), 3),
+                    _num(t.get("mape_model"), 3),
+                    _num(t.get("coverage")),
+                    _num(t.get("usable_rate")),
+                )
+                for term, t in sorted(terms.items())
+                if isinstance(t, Mapping)
+            ],
+        )
+    return lines
+
+
 def render_markdown(report: Mapping[str, Any]) -> str:
     """The Markdown rendering of ``report`` (module docstring)."""
     settings = report.get("settings") or {}
@@ -201,6 +359,7 @@ def render_markdown(report: Mapping[str, Any]) -> str:
             ],
         )
     lines += _latency_lines(report.get("latency"))
+    lines += _ml_lines(report.get("ml"))  # V0.15 G5a
     lines += ["", "## Policies (regret vs the best measured configuration)", ""]
     lines += _table(
         (

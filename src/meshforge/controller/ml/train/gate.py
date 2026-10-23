@@ -44,9 +44,13 @@ rule's numbers are in the gate document either way):
   ``min_effect_log`` (0.02, D357): a set that changes nothing useful is
   never activated (pure noise lands here).
 
-**Regret** (the D339 regret part needs the planner's ``TermPredictor``,
-V0.15 G4): recorded as ``"regret": "pending_g4"`` (D360); G5 adds the D319
-regret check.
+**Regret** (D339's regret part, D371 - V0.15 G5a): it needs the stored
+decisions and benchmark labels, which this child process never reads, so the
+child writes ``"regret": {"status": "not_run", ...}`` and the controller's
+retrain task runs the check after an accepted error gate
+(:mod:`meshforge.controller.ml.regret`) and replaces the block
+(``passed`` / ``rejected`` / ``skipped``). G3 rows keep the old
+``"pending_g4"`` string; readers accept both.
 """
 
 from __future__ import annotations
@@ -64,15 +68,13 @@ from meshforge.controller.ml.train.compare import CompareSettings
 from meshforge.controller.ml.train.data import FloatArray, IntArray, Table
 from meshforge.controller.ml.train.fit import TrainResult, train_set
 from meshforge.controller.ml.train.report import clean
-from meshforge.controller.planner.calibration import (
-    GATE_TOLERANCE,
-    HOLDOUT_FRAC,
-    MatchedRun,
-    split_holdout,
-)
+from meshforge.controller.ml.holdout import held_out_decisions
+from meshforge.controller.planner.calibration import GATE_TOLERANCE
 
 __all__ = [
     "GATE_RULES",
+    "REGRET_NOT_RUN",
+    "REGRET_PENDING",
     "GateResult",
     "GateSettings",
     "Reference",
@@ -88,6 +90,11 @@ GATE_RULES: Final = (
     "not_better",
 )
 REGRET_PENDING: Final = "pending_g4"
+"""What G3 wrote (D360); never written again (D371), still read."""
+REGRET_NOT_RUN: Final = {
+    "status": "not_run",
+    "reason": "the regret check runs in the controller after the error gate (D371)",
+}
 _CALIBRATION: Final = Config("calibration")
 _EPS: Final = 1e-12
 
@@ -122,31 +129,25 @@ class GateResult:
 
 def holdout_mask(table: Table) -> tuple[np.ndarray, dict[str, Any]]:
     """``held`` (bool per row) by the D329 split over the table's decisions
-    (module docstring, step 1), and its counts."""
-    runs: dict[int, MatchedRun] = {}
-    for i in range(table.n):
-        decision = table.decision_id[i]
-        finished = table.finished_at[i]
-        known = runs.get(decision)
-        if known is None or finished > known.finished_at:
-            runs[decision] = MatchedRun(
-                decision_id=decision,
-                attempt_id=str(decision),
-                node_id=table.node_id[i],
-                finished_at=finished,
-                terms=(),
-                family=table.family_raw[i],
-                fingerprint=known.fingerprint if known else table.group[i],
-            )
-    _fit, held = split_holdout(runs.values())
-    held_ids = {run.decision_id for run in held}
+    (module docstring, step 1; :func:`~..holdout.held_out_decisions` - the
+    D371 regret check uses the same function), and its counts."""
+    held_ids, counts = held_out_decisions(
+        zip(
+            table.decision_id,
+            table.node_id,
+            table.finished_at,
+            table.family_raw,
+            table.group,
+            strict=True,
+        )
+    )
     mask = np.asarray([d in held_ids for d in table.decision_id], dtype=bool)
     return mask, {
-        "decisions": len(runs),
-        "decisions_held": len(held_ids),
+        "decisions": counts["decisions"],
+        "decisions_held": counts["decisions_held"],
         "rows_held": int(np.count_nonzero(mask)),
-        "holdout_frac": HOLDOUT_FRAC,
-        "split": "D329 stratified by fingerprint",
+        "holdout_frac": counts["holdout_frac"],
+        "split": counts["split"],
     }
 
 
@@ -391,7 +392,7 @@ def run_gate(
                 "min_effect_log": settings.min_effect_log,
             },
             "candidate_set_version": candidate.set_version,
-            "regret": REGRET_PENDING,
+            "regret": dict(REGRET_NOT_RUN),
             "judged_at_rows": table.n,
         }
     )

@@ -39,13 +39,10 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import datetime as dt
-import importlib.util
 import json
-import os
-import shutil
 import sys
 import tempfile
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Final
@@ -56,6 +53,17 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from meshforge.common.logging import get_logger
 from meshforge.controller.ml import export, loader
+from meshforge.controller.ml.child import (
+    ML_TRAIN_LIBRARIES,
+    TRAIN_MODULE,
+    ChildOutputError,
+    ChildRunner,
+    describe,
+    ml_missing,
+    niced,
+    read_output,
+    run_child,
+)
 from meshforge.controller.ml.loader import MlLoadError
 from meshforge.controller.ml.registry import (
     MlRegistryError,
@@ -68,32 +76,24 @@ from meshforge.controller.settings import PlannerSettings
 
 __all__ = [
     "ML_TRAIN_LIBRARIES",
+    "ChildOutputError",
+    "ChildRunner",
     "MlRetrainer",
     "RetrainResult",
     "ml_missing",
+    "run_child",
     "train_argv",
 ]
 
 log = get_logger(__name__)
 
-ML_TRAIN_LIBRARIES: Final = ("numpy", "pyarrow", "sklearn", "lightgbm", "xgboost")
-"""What the ``fit`` child imports (the ``controller`` + ``ml`` extras)."""
-_TRAIN_MODULE: Final = "meshforge.controller.ml.train"
 _MIN_INTERVAL_S: Final = 1.0
-_NICE: Final = 10
-_STDERR_TAIL: Final = 2000
 _SESSION_LOCK: Final = (
     "SELECT pg_try_advisory_lock(hashtextextended('meshforge.ml_retrain', 0))"
 )
 _SESSION_UNLOCK: Final = (
     "SELECT pg_advisory_unlock(hashtextextended('meshforge.ml_retrain', 0))"
 )
-
-
-def ml_missing() -> list[str]:
-    """The :data:`ML_TRAIN_LIBRARIES` that are missing (``find_spec``,
-    nothing imported)."""
-    return [m for m in ML_TRAIN_LIBRARIES if importlib.util.find_spec(m) is None]
 
 
 @dataclass(frozen=True, slots=True)
@@ -128,7 +128,7 @@ def train_argv(
     argv = [
         python,
         "-m",
-        _TRAIN_MODULE,
+        TRAIN_MODULE,
         "fit",
         "--dataset",
         str(dataset),
@@ -147,8 +147,7 @@ def train_argv(
     ]
     if reference is not None:
         argv += ["--reference", str(reference)]
-    nice = shutil.which("nice") if os.name == "posix" else None
-    return [nice, "-n", str(_NICE), *argv] if nice else argv
+    return niced(argv)
 
 
 def _settings_key(settings: PlannerSettings) -> dict[str, Any]:
@@ -160,33 +159,6 @@ def _settings_key(settings: PlannerSettings) -> dict[str, Any]:
         "max_interval_log": settings.ml_max_interval_log,
         "family_tolerance_log": settings.ml_family_tolerance_log,
     }
-
-
-type ChildRunner = Callable[[Sequence[str], float], Awaitable[tuple[int, str]]]
-
-
-async def run_child(argv: Sequence[str], timeout_s: float) -> tuple[int, str]:
-    """Run ``argv``; ``(exit code, stderr tail)``. ``TimeoutError`` after
-    killing a child that overran."""
-    proc = await asyncio.create_subprocess_exec(
-        *argv,
-        stdin=asyncio.subprocess.DEVNULL,
-        stdout=asyncio.subprocess.DEVNULL,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    try:
-        _, stderr = await asyncio.wait_for(proc.communicate(), timeout_s)
-    except TimeoutError:
-        with contextlib.suppress(ProcessLookupError):
-            proc.kill()
-        await proc.wait()
-        raise
-    except asyncio.CancelledError:
-        with contextlib.suppress(ProcessLookupError):
-            proc.kill()
-        raise
-    tail = (stderr or b"").decode("utf-8", "replace").strip()[-_STDERR_TAIL:]
-    return int(proc.returncode or 0), tail
 
 
 class MlRetrainer:
@@ -535,41 +507,6 @@ class MlRetrainer:
         )
 
 
-class ChildOutputError(Exception):
-    """The ``fit`` child exited 0 but its output cannot be read (reviewer #4):
-    a missing / malformed ``set.json``, a member without its fields, an
-    artefact file that is not there. Message = a short description."""
-
-
-def _describe(exc: BaseException) -> str:
-    if isinstance(exc, KeyError):
-        return f"missing field {exc.args[0]!r}" if exc.args else "missing field"
-    return f"{type(exc).__name__}: {str(exc)[:200]}"
-
-
-def _object(value: Any, name: str = "set") -> dict[str, Any]:
-    if not isinstance(value, dict):
-        raise TypeError(f"{name}.json is not an object")
-    return value
-
-
-def _read_output(out: Path) -> tuple[dict[str, Any], dict[str, bytes], dict[str, Any]]:
-    """The child's ``set.json``, its artefacts and timings;
-    :class:`ChildOutputError` when they cannot be read."""
-    try:
-        doc = _object(json.loads((out / "set.json").read_text(encoding="utf-8")))
-        artefacts: dict[str, bytes] = {}
-        for member in doc.get("members", []):
-            name = member.get("artefact")
-            if name:
-                version = member["version"]
-                artefacts[version] = (out / str(name)).read_bytes()
-        timings_path = out / "timings.json"
-        timings = (
-            _object(json.loads(timings_path.read_text(encoding="utf-8")), "timings")
-            if timings_path.exists()
-            else {}
-        )
-    except (OSError, KeyError, TypeError, ValueError, AttributeError) as exc:
-        raise ChildOutputError(_describe(exc)) from exc
-    return doc, artefacts, timings
+_read_output = read_output
+"""G3 name (tests)."""
+_describe = describe

@@ -33,6 +33,16 @@ and how much slower is that than the best measured configuration?*
 * ``groups`` - every group with its label, configurations (median total ms),
   and per policy its pick, status and regret.
 
+* ``ml`` (V0.15 G5a, D368-D370, ``eval_version`` 2; additive - null in a
+  version 1 report) - the ``cost_model:ml`` rows' story: criterion 1
+  (paired bootstrap CI of ``regret(ML) - regret(calibrated)`` per common
+  group) and criterion 2 (per family with >= 3 common groups, ML within
+  calibrated + 5 percentage points), the fold models (one per held-out
+  family, trained without it, never registered), what ML did in the chosen
+  plans (used / why not, per family) and the fold models' held-out
+  prediction error per term. ``ml_unavailable`` when the controller has no
+  ``ml`` extra or ``ml = off`` (never ``FAIL``).
+
 Regret of a group (D315) = ``(median(picked) - median(best)) / median(best)``
 in %, 0 when the pick is the best or in the label's tie set. A pick no
 configuration of the campaign measured is ``unmeasured`` - reported, never
@@ -55,6 +65,7 @@ __all__ = [
     "CalibrationUsedOut",
     "EvalConfigOut",
     "EvalCountsOut",
+    "EvalMlOut",
     "EvalReportListOut",
     "EvalReportOut",
     "EvalReportRecordOut",
@@ -66,6 +77,14 @@ __all__ = [
     "GroupResultOut",
     "LatencyBucketOut",
     "LatencyOut",
+    "MlEvalSettingsOut",
+    "MlFallbackCountsOut",
+    "MlFallbackOut",
+    "MlFamilyFallbackOut",
+    "MlFamilyVerdictOut",
+    "MlFoldOut",
+    "MlTermMetricsOut",
+    "MlVerdictOut",
     "PairedComparisonOut",
     "PolicyResultOut",
     "VerdictOut",
@@ -300,8 +319,127 @@ class LatencyOut(ApiModel):
     nodes, counted as ``judged_on`` says) and their p99."""
 
 
+type MlVerdictStatus = Literal[
+    "PASS", "FAIL", "not_separable", "too_few_groups", "leaked", "ml_unavailable"
+]
+
+
+class MlFamilyVerdictOut(ApiModel):
+    """One family of ML criterion 2 (V0.15 D370)."""
+
+    family: str
+    common_groups: int
+    mean_regret_ml_pct: float
+    mean_regret_calibrated_pct: float
+    diff_pct: float
+    """ML minus calibrated, in percentage points."""
+    status: Literal["pass", "fail", "too_few_groups"]
+    """``too_few_groups`` = fewer than ``min_family_groups``: listed, never a
+    pass."""
+
+
+class MlVerdictOut(ApiModel):
+    """``ml_criterion_1`` (paired bootstrap of ``regret(ML) -
+    regret(calibrated)``) or ``ml_criterion_2`` (per family, absolute
+    percentage-point tolerance) - V0.15 D370."""
+
+    name: Literal["ml_criterion_1", "ml_criterion_2"]
+    status: MlVerdictStatus
+    would_be: str | None
+    """``leaked`` reports: the status it would have had."""
+    detail: str
+    common_groups: int
+    mean_diff_pct: float | None
+    """Criterion 1: mean of ML minus calibrated regret (% points)."""
+    ci_low: float | None
+    ci_high: float | None
+    threshold: float | None
+    """Criterion 1: 0; criterion 2: the tolerance in % points."""
+    families: list[MlFamilyVerdictOut]
+    """Criterion 2 only."""
+
+
+class MlEvalSettingsOut(ApiModel):
+    criterion_policy: str
+    compared_with: str
+    family_tolerance_pp: float
+    min_family_groups: int
+    min_groups: int
+
+
+class MlFallbackCountsOut(ApiModel):
+    """What ML did in the criterion ML row's decisions (V0.15 D369)."""
+
+    decisions: int
+    no_fold_model: int
+    """Planned without a model (the family's fold has none)."""
+    predictor_error: int
+    """The model failed; the decision fell back to calibration (D363)."""
+    terms: dict[str, int]
+    """Learnable terms of the chosen plans: ``used`` or why ML was not used
+    (``ood``, ``interval_too_wide``, ``no_model``, ...)."""
+    used_rate: float | None
+
+
+class MlFamilyFallbackOut(MlFallbackCountsOut):
+    family: str
+
+
+class MlFallbackOut(ApiModel):
+    total: MlFallbackCountsOut
+    families: list[MlFamilyFallbackOut]
+
+
+class MlFoldOut(ApiModel):
+    """The model one held-out family's ML rows planned with (V0.15 D368):
+    trained by the production pipeline on every other family, never
+    registered (``source`` ``fold``); ``active`` = the serving set
+    (``allow_leak`` only); ``none`` = no usable model (``reason``)."""
+
+    family: str
+    source: Literal["fold", "active", "none"]
+    set_version: str | None
+    reason: str | None
+    train_rows: int | None
+    trained_families: list[str]
+    """The families its training rows came from (never ``family``)."""
+    excluded_rows: int
+    learned_terms: list[str]
+    until: str | None
+    """Rows that finished after this were not trained on (ISO time)."""
+
+
+class MlTermMetricsOut(ApiModel):
+    """The fold models' prediction error on their held-out family's rows,
+    one term (V0.15 D370; log error MALE, MAPE on seconds)."""
+
+    rows: int
+    families: int
+    male_model: float | None
+    male_raw: float | None
+    mape_model: float | None
+    mape_raw: float | None
+    median_ape_model: float | None
+    coverage: float | None
+    ood_rate: float | None
+    usable_rate: float | None
+
+
+class EvalMlOut(ApiModel):
+    """The report's ``ml`` block (V0.15 G5a, ``eval_version`` 2)."""
+
+    status: str
+    """``evaluated`` | ``ml_unavailable``."""
+    reason: str | None
+    settings: MlEvalSettingsOut
+    verdicts: list[MlVerdictOut]
+    fallback: MlFallbackOut
+    folds: list[MlFoldOut]
+    terms: dict[str, MlTermMetricsOut]
+
+
 class EvalReportOut(ApiModel):
-    """``planner_eval_report.report`` (``eval_version`` 1)."""
+    """``planner_eval_report.report`` (``eval_version`` 1 or 2)."""
 
     eval_version: int
     campaign_ids: list[str]
@@ -322,6 +460,9 @@ class EvalReportOut(ApiModel):
     latency: LatencyOut | None = None
     """V0.14 G6 (D324, additive - ``eval_version`` stays 1): null in a report
     stored before G6."""
+    ml: EvalMlOut | None = None
+    """V0.15 G5a (D369/D370, ``eval_version`` 2): null in a version 1
+    report."""
 
 
 class EvalReportSummaryOut(ApiModel):
