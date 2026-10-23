@@ -28,6 +28,7 @@ pytest.importorskip("fastapi", reason="needs the controller extra")
 import httpx
 from alembic import command
 from fastapi import Depends, FastAPI
+from mf_eval_poll import bg, wait_for_report
 from mf_eval_pg import (
     dispatch_runs,
     finish_runs,
@@ -158,15 +159,16 @@ async def test_auth_matrix_with_the_real_guards(engine: Any) -> None:
     forbidden = await _call(app, "POST", "/v1/planner/eval-reports", USER, json=body)
     assert forbidden.status_code == 403
     assert await _count(engine) == 0  # a non-admin evaluates and stores nothing
-    ok = await _call(app, "POST", "/v1/planner/eval-reports", ADMIN, json=body)
-    assert ok.status_code == 201, ok.text
-    rid = ok.json()["id"]
+    ok = await _call(app, "POST", "/v1/planner/eval-reports", ADMIN, json=bg(body))
+    assert ok.status_code == 202, ok.text  # V0.15 G6b (D378)
+    rid = ok.json()["report_id"]
+    done = await wait_for_report(lambda p: _call(app, "GET", p, ADMIN), rid)
     for token in (USER, ADMIN):
         assert (
             await _call(app, "GET", "/v1/planner/eval-reports", token)
         ).status_code == 200
         got = await _call(app, "GET", f"/v1/planner/eval-reports/{rid}", token)
-        assert got.status_code == 200 and got.json() == ok.json()
+        assert got.status_code == 200 and got.json() == done.json()
     # wrong methods never reach the evaluator
     for method in ("PUT", "DELETE", "PATCH"):
         r = await _call(app, method, f"/v1/planner/eval-reports/{rid}", ADMIN)
@@ -216,7 +218,7 @@ async def test_non_json_and_unicode_bodies(engine: Any) -> None:
         "POST",
         "/v1/planner/eval-reports",
         ADMIN,
-        json={"campaign_ids": ["camp_é中文\U0001f600"]},
+        json=bg({"campaign_ids": ["camp_é中文\U0001f600"]}),
     )
     assert r.status_code == 404  # unknown campaign, not a 500
     r = await _call(
@@ -224,7 +226,7 @@ async def test_non_json_and_unicode_bodies(engine: Any) -> None:
         "POST",
         "/v1/planner/eval-reports",
         ADMIN,
-        json={"campaign_ids": ["a'; DROP TABLE planner_eval_report;--"]},
+        json=bg({"campaign_ids": ["a'; DROP TABLE planner_eval_report;--"]}),
     )
     assert r.status_code == 404
     assert await _count(engine) == 0
@@ -238,9 +240,10 @@ async def test_query_and_path_bounds(engine: Any) -> None:
         "POST",
         "/v1/planner/eval-reports",
         ADMIN,
-        json={"campaign_ids": [campaign_id]},
+        json=bg({"campaign_ids": [campaign_id]}),
     )
-    rid = created.json()["id"]
+    rid = created.json()["report_id"]
+    await wait_for_report(lambda p: _call(app, "GET", p, ADMIN), rid)
     for q, code in (
         ("0", 400),
         ("-1", 400),
@@ -271,17 +274,39 @@ async def test_repeated_and_concurrent_posts_are_independent_and_identical(
 ) -> None:
     campaign_id = await _campaign(engine)
     app = _app(engine)
-    body = {"campaign_ids": [campaign_id, campaign_id]}  # duplicate id tolerated
+    body = bg({"campaign_ids": [campaign_id, campaign_id]})  # duplicate tolerated
+    # V0.15 G6b (D378): one evaluation at a time - concurrent starts: one 202,
+    # the others 409 eval_already_running naming the running report
     results = await asyncio.gather(
         *[
             _call(app, "POST", "/v1/planner/eval-reports", ADMIN, json=body)
             for _ in range(4)
         ]
     )
-    assert [r.status_code for r in results] == [201] * 4, [r.text for r in results]
-    ids = [r.json()["id"] for r in results]
+    codes = sorted(r.status_code for r in results)
+    assert codes == [202, 409, 409, 409], [r.text for r in results]
+    for r in results:
+        if r.status_code == 409:
+            assert r.json()["error"]["reason"] == "eval_already_running"
+    ids = []
+    for _ in range(4):
+        if ids:
+            started = await _call(
+                app, "POST", "/v1/planner/eval-reports", ADMIN, json=body
+            )
+            assert started.status_code == 202, started.text
+            rid = started.json()["report_id"]
+        else:
+            rid = next(r for r in results if r.status_code == 202).json()["report_id"]
+        await wait_for_report(lambda p: _call(app, "GET", p, ADMIN), rid)
+        ids.append(rid)
     assert len(set(ids)) == 4 and await _count(engine) == 4
-    reports = [r.json()["report"] for r in results]
+    reports = [
+        (await _call(app, "GET", f"/v1/planner/eval-reports/{i}", ADMIN)).json()[
+            "report"
+        ]
+        for i in ids
+    ]
     assert all(rep == reports[0] for rep in reports)  # deterministic
     assert reports[0]["campaign_ids"] == [campaign_id]
     listed = (await _call(app, "GET", "/v1/planner/eval-reports", USER)).json()[
