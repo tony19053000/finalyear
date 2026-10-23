@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime as dt
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Final
@@ -63,6 +64,8 @@ __all__ = [
     "SetRow",
     "StoreResult",
     "protected_artefacts",
+    "safe_json",
+    "safe_text",
 ]
 
 log = get_logger(__name__)
@@ -125,6 +128,8 @@ class StoreResult:
     skipped: str | None = None
     """``same_set`` | ``reference_changed`` (nothing written)."""
     superseded: str | None = None
+    rejudged: bool = False
+    """V0.15 G3 fix r1 (D1): an existing rejected row was judged again."""
 
 
 def _member(item: MlModel) -> SetMember:
@@ -158,8 +163,33 @@ def _row(item: MlModelSet, members: Sequence[MlModel]) -> SetRow:
     )
 
 
+_CONTROL: Final = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
+
+
+def safe_text(value: str) -> str:
+    """V0.15 G3 fix r1 (D4): NUL and the other C0 controls (except tab and
+    newline) and DEL replaced by U+FFFD - PostgreSQL refuses NUL in text and
+    JSONB, and reasons embed names that come from data."""
+    return _CONTROL.sub("\ufffd", value)
+
+
+def safe_json(value: Any) -> Any:
+    """:func:`safe_text` over every string (keys too) of a JSON value."""
+    if isinstance(value, str):
+        return safe_text(value)
+    if isinstance(value, Mapping):
+        return {safe_text(str(k)): safe_json(v) for k, v in value.items()}
+    if isinstance(value, list | tuple):
+        return [safe_json(v) for v in value]
+    return value
+
+
 def _reason(value: str | None) -> str | None:
-    return None if value is None else value[:MAX_ML_REASON_CHARS]
+    return None if value is None else safe_text(value)[:MAX_ML_REASON_CHARS]
+
+
+def _without_history(gate: Mapping[str, Any]) -> dict[str, Any]:
+    return {k: v for k, v in gate.items() if k != "history"}
 
 
 class ModelRegistry:
@@ -327,11 +357,22 @@ class ModelRegistry:
                 details={"cause": type(exc).__name__},
             ) from exc
         accepted = bool(doc.get("accepted"))
+        gate: dict[str, Any] = safe_json(dict(doc.get("gate") or {}))
+        reason = doc.get("reason")
+        if accepted:
+            problem = await self._unloadable(members, artefacts)
+            if problem is not None:  # D2: never activate what cannot serve
+                accepted = False
+                reason = f"unloadable_artefact: {problem}"
+                gate = {**gate, "accepted": False, "rule": "unloadable_artefact"}
         try:
             async with self._sessions() as db, db.begin():
                 await db.execute(_LOCK)
                 existing = await db.get(MlModelSet, doc["set_version"])
-                if existing is not None:
+                if existing is not None and (
+                    existing.status != "rejected"
+                    or _without_history(existing.gate) == gate
+                ):
                     return StoreResult(row=None, skipped="same_set")
                 serving = (
                     await db.execute(
@@ -352,14 +393,48 @@ class ModelRegistry:
                         .where(MlModelSet.set_version == superseded)
                         .values(status="superseded", status_changed_at=func.now())
                     )
+                    await db.flush()
+                set_inputs = safe_json({**inputs, "settings": doc.get("settings", {})})
+                if existing is not None:
+                    # D1: a rejected set judged again under other gate settings
+                    # or another reference - the row is updated in place, the
+                    # previous verdict kept in the gate's history
+                    history = list(existing.gate.get("history") or [])
+                    history.append(
+                        {
+                            "status": existing.status,
+                            "reason": existing.reason,
+                            "judged_at": existing.status_changed_at.isoformat(),
+                            "gate": _without_history(existing.gate),
+                        }
+                    )
+                    existing.status = "active" if accepted else "rejected"
+                    existing.reason = _reason(reason)
+                    existing.gate = {**gate, "history": history}
+                    existing.inputs = set_inputs
+                    existing.status_changed_at = func.now()
+                    await db.flush()
+                    await db.refresh(existing)
+                    old_members = list(
+                        await db.scalars(
+                            select(MlModel).where(
+                                MlModel.set_version == existing.set_version
+                            )
+                        )
+                    )
+                    return StoreResult(
+                        row=_row(existing, old_members),
+                        superseded=superseded,
+                        rejudged=True,
+                    )
                 item = MlModelSet(
                     set_version=doc["set_version"],
                     status="active" if accepted else "rejected",
-                    reason=_reason(doc.get("reason")),
-                    gate=dict(doc.get("gate") or {}),
+                    reason=_reason(reason),
+                    gate=gate,
                     dataset_digest=doc["dataset_digest"],
                     feature_version=int(doc["feature_version"]),
-                    inputs={**inputs, "settings": doc.get("settings", {})},
+                    inputs=set_inputs,
                 )
                 db.add(item)
                 await db.flush()
@@ -374,8 +449,8 @@ class ModelRegistry:
                             algorithm=member["algorithm"],
                             feature_version=int(doc["feature_version"]),
                             dataset_digest=doc["dataset_digest"],
-                            params=dict(member.get("params") or {}),
-                            metrics=dict(member.get("metrics") or {}),
+                            params=safe_json(dict(member.get("params") or {})),
+                            metrics=safe_json(dict(member.get("metrics") or {})),
                             reason=_reason(member.get("reason")),
                             artefact_digest=member["version"] if learned else None,
                             artefact_bytes=len(artefacts[member["version"]])
@@ -392,6 +467,26 @@ class ModelRegistry:
                 "the model set could not be stored in the database",
                 details={"cause": type(exc).__name__},
             ) from exc
+
+    @staticmethod
+    async def _unloadable(
+        members: Sequence[Mapping[str, Any]], artefacts: Mapping[str, bytes]
+    ) -> str | None:
+        """D2: the first learned member that does not load and answer one row
+        (:func:`~.serve.load_model` probes it), as ``term (reason)``; None =
+        every member serves."""
+        for member in members:
+            if member["algorithm"] == "none":
+                continue
+            try:
+                await asyncio.to_thread(
+                    load_model,
+                    artefacts[member["version"]],
+                    expected_version=member["version"],
+                )
+            except ArtefactError as exc:
+                return f"{member['term']} ({exc.details.get('reason')})"
+        return None
 
     async def _check_loadable(self, row: SetRow) -> None:
         try:

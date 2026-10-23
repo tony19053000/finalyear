@@ -165,6 +165,27 @@ class LoadedModel:
             else None
         )
         self._booster = self._load_booster(artefact)
+        self._probe()
+
+    def _probe(self) -> None:
+        """V0.15 G3 fix r1 (D2): one all-missing row through the whole
+        predict path at load time - a model that cannot answer (a booster
+        whose feature count is not ours, a native-library error) is a typed
+        :class:`~.artefact.ArtefactError` here, never at the first plan."""
+        try:
+            out = self.predict(np.full((1, len(NUMERIC_FEATURES)), np.nan))
+        except ArtefactError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - any failure is one answer
+            raise ArtefactError(
+                f"the {self.algorithm} model cannot predict",
+                details={"reason": "bad_model", "cause": type(exc).__name__},
+            ) from None
+        if out.y_hat.shape != (1,):
+            raise ArtefactError(
+                f"the {self.algorithm} model answers the wrong shape",
+                details={"reason": "bad_model"},
+            )
 
     @staticmethod
     def _load_booster(artefact: Artefact) -> Any:
@@ -193,17 +214,34 @@ class LoadedModel:
             ) from None
 
     def predict_residual(self, X: FloatArray) -> FloatArray:
-        """``y_hat`` only (the round-trip test compares this)."""
+        """``y_hat`` only (the round-trip test compares this). A native
+        library error is a typed :class:`~.artefact.ArtefactError`."""
         art = self.artefact
         model = art.model
+        if X.shape[0] == 0:
+            return np.empty(0, dtype=np.float64)
         if art.algorithm in ("lightgbm", "xgboost"):
-            if art.algorithm == "lightgbm":
-                out = self._booster.predict(X, num_threads=1)
-            else:
-                import xgboost as xgb  # only for this algorithm (D359)
+            try:
+                if art.algorithm == "lightgbm":
+                    out = self._booster.predict(X, num_threads=1)
+                else:
+                    import xgboost as xgb  # only for this algorithm (D359)
 
-                out = self._booster.predict(xgb.DMatrix(X, missing=np.nan, nthread=1))
-            return np.asarray(out, dtype=np.float64)
+                    out = self._booster.predict(
+                        xgb.DMatrix(X, missing=np.nan, nthread=1)
+                    )
+            except Exception as exc:  # noqa: BLE001 - native errors are one answer
+                raise ArtefactError(
+                    f"the {art.algorithm} model failed to predict",
+                    details={"reason": "bad_model", "cause": type(exc).__name__},
+                ) from None
+            result = np.asarray(out, dtype=np.float64).reshape(-1)
+            if result.shape != (X.shape[0],):
+                raise ArtefactError(
+                    f"the {art.algorithm} model answers the wrong shape",
+                    details={"reason": "bad_model"},
+                )
+            return result
         Z = transform(art.prep, X, standardise=art.standardise)
         if art.algorithm == "ridge":
             return np.asarray(Z @ model["coef"] + model["intercept"], dtype=np.float64)

@@ -18,7 +18,8 @@ A failed read keeps the set it had (logged once per failure streak): a
 database hiccup never changes what the planner uses. A set that cannot be
 loaded (artefact gone, its library not installed) is remembered, logged
 once, and the source answers None for it (the planner falls back to the
-calibration) - it is not re-read every tick.
+calibration) - it is tried again only every ``retry_s`` (60 s), so a
+restored blob serves again without a restart.
 
 Loading runs in a worker thread (:meth:`~.registry.ModelRegistry.load`);
 G4/G5 call :meth:`refresh` from the dispatcher and turn :attr:`current`
@@ -27,6 +28,8 @@ into the planner's ``TermPredictor``.
 
 from __future__ import annotations
 
+import time
+from collections.abc import Callable
 from typing import Final, Literal
 
 from meshforge.common.errors import ConfigError
@@ -40,6 +43,8 @@ __all__ = ["ML_OFF", "MlMode", "ModelSource", "parse_ml_mode"]
 log = get_logger(__name__)
 
 ML_OFF: Final = "off"
+UNREADABLE_RETRY_S: Final = 60.0
+"""A set that could not be loaded is tried again after this long."""
 type MlMode = Literal["auto", "off", "pinned"]
 
 
@@ -53,8 +58,17 @@ def parse_ml_mode(value: str) -> tuple[MlMode, str | None]:
 class ModelSource:
     """See module docstring."""
 
-    def __init__(self, registry: ModelRegistry, setting: str) -> None:
+    def __init__(
+        self,
+        registry: ModelRegistry,
+        setting: str,
+        *,
+        retry_s: float = UNREADABLE_RETRY_S,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
         self._registry = registry
+        self._retry_s = retry_s
+        self._clock = clock
         self.mode, self.pinned = parse_ml_mode(setting)
         self.current: LoadedSet | None = None
         self.kind: str | None = None
@@ -65,6 +79,9 @@ class ModelSource:
         ``library_missing``, ...); None when loaded or nothing serves."""
         self._failing = False
         self._unreadable: str | None = None
+        self._unreadable_at = 0.0
+        """When :attr:`_unreadable` was last tried (fix r1, D2: it is tried
+        again after ``retry_s`` - a restored blob serves without a restart)."""
 
     async def check(self) -> None:
         """Startup (module docstring): a configured pin must exist, not be
@@ -100,8 +117,11 @@ class ModelSource:
             kind, version = await self._registry.serving_version()
             if version is None:
                 self.current, self.kind, self.unavailable = None, None, None
-            elif version == self._unreadable:
-                self.current = None  # known bad: logged once, not re-read
+            elif (
+                version == self._unreadable
+                and self._clock() - self._unreadable_at < self._retry_s
+            ):
+                self.current = None  # known bad: logged once, retried later
             elif self.current is None or self.current.set_version != version:
                 await self._load(kind, version)
             else:
@@ -136,14 +156,17 @@ class ModelSource:
             loaded = await self._registry.load(row)
         except ArtefactError as exc:
             reason = str(exc.details.get("reason", "unreadable"))
-            log.error(  # noqa: TRY400 - a typed reason, no traceback needed
-                "controller.planner.ml_set_unloadable",
-                ml_set_version=version,
-                reason=reason,
-            )
+            if self._unreadable != version or self.unavailable != reason:
+                log.error(  # noqa: TRY400 - a typed reason, no traceback needed
+                    "controller.planner.ml_set_unloadable",
+                    ml_set_version=version,
+                    reason=reason,
+                )
             self._unreadable = version
+            self._unreadable_at = self._clock()
             self.current, self.kind, self.unavailable = None, kind, reason
             return
+        self._unreadable = None
         log.info(
             "controller.planner.ml_set_loaded",
             ml_set_version=version,
