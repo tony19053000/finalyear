@@ -1456,8 +1456,13 @@ compute get <JOB_ID>               # outputs -> ./outputs/<JOB_ID>/ (--dest, --f
     `compute planner eval` trains one fold model per evaluated family, all
     within `[controller.planner] ml_eval_timeout_s` (3 000 s); the families
     left when it is spent are evaluated without ML (fold reason
-    `eval_budget_exhausted`). The CLI waits 3 000 + 600 s - raising the
-    setting needs the HTTP request to be allowed to last as long.
+    `eval_budget_exhausted`; V0.15 G6b: the fold child's own limit is the
+    budget left + 1 s, so a fold stopped by the budget never reads `timeout`).
+    Since V0.15 G6b (D378) the evaluation runs **in the background**:
+    `POST /v1/planner/eval-reports` answers `202 {report_id}` at once and the
+    CLI polls the report until it is `done` or `failed` - for up to
+    `compute planner eval --timeout S` (default 3 000 + 600 s; raise it with
+    the setting). See [0g](#0g-the-ml-planner-operations-runbook-v015).
 - **The planner with an ML model (V0.15 G4, D336/D363).** When a model set
   serves (the registry above: pinned, else active; with none, or `ml = "off"`,
   every decision is exactly V0.14's), each learnable term of each candidate uses the
@@ -1505,7 +1510,13 @@ compute get <JOB_ID>               # outputs -> ./outputs/<JOB_ID>/ (--dest, --f
   /v1/planner/ml/predictions?term=&set=&limit=` (admin; newest 500 matched runs
   by default, at most 2000; read from the stored decisions, ~300 ms budget at
   10 000 decisions). Pin / unpin / train are there too (admin, each asks for
-  confirmation) and do what the `compute planner ml` commands do.
+  confirmation) and do what the `compute planner ml` commands do. Under each
+  chart the tab says **"N of M point(s) plotted"** (a point with a missing or
+  zero value has no place on log axes) and how many have no calibrated value;
+  the route reads at most the newest 16 calibration versions per request, so
+  an ML-corrected point of a decision planned with an older version has no
+  calibrated value - the tab counts and says so (`calibration_skipped_points`,
+  V0.15 G6b).
 - `run -f` streams the logs and exits like the job: `0` succeeded; the workload's own
   exit code (1-125) when it failed; `126` when the fabric failed it (the failure type
   is printed: `node_lost`, `deadline_exceeded`, `output_error` …); `128` cancelled.
@@ -1778,6 +1789,109 @@ missing from the dataset - the alert names the attempt and why) and `clock_uncer
 cannot be trusted; its records still carry their monotonic durations). The controller log has
 `controller.telemetry.record_skipped`, `...skip_cap_reached`, `...sweep_failed` (database unavailable; the next
 sweep retries everything).
+
+### 0g. The ML planner: operations runbook (V0.15)
+
+The ML planner learns, per estimate term, how far the analytical model is off on real runs and corrects
+it where it is trusted (the details are in section 0c, "ML training dataset" to "Is the model better where
+it is used?"). This is the day-to-day runbook. Every command is **admin**, run on any machine with the CLI.
+
+**1. Install (controller only).** The agents need nothing. On the controller laptop (Linux):
+
+```bash
+uv sync --extra controller --extra ml      # or --all-extras; adds numpy, scikit-learn, LightGBM, XGBoost (CPU)
+compute planner ml models --json | uv run python -c "import json,sys; r=json.load(sys.stdin)['retrain']; print('can train:', r['available'], r.get('missing'))"
+```
+
+`can train: True` is the goal. Without the extra the controller still starts and plans exactly as V0.14 with
+the calibration (it logs `controller.planner.ml_unavailable` once; `train` answers 409, evaluation reports say
+`ml_unavailable` - never `FAIL`).
+
+**2. Settings** (`[controller.planner]`, restart the controller after a change):
+
+| Setting | Default | What it does |
+|---|---|---|
+| `ml` | `"auto"` | `auto` = the pinned set, else the active one; `"off"` = never use ML (plans as V0.14); `"sha256:..."` = pin that set (the controller refuses to start if it does not exist, was rejected or cannot be loaded) |
+| `ml_retrain_s` | 86 400 (1 day) | how often the controller retrains (skipped while no run ended since the last set); the lab may use 3 600 |
+| `ml_retrain_timeout_s` | 3 600 | a retrain child running longer is killed; nothing is stored |
+| `ml_eval_timeout_s` | 3 000 | total fold-training time of one evaluation; families left when it is spent are evaluated without ML (`eval_budget_exhausted`) |
+| `ml_min_rows` / `ml_min_families` | 200 / 3 | a term is trained only with this much data (else the term keeps the calibration) |
+| `ml_max_interval_log` | ln 2 | an ML correction is used only when its 90 % interval spans at most a factor 2 (`interval_too_wide`) |
+| `ml_predict_budget_ms` | 20 (wall clock) | a slower `predict` call is discarded: that decision falls back to calibration (`predictor_error`) |
+| `ml_keep_superseded` | 5 | superseded sets whose artefacts the GC keeps (the rollback window) |
+| `ml_dataset_max_runs` | 50 000 | newest matched runs the training dataset reads |
+
+**3. Retraining.** Automatic every `ml_retrain_s`; now with:
+
+```bash
+compute planner ml train --wait            # prints: set sha256:3a1f00a active at ...  |  ... rejected at ...: <rule>
+                                           #         nothing written (no_new_runs | insufficient_data) at ...
+compute planner ml models                  # what plans now + the set history (status, reason)
+compute planner ml models --set <VERSION>  # members, held-out numbers, gate rules, the regret check
+```
+
+A new set goes live only if the **activation gate** accepts it (held-out error, interval coverage, no family
+worse than the calibration, a real gain, and since G5a the regret check). `rejected` with a rule is a normal,
+honest outcome - the planner keeps what it had. The rules: `too_few_held_out`, `coverage`, `family_tolerance`, `worse_than_reference`,
+`not_better`, `regret_worse` (and `unloadable_artefact: ...`). The same dataset digest and code give the same
+set version (byte-identical artefacts), so a retrain on unchanged data writes nothing (`no_new_runs`).
+
+**4. Pin and roll back.**
+
+```bash
+compute planner ml pin <VERSION>     # plan with this set (active or superseded, artefacts still kept) until unpinned
+compute planner ml unpin <VERSION>   # back to the automatic choice
+```
+
+A rejected set, or one whose artefacts the GC removed, cannot be pinned. To switch ML off completely set
+`ml = "off"` and restart: every decision is planned exactly as in V0.14. The dashboard's Planner -> **Models**
+tab has the same pin / unpin / train buttons (each asks for confirmation).
+
+**5. Evaluating the planner (start-then-poll, V0.15 G6b, D378).** An evaluation trains one fold model per
+evaluated family (never on that family) and replays every record under every policy - minutes on a lab
+dataset - so it runs in the background:
+
+```bash
+compute planner eval --campaign <CAMP> [--holdout <FAMILY>] [--md report.md] [--timeout 7200]
+compute planner reports                   # every report with its status: running / done / failed (reason)
+```
+
+The CLI prints `evaluation report N started; waiting up to S s` (stderr), polls every 2 s and prints the
+report. `--timeout` only stops the **waiting** (exit 1): the evaluation keeps running and appears in `compute
+planner reports` when done. One evaluation runs at a time per controller (a second start: `409
+eval_already_running`, naming the running report). A report ends `failed` with a reason - `invalid_input`
+(e.g. the held-out family is not in the campaigns), `not_found`, `database`, `crashed` (a bug: see the
+controller log `controller.planner.eval_crashed`) or `controller_restart` (the controller stopped while it ran;
+the next start marks every report left `running` this way, so none stays `running` forever) - run it again.
+In the dashboard: Planner -> **Run evaluation** (admins) shows the running report's progress and the report
+when it is done. A client from before G6b (which expected the report in the `POST` answer) gets `400
+eval_requires_background`: update the CLI / reload the dashboard.
+
+**6. Reading the ML verdicts** (the lines `compute planner eval` prints after criteria 1-3):
+
+| Line | Meaning |
+|---|---|
+| `ml_criterion_1: PASS` | on held-out families, ML's mean regret is lower than calibrated analytical's: the paired bootstrap 95 % CI of the per-group difference lies entirely below 0 |
+| `ml_criterion_1: FAIL` | the CI lies entirely above 0: ML made the decisions worse |
+| `not_separable` | the CI includes 0: no evidence either way - **not** a pass |
+| `ml_criterion_2: PASS` | on every family with >= 3 common groups, ML's mean regret <= calibrated + 5 percentage points (the per-family lines follow) |
+| `too_few_groups` | fewer than 10 common groups (criterion 1) or no family with 3 (criterion 2): no verdict - never a pass |
+| `leaked` | made with `--allow-leak`: not evidence |
+| `ml_unavailable` | no `ml` extra, or `ml = "off"`: no ML rows |
+| `ML in the chosen plans: used rate ...` | how often ML actually corrected a term in the picked plans, and why not elsewhere (`ood`, `interval_too_wide`, `no_model`, `predictor_error`, ...); `decisions without a fold model` counts families whose fold had no usable model (the fold's `reason` is in the report's `folds`) |
+
+The per-term prediction error of the fold models (MAPE / MALE of ML vs raw, interval coverage, OOD and usable
+rates) is in the report's `ml.terms` (`--json`, or the Markdown).
+
+**7. When something is wrong.**
+
+| Symptom | Cause / what to do |
+|---|---|
+| `compute planner ml train` -> 409 `ml extra is not installed` | step 1 on the controller |
+| every fold `eval_budget_exhausted` | many families / a big dataset: raise `ml_eval_timeout_s` (and `--timeout`), or evaluate one family with `--holdout` |
+| `controller.jobs.ml_predictor_error` in the log, `ml_fallback: predictor_error` on decisions | a model error or a predict over the 20 ms wall-clock budget (busy controller): check `in_use.ml_predict_last_ms` on `compute planner ml models --json`; raise `ml_predict_budget_ms` or pin a smaller set |
+| `serving set ... not loaded (...)` in `compute planner ml models` | the set's artefacts are gone or its library is missing (`library_missing`): pin another set or retrain |
+| a report stays `running` for longer than `ml_eval_timeout_s` + the replay | the controller log has `controller.planner.eval_*`; a stopped controller marks it `controller_restart` on its next start |
 
 ## 1. Run it by hand first
 
