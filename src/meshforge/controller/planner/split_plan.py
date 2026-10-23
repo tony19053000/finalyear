@@ -53,6 +53,7 @@ from meshforge.controller.planner.policies import Ranked, Scored, rank
 
 # V0.15 G4 (D336): lane terms and the combine corrected by the model
 from meshforge.controller.planner.predictor import (
+    MlReason,
     MlSession,
     TermContext,
     corrected,
@@ -367,13 +368,20 @@ def _ml_combine(items: Sequence[SetEstimate], session: MlSession) -> list[SetEst
     predictor call): the combine node and lane count are the candidate's
     own. Never calibrated (V0.14: ``no_phase``), so the fallback is raw."""
     contexts = []
+    known: list[bool] = []
     for item in items:
         term = item.estimate.extra["combine"]
         node_id = term.detail.get("combine_node_id")
+        # V0.15 G5a (G4 reviewer debt): no combine node -> no features; the
+        # term keeps its fallback with reason combine_node_unknown (never a
+        # silent guess of the first lane's node)
+        known.append(isinstance(node_id, str) and bool(node_id))
+        if not known[-1]:
+            continue
         contexts.append(
             TermContext(
                 term="combine",
-                node_id=node_id if isinstance(node_id, str) else item.node_ids[0],
+                node_id=str(node_id),
                 raw_s=stored_raw("combine", term.seconds),
                 source=term.source.value,
                 detail=term.detail,
@@ -381,8 +389,15 @@ def _ml_combine(items: Sequence[SetEstimate], session: MlSession) -> list[SetEst
                 chunk_items=item.chunk.items,
             )
         )
+    resolved = iter(session.resolve(contexts)) if contexts else iter(())
+    outcomes = [
+        next(resolved)
+        if ok
+        else session.skip("combine", MlReason.COMBINE_NODE_UNKNOWN)
+        for ok in known
+    ]
     out: list[SetEstimate] = []
-    for item, outcome in zip(items, session.resolve(contexts), strict=True):
+    for item, outcome in zip(items, outcomes, strict=True):
         term = item.estimate.extra["combine"]
         fixed = ml_term(
             term, outcome, name="combine", version=session.version, fallback=term

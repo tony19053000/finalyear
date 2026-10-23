@@ -66,6 +66,7 @@ from meshforge.controller.planner.predictor import (
 )
 
 __all__ = [
+    "MALFORMED_PREDICTION",
     "ML_OFF",
     "STALE_FEATURES",
     "MlMode",
@@ -78,6 +79,8 @@ __all__ = [
 log = get_logger(__name__)
 
 ML_OFF: Final = "off"
+MALFORMED_PREDICTION: Final = "malformed_prediction"
+""":class:`SetPredictor`'s error for an answer that does not fill every row."""
 UNREADABLE_RETRY_S: Final = 60.0
 """A set that could not be loaded is tried again after this long."""
 STALE_FEATURES: Final = "stale_feature_version"
@@ -284,6 +287,11 @@ class SetPredictor:
                 ) from exc
             except ValueError as exc:  # wrong feature width / non-numeric row
                 raise PredictorFailed("malformed_features") from exc
+            if not all(
+                len(column) == len(indices)
+                for column in (answer.y_hat, answer.lo, answer.hi, answer.ood)
+            ) or len(answer.reasons) != len(indices):
+                raise PredictorFailed(MALFORMED_PREDICTION)
             for k, i in enumerate(indices):
                 out[i] = TermPrediction(
                     y_hat=float(answer.y_hat[k]),
@@ -293,7 +301,12 @@ class SetPredictor:
                     reason=answer.reasons[k],
                     model_version=answer.model_version,
                 )
-        return [p for p in out if p is not None]
+        # V0.15 G5a (G3/G4 reviewer debt): a slot no member answered is a
+        # malformed answer - never dropped silently (the rows would shift)
+        answers = [p for p in out if p is not None]
+        if len(answers) != len(rows):
+            raise PredictorFailed(MALFORMED_PREDICTION)
+        return answers
 
 
 class RegistryMlInputSource:
