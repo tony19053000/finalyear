@@ -2,8 +2,8 @@
 classify``.
 
 * ``replay``: the request path, the human lines (status, model set, chosen
-  nodes, differences), server strings scrubbed, exit 0 only for
-  ``reproduced``, ``--json`` = the API document;
+  nodes, differences), server strings scrubbed, exit 0 for any answer and
+  with ``--check`` 1 unless ``reproduced``, ``--json`` = the API document;
 * ``classify``: exactly one of ``--campaign`` / ``--examples`` (usage error
   before any request); ``--campaign`` POSTs the ids, ``--save-examples``
   keeps the document, the real child runs and the section prints; a
@@ -56,7 +56,7 @@ def test_replay_reproduced_is_exit_0(
         return httpx.Response(200, json=_replay())
 
     controller(handler)
-    result = runner.invoke(cli_app.app, ["planner", "replay", "42"])
+    result = runner.invoke(cli_app.app, ["planner", "replay", "42", "--check"])
     assert result.exit_code == 0, result.output
     assert seen == ["GET /v1/planner/decisions/42/replay"]
     assert "decision 42 (job job_x, dispatched, policy cost_model): reproduced" in (
@@ -68,7 +68,7 @@ def test_replay_reproduced_is_exit_0(
 @pytest.mark.parametrize(
     "status", ["differs", "ml_model_unavailable", "no_replay", "replay_unreadable"]
 )
-def test_replay_anything_else_is_exit_1(
+def test_replay_anything_else_is_exit_1_with_check(
     runner: CliRunner, controller: TransportFactory, status: str
 ) -> None:
     doc = _replay(
@@ -78,6 +78,8 @@ def test_replay_anything_else_is_exit_1(
     )
     controller(lambda _r: httpx.Response(200, json=doc))
     result = runner.invoke(cli_app.app, ["planner", "replay", "42"])
+    assert result.exit_code == 0, result.output  # an answer is not a failure
+    result = runner.invoke(cli_app.app, ["planner", "replay", "42", "--check"])
     assert result.exit_code == 1, result.output
     assert f": {status} - " in result.stdout
     assert "differences (3):" in result.stdout

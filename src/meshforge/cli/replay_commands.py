@@ -7,9 +7,10 @@ and, for an ML decision, the model set it used, loaded by version - and
 compares the candidates field for field. Prints the status and the first
 differing paths; ``--json`` prints the API document.
 
-Exit codes: 0 ``reproduced``; 1 anything else (``differs``,
-``ml_model_unavailable`` - the set is gone, never re-planned with
-calibration instead -, ``no_replay``, ``replay_unreadable``); the usual
+Statuses: ``reproduced``; ``differs``; ``ml_model_unavailable`` (the set is
+gone - never re-planned with calibration instead); ``no_replay``;
+``replay_unreadable``. Exit code 0 for any answer (the status is the
+finding); with ``--check`` 1 unless ``reproduced`` (for scripts); the usual
 codes for a refused request.
 """
 
@@ -62,8 +63,16 @@ def replay_lines(doc: Mapping[str, Any]) -> list[str]:
 @planner_app.command("replay")
 def planner_replay(
     decision_id: Annotated[
-        int, typer.Argument(min=1, help="The decision id (compute explain).")
+        int,
+        typer.Argument(
+            min=1,
+            help="The decision id (`compute explain JOB --json`: decisions[].id).",
+        ),
     ],
+    check: Annotated[
+        bool,
+        typer.Option("--check", help="Exit 1 unless the decision reproduces."),
+    ] = False,
     json_output: cli.JsonOption = False,
 ) -> None:
     """Re-plan a stored decision and compare it (admin)."""
@@ -75,5 +84,5 @@ def planner_replay(
     else:
         for text in replay_lines(doc):
             render.line(text)
-    if doc.get("status") != _REPRODUCED:
+    if check and doc.get("status") != _REPRODUCED:
         raise typer.Exit(int(CliExit.FAILURE))
