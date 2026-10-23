@@ -160,6 +160,9 @@ class EvalMl:
     terms: Mapping[str, Any] = field(default_factory=dict)
     """Per-term held-out prediction metrics of the fold models (MALE, MAPE,
     coverage), JSON-ready, written as is."""
+    until: str | None = None
+    """The fold models' training cut-off (ISO time; rows that finished
+    later were not trained on); None = no fold was trained."""
 
     @property
     def evaluated(self) -> bool:

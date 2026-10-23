@@ -2573,6 +2573,17 @@
             "title": "Terms",
             "type": "object"
           },
+          "until": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Until"
+          },
           "verdicts": {
             "items": {
               "$ref": "#/components/schemas/MlVerdictOut"
@@ -2584,6 +2595,7 @@
         "required": [
           "status",
           "reason",
+          "until",
           "settings",
           "verdicts",
           "fallback",

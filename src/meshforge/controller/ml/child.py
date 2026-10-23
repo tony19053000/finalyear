@@ -12,7 +12,13 @@ what the child wrote (``set.json`` + one ``<hex>.art`` per learned member).
 * :func:`run_child` - run it; ``(exit code, stderr tail)``; ``TimeoutError``
   after killing a child that overran (a cancelled caller kills it too);
 * :func:`read_output` - its ``set.json``, artefact bytes and timings, or
-  :class:`ChildOutputError` (exit 0 but unreadable output).
+  :class:`ChildOutputError` (exit 0 but unreadable output);
+* :data:`TRAINING_GUARD` - **one training child at a time** for the whole
+  controller (G5a reviewer B1): the retrain and every evaluator fold take
+  it around their child, so a POST eval-report never trains next to a
+  periodic retrain (each child uses every core it can);
+* :func:`scratch_dir` - a private temporary directory created and removed
+  off the event loop.
 
 Moved out of :mod:`meshforge.controller.ml_retrain_task` in G5a (that module
 re-exports the names): two callers now.
@@ -26,20 +32,25 @@ import importlib.util
 import json
 import os
 import shutil
-from collections.abc import Awaitable, Callable, Sequence
+import tempfile
+import weakref
+from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from pathlib import Path
 from typing import Any, Final
 
 __all__ = [
     "ML_TRAIN_LIBRARIES",
+    "TRAINING_GUARD",
     "TRAIN_MODULE",
     "ChildOutputError",
     "ChildRunner",
+    "TrainingGuard",
     "describe",
     "ml_missing",
     "niced",
     "read_output",
     "run_child",
+    "scratch_dir",
 ]
 
 ML_TRAIN_LIBRARIES: Final = ("numpy", "pyarrow", "sklearn", "lightgbm", "xgboost")
@@ -82,9 +93,56 @@ async def run_child(argv: Sequence[str], timeout_s: float) -> tuple[int, str]:
     except asyncio.CancelledError:
         with contextlib.suppress(ProcessLookupError):
             proc.kill()
+        # reap it (no zombie; the caller may remove its directory next).
+        # Shielded: a second cancel stops the waiting, never the reap.
+        with contextlib.suppress(asyncio.CancelledError):
+            await asyncio.shield(proc.wait())
         raise
     tail = (stderr or b"").decode("utf-8", "replace").strip()[-_STDERR_TAIL:]
     return int(proc.returncode or 0), tail
+
+
+class TrainingGuard:
+    """At most one training child at a time per event loop (the controller
+    has one loop). An :class:`asyncio.Lock` per loop, so a guard shared by
+    module import never binds to a loop that is gone (tests run many)."""
+
+    def __init__(self) -> None:
+        self._locks: weakref.WeakKeyDictionary[
+            asyncio.AbstractEventLoop, asyncio.Lock
+        ] = weakref.WeakKeyDictionary()
+
+    def _lock(self) -> asyncio.Lock:
+        loop = asyncio.get_running_loop()
+        lock = self._locks.get(loop)
+        if lock is None:
+            lock = self._locks[loop] = asyncio.Lock()
+        return lock
+
+    def busy(self) -> bool:
+        """A training child holds the guard on the running loop."""
+        return self._lock().locked()
+
+    @contextlib.asynccontextmanager
+    async def held(self) -> AsyncIterator[None]:
+        """Wait for the guard (FIFO), hold it for the ``async with`` body."""
+        async with self._lock():
+            yield
+
+
+TRAINING_GUARD: Final = TrainingGuard()
+"""The controller-wide training-child guard (module docstring)."""
+
+
+@contextlib.asynccontextmanager
+async def scratch_dir(prefix: str) -> AsyncIterator[Path]:
+    """A private temporary directory; created and removed (``rmtree``,
+    errors ignored) in a worker thread, never on the event loop."""
+    path = Path(await asyncio.to_thread(tempfile.mkdtemp, prefix=prefix))
+    try:
+        yield path
+    finally:
+        await asyncio.shield(asyncio.to_thread(shutil.rmtree, path, ignore_errors=True))
 
 
 class ChildOutputError(Exception):

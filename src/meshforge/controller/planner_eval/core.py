@@ -838,6 +838,7 @@ def _ml_block(
         return {
             "status": status,
             "reason": reason,
+            "until": ml.until if ml is not None else None,
             "settings": settings,
             "verdicts": [
                 # never ``leaked``: nothing was claimed, on any data
@@ -863,6 +864,7 @@ def _ml_block(
     return {
         "status": ml.status,
         "reason": ml.reason,
+        "until": ml.until,
         "settings": settings,
         "verdicts": [
             _ml_criterion_1(mine, cal, config, leaked),

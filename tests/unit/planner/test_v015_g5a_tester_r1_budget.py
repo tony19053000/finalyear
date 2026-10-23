@@ -15,18 +15,18 @@ import pytest
 pytest.importorskip("pyarrow", reason="needs the controller extra")
 pytest.importorskip("sklearn", reason="needs the ml extra")
 pytest.importorskip("lightgbm", reason="needs the ml extra")
-from test_v015_g5a_tester_ml_inputs import _make  # noqa: E402
+from test_v015_g5a_tester_ml_inputs import _make
 
-from meshforge.controller.settings import PlannerSettings  # noqa: E402
+from meshforge.controller.settings import PlannerSettings
 
 pytestmark = pytest.mark.unit
 
 
-def test_pending_B2_setting_ml_eval_timeout_s_exists() -> None:
+def test_pending_B2_setting_ml_eval_timeout_s_exists() -> None:  # noqa: N802
     assert "ml_eval_timeout_s" in PlannerSettings.model_fields
 
 
-def test_pending_B2_total_fold_budget_stops_remaining_folds() -> None:
+def test_pending_B2_total_fold_budget_stops_remaining_folds() -> None:  # noqa: N802
     """Every fold child hangs to its own timeout; a total budget must cap the
     whole evaluation and mark the unrun folds eval_budget_exhausted."""
     calls: list[int] = []
@@ -37,9 +37,9 @@ def test_pending_B2_total_fold_budget_stops_remaining_folds() -> None:
         raise TimeoutError
 
     inputs = _make(child)
-    settings: Any = inputs._settings  # noqa: SLF001
+    settings: Any = inputs._settings
     try:
-        inputs._settings = settings.model_copy(update={"ml_eval_timeout_s": 0.3})  # noqa: SLF001
+        inputs._settings = settings.model_copy(update={"ml_eval_timeout_s": 0.3})
     except Exception:  # noqa: BLE001
         pytest.fail("ml_eval_timeout_s not a setting (B2)")
     fams = {f"fam0{i}": frozenset({f"g{i}"}) for i in range(4)}
@@ -49,7 +49,7 @@ def test_pending_B2_total_fold_budget_stops_remaining_folds() -> None:
     assert "eval_budget_exhausted" in reasons
 
 
-def test_pending_B1_fold_and_retrain_share_a_training_guard() -> None:
+def test_pending_B1_fold_and_retrain_share_a_training_guard() -> None:  # noqa: N802
     """A fold child must not run while a retrain training child runs."""
     import meshforge.controller.ml.folds as folds
     import meshforge.controller.ml_retrain_task as rt

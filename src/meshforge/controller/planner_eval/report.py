@@ -142,6 +142,11 @@ def _ml_lines(ml: Any) -> list[str]:
         "",
         f"- status: {_cell(ml.get('status'))}"
         + (f" ({_cell(ml.get('reason'))})" if ml.get("reason") else ""),
+        *(
+            [f"- fold models trained on runs finished by {_cell(ml.get('until'))}"]
+            if ml.get("until")
+            else []
+        ),
         f"- criterion row `{_cell(settings.get('criterion_policy'))}` vs "
         f"`{_cell(settings.get('compared_with'))}`; family tolerance "
         f"{_num(settings.get('family_tolerance_pp'))} % points, families need >= "
@@ -221,7 +226,15 @@ def _ml_lines(ml: Any) -> list[str]:
             if isinstance(f, Mapping)
         ),
     ]
-    lines += ["", "### What ML did in the chosen plans", ""]
+    lines += [
+        "",
+        "### What ML did in the chosen plans",
+        "",
+        "Counted once per decision, on its chosen candidate only (the plan "
+        "that would run); terms of candidates the planner did not choose are "
+        "not counted.",
+        "",
+    ]
     lines += _table(
         (
             "family",

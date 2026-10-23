@@ -18,7 +18,9 @@ planner ml train``). One retrain:
    process** (``nice``d where the platform has ``nice``) with a timeout
    (``ml_retrain_timeout_s``; killed when it overruns): training, the
    activation gate, artefacts - never on the event loop, never in the
-   controller's memory;
+   controller's memory; the child holds the controller-wide
+   :data:`~.ml.child.TRAINING_GUARD` (it waits while an evaluator fold
+   model trains, G5a B1; the wait is not part of the timeout);
 3b. (V0.15 G5a, D371) when the child's error gate accepted the set, the
    **regret check** (:mod:`.ml.regret`): the candidate vs what serves now,
    paired on the held-out slice's labelled benchmark groups, on the live
@@ -47,7 +49,6 @@ import contextlib
 import datetime as dt
 import json
 import sys
-import tempfile
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -62,6 +63,7 @@ from meshforge.controller.ml import export, loader, regret
 from meshforge.controller.ml.child import (
     ML_TRAIN_LIBRARIES,
     TRAIN_MODULE,
+    TRAINING_GUARD,
     ChildOutputError,
     ChildRunner,
     describe,
@@ -69,6 +71,7 @@ from meshforge.controller.ml.child import (
     niced,
     read_output,
     run_child,
+    scratch_dir,
 )
 from meshforge.controller.ml.folds import train_settings_argv
 from meshforge.controller.ml.loader import MlLoadError
@@ -86,6 +89,7 @@ from meshforge.controller.settings import PlannerSettings
 
 __all__ = [
     "ML_TRAIN_LIBRARIES",
+    "TRAINING_GUARD",
     "ChildOutputError",
     "ChildRunner",
     "MlRetrainer",
@@ -418,8 +422,7 @@ class MlRetrainer:
         built = await export.build_dataset(
             self._engine, max_runs=self._settings.ml_dataset_max_runs
         )
-        with tempfile.TemporaryDirectory(prefix="meshforge-ml-retrain-") as scratch:
-            work = Path(scratch)
+        async with scratch_dir("meshforge-ml-retrain-") as work:
             dataset = work / "dataset.parquet"
             await asyncio.to_thread(dataset.write_bytes, built.dataset.parquet)
             reference_version = await self._write_reference(work / "reference")
@@ -432,9 +435,13 @@ class MlRetrainer:
                 self._settings,
             )
             try:
-                code, stderr = await self._child(
-                    argv, self._settings.ml_retrain_timeout_s
-                )
+                if TRAINING_GUARD.busy():
+                    log.info("controller.ml.retrain_waits_for_training_child")
+                # one training child at a time (an evaluator fold may run)
+                async with TRAINING_GUARD.held():
+                    code, stderr = await self._child(
+                        argv, self._settings.ml_retrain_timeout_s
+                    )
             except TimeoutError:
                 return RetrainResult(
                     trigger,

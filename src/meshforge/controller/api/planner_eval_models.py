@@ -431,6 +431,9 @@ class EvalMlOut(ApiModel):
     status: str
     """``evaluated`` | ``ml_unavailable``."""
     reason: str | None
+    until: str | None
+    """The fold models' training cut-off (ISO time, the report's start):
+    rows that finished later were not trained on. None = no fold trained."""
     settings: MlEvalSettingsOut
     verdicts: list[MlVerdictOut]
     fallback: MlFallbackOut

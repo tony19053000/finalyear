@@ -40,8 +40,10 @@ from typing import Any, Final
 from meshforge.controller.ml.artefact import ArtefactError
 from meshforge.controller.ml.child import (
     TRAIN_MODULE,
+    TRAINING_GUARD,
     ChildOutputError,
     ChildRunner,
+    TrainingGuard,
     describe,
     niced,
     read_output,
@@ -55,6 +57,7 @@ from meshforge.controller.settings import PlannerSettings
 __all__ = [
     "HELDOUT_FILE",
     "FoldOutcome",
+    "budget_exhausted",
     "fold_argv",
     "loaded_set",
     "pool_terms",
@@ -225,6 +228,25 @@ def read_fold(
     )
 
 
+def budget_exhausted(
+    family: str, until: dt.datetime, budget_s: float, *, started: bool
+) -> FoldOutcome:
+    """No model for ``family``: the evaluation's total fold budget
+    (``ml_eval_timeout_s``) ran out - ``started`` = its fold was stopped
+    mid-way, else it never ran (G5a reviewer B2)."""
+    what = "stopped" if started else "not trained"
+    return FoldOutcome(
+        family,
+        None,
+        _entry(
+            family,
+            until=until,
+            source="none",
+            reason=f"eval_budget_exhausted: {what}, ml_eval_timeout_s = {budget_s:g} s",
+        ),
+    )
+
+
 async def train_fold(
     *,
     python: str,
@@ -235,10 +257,16 @@ async def train_fold(
     until: dt.datetime,
     settings: PlannerSettings,
     child: ChildRunner,
+    timeout_s: float | None = None,
+    guard: TrainingGuard = TRAINING_GUARD,
 ) -> FoldOutcome:
     """One fold (module docstring): never raises for a failed fold - the
     outcome has no model and says why (``timeout``, ``child_failed``,
-    ``child_output_invalid``)."""
+    ``child_output_invalid``). The child runs under ``timeout_s`` (default
+    ``ml_retrain_timeout_s``; the evaluator passes less when its total
+    budget is nearly spent) while holding ``guard``; the wait for the guard
+    is not bounded here (the caller's budget bounds it)."""
+    limit = settings.ml_retrain_timeout_s if timeout_s is None else timeout_s
     out = work / "out"
     groups = sorted(set(fingerprints))
     groups_path: Path | None = None
@@ -249,7 +277,8 @@ async def train_fold(
         )
     argv = fold_argv(python, dataset, out, family, until, groups_path, settings)
     try:
-        code, stderr = await child(argv, settings.ml_retrain_timeout_s)
+        async with guard.held():
+            code, stderr = await child(argv, limit)
     except TimeoutError:
         return FoldOutcome(
             family,
@@ -258,7 +287,7 @@ async def train_fold(
                 family,
                 until=until,
                 source="none",
-                reason=f"timeout: killed after {settings.ml_retrain_timeout_s:g} s",
+                reason=f"timeout: killed after {limit:g} s",
             ),
         )
     if code != 0:

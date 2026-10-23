@@ -99,7 +99,9 @@ class MlSetOut(ApiModel):
 
 class MlSetDetailOut(MlSetOut):
     gate: dict[str, Any]
-    """The activation gate's numbers (``regret: pending_g4`` until G5)."""
+    """The activation gate's numbers; ``regret`` = ``passed`` / ``rejected``
+    / ``skipped`` (D371) or ``not_run``; sets stored before V0.15 G5 keep
+    ``pending_g4``."""
     inputs: dict[str, Any]
 
 

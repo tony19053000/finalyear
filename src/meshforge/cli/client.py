@@ -34,6 +34,7 @@ from pydantic import SecretStr
 
 from meshforge.cli.exits import exit_code_for
 from meshforge.common.errors import FailureType, MeshForgeError
+from meshforge.common.ml_eval import DEFAULT_ML_EVAL_TIMEOUT_S, EVAL_REPLAY_MARGIN_S
 
 __all__ = ["ControllerClient", "ControllerError", "exit_code_for"]
 
@@ -57,9 +58,12 @@ _RETRY_HINT: Final = " - retry in a moment"
 
 _TRANSFER_TIMEOUT_S: Final = 300.0
 """Bundle/output transfers and log downloads: bigger than one small JSON call."""
-_EVAL_TIMEOUT_S: Final = 3600.0
+_EVAL_TIMEOUT_S: Final = DEFAULT_ML_EVAL_TIMEOUT_S + EVAL_REPLAY_MARGIN_S
 """V0.15 G5a (D368): ``POST /v1/planner/eval-reports`` trains one fold model
-set per evaluated family before it replays - minutes, not seconds."""
+set per evaluated family before it replays - minutes, not seconds. The
+controller caps the fold training at ``ml_eval_timeout_s`` (default
+:data:`~meshforge.common.ml_eval.DEFAULT_ML_EVAL_TIMEOUT_S`); the CLI waits
+that plus the replay margin."""
 
 
 class ControllerError(MeshForgeError):

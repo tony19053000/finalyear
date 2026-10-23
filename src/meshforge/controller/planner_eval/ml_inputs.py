@@ -13,9 +13,13 @@ D368/D369). I/O: the dataset, the training child, the registry.
   rows of the workload groups ``F``'s evaluated records belong to (the
   calibration refit's rule, D316) - with the report's start as the cut-off
   (:mod:`meshforge.controller.ml.folds`). Sequential, each under
-  ``ml_retrain_timeout_s``. A family whose fold has no usable model plans
-  with calibration only (``no_fold_model``), with the reason in its
-  ``folds`` entry;
+  ``ml_retrain_timeout_s``, each holding the controller-wide training-child
+  guard (never next to a retrain), all together under
+  ``ml_eval_timeout_s`` (G5a reviewer B2): a fold still waiting or training
+  when it is spent is stopped (its child killed) and every family left gets
+  no model, reason ``eval_budget_exhausted``. A family whose fold has no
+  usable model plans with calibration only (``no_fold_model``), with the
+  reason in its ``folds`` entry;
 * ``allow_leak`` (debugging): the **serving** set (pinned, else active)
   for every family, loaded by version through the registry loader
   (:class:`~meshforge.controller.ml.registry_loader.RegistryLoader`) - the
@@ -29,15 +33,25 @@ from __future__ import annotations
 import asyncio
 import datetime as dt
 import sys
-import tempfile
+import time
 from collections.abc import Awaitable, Callable, Mapping
 from pathlib import Path
 from typing import Any, Protocol
 
 from meshforge.common.logging import get_logger
-from meshforge.controller.ml.child import ChildRunner, ml_missing, run_child
+from meshforge.controller.ml.child import (
+    ChildRunner,
+    ml_missing,
+    run_child,
+    scratch_dir,
+)
 from meshforge.controller.ml.export import BuiltDataset
-from meshforge.controller.ml.folds import FoldOutcome, pool_terms, train_fold
+from meshforge.controller.ml.folds import (
+    FoldOutcome,
+    budget_exhausted,
+    pool_terms,
+    train_fold,
+)
 from meshforge.controller.ml.loader import MlLoadError
 from meshforge.controller.ml.registry import MlRegistryError
 from meshforge.controller.ml.registry_loader import RegistryLoader
@@ -76,6 +90,7 @@ class FoldMlInputs:
         child: ChildRunner = run_child,
         missing: Callable[[], list[str]] = ml_missing,
         clock: Callable[[], dt.datetime] = lambda: dt.datetime.now(dt.UTC),
+        monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
         self._settings = settings
         self._models = models
@@ -85,6 +100,7 @@ class FoldMlInputs:
         self._child = child
         self._missing = missing
         self._clock = clock
+        self._monotonic = monotonic
 
     async def prepare(
         self, families: Mapping[str, frozenset[str]], *, allow_leak: bool
@@ -148,25 +164,26 @@ class FoldMlInputs:
 
     async def _folds(self, families: Mapping[str, frozenset[str]]) -> EvalMl:
         until = self._clock()
+        budget_s = self._settings.ml_eval_timeout_s
+        deadline = self._monotonic() + budget_s
         built = await self._build()
         outcomes: list[FoldOutcome] = []
-        with tempfile.TemporaryDirectory(prefix="meshforge-ml-eval-") as scratch:
-            root = Path(scratch)
+        async with scratch_dir("meshforge-ml-eval-") as root:
             dataset = root / "dataset.parquet"
             await asyncio.to_thread(dataset.write_bytes, built.dataset.parquet)
             for index, family in enumerate(sorted(families)):
-                work = root / f"fold-{index}"
-                await asyncio.to_thread(work.mkdir)
-                outcome = await train_fold(
-                    python=self._python,
-                    dataset=dataset,
-                    work=work,
-                    family=family,
-                    fingerprints=families[family],
-                    until=until,
-                    settings=self._settings,
-                    child=self._child,
-                )
+                remaining = deadline - self._monotonic()
+                if remaining <= 0.0:
+                    outcome = budget_exhausted(family, until, budget_s, started=False)
+                else:
+                    outcome = await self._fold(
+                        root / f"fold-{index}",
+                        dataset,
+                        family,
+                        families[family],
+                        until,
+                        remaining,
+                    )
                 log.info(
                     "controller.planner.eval_ml_fold",
                     family=family,
@@ -183,4 +200,36 @@ class FoldMlInputs:
             terms=pool_terms(
                 outcomes, max_interval_log=self._settings.ml_max_interval_log
             ),
+            until=until.isoformat(),
         )
+
+    async def _fold(
+        self,
+        work: Path,
+        dataset: Path,
+        family: str,
+        fingerprints: frozenset[str],
+        until: dt.datetime,
+        remaining_s: float,
+    ) -> FoldOutcome:
+        """One fold, the wait for the training guard and the child both
+        bounded by what is left of ``ml_eval_timeout_s``."""
+        try:
+            async with asyncio.timeout(remaining_s):
+                await asyncio.to_thread(work.mkdir)
+                return await train_fold(
+                    python=self._python,
+                    dataset=dataset,
+                    work=work,
+                    family=family,
+                    fingerprints=fingerprints,
+                    until=until,
+                    settings=self._settings,
+                    child=self._child,
+                    timeout_s=min(self._settings.ml_retrain_timeout_s, remaining_s),
+                )
+        except TimeoutError:
+            # the budget ran out mid-fold: the cancel killed the child
+            return budget_exhausted(
+                family, until, self._settings.ml_eval_timeout_s, started=True
+            )
