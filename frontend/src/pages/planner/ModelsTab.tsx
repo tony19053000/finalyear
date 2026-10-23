@@ -54,6 +54,7 @@ import {
   type PredictionsLimit,
 } from "./mlApi";
 import {
+  busiestTerm,
   canPin,
   canUnpin,
   fallbackRows,
@@ -461,7 +462,7 @@ function Predictions({ serving }: { serving: string | null }) {
   const all = query.data.points;
   const points = onlyServing && serving !== null ? all.filter((p) => p.ml_model_version === serving) : all;
   const terms = termsOf(points);
-  const shown = term !== null && terms.includes(term) ? term : (terms[0] ?? null);
+  const shown = term !== null && terms.includes(term) ? term : busiestTerm(points);
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-3 text-sm">

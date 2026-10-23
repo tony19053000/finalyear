@@ -233,6 +233,15 @@ export function termsOf(points: readonly MlPredictionPointOut[]): string[] {
   return [...known, ...rest];
 }
 
+/** The term the scatter opens on: the one with the most points (ties: `ML_TERM_ORDER`). */
+export function busiestTerm(points: readonly MlPredictionPointOut[]): string | null {
+  const counts = new Map<string, number>();
+  for (const p of points) counts.set(p.term, (counts.get(p.term) ?? 0) + 1);
+  let best: string | null = null;
+  for (const t of termsOf(points)) if (best === null || (counts.get(t) ?? 0) > (counts.get(best) ?? 0)) best = t;
+  return best;
+}
+
 export function unitOf(term: string): string {
   return PER_ITEM_TERMS.has(term) ? "s per item" : "s";
 }
