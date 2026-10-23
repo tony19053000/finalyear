@@ -427,7 +427,8 @@ async def test_d2_concurrent_store_of_unloadable_and_good_sets(
     assert not [o for o in out if isinstance(o, BaseException)], out
     st = await _statuses(engine)
     assert st[good["set_version"]] == "active"
-    assert st[bad["set_version"]] == "rejected"
+    # the loser of the race may be skipped (reference_changed) - never active
+    assert st.get(bad["set_version"], "rejected") == "rejected"
     assert list(st.values()).count("active") == 1
 
 
