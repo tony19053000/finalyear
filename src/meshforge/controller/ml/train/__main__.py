@@ -1,10 +1,12 @@
-"""``python -m meshforge.controller.ml.train compare|fit ...`` - the processes
-``compute planner ml compare`` (V0.15 G2, D353) and the controller's retrain
-task (V0.15 G3, D361) run.
+"""``python -m meshforge.controller.ml.train compare|fit|classify ...`` - the
+processes ``compute planner ml compare`` (V0.15 G2, D353), the controller's
+retrain task (V0.15 G3, D361) and ``compute planner ml classify`` (V0.15 G6a,
+D375) run.
 
     compare --dataset FILE --out DIR [--terms a,b] [--algorithms a,b]
             [--with-family] [--min-rows N] [--min-families N]
-            [--min-effect X] [--ablations]
+            [--min-effect X] [--ablations] [--classify-examples FILE]
+    classify --examples FILE --out DIR [--min-groups N] [--min-families N]
     fit     --dataset FILE --out DIR [--reference DIR] [--terms a,b]
             [--algorithms a,b] [--min-rows N] [--min-families N]
             [--min-effect X] [--max-interval-log X]
@@ -17,6 +19,12 @@ write ``DIR/set.json`` + one ``DIR/<sha256 hex>.art`` per learned member.
 With ``--exclude-family F`` (V0.15 G5a, D368) it trains the planner
 evaluator's fold set for held-out family ``F`` instead (no gate, never
 registered; ``DIR/heldout.json`` = its predictions for ``F``'s rows).
+
+``classify`` (:mod:`.classify`, report only): the 0.15.10 classifier
+experiment on an examples document (``POST /v1/planner/ml/classifier-
+examples``) -> ``DIR/classify.json`` (canonical) + ``DIR/classify.md``; no
+dataset is read. ``compare --classify-examples FILE`` adds the same section
+(``classifier``) to the comparison report.
 
 Reads the G1 dataset ``FILE`` (and its sidecar ``FILE.json`` when present),
 runs :func:`~.compare.compare` in this process (no server) and writes
@@ -43,7 +51,7 @@ import time
 from collections.abc import Sequence
 from dataclasses import replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Any, Final
 
 from meshforge.common.exit_codes import ExitCode
 from meshforge.controller.ml.train import EXTRA_HINT, missing_libraries
@@ -69,6 +77,20 @@ def _parser() -> argparse.ArgumentParser:
         help="V0.15 D372: also re-run the evaluation without each feature group "
         "(about 7x the time)",
     )
+    cmp.add_argument(
+        "--classify-examples",
+        type=Path,
+        default=None,
+        help="V0.15 D375: add the classifier experiment's section from this "
+        "examples document",
+    )
+    cls = sub.add_parser(
+        "classify", help="the 0.15.10 classifier experiment (report only)"
+    )
+    cls.add_argument("--examples", required=True, type=Path)
+    cls.add_argument("--out", required=True, type=Path)
+    cls.add_argument("--min-groups", type=int, default=None)
+    cls.add_argument("--min-families", type=int, default=None)
     fit = sub.add_parser("fit", help="train, gate and write a model set (G3)")
     _common(fit)
     fit.add_argument("--reference", type=Path, default=None)
@@ -180,6 +202,82 @@ def _fold_args(args: argparse.Namespace) -> FoldArgs:
     return FoldArgs(family=family, until=until, groups=read_groups(args.exclude_groups))
 
 
+class _ClassifyInputError(ValueError):
+    """An examples file that cannot be read (exit 2)."""
+
+
+def _classifier_section(path: Path, args: argparse.Namespace | None) -> dict[str, Any]:
+    """The classifier section of ``path`` (:func:`.classify.classify`);
+    :class:`_ClassifyInputError` for an unreadable file."""
+    from meshforge.controller.ml.train.classify import (
+        ClassifySettings,
+        ExamplesError,
+        classify,
+    )
+
+    settings = ClassifySettings()
+    if args is not None:
+        if args.min_groups is not None:
+            settings = replace(settings, min_groups=max(1, args.min_groups))
+        if args.min_families is not None:
+            settings = replace(settings, min_families=max(1, args.min_families))
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise _ClassifyInputError(
+            f"{path}: cannot read the examples ({type(exc).__name__})"
+        ) from None
+    try:
+        return classify(doc, settings)
+    except ExamplesError as exc:
+        raise _ClassifyInputError(f"{path}: {exc}") from None
+
+
+def _run_classify(args: argparse.Namespace) -> int:
+    """``classify`` (module docstring)."""
+    from meshforge.controller.ml.train.report import (
+        canonical_json,
+        classifier_lines,
+        library_versions,
+    )
+
+    started = time.monotonic()
+    try:
+        section = _classifier_section(args.examples, args)
+    except _ClassifyInputError as exc:
+        _err(str(exc))
+        return int(ExitCode.USAGE_ERROR)
+    except Exception as exc:  # noqa: BLE001 - one line for the operator, no traceback
+        detail = str(exc).splitlines()[0] if str(exc) else "no detail"
+        _err(f"the classifier experiment failed ({type(exc).__name__}: {detail})")
+        return int(ExitCode.FAILURE)
+    doc = {"classifier": section, "libraries": library_versions()}
+    try:
+        args.out.mkdir(parents=True, exist_ok=True)
+        json_path = args.out / "classify.json"
+        md_path = args.out / "classify.md"
+        json_path.write_text(canonical_json(doc), encoding="utf-8")
+        md_path.write_text(
+            "\n".join(["# ML classifier experiment", "", *classifier_lines(section)])
+            + "\n",
+            encoding="utf-8",
+        )
+    except OSError as exc:
+        _err(f"cannot write the report to {args.out}: {exc.strerror or exc}")
+        return int(ExitCode.FAILURE)
+    sys.stdout.write(
+        json.dumps(
+            {
+                "report": str(json_path),
+                "markdown": str(md_path),
+                "seconds": round(time.monotonic() - started, 3),
+            }
+        )
+        + "\n"
+    )
+    return int(ExitCode.OK)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     missing = missing_libraries()
@@ -194,6 +292,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     from meshforge.controller.ml.train.report import canonical_json, markdown, report
 
+    if args.command == "classify":
+        return _run_classify(args)
     try:
         settings = _settings(args)
     except ValueError as exc:
@@ -242,6 +342,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             sidecar=sidecar,
             ablations=ablations,
         )
+        if args.classify_examples is not None:  # V0.15 G6a (D375)
+            doc["classifier"] = _classifier_section(args.classify_examples, None)
+    except _ClassifyInputError as exc:
+        _err(str(exc))
+        return int(ExitCode.USAGE_ERROR)
     except Exception as exc:  # noqa: BLE001 - one line for the operator, no traceback
         detail = str(exc).splitlines()[0] if str(exc) else "no detail"
         _err(f"{args.dataset}: the comparison failed ({type(exc).__name__}: {detail})")

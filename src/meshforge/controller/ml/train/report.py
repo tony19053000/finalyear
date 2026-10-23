@@ -33,6 +33,7 @@ __all__ = [
     "FAILURE_CLASSIFIER_MIN_EVENTS",
     "REPORT_VERSION",
     "canonical_json",
+    "classifier_lines",
     "clean",
     "failure_classifier",
     "library_versions",
@@ -359,6 +360,8 @@ def markdown(doc: Mapping[str, Any]) -> str:
             f"(from {folds.get('learned', 0)} of {folds.get('total', 0)} folds)"
         )
     lines += _ablation_lines(doc.get("ablations"))
+    if isinstance(doc.get("classifier"), Mapping):  # V0.15 G6a (D375)
+        lines += ["", *classifier_lines(doc["classifier"])]
     if failures["status"] == "not_trained":
         line = (
             f"failure classifier: not trained, {failures['node_failures']} < "
@@ -428,4 +431,82 @@ def _ablation_lines(block: Any) -> list[str]:
         "|" + "---|" * len(ABLATION_HEADER),
     ]
     lines += ["| " + " | ".join(r) + " |" for r in ablation_rows({"ablations": block})]
+    return lines
+
+
+# ------------------------------------------------------------ V0.15 G6a (D375)
+
+
+def _ccell(value: Any, digits: int = 2) -> str:
+    if value is None:
+        return "-"
+    if isinstance(value, bool):
+        return str(value).lower()
+    if isinstance(value, int | float):
+        return f"{value:.{digits}f}"
+    return str(value)
+
+
+CLASSIFIER_HEADER: Final = (
+    "model",
+    "counted",
+    "unmeasured",
+    "mean regret %",
+    "within 15 %",
+    "accuracy",
+    "regret - cost model [CI]",
+    "verdict",
+)
+
+
+def classifier_lines(section: Mapping[str, Any]) -> list[str]:
+    """V0.15 G6a (D375): the classifier experiment's section
+    (:mod:`.classify`) as Markdown lines (deterministic)."""
+    lines = ["## Classifier vs cost regression (0.15.10, report only)", ""]
+    lines.append(
+        f"- {section.get('groups')} labelled group(s) in "
+        f"{len(section.get('families') or [])} family(ies); campaigns: "
+        + (", ".join(section.get("campaign_ids") or []) or "-")
+    )
+    if section.get("status") != "evaluated":
+        lines += [f"- **{section.get('status')}**: {section.get('reason')}", ""]
+        return lines
+    lines += [
+        "- leave-one-family-out: each family's groups are predicted by models "
+        "trained on the other families only (and no group of the same workload)",
+        "- a predicted class scores the regret of the planner's best candidate "
+        "of that class; a class with no measured candidate is `unmeasured`",
+        "",
+        "| " + " | ".join(CLASSIFIER_HEADER) + " |",
+        "|" + "---|" * len(CLASSIFIER_HEADER),
+    ]
+    cost = section.get("cost_model") or {}
+    for row in [*(section.get("models") or []), cost]:
+        paired = row.get("vs_cost_model") or {}
+        if row is cost:
+            delta, verdict, accuracy = "(reference)", "-", "-"
+        else:
+            delta = (
+                f"{_ccell(paired.get('mean_diff_pct'))} [{_ccell(paired.get('ci_low'))}, "
+                f"{_ccell(paired.get('ci_high'))}]"
+            )
+            verdict = str(paired.get("verdict"))
+            accuracy = _ccell(row.get("accuracy"), 3)
+        lines.append(
+            "| "
+            + " | ".join(
+                [
+                    str(row.get("model")),
+                    str(row.get("counted_groups")),
+                    str(row.get("unmeasured_groups")),
+                    _ccell(row.get("mean_regret_pct")),
+                    _ccell(row.get("within_threshold_pct"), 1),
+                    accuracy,
+                    delta,
+                    verdict,
+                ]
+            )
+            + " |"
+        )
+    lines.append("")
     return lines
