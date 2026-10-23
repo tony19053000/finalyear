@@ -565,7 +565,7 @@ class ControllerRuntime:
             self._spawn(self.calibration_refresher.run(), "planner-calibration")
         # V0.15 G3 (D339/D361): the model registry; a configured pin that does
         # not exist, was rejected or cannot load stops the start
-        ml_registry = ModelRegistry(engine, blobs.cas)
+        ml_registry = ModelRegistry(engine, blobs.cas, used=blobs.used)
         self.ml_models = ModelSource(ml_registry, cfg.planner.ml)
         await self.ml_models.check()
         await self.ml_models.refresh()

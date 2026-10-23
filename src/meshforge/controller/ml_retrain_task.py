@@ -109,7 +109,8 @@ class RetrainResult:
     ``busy`` | ``same_set`` | ``reference_changed`` (no set written)."""
     error: str | None = None
     """Set when the retrain failed (``timeout``, ``child_failed``,
-    ``database``, ...); the serving set is unchanged."""
+    ``child_output_invalid``, ``database``, ``crashed``); the serving set is
+    unchanged."""
     detail: str | None = None
     superseded: str | None = None
     rows: int | None = None
@@ -466,7 +467,10 @@ class MlRetrainer:
                         :500
                     ],
                 )
-            doc, artefacts, timings = await asyncio.to_thread(_read_output, out)
+            try:
+                doc, artefacts, timings = await asyncio.to_thread(_read_output, out)
+            except ChildOutputError as exc:
+                return self._invalid_output(trigger, started, str(exc))
         rows = int(doc.get("rows") or 0)
         if doc.get("status") == "insufficient_data":
             self._last_key = key
@@ -490,9 +494,21 @@ class MlRetrainer:
             "seconds": timings,
             "libraries": doc.get("libraries", {}),
         }
-        stored: StoreResult = await self._registry.store(
-            doc, artefacts, reference_version=reference_version, inputs=inputs
-        )
+        try:
+            stored: StoreResult = await self._registry.store(
+                doc, artefacts, reference_version=reference_version, inputs=inputs
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            # reviewer #4: a set.json that does not match its artefacts or
+            # lacks a field is the child's fault, not a crash of this task
+            return self._invalid_output(trigger, started, _describe(exc))
+        except MlRegistryError as exc:
+            if exc.retryable:
+                raise
+            # fix r2 (N1): the database refused a value of the document
+            return self._invalid_output(
+                trigger, started, f"refused by the database: {exc.details.get('cause')}"
+            )
         if stored.skipped != "reference_changed":
             self._last_key = key
         await self._source.refresh()
@@ -507,19 +523,53 @@ class MlRetrainer:
             seconds=timings,
         )
 
+    def _invalid_output(
+        self, trigger: str, started: dt.datetime, detail: str
+    ) -> RetrainResult:
+        return RetrainResult(
+            trigger,
+            started,
+            self._clock(),
+            error="child_output_invalid",
+            detail=detail[:500],
+        )
+
+
+class ChildOutputError(Exception):
+    """The ``fit`` child exited 0 but its output cannot be read (reviewer #4):
+    a missing / malformed ``set.json``, a member without its fields, an
+    artefact file that is not there. Message = a short description."""
+
+
+def _describe(exc: BaseException) -> str:
+    if isinstance(exc, KeyError):
+        return f"missing field {exc.args[0]!r}" if exc.args else "missing field"
+    return f"{type(exc).__name__}: {str(exc)[:200]}"
+
+
+def _object(value: Any, name: str = "set") -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise TypeError(f"{name}.json is not an object")
+    return value
+
 
 def _read_output(out: Path) -> tuple[dict[str, Any], dict[str, bytes], dict[str, Any]]:
-    """The child's ``set.json``, its artefacts and timings."""
-    doc: dict[str, Any] = json.loads((out / "set.json").read_text(encoding="utf-8"))
-    artefacts: dict[str, bytes] = {}
-    for member in doc.get("members", []):
-        name = member.get("artefact")
-        if name:
-            artefacts[member["version"]] = (out / name).read_bytes()
-    timings_path = out / "timings.json"
-    timings: dict[str, Any] = (
-        json.loads(timings_path.read_text(encoding="utf-8"))
-        if timings_path.exists()
-        else {}
-    )
+    """The child's ``set.json``, its artefacts and timings;
+    :class:`ChildOutputError` when they cannot be read."""
+    try:
+        doc = _object(json.loads((out / "set.json").read_text(encoding="utf-8")))
+        artefacts: dict[str, bytes] = {}
+        for member in doc.get("members", []):
+            name = member.get("artefact")
+            if name:
+                version = member["version"]
+                artefacts[version] = (out / str(name)).read_bytes()
+        timings_path = out / "timings.json"
+        timings = (
+            _object(json.loads(timings_path.read_text(encoding="utf-8")), "timings")
+            if timings_path.exists()
+            else {}
+        )
+    except (OSError, KeyError, TypeError, ValueError, AttributeError) as exc:
+        raise ChildOutputError(_describe(exc)) from exc
     return doc, artefacts, timings

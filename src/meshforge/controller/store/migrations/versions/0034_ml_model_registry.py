@@ -18,7 +18,9 @@ tests fails on drift).
   artefact; for ``algorithm = 'none'`` the digest of the member's descriptor
   - a term the set has no learned model for, with its ``reason``),
   ``algorithm``, ``params`` / ``metrics`` (JSON objects), ``artefact_digest``
-  + ``artefact_bytes`` (the CAS blob; NULL exactly when ``none``).
+  + ``artefact_bytes`` (the CAS blob; NULL exactly when ``none``; ``>= 0``:
+  a 0-byte artefact is recorded, in a set the registry stores ``rejected``
+  ``unloadable_artefact`` - never active, never pinnable; V0.15 G3 fix r2).
   ``ix_ml_model_version`` finds the sets a model version is in.
 
 No existing row changes. Downgrade drops both tables (development only).
@@ -152,8 +154,8 @@ def upgrade() -> None:
             name=op.f("ck_ml_model_artefact_bytes"),
         ),
         sa.CheckConstraint(
-            "artefact_bytes IS NULL OR artefact_bytes > 0",
-            name=op.f("ck_ml_model_artefact_bytes_positive"),
+            "artefact_bytes IS NULL OR artefact_bytes >= 0",
+            name=op.f("ck_ml_model_artefact_bytes_nonnegative"),
         ),
         sa.CheckConstraint("version LIKE 'sha256:%'", name=op.f("ck_ml_model_version")),
         sa.ForeignKeyConstraint(

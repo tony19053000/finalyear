@@ -26,8 +26,18 @@ artefacts live in the controller's CAS blob store, named by their digest
   thread).
 
 A database that fails raises :class:`MlRegistryError` (``network_error``,
-retryable). No row ever changes except a set's ``status`` (+
-``status_changed_at``).
+retryable); a value the database refuses (``DataError`` / a check or
+constraint violation - a malformed training document, never a blip) raises
+it typed ``invalid_input``, **not** retryable (fix r2, N1). Rows change only
+in a set's ``status`` (+ ``status_changed_at``) and a rejected set's
+re-judge (fix r1, D1; its ``gate.history`` keeps the newest
+:data:`MAX_GATE_HISTORY` verdicts, fix r2, N2).
+
+Artefacts the CAS already holds (``put_bytes`` dedups) are reported to the
+blob GC as used now (``used`` hook = :meth:`~meshforge.controller.gc.
+ControllerGc.touch`, as a ``have`` answer does), so a GC pass between the
+put and the commit cannot evict a blob the new set is about to reference
+(fix r2, reviewer #1).
 """
 
 from __future__ import annotations
@@ -35,15 +45,15 @@ from __future__ import annotations
 import asyncio
 import datetime as dt
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Final
 
 from sqlalchemy import func, select, text, update
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import DataError, DBAPIError, IntegrityError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
-from meshforge.common.cas import CasError, CasStore
+from meshforge.common.cas import CasError, CasStore, PutResult
 from meshforge.common.errors import ExitCode, FailureType, MeshForgeError
 from meshforge.common.hashing import Digest
 from meshforge.common.logging import get_logger
@@ -57,6 +67,7 @@ from meshforge.controller.store.models.ml import (
 )
 
 __all__ = [
+    "MAX_GATE_HISTORY",
     "MlRegistryError",
     "ModelRegistry",
     "PinError",
@@ -75,6 +86,8 @@ _LOCK: Final = text(
 )
 _DB_ERRORS: Final = (SQLAlchemyError, OSError, TimeoutError)
 MAX_RECENT: Final = 200
+MAX_GATE_HISTORY: Final = 20
+"""A re-judged rejected set keeps this many previous verdicts (newest)."""
 
 
 class MlRegistryError(MeshForgeError):
@@ -163,13 +176,14 @@ def _row(item: MlModelSet, members: Sequence[MlModel]) -> SetRow:
     )
 
 
-_CONTROL: Final = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
+_CONTROL: Final = re.compile(r"[\x00-\x08\x0b-\x1f\x7f\ud800-\udfff]")
 
 
 def safe_text(value: str) -> str:
     """V0.15 G3 fix r1 (D4): NUL and the other C0 controls (except tab and
     newline) and DEL replaced by U+FFFD - PostgreSQL refuses NUL in text and
-    JSONB, and reasons embed names that come from data."""
+    JSONB, and reasons embed names that come from data. Fix r2 (N3): so is a
+    lone surrogate (U+D800-U+DFFF), which cannot be encoded as UTF-8."""
     return _CONTROL.sub("\ufffd", value)
 
 
@@ -192,12 +206,48 @@ def _without_history(gate: Mapping[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in gate.items() if k != "history"}
 
 
+def _refused_value(exc: BaseException) -> bool:
+    """Fix r2 (N1): the database refused a *value* (SQLSTATE class 22 data
+    exception / 23 integrity violation, or the driver could not encode a
+    parameter) - retrying the same document can never succeed."""
+    if isinstance(exc, DataError | IntegrityError):
+        return True
+    if not isinstance(exc, DBAPIError):
+        return False
+    for cause in (exc.orig, getattr(exc.orig, "__cause__", None)):
+        if cause is None:
+            continue
+        sqlstate = str(getattr(cause, "sqlstate", "") or "")
+        if sqlstate[:2] in ("22", "23") or type(cause).__name__ == "DataError":
+            return True
+    return False
+
+
+def _db_error(message: str, exc: BaseException) -> MlRegistryError:
+    if _refused_value(exc):
+        return MlRegistryError(
+            message,
+            failure_type=FailureType.INVALID_INPUT,
+            retryable=False,
+            details={"cause": type(exc).__name__, "refused": "value"},
+        )
+    return MlRegistryError(message, details={"cause": type(exc).__name__})
+
+
 class ModelRegistry:
     """See module docstring."""
 
-    def __init__(self, engine: AsyncEngine, cas: CasStore) -> None:
+    def __init__(
+        self,
+        engine: AsyncEngine,
+        cas: CasStore,
+        *,
+        used: Callable[[list[Digest]], Awaitable[None]] | None = None,
+    ) -> None:
         self._engine = engine
         self._cas = cas
+        self._used = used
+        """Fix r2 (reviewer #1): the blob GC's ``touch`` (None = no GC)."""
         self._sessions: async_sessionmaker[AsyncSession] = create_session_factory(
             engine
         )
@@ -320,8 +370,8 @@ class ModelRegistry:
             without_model=without,
         )
 
-    def _put(self, data: bytes, version: str) -> None:
-        self._cas.put_bytes(data, Digest.parse(version))
+    def _put(self, data: bytes, version: str) -> PutResult:
+        return self._cas.put_bytes(data, Digest.parse(version))
 
     # ------------------------------------------------------------------ writes
 
@@ -345,17 +395,24 @@ class ModelRegistry:
             data = artefacts.get(member["version"])
             if data is None or digest(data) != member["version"]:
                 raise ValueError(f"the {member['term']} artefact does not match")
+        deduped: list[Digest] = []
         try:
             for member in members:
                 if member["algorithm"] != "none":
-                    await asyncio.to_thread(
+                    put = await asyncio.to_thread(
                         self._put, artefacts[member["version"]], member["version"]
                     )
+                    if not put.created:
+                        deduped.append(put.digest)
         except CasError as exc:
             raise MlRegistryError(
                 "the model artefacts could not be stored in the blob store",
                 details={"cause": type(exc).__name__},
             ) from exc
+        if deduped and self._used is not None:
+            # reviewer #1: an existing blob's GC last-use moves to now, so a
+            # pass before the commit below sees it as fresh (min_age_s)
+            await self._used(deduped)
         accepted = bool(doc.get("accepted"))
         gate: dict[str, Any] = safe_json(dict(doc.get("gate") or {}))
         reason = doc.get("reason")
@@ -410,7 +467,7 @@ class ModelRegistry:
                     )
                     existing.status = "active" if accepted else "rejected"
                     existing.reason = _reason(reason)
-                    existing.gate = {**gate, "history": history}
+                    existing.gate = {**gate, "history": history[-MAX_GATE_HISTORY:]}
                     existing.inputs = set_inputs
                     existing.status_changed_at = func.now()
                     await db.flush()
@@ -463,9 +520,8 @@ class ModelRegistry:
                 await db.refresh(item)
                 return StoreResult(row=_row(item, rows), superseded=superseded)
         except _DB_ERRORS as exc:
-            raise MlRegistryError(
-                "the model set could not be stored in the database",
-                details={"cause": type(exc).__name__},
+            raise _db_error(
+                "the model set could not be stored in the database", exc
             ) from exc
 
     @staticmethod

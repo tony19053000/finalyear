@@ -1,3 +1,4 @@
+# ruff: noqa: S112, PT017
 """V0.15 G3 tester r2 - D2/D3 at the model level: zero rows, one row, NaN /
 inf rows, wrong widths, for every learned algorithm that is installed."""
 

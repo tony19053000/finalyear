@@ -1421,6 +1421,27 @@ compute get <JOB_ID>               # outputs -> ./outputs/<JOB_ID>/ (--dest, --f
   409); it can still serve ridge / kNN / tree / forest sets (numpy only), not
   LightGBM / XGBoost ones (`library_missing`). Same dataset + same code and
   library versions -> the same set version (byte-identical artefacts).
+  Details operators may meet (V0.15 G3 fix r2):
+  * a `rejected` set judged again under other gate settings (or another
+    reference) is updated **in place** - it keeps its original `created_at`,
+    so `compute planner ml models` still lists it where it was first trained
+    (newest `created_at` first); the move shows in `status_changed_at` and the
+    previous verdicts in the gate's `history` (newest 20 kept);
+  * `compute planner ml train` works whatever `ml` is: with `ml = "off"` or a
+    configured pin it still trains, gates and stores a set (and may make it
+    `active`), but the planner keeps planning with nothing / the configured
+    pin until the setting changes - only `ml = "auto"` retrains on the
+    schedule;
+  * a retrain holds **one** connection of the controller's database pool for
+    its whole run (the cross-controller session advisory lock), plus short
+    ones for its reads and the store - size `[controller.database]` pools with
+    that one in mind;
+  * a retrain whose child exits 0 but leaves an unreadable `set.json` / a
+    missing artefact, or a document the database refuses, fails
+    `child_output_invalid` (nothing stored; logged
+    `controller.planner.ml_retrain_failed`), not `crashed`; a learned
+    artefact that is empty or cannot be loaded makes the set `rejected`
+    `unloadable_artefact: <term> (<reason>)`.
 - `run -f` streams the logs and exits like the job: `0` succeeded; the workload's own
   exit code (1-125) when it failed; `126` when the fabric failed it (the failure type
   is printed: `node_lost`, `deadline_exceeded`, `output_error` …); `128` cancelled.

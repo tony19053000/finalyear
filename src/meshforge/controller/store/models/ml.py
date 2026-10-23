@@ -145,8 +145,8 @@ class MlModel(Base):
             name="artefact_bytes",
         ),
         CheckConstraint(
-            "artefact_bytes IS NULL OR artefact_bytes > 0",
-            name="artefact_bytes_positive",
+            "artefact_bytes IS NULL OR artefact_bytes >= 0",
+            name="artefact_bytes_nonnegative",
         ),
         CheckConstraint("version LIKE 'sha256:%'", name="version"),
         Index("ix_ml_model_version", "version"),

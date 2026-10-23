@@ -46,7 +46,7 @@ MODEL_CHECKS = {
     "ck_ml_model_reason",
     "ck_ml_model_artefact_iff_learned",
     "ck_ml_model_artefact_bytes",
-    "ck_ml_model_artefact_bytes_positive",
+    "ck_ml_model_artefact_bytes_nonnegative",
     "ck_ml_model_version",
 }
 
@@ -181,7 +181,7 @@ def test_0034_up_checks_indexes_down_up_and_alembic_check(
     _refused(_member, pg_settings, "sha256:s1", artefact=None, size=None)
     _refused(_member, pg_settings, "sha256:s1", algorithm="none")
     _refused(_member, pg_settings, "sha256:s1", size=None)
-    _refused(_member, pg_settings, "sha256:s1", size=0)
+    _refused(_member, pg_settings, "sha256:s1", size=-1)
     _refused(_member, pg_settings, "sha256:s1", params="[]")
     _refused(_member, pg_settings, "sha256:s1", metrics="1")
     _refused(_member, pg_settings, "sha256:s1", version="v1")

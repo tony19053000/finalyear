@@ -1,4 +1,4 @@
-# ruff: noqa: S311, RUF059, ASYNC240, PLR2004
+# ruff: noqa: C416, PIE808, PLE2502, RUF001
 """V0.15 G3 tester r2 - verifies fix r1 (D1-D4) and probes the neighbouring
 failure paths on a real PostgreSQL + real CAS.
 
