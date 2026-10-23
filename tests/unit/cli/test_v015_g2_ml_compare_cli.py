@@ -119,7 +119,9 @@ def test_missing_extra_is_exit_2_with_the_hint_and_no_child(
     )
     result = runner.invoke(app, ["planner", "ml", "compare", "--dataset", str(dataset)])
     assert result.exit_code == 2
-    assert "sklearn, xgboost" in result.output and "--extra ml" in result.output
+    # lightgbm may or may not be installed here; the two hidden ones must be named
+    assert "sklearn" in result.output and "xgboost" in result.output
+    assert "--extra ml" in result.output
     assert started == []
 
 

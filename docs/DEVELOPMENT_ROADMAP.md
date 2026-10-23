@@ -681,8 +681,8 @@ A version is **complete** only when all apply:
 - [x] **0.15.3** Targets: compute time per node, env time, per-mode overhead residuals, failure probability — ✅ 2026-10-22 G1 merged `420a3a24` (tester r1 PASS 72 tests, reviewer APPROVE, full unit 20637 passed). Failure probability: per D335 the D296 Beta risk term stays; a failure classifier (labels from node-caused failures) is G2 work, built only if ≥ 50 such failures exist
 - [x] **0.15.4** Model comparison: linear/ridge, tree, random forest, XGBoost, LightGBM, kNN (+ quantile variants) — ✅ 2026-10-22 G2 merged `43aeec43` (tester r1 FAIL→fix r1 D356/D357; tester r2 PASS 82 new tests, 0 noise `better` in 24-run sweep, genuine signal still `better`; reviewer: 1 blocker fixed `1e498fd6`, design verified; full unit 20836 passed exit 0; lint-imports 10/0)
 - [x] **0.15.5** Uncertainty + OOD detection → fallback to analytical — ✅ 2026-10-22 G2 merged `43aeec43` (tester r1 FAIL→fix r1 D356/D357; tester r2 PASS 82 new tests, 0 noise `better` in 24-run sweep, genuine signal still `better`; reviewer: 1 blocker fixed `1e498fd6`, design verified; full unit 20836 passed exit 0; lint-imports 10/0)
-- [ ] **0.15.6** Planner integration as cost-component predictors; decision records store predictor version
-- [ ] **0.15.7** Model registry, versioning, scheduled retraining
+- [x] **0.15.6** Planner integration as cost-component predictors; decision records store predictor version — G4 merged `80767722` + `b8e52dcf` (tester r2 PASS, reviewer APPROVE; D362–D366)
+- [x] **0.15.7** Model registry, versioning, scheduled retraining — G3 merged `2eb065b2` (tester r3: behaviour all pass, gate fixes `dc03e98f`; reviewer APPROVE ×2; D367). Main: unit 24539 passed + 1 env-only test fixed, mypy/lint-imports clean
 - [ ] **0.15.8** Evaluation report: MAPE, regret vs analytical/rules/oracle, ablations, feature importance
 - [ ] **0.15.9** Dashboard: predicted vs actual, model versions
 - [ ] **0.15.10** Optional experiment: direct strategy classifier vs cost-regression (for the report)
