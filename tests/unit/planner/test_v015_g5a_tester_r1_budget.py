@@ -50,14 +50,43 @@ def test_pending_B2_total_fold_budget_stops_remaining_folds() -> None:  # noqa: 
 
 
 def test_pending_B1_fold_and_retrain_share_a_training_guard() -> None:  # noqa: N802
-    """A fold child must not run while a retrain training child runs."""
-    import meshforge.controller.ml.folds as folds
-    import meshforge.controller.ml_retrain_task as rt
+    """Behavioural: a holder of the module guard blocks a real train_fold call
+    (the same guard the retrainer uses), FIFO, until it releases."""
+    from meshforge.controller.ml.child import TRAINING_GUARD
+    from meshforge.controller.ml.folds import train_fold
 
-    shared = [n for n in dir(folds) if "guard" in n.lower() or "semaphore" in n.lower()]
-    assert shared and any(n in dir(rt) for n in shared), (
-        "no shared training-child guard between folds and retrain (B1)"
-    )
+    started: list[str] = []
+
+    async def child(argv: Sequence[str], timeout_s: float) -> tuple[int, str]:
+        started.append("child")
+        return 1, "x"
+
+    async def main() -> None:
+        import tempfile
+        from pathlib import Path
+
+        from meshforge.controller.settings import PlannerSettings as Settings
+
+        with tempfile.TemporaryDirectory() as d:
+            async with TRAINING_GUARD.held():
+                task = asyncio.create_task(
+                    train_fold(
+                        python="python",
+                        dataset=Path(d) / "d",
+                        work=Path(d),
+                        family="f",
+                        fingerprints=(),
+                        until=dt.datetime.now(dt.UTC),
+                        settings=Settings(),
+                        child=child,
+                    )
+                )
+                await asyncio.sleep(0.2)
+                assert started == [], "fold child ran while the guard was held"
+            await task
+            assert started == ["child"]
+
+    asyncio.run(main())
 
 
 _ = dt
