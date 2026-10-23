@@ -84,6 +84,18 @@ def _never_called(*_args: Any) -> tuple[float, ...]:
     raise AssertionError("a fallback replay builds no features")
 
 
+def _version_of(found: MlInput | None) -> str | None:
+    """A loaded model's version, or None when there is no model or reading
+    the version fails (same guard as D363: a broken model never raises out)."""
+    if found is None:
+        return None
+    try:
+        version = found.version
+    except Exception:  # noqa: BLE001 - D363: any model fault means no model
+        return None
+    return version if isinstance(version, str) else None
+
+
 def replay_decision(
     replay: Mapping[str, Any],
     policy: str,
@@ -108,13 +120,13 @@ def replay_decision(
         loaded = load(used.version)
         base = (
             loaded
-            if loaded is not None and loaded.version == used.version
+            if loaded is not None and _version_of(loaded) == used.version
             else MlInput(predictor=_Named(used.version), features=_never_called)
         )
         ml = dataclasses.replace(base, fallback=used.error)
     else:
         found = load(used.version)
-        if found is None or found.version != used.version:
+        if found is None or _version_of(found) != used.version:
             return ReplayResult(None, ML_MODEL_UNAVAILABLE, used.version)
         ml = found
     decision = plan(request, snapshot, policy, now, calibration=factors, ml=ml)

@@ -399,13 +399,11 @@ def test_a_version_fallback_decision_replays_to_itself_without_the_model(
         assert decision_view(out.decision) == decision_view(live)
 
 
-def test_observation_replay_reads_a_loaded_models_version_unguarded() -> None:
-    """OBSERVATION (minor hardening, pinned so a change is noticed):
-    ``ml/replay.replay_decision`` reads ``loaded.version`` (replay.py:111)
-    outside any guard. A loader that returns a model whose ``predictor_version``
-    raises makes the replay raise instead of reporting the model unavailable.
-    Not reachable with the registry loader (it versions models by content)."""
+def test_replay_guards_a_loaded_models_version() -> None:
+    """O-1b fixed by the Lead at merge: a loaded model whose
+    ``predictor_version`` raises no longer makes the replay raise; the stored
+    fallback decision replays to itself."""
     request, view, now, ml, live = _plan_with(None, raises=True)
     stored = json.loads(canonical_json(to_replay(request, view, now, ml=live.ml)))
-    with pytest.raises(RuntimeError):
-        replay_decision(stored, "cost_model", load=lambda _v: ml)
+    result = replay_decision(stored, "cost_model", load=lambda _v: ml)
+    assert result.status == "ok"
