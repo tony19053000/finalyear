@@ -31,7 +31,8 @@ calibration (V0.14 G2, D293/D301/D306).
   names the same digest (the dataset did not change in between).
 
 * ``ml compare --dataset FILE [--terms a,b] [--algorithms a,b] [--with-family]
-  [--min-rows N] [--min-families N] [--min-effect X] [--out DIR]`` (V0.15 G2, D353): offline,
+  [--min-rows N] [--min-families N] [--min-effect X] [--out DIR] [--timeout S]``
+  (V0.15 G2, D353; ``--timeout`` V0.15 G3, default 3600 s -> exit 1): offline,
   no controller needed - per term, does any learned model predict the
   residual better than the calibration on held-out families? Runs ``python
   -m meshforge.controller.ml.train compare`` in a child process with this
@@ -666,6 +667,8 @@ ML_EXTRA_HINT: Final = (
     "'meshforge[controller,ml]'`)"
 )
 _TRAIN_MODULE: Final = "meshforge.controller.ml.train"
+ML_COMPARE_TIMEOUT_S: Final = 3600.0
+"""V0.15 G3 (G2 tech debt): `ml compare --timeout` default (one hour)."""
 _COMPARE_HEADER: Final = (
     "term",
     "rows",
@@ -805,6 +808,15 @@ def ml_compare(
             file_okay=False,
         ),
     ] = None,
+    timeout: Annotated[
+        float,
+        typer.Option(
+            "--timeout",
+            min=1.0,
+            help="Stop the comparison after this many seconds (exit 1; the "
+            "child process is killed).",
+        ),
+    ] = ML_COMPARE_TIMEOUT_S,
     json_output: cli.JsonOption = False,
 ) -> None:
     """Compare learned models with the calibration per term (offline, no
@@ -840,9 +852,17 @@ def ml_compare(
                 argv += [flag, str(value)]
         if with_family:
             argv.append("--with-family")
-        result = subprocess.run(  # noqa: S603 - this interpreter, our own module
-            argv, capture_output=True, text=True, check=False
-        )
+        try:
+            # subprocess.run kills the child when the timeout expires
+            result = subprocess.run(  # noqa: S603 - this interpreter, our own module
+                argv, capture_output=True, text=True, check=False, timeout=timeout
+            )
+        except subprocess.TimeoutExpired:
+            cli._die(
+                f"the comparison did not finish in {timeout:g} s and was stopped "
+                "(use --timeout, --terms or --algorithms)",
+                CliExit.FAILURE,
+            )
         if result.returncode != 0:
             message = result.stderr.strip() or "the comparison failed"
             code = (

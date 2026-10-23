@@ -635,7 +635,8 @@ class PlannerSettings(SectionModel):
             "V0.15 D336/D338: an ML correction is used only when its interval "
             "(hi - lo, log space) is at most this wide - ln 2 = the interval "
             "spans at most a factor 2; else the term keeps its calibration "
-            "(reason interval_too_wide)."
+            "(reason interval_too_wide). The activation gate (V0.15 G3) judges "
+            "a new model set with the same rule."
         ),
     )
     ml_predict_budget_ms: float = Field(
@@ -648,6 +649,97 @@ class PlannerSettings(SectionModel):
             "at most once a minute."
         ),
     )
+
+    # ------------------------------------------------ V0.15 G3 (D339, D358-D361)
+    ml: str = Field(
+        default="auto",
+        description=(
+            "V0.15 D339: which ML model set the planner may use. auto = the "
+            "pinned set, else the active one (a retrained set goes live only "
+            "through the activation gate); off = no ML (plans exactly as "
+            'V0.14); a set version (e.g. "sha256:3a1f...") = pin that set '
+            "(the controller refuses to start if it does not exist, was "
+            "rejected or cannot be loaded)."
+        ),
+    )
+    ml_retrain_s: float = Field(
+        default=86_400.0,
+        ge=60.0,
+        le=30 * 86_400.0,
+        description=(
+            "V0.15 D361: how often the controller retrains the model set (ml = "
+            "auto, with the ml extra installed; skipped when no run ended "
+            "since the last set). compute planner ml train retrains now."
+        ),
+    )
+    ml_retrain_timeout_s: float = Field(
+        default=3600.0,
+        ge=10.0,
+        le=86_400.0,
+        description=(
+            "V0.15 D361: a retrain (a child process) that runs longer is "
+            "killed; nothing is stored."
+        ),
+    )
+    ml_min_rows: int = Field(
+        default=200,
+        ge=1,
+        le=10_000_000,
+        description="V0.15 D348: a term is trained only with this many rows.",
+    )
+    ml_min_families: int = Field(
+        default=3,
+        ge=1,
+        le=1000,
+        description="V0.15 D348: ... and this many workload families.",
+    )
+    ml_family_tolerance_log: float = Field(
+        default=0.05,
+        gt=0.0,
+        le=10.0,
+        description=(
+            "V0.15 D339/D351: the activation gate rejects a set that is worse "
+            "than the calibration by more than this log error on any family."
+        ),
+    )
+    ml_min_effect_log: float = Field(
+        default=0.02,
+        ge=0.0,
+        le=10.0,
+        description=(
+            "V0.15 D357: a set is activated only if a learned term beats the "
+            "calibration by more than this log error on the held-out slice."
+        ),
+    )
+    ml_keep_superseded: int = Field(
+        default=5,
+        ge=0,
+        le=1000,
+        description=(
+            "V0.15 G3: the blob GC keeps the artefacts of the active, the "
+            "pinned and this many newest superseded model sets (the rollback "
+            "window); a rejected set's artefacts may be collected."
+        ),
+    )
+
+    @field_validator("ml", mode="before")
+    @classmethod
+    def _ml(cls, value: object) -> str:
+        if not isinstance(value, str):
+            raise ValueError('ml must be "auto", "off" or a set version')  # noqa: TRY004
+        value = value.strip()
+        if value in ("auto", "off"):
+            return value
+        algorithm, _, hex_part = value.partition(":")
+        if (
+            algorithm != "sha256"
+            or len(hex_part) != 64
+            or any(c not in "0123456789abcdef" for c in hex_part)
+        ):
+            raise ValueError(
+                'ml must be "auto", "off" or a model set version "sha256:<64 hex>"'
+            )
+        return value
 
     @field_validator("calibration", mode="before")
     @classmethod

@@ -51,7 +51,7 @@ from meshforge.controller.jobs.retry import RetryReason
 from meshforge.controller.jobs.spec import execution_spec
 from meshforge.controller.jobs.store import AttemptRecord, JobRecord
 from meshforge.controller.jobs.transitions import AttemptEvent
-from meshforge.controller.ml.predictor import ModelSource
+from meshforge.controller.ml.predictor import MlInputSource
 from meshforge.controller.named_inputs import NamedInputStore, ResolvedInput
 from meshforge.controller.resources import ResourceTracker
 from meshforge.controller.secret_box import (
@@ -230,7 +230,7 @@ class DispatchSteps:
     _split: SplitService | None
     _calibration: CalibrationSource | None
     """V0.14 G2 (D293): where the tick's calibration comes from (None = none)."""
-    _ml: ModelSource | None
+    _ml: MlInputSource | None
     """V0.15 G4 (D336): where the tick's ML model comes from (None = none)."""
     stats: DispatcherStats
 

@@ -351,6 +351,26 @@ COMPUTE: Final[dict[str, Entry]] = {
         "the Planner page's Models section (V0.15 G5, D342) shows the "
         "registry's models and their metrics."
     ),
+    # V0.15 G3 (D339, D358-D361): the model registry. The brief (§5c step 7)
+    # leaves the page to G5 (D342 "Models" section on the Planner page).
+    "planner ml models": CliOnly(
+        "V0.15 G3: lists the registry's model sets and what the planner uses; "
+        "the Planner page's Models section that shows the same is V0.15 G5 "
+        "(D342) by the brief."
+    ),
+    "planner ml train": CliOnly(
+        "V0.15 G3: an operator action that starts a retrain on the controller "
+        "(admin); the Planner page's Models section (V0.15 G5, D342) shows "
+        "every set it writes."
+    ),
+    "planner ml pin": CliOnly(
+        "V0.15 G3: an operator override (admin) that pins a model set; the "
+        "Models section of the Planner page is V0.15 G5 (D342) by the brief."
+    ),
+    "planner ml unpin": CliOnly(
+        "V0.15 G3: an operator action (admin) that ends a pin; the Models "
+        "section of the Planner page is V0.15 G5 (D342) by the brief."
+    ),
 }
 
 #: ``meshforge-controller user ...`` (D176 "users (admin)").

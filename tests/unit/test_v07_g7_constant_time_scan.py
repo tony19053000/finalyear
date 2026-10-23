@@ -156,6 +156,14 @@ ALLOWED: dict[tuple[str, str], str] = {
     ("controller/planner/estimator.py", "env_hash in node.cached_envs"): (
         "an environment's content hash (public, advertised by every agent)"
     ),
+    ("controller/ml/artefact.py", "version != expected_version"): (
+        "V0.15 G3: a model artefact's content digest checked against its CAS "
+        "version (integrity, public data) - no secret"
+    ),
+    ("controller/ml/registry.py", "digest(data) != member['version']"): (
+        "V0.15 G3: a model artefact's content digest checked against the member's "
+        "version before storing (integrity, public data) - no secret"
+    ),
     ("controller/ml/features.py", "env_hash in node.cached_envs"): (
         "an environment's content hash (public, advertised by every agent); the ML "
         "cache feature mirrors the estimator's check"

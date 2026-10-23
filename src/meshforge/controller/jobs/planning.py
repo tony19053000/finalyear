@@ -307,7 +307,7 @@ class DispatchPlanner:
         # ------------------------------------------------ V0.15 G4 (D336)
         self.ml: MlInput | None = None
         """The ML model this tick plans with (the dispatcher sets it once per
-        tick from its ``ModelSource``); None = no model (V0.14 decisions
+        tick from its ``MlInputSource``); None = no model (V0.14 decisions
         exactly). Its version goes onto every candidate row and the replay."""
         self.ml_predictor_errors = 0
         """D363: decisions whose predictor failed (they fell back to

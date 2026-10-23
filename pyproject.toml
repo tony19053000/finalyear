@@ -358,7 +358,26 @@ ignore_imports = [
     "meshforge.controller.ml.train.* -> sklearn",
     "meshforge.controller.ml.train.* -> lightgbm",
     "meshforge.controller.ml.train.* -> xgboost",
+    # V0.15 G3 (D359): serving loads LightGBM / XGBoost models with their own
+    # library (imported only for those two algorithms) - never scikit-learn
+    "meshforge.controller.ml.serve -> lightgbm",
+    "meshforge.controller.ml.serve -> xgboost",
 ]
+
+# V0.15 G3 (D359): the serving side - artefact decoding, the shared
+# preprocessing and the loaded predictors - needs numpy only (+ LightGBM /
+# XGBoost for those models): never scikit-learn, and never the training
+# package (which imports it).
+[[tool.importlinter.contracts]]
+id = "ml-serving-imports"
+name = "ML serving never imports scikit-learn or the training package"
+type = "forbidden"
+source_modules = [
+    "meshforge.controller.ml.serve",
+    "meshforge.controller.ml.artefact",
+    "meshforge.controller.ml.prep",
+]
+forbidden_modules = ["sklearn", "meshforge.controller.ml.train"]
 
 # ---------------------------------------------------------------------------
 # ruff: lint + format (roadmap 0.1.9). Run: `uv run ruff check .` and
@@ -422,6 +441,8 @@ ignore = [
 "src/meshforge/controller/ml/train/**" = [
     "N803", "N806", # X / Z = feature matrices: the ML convention (V0.15 G2)
 ]
+# V0.15 G3: the shared preprocessing and the serving side use the same names
+"src/meshforge/controller/ml/{prep,serve,artefact}.py" = ["N803", "N806"]
 "src/meshforge/controller/store/migrations/**" = [
     "N999", # Alembic revision files are named 0001_*.py
 ]

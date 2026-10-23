@@ -122,7 +122,7 @@ from meshforge.controller.jobs.recovery import RecoverySteps, _Offline, _Reconci
 from meshforge.controller.jobs.reports import parse_status
 from meshforge.controller.jobs.store import JobRecord, JobStoreError
 from meshforge.controller.liveness import LivenessEvent
-from meshforge.controller.ml.predictor import ModelSource
+from meshforge.controller.ml.predictor import MlInputSource
 from meshforge.controller.named_inputs import NamedInputStore
 from meshforge.controller.resources import ResourceTracker
 from meshforge.controller.secret_store import SecretStore
@@ -212,7 +212,7 @@ class Dispatcher(RecoverySteps):
         split: SplitSettings | None = None,
         on_split_change: Callable[[str | None], None] | None = None,
         calibration: CalibrationSource | None = None,
-        ml: ModelSource | None = None,
+        ml: MlInputSource | None = None,
     ) -> None:
         self._store = store
         self._calibration = calibration

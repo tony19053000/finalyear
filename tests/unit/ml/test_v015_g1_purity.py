@@ -60,6 +60,17 @@ ML_LIBRARIES = {
     "joblib",
 }
 UNSAFE = {"pickle", "joblib", "marshal", "shelve", "dill", "cloudpickle"}
+SERVING = ("prep.py", "artefact.py", "serve.py")
+SERVING_LIBRARIES = {
+    # V0.15 G3 (D359): numpy for the shared preprocessing, the artefact
+    # arrays and the numpy predictors; LightGBM / XGBoost only to load those
+    # two model formats - never scikit-learn
+    "prep.py": {"numpy"},
+    "artefact.py": {"numpy"},
+    "serve.py": {"numpy", "lightgbm", "xgboost"},
+    "registry.py": {"numpy"},
+    "source.py": {"numpy"},
+}
 
 
 def _imports(path: Path) -> list[str]:
@@ -91,6 +102,8 @@ def test_pure_modules_import_nothing_impure(name: str) -> None:
 def test_every_ml_module_is_listed_as_pure_or_io() -> None:
     names = {p.name for p in ML_ROOT.glob("*.py")}
     # V0.15 G2: cache.py (D355, I/O through loader / export)
+    # V0.15 G3: the serving side (prep, artefact, serve: numpy) and the
+    # registry / model source (I/O)
     # V0.15 G4: predictor.py (the planner input + budget clock, D336/D363)
     assert names == {
         *PURE,
@@ -98,14 +111,20 @@ def test_every_ml_module_is_listed_as_pure_or_io() -> None:
         "loader.py",
         "export.py",
         "cache.py",
+        *SERVING,
+        "registry.py",
+        "source.py",
         "predictor.py",
     }
 
 
 @pytest.mark.parametrize("path", sorted(ML_ROOT.glob("*.py")), ids=lambda p: p.name)
 def test_no_ml_library_and_no_pickle_in_the_ml_package(path: Path) -> None:
+    allowed = SERVING_LIBRARIES.get(path.name, set())
     for module in _imports(path):
         top = module.split(".")[0]
+        if top in allowed:
+            continue
         assert top not in ML_LIBRARIES, f"{path.name} imports {module} (G1: no ML)"
         assert top not in UNSAFE, f"{path.name} imports {module}"
 

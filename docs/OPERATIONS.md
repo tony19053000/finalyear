@@ -1393,9 +1393,63 @@ compute get <JOB_ID>               # outputs -> ./outputs/<JOB_ID>/ (--dest, --f
   summarises it, with the top features and the failure-classifier line.
   `--terms` / `--algorithms` cut the run time (about 6-7 min for 20 000 rows
   on one core; a harness dataset takes seconds).
-- **The planner with an ML model (V0.15 G4, D336/D363).** When a model is
-  loaded (G3's registry; until it is merged, no model is configured and every
-  decision is exactly V0.14's), each learnable term of each candidate uses the
+  `--timeout S` (default 3600) stops a comparison that runs too long (exit 1).
+- **ML model registry and retraining (V0.15 G3, D339, D358-D361).** With the
+  `ml` extra installed on the controller and `[controller.planner] ml =
+  "auto"` (the default) the controller retrains once a day
+  (`ml_retrain_s`, 86 400; the lab may use 3 600) in a child process (`nice`d,
+  killed after `ml_retrain_timeout_s`, 3 600) - skipped when no run ended since
+  the last set (`no_new_runs`) and when every term has too little data.
+  `compute planner ml train --wait` retrains now (admin). Each training run
+  stores one **model set** (one model per term, or `none` with the reason)
+  and goes live only through the **activation gate**: on the newest fifth of
+  every workload's runs (held out, the calibration's own split) the set must
+  be no more than 5 % worse than the set in use (or the calibration), keep
+  90 % intervals honest (>= 80 % coverage), be within 0.05 log error of the
+  calibration on every family, and beat the calibration somewhere by more
+  than 0.02 - else it is stored `rejected` with the rule that failed
+  (`compute planner ml models`, `--set VERSION` for the numbers; the planner
+  regret part of the gate is `pending_g4` until V0.15 G5). **Rollback:**
+  `compute planner ml pin VERSION` (any active or superseded set; refused for
+  a rejected one or one whose artefacts the GC removed - the GC keeps the
+  active, the pinned and the `ml_keep_superseded` = 5 newest superseded sets);
+  `compute planner ml unpin VERSION` returns to the automatic choice. A pin
+  in configuration (`ml = "sha256:..."`) must name an existing, non-rejected,
+  loadable set or the controller does not start; `ml = "off"` plans exactly as
+  V0.14. A controller without the `ml` extra starts normally, logs
+  `controller.planner.ml_unavailable` once and never trains (`train` answers
+  409); it can still serve ridge / kNN / tree / forest sets (numpy only), not
+  LightGBM / XGBoost ones (`library_missing`). Same dataset + same code and
+  library versions -> the same set version (byte-identical artefacts).
+  Details operators may meet (V0.15 G3 fix r2):
+  * a `rejected` set judged again under other gate settings (or another
+    reference) is updated **in place** - it keeps its original `created_at`,
+    so `compute planner ml models` still lists it where it was first trained
+    (newest `created_at` first); the move shows in `status_changed_at` and the
+    previous verdicts in the gate's `history` (newest 20 kept);
+  * `compute planner ml train` works whatever `ml` is: with `ml = "off"` or a
+    configured pin it still trains, gates and stores a set (and may make it
+    `active`), but the planner keeps planning with nothing / the configured
+    pin until the setting changes - only `ml = "auto"` retrains on the
+    schedule;
+  * a retrain holds **one** connection of the controller's database pool for
+    its whole run (the cross-controller session advisory lock), plus short
+    ones for its reads and the store - size `[controller.database]` pools with
+    that one in mind;
+  * a retrain whose child exits 0 but leaves an unreadable `set.json` / a
+    missing artefact, or a document the database refuses, fails
+    `child_output_invalid` (nothing stored; logged
+    `controller.planner.ml_retrain_failed`), not `crashed`; a learned
+    artefact that is empty or cannot be loaded makes the set `rejected`
+    `unloadable_artefact: <term> (<reason>)`;
+  * after an upgrade that changes the feature version (D366: 2), a set
+    trained on the old features is not used: one
+    `controller.planner.ml_set_stale_features` info line, the planner keeps
+    the calibration until the next retrain (`compute planner ml train`)
+    stores a set of the new version.
+- **The planner with an ML model (V0.15 G4, D336/D363).** When a model set
+  serves (the registry above: pinned, else active; with none, or `ml = "off"`,
+  every decision is exactly V0.14's), each learnable term of each candidate uses the
   model only where it is trusted - in distribution and its interval at most
   `[controller.planner] ml_max_interval_log` wide (ln 2: x2) - else the
   calibration factor, else the raw estimate. `compute explain` shows it per

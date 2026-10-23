@@ -6,8 +6,10 @@ easy admin-only denial of service and slow. :class:`DatasetCache` keeps the
 last :class:`~.export.BuiltDataset` keyed by a cheap
 :class:`~.loader.Watermark` (matched-run count and newest ``(ended_at,
 decision id)``, every ended attempt's count and newest end - so a lane, a
-combine or a failure that ends later also invalidates -, the feature version
-and the read cap). Every request takes one :class:`asyncio.Lock` (single
+combine or a failure that ends later also invalidates -, the run records'
+count and newest ``recorded_at`` - a record that lands after its attempt
+"relabels" the row's family, V0.15 G3 -, the feature version and the read
+cap). Every request takes one :class:`asyncio.Lock` (single
 flight): it reads the watermark and, only when it differs from the cached
 one, builds. A request that arrives during a build waits for it, then reads
 the watermark again and reuses the fresh build.

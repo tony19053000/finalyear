@@ -22,10 +22,12 @@ version:
   budget) that would always fall back. A model whose warm-up fails is treated
   as **unavailable** (logged, ``ml_input`` returns None -> no model), never a
   crash;
-* :class:`ModelSource` is what the dispatcher reads once per tick (like the
+* :class:`MlInputSource` is what the dispatcher reads once per tick (like the
   calibration's ``CalibrationSource``). G4 ships :class:`StaticModelSource`
-  (a fixed model, or none); G3's registry loader implements the same
-  protocol.
+  (a fixed model, or none); the registry's serving set is
+  :class:`~.source.RegistryMlInputSource` (``server.ml_source``, G3 + G4
+  merge). Named ``MlInputSource`` - not ``ModelSource``, which is the
+  registry-side loader of model sets (:class:`~.source.ModelSource`).
 
 No ML library is imported here (the predictor is injected).
 """
@@ -54,7 +56,7 @@ __all__ = [
     "BUDGET_EXCEEDED",
     "DEFAULT_PREDICT_BUDGET_MS",
     "BudgetedPredictor",
-    "ModelSource",
+    "MlInputSource",
     "StaticModelSource",
     "ml_input",
     "warm_up",
@@ -177,7 +179,7 @@ def ml_input(
     )
 
 
-class ModelSource(Protocol):
+class MlInputSource(Protocol):
     """Where the dispatcher gets the tick's model (module docstring)."""
 
     async def current(self) -> MlInput | None:

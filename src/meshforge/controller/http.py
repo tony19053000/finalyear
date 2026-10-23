@@ -62,6 +62,11 @@ from meshforge.controller.api.job_routes import JOBS_STATE_KEY, JobApi, job_rout
 from meshforge.controller.api.log_routes import log_router
 
 # V0.15 G1 (D333): the ML training dataset
+from meshforge.controller.api.ml_model_routes import (
+    ML_MODELS_STATE_KEY,
+    MlModelsApi,
+    ml_models_router,
+)
 from meshforge.controller.api.ml_routes import ML_STATE_KEY, MlDatasetApi, ml_router
 from meshforge.controller.api.network_routes import (
     NETWORK_STATE_KEY,
@@ -156,6 +161,7 @@ def create_http_app(
     planner: PlannerApi | None = None,
     planner_eval: PlannerEvalApi | None = None,
     ml_dataset: MlDatasetApi | None = None,
+    ml_models: MlModelsApi | None = None,
     web_dist: Path | None = DEFAULT_DIST,
     wall_clock: Callable[[], float] = time.time,
 ) -> FastAPI:
@@ -278,6 +284,9 @@ def create_http_app(
     if ml_dataset is not None:
         setattr(app.state, ML_STATE_KEY, ml_dataset)
         app.include_router(ml_router)  # V0.15 G1 ML training dataset (D333)
+    if ml_models is not None:
+        setattr(app.state, ML_MODELS_STATE_KEY, ml_models)
+        app.include_router(ml_models_router)  # V0.15 G3 model registry (D339)
     return app
 
 
@@ -311,6 +320,7 @@ def openapi_document() -> dict[str, Any]:
         planner=inert(),
         planner_eval=inert(),
         ml_dataset=inert(),
+        ml_models=inert(),
         web_dist=None,
     )
     return app.openapi()

@@ -93,9 +93,14 @@ def boundary_problems(
     policy: dict[str, set[str]] = {}
     named: set[str] = set()
     for contract in contracts:
-        if ROOT_PACKAGE in contract.get("source_modules", []):
+        sources = contract.get("source_modules", [])
+        if ROOT_PACKAGE in sources:
             # V0.15 G2: a third-party-library contract over the whole tree
             # (ml-libraries-only-in-ml-train) - not a sibling policy
+            continue
+        if sources and all(len(s.split(".")) > 2 for s in sources):
+            # V0.15 G3: a contract inside one entry (ml-serving-imports:
+            # meshforge.controller.ml.serve ...) - not a sibling policy
             continue
         for key in ("source_modules", "forbidden_modules", "modules"):
             named.update(_short(m) for m in contract.get(key, []))

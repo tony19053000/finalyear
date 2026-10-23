@@ -43,6 +43,7 @@ _PLACEHOLDERS = {
     "ID": INVITE,
     "CAMPAIGN_ID": CAMPAIGN,
     "SPEC": SPEC,
+    "SET_VERSION": "sha256:" + "a" * 64,  # V0.15 G3
 }
 _PATH_PARAMS = {
     "{node_id}": NODE,
@@ -50,6 +51,7 @@ _PATH_PARAMS = {
     "{name}": "ds",
     "{invite_id}": INVITE,
     "{campaign_id}": CAMPAIGN,
+    "{set_version}": "sha256:" + "a" * 64,  # V0.15 G3
 }
 _ROW = re.compile(r"^\| `compute ([^`]+)` \| ([^|]+) \| (.+) \|$")
 

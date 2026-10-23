@@ -428,6 +428,30 @@ class ControllerClient:
         return response.text
 
     # V0.15 G1 (D333): the ML training dataset (admin)
+    # V0.15 G3 (D339, D358-D361): the ML model registry
+    def planner_ml_models(self, *, limit: int = 20) -> Mapping[str, Any]:
+        """``GET /v1/planner/ml/models`` (sets, what is in use, retrain)."""
+        return self._get("/v1/planner/ml/models", params={"limit": str(limit)})
+
+    def planner_ml_model_set(self, set_version: str) -> Mapping[str, Any]:
+        """``GET /v1/planner/ml/models/{set_version}`` (with the gate)."""
+        return self._get(f"/v1/planner/ml/models/{set_version}")
+
+    def planner_ml_train(self) -> Mapping[str, Any]:
+        """``POST /v1/planner/ml/train`` (admin): start a retrain."""
+        return self._request("POST", "/v1/planner/ml/train", json_body={})
+
+    def planner_ml_train_state(self) -> Mapping[str, Any]:
+        """``GET /v1/planner/ml/train`` (the retrain task's state)."""
+        return self._get("/v1/planner/ml/train")
+
+    def planner_ml_pin(self, set_version: str, *, pin: bool) -> Mapping[str, Any]:
+        """``POST /v1/planner/ml/models/{set_version}/pin|unpin`` (admin)."""
+        action = "pin" if pin else "unpin"
+        return self._request(
+            "POST", f"/v1/planner/ml/models/{set_version}/{action}", json_body={}
+        )
+
     def planner_ml_dataset_summary(self) -> Mapping[str, Any]:
         """``GET /v1/planner/ml/dataset?format=summary`` (the JSON sidecar).
         The controller builds the dataset per request: the transfer timeout

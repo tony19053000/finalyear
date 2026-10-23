@@ -162,6 +162,9 @@ class TermResult:
     would_reject: dict[str, Any] = field(default_factory=dict)
     quantile: dict[str, Any] | None = None
     importance: tuple[tuple[str, float], ...] = ()
+    importance_folds: int = 0
+    """V0.15 G3 (G2 tech debt): the outer folds whose learned model the
+    importance came from (a fold that picked a baseline adds 0)."""
 
 
 def _quantile(
@@ -456,6 +459,7 @@ def _compare_term(
         },
         quantile=quantile,
         importance=tuple(ranked[: settings.importance_top]) if any_learned else (),
+        importance_folds=sum(1 for f in folds if f.selected.learned),
     )
 
 

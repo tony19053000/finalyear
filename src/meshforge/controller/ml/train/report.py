@@ -33,6 +33,7 @@ __all__ = [
     "FAILURE_CLASSIFIER_MIN_EVENTS",
     "REPORT_VERSION",
     "canonical_json",
+    "clean",
     "failure_classifier",
     "library_versions",
     "markdown",
@@ -58,6 +59,12 @@ def _num(value: float | None) -> float | None:
     if value == 0.0:
         return 0.0
     return float(f"{value:.6g}")
+
+
+def clean(value: Any) -> Any:
+    """``value`` as canonical JSON-ready data (floats to 6 significant
+    digits, non-finite -> ``None``; V0.15 G3: the gate document too)."""
+    return _clean(value)
 
 
 def _clean(value: Any) -> Any:
@@ -172,6 +179,10 @@ def _term(result: TermResult) -> dict[str, Any]:
                 {"feature": name, "male_increase": value}
                 for name, value in result.importance
             ],
+            "importance_folds": {
+                "learned": result.importance_folds,
+                "total": len(result.folds),
+            },
         }
     )
     return out
@@ -307,6 +318,9 @@ def markdown(doc: Mapping[str, Any]) -> str:
         " resamples)",
         "- held-out numbers come from leave-one-family-out; the model was chosen on "
         "the other families only (inner grouped k-fold, one-standard-error rule)",
+        "- a held-out family whose fold picked a baseline counts with that "
+        "baseline's error (calibration: delta = 0 in the paired bootstrap); "
+        "such folds add 0 to the feature importance",
         "",
         "| " + " | ".join(TABLE_HEADER) + " |",
         "|" + "---|" * len(TABLE_HEADER),
@@ -329,9 +343,11 @@ def markdown(doc: Mapping[str, Any]) -> str:
                 "worse than calibration on " + ", ".join(reject["families_worse"])
             )
         top = ", ".join(i["feature"] for i in term.get("importance", [])[:5]) or "-"
+        folds = term.get("importance_folds") or {}
         lines.append(
             f"- **{term['term']}**: {term['status']}; would reject: "
-            f"{'; '.join(flags) if flags else 'no'}; top features: {top}"
+            f"{'; '.join(flags) if flags else 'no'}; top features: {top} "
+            f"(from {folds.get('learned', 0)} of {folds.get('total', 0)} folds)"
         )
     if failures["status"] == "not_trained":
         line = (
