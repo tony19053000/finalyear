@@ -305,6 +305,12 @@ def _check_eval(report: Mapping[str, Any], families: set[str]) -> None:
     assert report["eval_version"] == 2, report["eval_version"]
     assert ml["status"] == "evaluated", (ml["status"], ml["reason"])
     assert {f["family"] for f in ml["folds"]} == families, ml["folds"]
+    for fold in ml["folds"]:
+        # a real fold child ran for every family, never on its own family
+        assert fold["set_version"], fold
+        assert fold["family"] not in fold["trained_families"], fold
+        assert fold["train_rows"] and fold["train_rows"] > 0, fold
+        assert fold["reason"] is None or fold["learned_terms"] == [], fold
     names = [v["name"] for v in ml["verdicts"]]
     assert names == ["ml_criterion_1", "ml_criterion_2"], names
     for verdict in ml["verdicts"]:
@@ -459,6 +465,11 @@ def test_ml_train_serve_fallback_evaluate_reproduce(
                 "reason": detail["reason"],
                 "learned": [m["term"] + ":" + m["algorithm"] for m in learned],
                 "verdicts": {v["name"]: v["status"] for v in report["ml"]["verdicts"]},
+                "folds": {
+                    f["family"]: f["reason"] or ",".join(f["learned_terms"])
+                    for f in report["ml"]["folds"]
+                },
+                "p99_ms": round(_p99(times), 2),
                 "timings": {k: round(v, 1) for k, v in timings.items()},
             },
             sort_keys=True,
