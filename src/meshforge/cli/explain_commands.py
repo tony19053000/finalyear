@@ -31,7 +31,6 @@ characters flattened). ``--json`` prints the API answer + ``schema_version`` (do
 
 from __future__ import annotations
 
-import math
 from collections.abc import Mapping
 from typing import Annotated, Any, Final
 
@@ -41,6 +40,12 @@ from rich.table import Table
 from meshforge.cli import render
 from meshforge.cli import shared as cli
 from meshforge.common.explain_text import format_seconds, margin_sentence, term_note
+from meshforge.common.ml_explain import (
+    decision_ml,
+    ml_decision_text,
+    ml_line,
+    term_ml,
+)
 
 __all__ = ["decision_tables", "explain"]
 
@@ -75,41 +80,17 @@ def _term_cell(term: Any, name: str | None = None) -> str:
     return f"{_seconds(term.get('seconds'))} ({term.get('source')}{extra})"
 
 
-def _finite(value: Any) -> float | None:
-    if isinstance(value, bool) or not isinstance(value, int | float):
-        return None
-    number = float(value)
-    return number if math.isfinite(number) else None
-
-
 def _ml_note(term: Mapping[str, Any]) -> str:
-    """V0.15 G4 (D336): what the ML model did for the term, from the stored
-    ``detail.ml`` - ``, ML <raw> -> <seconds> (<version>, x0.79, +-18 %)`` when
-    it corrected it, ``, ML not used: <reason>`` when it did not; empty for a
+    """V0.15 G4/G5b (D336, D373): ``, <ML line>`` - what the ML model did for
+    the term (``common/ml_explain.ml_line``, the text the Plan tab renders):
+    ``ML <raw> -> <seconds> (<version>, x<factor>, +-<spread> %)`` when it
+    corrected it, ``ML not used: <reason> (...)`` when it did not, plus a Mode
+    3 lane's rate. From the answer's typed ``ml``; a stored row read directly
+    (no ``ml`` key) gets the same mapping of its ``detail.ml``. Empty for a
     decision planned without a model."""
-    detail = term.get("detail")
-    block = detail.get("ml") if isinstance(detail, Mapping) else None
-    if not isinstance(block, Mapping):
-        return ""
-    version = block.get("model_version")
-    name = version[:12] if isinstance(version, str) else "?"
-    if block.get("used") is not True:
-        reason = block.get("reason")
-        why = reason if isinstance(reason, str) else "?"
-        ood = block.get("ood_reason")
-        if isinstance(ood, str) and ood:
-            why += f" ({ood})"
-        return f", ML not used: {why}"
-    numbers = [_finite(block.get(key)) for key in ("y_hat", "lo", "hi")]
-    y_hat, lo, hi = numbers
-    if y_hat is None or lo is None or hi is None or abs(y_hat) > 50.0:
-        return f", ML {name}"
-    factor = math.exp(y_hat)
-    spread = (math.exp(min((hi - lo) / 2.0, 50.0)) - 1.0) * 100.0
-    return (
-        f", ML {_seconds(block.get('raw_s'))} -> {_seconds(term.get('seconds'))} "
-        f"({name}, x{factor:.2f}, +-{spread:.0f} %)"
-    )
+    block = term["ml"] if "ml" in term else term_ml(term)
+    line = ml_line(block)
+    return "" if line is None else f", {line}"
 
 
 def _calibration_block(term: Mapping[str, Any]) -> Mapping[str, Any] | None:
@@ -190,6 +171,34 @@ def _facts_note(decision: Mapping[str, Any]) -> str:
             f"({_seconds(decision.get('shadow_estimate_s'))})"
         )
     return " - " + ", ".join(parts)
+
+
+def _ml_header(decision: Mapping[str, Any]) -> str | None:
+    """V0.15 G5b (D373): the model set the decision was planned with and a
+    whole-decision fallback (D363) - the answer's ``ml_model_version`` /
+    ``ml_fallback``; a stored decision without the keys reads its rows."""
+    if "ml_model_version" in decision or "ml_fallback" in decision:
+        version, fallback = (
+            decision.get("ml_model_version"),
+            decision.get("ml_fallback"),
+        )
+    else:
+        version, fallback = decision_ml(decision.get("candidates"))
+    return ml_decision_text(version, fallback)
+
+
+def _ml_table(decision: Mapping[str, Any]) -> Table | None:
+    """V0.15 G5b (D373): one row - the model set and a whole-decision
+    fallback (its own table: the candidates title is cut at the table's
+    width)."""
+    from meshforge.cli.render import _cell
+
+    text = _ml_header(decision)
+    if text is None:
+        return None
+    table = render.table("ML")
+    table.add_row(_cell(text))
+    return table
 
 
 def _candidates_table(decision: Mapping[str, Any]) -> Table:
@@ -485,6 +494,7 @@ def decision_tables(payload: Mapping[str, Any]) -> list[Table]:
             continue
         tables.append(_candidates_table(decision))
         extras = (
+            _ml_table(decision),  # V0.15 G5b (D373)
             _split_table(decision),
             _terms_table(decision),
             _actual_table(decision),

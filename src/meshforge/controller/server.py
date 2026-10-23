@@ -63,6 +63,7 @@ from meshforge.controller.api.job_routes import JobApi
 
 # V0.15 G3 (D339, D361): ML model registry, model source, retrain task
 from meshforge.controller.api.ml_model_routes import MlModelsApi
+from meshforge.controller.api.ml_prediction_routes import MlPredictionsApi
 from meshforge.controller.api.ml_routes import MlDatasetApi
 from meshforge.controller.api.network_routes import NetworkApi
 from meshforge.controller.api.planner_eval_routes import PlannerEvalApi
@@ -878,7 +879,13 @@ class ControllerRuntime:
                 registry=ml_registry,
                 source=ml_models,
                 retrainer=self.ml_retrainer,
+                # V0.15 G5b (G4 reviewer): live predict time + error count
+                serving_stats=None
+                if self.dispatcher is None
+                else self.dispatcher.ml_serving_stats,
             ),
+            # V0.15 G5b (D374): predicted vs actual per term
+            ml_predictions=MlPredictionsApi(engine, calibration_store),
         )
         http_config = uvicorn.Config(
             http_app,

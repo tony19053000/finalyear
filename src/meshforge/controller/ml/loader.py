@@ -22,6 +22,9 @@ ml_dataset_max_runs``); a page's runs are handed to the caller and dropped,
 so the replays of one page (at most ``page_size x replay_max_bytes``) are the
 most held at once.
 
+V0.15 G5b (D374): :func:`read_runs` - one page's runs without their
+replays (the predictions route matches terms, it never builds features).
+
 V0.15 G2: :func:`read_watermark` (D355) - the cheap key the dataset route
 caches on - and :func:`count_node_failures` (D354) - the failure events a
 failure classifier could learn from, by the risk term's own definition.
@@ -34,7 +37,7 @@ from collections.abc import AsyncIterator, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Final
 
-from sqlalchemy import func, select
+from sqlalchemy import func, null, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
@@ -62,6 +65,7 @@ __all__ = [
     "Watermark",
     "count_node_failures",
     "iter_runs",
+    "read_runs",
     "read_watermark",
 ]
 
@@ -115,7 +119,9 @@ class _Decision:
     replay: Mapping[str, Any] | None
 
 
-async def _decisions(db: AsyncSession, ids: Sequence[int]) -> dict[int, _Decision]:
+async def _decisions(
+    db: AsyncSession, ids: Sequence[int], *, with_replay: bool = True
+) -> dict[int, _Decision]:
     out: dict[int, _Decision] = {}
     for start in range(0, len(ids), _IN_BATCH):
         batch = ids[start : start + _IN_BATCH]
@@ -124,7 +130,7 @@ async def _decisions(db: AsyncSession, ids: Sequence[int]) -> dict[int, _Decisio
                 PlanDecision.id,
                 PlanDecision.job_id,
                 PlanDecision.attempt_no,
-                PlanDecision.replay,
+                PlanDecision.replay if with_replay else null(),
             ).where(PlanDecision.id.in_(batch))
         )
         for decision_id, job_id, attempt_no, replay in rows:
@@ -219,8 +225,20 @@ async def _split_parts(
     return {k: sorted(v) for k, v in dispatched.items()}, lane_out, combine_out
 
 
-async def _page(db: AsyncSession, outcomes: list[DecisionOutcome]) -> list[RunInput]:
-    decisions = await _decisions(db, [o.decision_id for o in outcomes])
+async def read_runs(
+    db: AsyncSession, outcomes: list[DecisionOutcome], *, with_replay: bool = True
+) -> list[RunInput]:
+    """One page of matched outcomes as runs (module docstring); without
+    ``with_replay`` each run's ``replay`` is None (never read)."""
+    return await _page(db, outcomes, with_replay=with_replay)
+
+
+async def _page(
+    db: AsyncSession, outcomes: list[DecisionOutcome], *, with_replay: bool = True
+) -> list[RunInput]:
+    decisions = await _decisions(
+        db, [o.decision_id for o in outcomes], with_replay=with_replay
+    )
     split_jobs = [
         decisions[o.decision_id].job_id
         for o in outcomes

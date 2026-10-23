@@ -9,7 +9,12 @@
   was lost;
 * ``fields`` - every leaf the CLI and the Plan tab must both show, as a
   concrete path into ``payload`` and a changed value (``to``);
-* ``not_shown`` - the leaves neither shows, each with its reason.
+* ``not_shown`` - the leaves neither shows, each with its reason;
+* ``ml_lines`` - V0.15 G5b (D373): every ML text of the payload (one per
+  term that has ``ml``, one per decision planned with a model) as
+  ``common/ml_explain`` makes it: ``compute explain`` must print each, and
+  the Plan tab's TypeScript copy (``mlText.ts``) must make the identical
+  string (``planContract.test.tsx``).
 
 ``tests/unit/test_v014_g5_explain_contract.py`` proves: the fixture is what
 this module generates (so it is the API's answer), ``fields`` + ``not_shown``
@@ -37,6 +42,7 @@ from typing import Any, Final
 
 from pydantic import BaseModel
 
+from meshforge.common.ml_explain import ml_decision_text, ml_line
 from meshforge.controller.api.decision_routes import DecisionList, _out
 from meshforge.controller.jobs.decision_store import ActualOutcome, DecisionRecordOut
 
@@ -59,6 +65,8 @@ FIXTURE: Final = (
     / "explainContract.json"
 )
 _T0: Final = dt.datetime(2026, 10, 22, 9, 30, tzinfo=dt.UTC)
+_SET: Final = "sha256:" + "3a1f00aa" * 8
+"""V0.15 G4 (D336): the model set a decision was planned with (every row)."""
 _DICT_KEYED: Final = ("terms", "phases_ms")
 """Answer fields that are maps keyed by name (a term, a phase)."""
 
@@ -159,6 +167,7 @@ def _whole() -> DecisionRecordOut:
         "estimate": {"total_s": 38.48, "terms": terms},
         "score": 38.48,
         "rank": 1,
+        "ml_model_version": _SET,
     }
     local = copy.deepcopy(chosen) | {
         "node_id": "node_aaaaaaaa",
@@ -177,6 +186,7 @@ def _whole() -> DecisionRecordOut:
         "estimate": None,
         "score": None,
         "rank": None,
+        "ml_model_version": _SET,
     }
     return DecisionRecordOut(
         id=21,
@@ -234,7 +244,12 @@ def _split() -> DecisionRecordOut:
         "items_fetch": _term(2.0, "assumed"),
         "chunk_overhead": _term(1.5, "history"),
         "tail": _term(1.2, "assumed"),
-        "combine": _term(0.8, "assumed"),
+        "combine": _term(
+            0.8,
+            "assumed",
+            combine_node_id="node_aaaaaaaa",
+            ml={"model_version": _SET, "used": False, "reason": "no_model"},
+        ),
         "risk": _term(
             1.0,
             "assumed",
@@ -260,10 +275,56 @@ def _split() -> DecisionRecordOut:
         "inactive": [nodes[2]],
         "margin_test": margin,
         "pruned": pruned,
+        "ml_model_version": _SET,
     }
     lane_terms = {
         name: set_terms[name] for name in ("queue", "transfer", "env", "compute")
     }
+    # V0.15 G4 fix r1: a one-lane row's compute carries its own ML block and
+    # the lane rate's (seconds per item) nested as ml.rate
+    lane_terms["compute"] = _term(
+        30.0,
+        "history",
+        ml={
+            "model_version": "mem-77c0ffee",
+            "used": True,
+            "y_hat": -0.1,
+            "lo": -0.25,
+            "hi": 0.05,
+            "raw_s": 33.155,
+            "rate": {
+                "model_version": "mem-77c0ffee",
+                "used": True,
+                "y_hat": -0.1,
+                "lo": -0.25,
+                "hi": 0.05,
+                "raw_s": 0.110517,
+            },
+        },
+    )
+    slow_terms = dict(lane_terms)
+    slow_terms["compute"] = _term(
+        60.0,
+        "assumed",
+        ml={
+            "model_version": _SET,
+            "used": False,
+            "reason": "ood",
+            "ood_reason": "knn:distance",
+            "y_hat": 0.4,
+            "lo": 0.1,
+            "hi": 0.7,
+            "rate": {
+                "model_version": _SET,
+                "used": False,
+                "reason": "ood",
+                "ood_reason": "knn:distance",
+                "y_hat": 0.4,
+                "lo": 0.1,
+                "hi": 0.7,
+            },
+        },
+    )
     lane_row = {
         "node_id": nodes[0],
         "mode": "offload",
@@ -281,6 +342,16 @@ def _split() -> DecisionRecordOut:
         "rate_source": "history",
         "start_s": 3.5,
         "pruned": pruned,
+        "ml_model_version": _SET,
+    }
+    slow_row = copy.deepcopy(lane_row) | {
+        "node_id": nodes[1],
+        "estimate": {"total_s": 82.0, "terms": slow_terms},
+        "score": 82.0,
+        "rank": 3,
+        "node_set": [nodes[1]],
+        "rate_items_s": 2.5,
+        "rate_source": "assumed",
     }
     return DecisionRecordOut(
         id=22,
@@ -292,7 +363,7 @@ def _split() -> DecisionRecordOut:
         created_at=_T0 + dt.timedelta(minutes=5),
         snapshot_digest="2e" * 32,
         reason_key="01" * 32,
-        candidates=[split_row, lane_row],
+        candidates=[split_row, lane_row, slow_row],
         actual=ActualOutcome(
             attempt_id="att_000000000000000000000022",
             node_id=nodes[0],
@@ -307,9 +378,49 @@ def _split() -> DecisionRecordOut:
     )
 
 
+def _fallback() -> DecisionRecordOut:
+    """V0.15 G4 (D363): the predictor failed, the whole decision fell back to
+    calibration (every learnable term ``predictor_error``)."""
+    blocked = {"model_version": _SET, "used": False, "reason": "predictor_error"}
+    terms = {
+        "queue": _term(0.0, "measured"),
+        "transfer": _term(1.0, "history", ml=dict(blocked)),
+        "env": _term(0.5, "history", ml=dict(blocked)),
+        "compute": _term(9.0, "history", ml=dict(blocked)),
+        "output": _term(0.25, "history", ml=dict(blocked)),
+    }
+    row = {
+        "node_id": "node_bbbbbbbb",
+        "mode": "offload",
+        "feasible": True,
+        "slot": "cpu",
+        "reject_code": None,
+        "reject_text": None,
+        "estimate": {"total_s": 10.75, "terms": terms},
+        "score": 10.75,
+        "rank": 1,
+        "ml_model_version": _SET,
+        "ml_fallback": "predictor_error",
+    }
+    return DecisionRecordOut(
+        id=23,
+        attempt_no=3,
+        attempt_id="att_000000000000000000000023",
+        outcome="dispatched",
+        policy="cost_model",
+        chosen_node_id="node_bbbbbbbb",
+        created_at=_T0 + dt.timedelta(minutes=9),
+        snapshot_digest="3d" * 32,
+        reason_key="02" * 32,
+        candidates=[row],
+        objective="min_time",
+        decision_ms=21.0,
+    )
+
+
 def payload() -> dict[str, Any]:
-    """The decisions answer for the fixture's two records (the API's code)."""
-    decisions = tuple(_out(r) for r in (_whole(), _split()))
+    """The decisions answer for the fixture's records (the API's code)."""
+    decisions = tuple(_out(r) for r in (_whole(), _split(), _fallback()))
     answer = DecisionList(
         job_id="job_" + "0" * 26, decisions=decisions, count=len(decisions)
     )
@@ -415,6 +526,24 @@ def _fields(data: dict[str, Any]) -> list[dict[str, Any]]:
     return fields
 
 
+def ml_texts(data: dict[str, Any]) -> list[dict[str, Any]]:
+    """V0.15 G5b (D373): every ML text of an answer - per decision (header)
+    and per term - with the path of the object it describes."""
+    out: list[dict[str, Any]] = []
+    for i, decision in enumerate(data["decisions"]):
+        text = ml_decision_text(decision["ml_model_version"], decision["ml_fallback"])
+        if text is not None:
+            out.append({"path": ["decisions", i], "text": text})
+        for j, row in enumerate(decision["candidates"]):
+            terms = (row.get("estimate") or {}).get("terms") or {}
+            for name, term in terms.items():
+                line = ml_line(term.get("ml"))
+                if line is not None:
+                    path = ["decisions", i, "candidates", j, "estimate", "terms", name]
+                    out.append({"path": path, "text": line})
+    return out
+
+
 def contract() -> dict[str, Any]:
     data = payload()
     return {
@@ -425,6 +554,7 @@ def contract() -> dict[str, Any]:
         "payload": data,
         "fields": _fields(data),
         "not_shown": [{"field": k, "reason": v} for k, v in sorted(NOT_SHOWN.items())],
+        "ml_lines": ml_texts(data),
     }
 
 
