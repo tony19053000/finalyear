@@ -106,6 +106,8 @@ def test_every_ml_module_is_listed_as_pure_or_io() -> None:
     # V0.15 G3: the serving side (prep, artefact, serve: numpy) and the
     # registry / model source (I/O)
     # V0.15 G4: predictor.py (the planner input + budget clock, D336/D363)
+    # V0.15 G5b: predictions.py (the Models tab's points, D374: I/O, reads
+    # decisions + calibration through loader / calibration_store)
     assert names == {
         *PURE,
         "__init__.py",
@@ -122,6 +124,7 @@ def test_every_ml_module_is_listed_as_pure_or_io() -> None:
         "folds.py",
         "regret.py",
         "registry_loader.py",
+        "predictions.py",
     }
 
 

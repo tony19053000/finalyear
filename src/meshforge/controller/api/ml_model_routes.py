@@ -14,12 +14,18 @@
   (**admin**): the override and rollback (a ``rejected`` set or one whose
   artefacts are gone -> 409). ``compute planner ml pin|unpin``.
 
+V0.15 G5b (G4 reviewer): ``in_use`` also carries the dispatcher's live ML
+numbers - ``ml_predict_last_ms`` (the last ``predict`` call, wall clock) and
+``ml_predictor_errors_total`` (decisions that fell back because the predictor
+failed, D363).
+
 Database down -> 503 ``network_error``. An unknown set -> 404.
 """
 
 from __future__ import annotations
 
 import datetime as dt
+from collections.abc import Callable
 from typing import Annotated, Any, Final
 
 from fastapi import APIRouter, Depends, Path, Query, Request
@@ -29,6 +35,7 @@ from meshforge.common.logging import get_logger
 from meshforge.controller.api.auth import AdminUser, CurrentUser
 from meshforge.controller.api.errors import ApiError
 from meshforge.controller.api.models import ApiModel, Utc
+from meshforge.controller.jobs.planning import MlServingStats
 from meshforge.controller.ml.registry import (
     MlRegistryError,
     ModelRegistry,
@@ -61,10 +68,14 @@ class MlModelsApi:
         registry: ModelRegistry,
         source: ModelSource,
         retrainer: MlRetrainer,
+        serving_stats: Callable[[], MlServingStats] | None = None,
     ) -> None:
         self.registry = registry
         self.source = source
         self.retrainer = retrainer
+        self.serving_stats = serving_stats
+        """V0.15 G5b: the dispatcher's live ML numbers (None = no
+        dispatcher in this process: the fields are null)."""
 
 
 def get_ml_models_api(request: Request) -> MlModelsApi:
@@ -118,6 +129,14 @@ class MlInUseOut(ApiModel):
     unavailable: str | None
     """Why the serving set is not loaded (``artefact_missing``,
     ``library_missing``, ...)."""
+    ml_predict_last_ms: float | None = None
+    """V0.15 G5b: the dispatcher's last ``predict`` call (wall clock, ms;
+    null = no model or not asked yet). The ``ml_predict_budget_ms`` budget is
+    wall clock too: a model near it can flip a decision to
+    ``predictor_error``."""
+    ml_predictor_errors_total: int | None = None
+    """V0.15 G5b (D363): decisions that fell back to calibration because the
+    predictor failed, since the controller started (null = no dispatcher)."""
 
 
 class MlRetrainOut(ApiModel):
@@ -197,8 +216,9 @@ def _detail(row: SetRow) -> MlSetDetailOut:
     )
 
 
-def _in_use(source: ModelSource) -> MlInUseOut:
+def _in_use(source: ModelSource, api: MlModelsApi | None = None) -> MlInUseOut:
     current = source.current
+    stats = None if api is None or api.serving_stats is None else api.serving_stats()
     return MlInUseOut(
         mode=source.mode,
         pinned_config=source.pinned,
@@ -207,6 +227,10 @@ def _in_use(source: ModelSource) -> MlInUseOut:
         if source.mode == "off" or current is None
         else current.set_version,
         unavailable=source.unavailable,
+        ml_predict_last_ms=None if stats is None else stats.predict_last_ms,
+        ml_predictor_errors_total=None
+        if stats is None
+        else stats.predictor_errors_total,
     )
 
 
@@ -265,7 +289,7 @@ async def get_models(
     except MlRegistryError as exc:
         raise _unavailable(exc) from None
     return MlModelsOut(
-        in_use=_in_use(api.source),
+        in_use=_in_use(api.source, api),
         serving_set=serving,
         sets=[_set(r) for r in rows],
         retrain=_retrain(api),

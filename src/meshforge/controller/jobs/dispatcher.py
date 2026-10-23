@@ -117,7 +117,7 @@ from meshforge.controller.jobs.execution_store import (
 )
 from meshforge.controller.jobs.logs import LogHub
 from meshforge.controller.jobs.peers import PeerSources
-from meshforge.controller.jobs.planning import DispatchPlanner
+from meshforge.controller.jobs.planning import DispatchPlanner, MlServingStats
 from meshforge.controller.jobs.recovery import RecoverySteps, _Offline, _Reconcile
 from meshforge.controller.jobs.reports import parse_status
 from meshforge.controller.jobs.store import JobRecord, JobStoreError
@@ -345,6 +345,15 @@ class Dispatcher(RecoverySteps):
     @property
     def stopping(self) -> bool:
         return self._stopping
+
+    def ml_serving_stats(self) -> MlServingStats:
+        """V0.15 G5b (G4 reviewer): the live ML numbers ``GET
+        /v1/planner/ml/models`` shows - the last ``predict`` call's wall time
+        and how many decisions fell back because the predictor failed."""
+        return MlServingStats(
+            predict_last_ms=self._planner.ml_predict_last_ms,
+            predictor_errors_total=self._planner.ml_predictor_errors,
+        )
 
     @property
     def split(self) -> SplitService:

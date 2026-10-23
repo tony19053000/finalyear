@@ -10,7 +10,9 @@ show (one function each, so they cannot drift - criterion 4):
   on the **chosen** candidate of a decision whose attempt ran, ``actual_s`` +
   ``ratio`` (actual / predicted);
 * per decision: ``margin_sentence``
-  (:func:`meshforge.common.explain_text.margin_sentence`).
+  (:func:`meshforge.common.explain_text.margin_sentence`);
+* V0.15 G5b (D373): per term ``ml``
+  (:func:`meshforge.common.ml_explain.term_ml` over ``detail.ml``).
 
 **Actual per term = calibration's match** (D320): the term -> phase mapping is
 :func:`meshforge.controller.planner.calibration.match` - the very pairs the
@@ -30,6 +32,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any, Final
 
 from meshforge.common.explain_text import margin_sentence, term_note
+from meshforge.common.ml_explain import term_ml
 from meshforge.controller.jobs.decision_store import DecisionRecordOut
 from meshforge.controller.planner.calibration import DecisionOutcome, match
 
@@ -118,6 +121,7 @@ def _term(name: str, term: Mapping[str, Any], actual_s: float | None) -> Any:
         "note": term_note(term, name=name),
         "actual_s": actual_s,
         "ratio": ratio,
+        "ml": term_ml(term),
     }
 
 

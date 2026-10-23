@@ -3,6 +3,7 @@ import { EmptyState } from "../States";
 import type { CandidateOut, DecisionOut } from "../../pages/jobs/jobsApi";
 import { cn } from "../../lib/cn";
 import { formatDuration, formatTime, shortDigest } from "./format";
+import { mlDecisionText, mlLine } from "./mlText";
 import {
   PHASES,
   calibrationText,
@@ -35,6 +36,7 @@ const TD = "h-9 px-3 text-xs";
 function TermCell({ term }: { term: TermOut | undefined }) {
   if (term === undefined) return <span className="text-fg-subtle">—</span>;
   const calibrated = calibrationText(term);
+  const ml = mlLine(term.ml);
   return (
     <span className="inline-flex flex-col gap-0.5">
       <span className="inline-flex items-center gap-1 whitespace-nowrap">
@@ -48,6 +50,10 @@ function TermCell({ term }: { term: TermOut | undefined }) {
         )}
       </span>
       {term.note != null && <span className="max-w-56 text-2xs text-fg-muted">{term.note}</span>}
+      {ml != null && (
+        // D373: the line `compute explain` prints for this term (mlText.ts).
+        <span className={cn("max-w-72 font-mono text-2xs", term.ml?.used === true ? "text-accent" : "text-fg-muted")}>{ml}</span>
+      )}
     </span>
   );
 }
@@ -205,6 +211,7 @@ function ActualRows({ decision }: { decision: DecisionOut }) {
 
 function DecisionHeader({ decision }: { decision: DecisionOut }) {
   const d = decision;
+  const ml = mlDecisionText(d.ml_model_version, d.ml_fallback);
   return (
     <div className="flex flex-col gap-1">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
@@ -226,6 +233,11 @@ function DecisionHeader({ decision }: { decision: DecisionOut }) {
           <Badge tone="accent">calibration v{d.calibration_version}</Badge>
         ) : (
           <Badge>uncalibrated</Badge>
+        )}
+        {ml != null && (
+          <Badge tone={d.ml_fallback != null ? "degraded" : "accent"} className="font-mono">
+            {ml}
+          </Badge>
         )}
         {d.replay_version != null ? (
           <Badge tone="ok">replay v{d.replay_version}</Badge>

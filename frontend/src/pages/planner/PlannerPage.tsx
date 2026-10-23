@@ -18,8 +18,12 @@
  *   made with `--allow-leak` carries a LEAKED banner: its verdicts are not
  *   evidence.
  *
+ * * **Models** tab (V0.15 G5b, D374, `?tab=models`): the ML model sets,
+ *   their gate numbers, predicted vs actual and pin / unpin / train
+ *   (`ModelsTab.tsx`).
+ *
  * Every number is the API's. Selection lives in the URL
- * (`?calibration=N`, `?report=ID`), so a view can be linked.
+ * (`?calibration=N`, `?report=ID`, `?tab=models&set=V`), so a view can be linked.
  */
 import { useQuery } from "@tanstack/react-query";
 import { Bar, BarChart, CartesianGrid, ErrorBar, XAxis, YAxis } from "recharts";
@@ -31,9 +35,11 @@ import { Card } from "../../components/Card";
 import { EmptyState, ErrorState } from "../../components/States";
 import { Badge } from "../../components/Status";
 import { Table, type Column } from "../../components/Table";
+import { Tabs } from "../../components/Tabs";
 import { formatTime } from "../../components/jobs/format";
 import { formatMs } from "../../lib/format";
 import { PageHeader } from "../PageHeader";
+import { ModelsTab } from "./ModelsTab";
 import {
   getCalibration,
   getEvalReport,
@@ -514,6 +520,7 @@ export function PlannerPage() {
   const [params, setParams] = useSearchParams();
   const calibration = positiveInt(params.get("calibration"));
   const report = positiveInt(params.get("report"));
+  const tab = params.get("tab") === "models" ? "models" : "calibration";
   const set = (key: string, value: number | null) => {
     const next = new URLSearchParams(params);
     if (value === null) next.delete(key);
@@ -524,32 +531,64 @@ export function PlannerPage() {
     <>
       <PageHeader
         title="Planner"
-        description="How the planner corrects its estimates (calibration) and how good its choices are (offline evaluation against measured benchmark runs)."
+        description="How the planner corrects its estimates (calibration, ML models) and how good its choices are (offline evaluation against measured benchmark runs)."
       />
-      <div className="flex flex-col gap-8">
-        <section aria-labelledby="planner-calibration" className="flex flex-col gap-3">
-          <h2 id="planner-calibration" className="text-base font-semibold">
-            Calibration
-          </h2>
-          <Calibration
-            version={calibration}
-            onSelect={(v) => {
-              set("calibration", v);
-            }}
-          />
-        </section>
-        <section aria-labelledby="planner-evaluation" className="flex flex-col gap-3">
-          <h2 id="planner-evaluation" className="text-base font-semibold">
-            Evaluation
-          </h2>
-          <EvalReports
-            selected={report}
-            onSelect={(id) => {
-              set("report", id);
-            }}
-          />
-        </section>
-      </div>
+      <Tabs
+        label="Planner sections"
+        value={tab}
+        onValueChange={(value) => {
+          const next = new URLSearchParams(params);
+          if (value === "models") next.set("tab", "models");
+          else next.delete("tab");
+          setParams(next, { replace: true });
+        }}
+        items={[
+          {
+            value: "calibration",
+            label: "Calibration & evaluation",
+            content: (
+              <div className="flex flex-col gap-8">
+                <section aria-labelledby="planner-calibration" className="flex flex-col gap-3">
+                  <h2 id="planner-calibration" className="text-base font-semibold">
+                    Calibration
+                  </h2>
+                  <Calibration
+                    version={calibration}
+                    onSelect={(v) => {
+                      set("calibration", v);
+                    }}
+                  />
+                </section>
+                <section aria-labelledby="planner-evaluation" className="flex flex-col gap-3">
+                  <h2 id="planner-evaluation" className="text-base font-semibold">
+                    Evaluation
+                  </h2>
+                  <EvalReports
+                    selected={report}
+                    onSelect={(id) => {
+                      set("report", id);
+                    }}
+                  />
+                </section>
+              </div>
+            ),
+          },
+          {
+            value: "models",
+            label: "Models",
+            content: (
+              <ModelsTab
+                selected={params.get("set")}
+                onSelect={(v) => {
+                  const next = new URLSearchParams(params);
+                  next.set("set", v);
+                  setParams(next, { replace: true });
+                }}
+              />
+            ),
+          },
+        ]}
+      />
     </>
   );
 }

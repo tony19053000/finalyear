@@ -2251,6 +2251,28 @@
             ],
             "title": "Margin Sentence"
           },
+          "ml_fallback": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ml Fallback"
+          },
+          "ml_model_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ml Model Version"
+          },
           "objective": {
             "anyOf": [
               {
@@ -5531,6 +5553,28 @@
             ],
             "title": "Kind"
           },
+          "ml_predict_last_ms": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ml Predict Last Ms"
+          },
+          "ml_predictor_errors_total": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ml Predictor Errors Total"
+          },
           "mode": {
             "title": "Mode",
             "type": "string"
@@ -5663,6 +5707,156 @@
           "retrain"
         ],
         "title": "MlModelsOut",
+        "type": "object"
+      },
+      "MlPredictionPointOut": {
+        "additionalProperties": false,
+        "properties": {
+          "actual_s": {
+            "title": "Actual S",
+            "type": "number"
+          },
+          "analytical_s": {
+            "title": "Analytical S",
+            "type": "number"
+          },
+          "calibrated_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Calibrated S"
+          },
+          "decision_id": {
+            "title": "Decision Id",
+            "type": "integer"
+          },
+          "family": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Family"
+          },
+          "ml_model_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ml Model Version"
+          },
+          "ml_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ml S"
+          },
+          "node_id": {
+            "title": "Node Id",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "term": {
+            "title": "Term",
+            "type": "string"
+          },
+          "used": {
+            "title": "Used",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "decision_id",
+          "term",
+          "node_id",
+          "family",
+          "analytical_s",
+          "calibrated_s",
+          "ml_s",
+          "used",
+          "reason",
+          "actual_s",
+          "ml_model_version"
+        ],
+        "title": "MlPredictionPointOut",
+        "type": "object"
+      },
+      "MlPredictionsOut": {
+        "additionalProperties": false,
+        "properties": {
+          "decisions_read": {
+            "title": "Decisions Read",
+            "type": "integer"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/MlPredictionPointOut"
+            },
+            "title": "Points",
+            "type": "array"
+          },
+          "set": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Set"
+          },
+          "term": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Term"
+          }
+        },
+        "required": [
+          "limit",
+          "decisions_read",
+          "term",
+          "set",
+          "points"
+        ],
+        "title": "MlPredictionsOut",
         "type": "object"
       },
       "MlRetrainOut": {
@@ -6016,6 +6210,19 @@
         ],
         "title": "MlSetOut",
         "type": "object"
+      },
+      "MlTerm": {
+        "enum": [
+          "transfer",
+          "env",
+          "compute",
+          "output",
+          "lane_stage",
+          "lane_env",
+          "chunk_rate",
+          "combine"
+        ],
+        "type": "string"
       },
       "MlTermMetricsOut": {
         "additionalProperties": false,
@@ -8913,6 +9120,219 @@
         "title": "TermCalibrationOut",
         "type": "object"
       },
+      "TermMlOut": {
+        "properties": {
+          "corrected_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Corrected S"
+          },
+          "hi": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hi"
+          },
+          "lo": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lo"
+          },
+          "model_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Version"
+          },
+          "ood_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ood Reason"
+          },
+          "rate": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TermMlRateOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "raw_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Raw S"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "used": {
+            "title": "Used",
+            "type": "boolean"
+          },
+          "y_hat": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Y Hat"
+          }
+        },
+        "required": [
+          "used"
+        ],
+        "title": "TermMlOut",
+        "type": "object"
+      },
+      "TermMlRateOut": {
+        "description": "V0.15 G5b (D373): what the ML model did for a term (``detail.ml``).\nThe same fields describe a Mode 3 lane's rate (seconds per item), nested\nas :attr:`TermMlOut.rate`.",
+        "properties": {
+          "corrected_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Corrected S"
+          },
+          "hi": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hi"
+          },
+          "lo": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lo"
+          },
+          "model_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Version"
+          },
+          "ood_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ood Reason"
+          },
+          "raw_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Raw S"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "used": {
+            "title": "Used",
+            "type": "boolean"
+          },
+          "y_hat": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Y Hat"
+          }
+        },
+        "required": [
+          "used"
+        ],
+        "title": "TermMlRateOut",
+        "type": "object"
+      },
       "TermOut": {
         "properties": {
           "actual_s": {
@@ -8940,6 +9360,16 @@
             "additionalProperties": true,
             "title": "Detail",
             "type": "object"
+          },
+          "ml": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TermMlOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "note": {
             "anyOf": [
@@ -17035,6 +17465,160 @@
           }
         },
         "summary": "Unpin Set",
+        "tags": [
+          "planner"
+        ]
+      }
+    },
+    "/v1/planner/ml/predictions": {
+      "get": {
+        "operationId": "get_ml_predictions_v1_planner_ml_predictions_get",
+        "parameters": [
+          {
+            "description": "One learnable term.",
+            "in": "query",
+            "name": "term",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/MlTerm"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "One learnable term.",
+              "title": "Term"
+            }
+          },
+          {
+            "description": "Only decisions planned with this model set.",
+            "in": "query",
+            "name": "set",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "pattern": "^sha256:[0-9a-f]{64}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only decisions planned with this model set.",
+              "title": "Set"
+            }
+          },
+          {
+            "description": "Newest matched runs read.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 500,
+              "description": "Newest matched runs read.",
+              "maximum": 2000,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MlPredictionsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid input (`invalid_input`)"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No, or no longer a valid, credential (`unauthorized`)"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not allowed: admin only, CSRF, foreign origin (`unauthorized`)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found - also another user's object (`not_found`)"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict (`conflict`, `no_feasible_plan`)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid parameters (`invalid_input`)"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Rate limited; see Retry-After (`resource_busy`)"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "A dependency (the database) is unavailable; retry (`network_error`)"
+          }
+        },
+        "summary": "Predicted vs actual per term (analytical, calibrated, ML) - admin only",
         "tags": [
           "planner"
         ]

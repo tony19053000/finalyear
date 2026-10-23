@@ -1464,10 +1464,15 @@ compute get <JOB_ID>               # outputs -> ./outputs/<JOB_ID>/ (--dest, --f
   model only where it is trusted - in distribution and its interval at most
   `[controller.planner] ml_max_interval_log` wide (ln 2: x2) - else the
   calibration factor, else the raw estimate. `compute explain` shows it per
-  term: `ML 12.00s -> 9.40s (<version>, x0.78, +-18 %)` or `ML not used:
-  ood (range:hw_cpu_gflops)` / `no_model` / `interval_too_wide` /
-  `exact_by_construction` / `below_min_predicted` / `predictor_error`; every
-  candidate row names `ml_model_version`. **A broken or slow model never stops
+  term (V0.15 G5b, D373 - the dashboard's Plan tab shows the same text):
+  `ML 12.00 s -> 9.40 s (3a1f00aa3a1f, x0.78, +-18 %)` or `ML not used: out of
+  distribution (range:hw_cpu_gflops) (...)` / `no model for this term` /
+  `interval too wide` / `exact by construction` / `below the trained range` /
+  `predictor error`; a Mode 3 lane adds `; rate: ML ... ms/item -> ...`; the
+  decision line names the set (`ML set 3a1f00aa3a1f`, plus `- fell back to
+  calibration: predictor error` after a failure). The decisions API carries
+  these as typed fields (`TermOut.ml`, `DecisionOut.ml_model_version` /
+  `ml_fallback`; null for decisions made before V0.15). **A broken or slow model never stops
   planning:** an error, a malformed answer or a `predict` call slower than
   `ml_predict_budget_ms` (20) makes that decision fall back to calibration
   (rows say `ml_fallback: predictor_error`), the controller logs
@@ -1483,6 +1488,24 @@ compute get <JOB_ID>               # outputs -> ./outputs/<JOB_ID>/ (--dest, --f
   machine is busy falls back to calibration (`budget_exceeded`, counted in
   `ml_predictor_errors` and logged at most once a minute). That is the
   intended D363 behaviour: planning never waits for the model.
+  **The 20 ms budget is wall clock** (it includes any time the controller
+  process was descheduled), so a model whose `predict` normally takes close to
+  the budget can flip some decisions to `predictor_error` on a busy machine.
+  Watch it on `GET /v1/planner/ml/models` (`in_use.ml_predict_last_ms` - the
+  last call - and `in_use.ml_predictor_errors_total` - fallbacks since the
+  controller started) or the dashboard's Planner -> Models tab; a last time
+  regularly above ~half the budget means raise `ml_predict_budget_ms` or use a
+  smaller model.
+- **Is the model better where it is used? (V0.15 G5b, D374).** Planner ->
+  **Models** in the dashboard shows the set in use, the set history with gate
+  reasons (incl. the regret check), each term's cross-validation and held-out
+  numbers, and (admins) a predicted-vs-actual scatter per term on log axes -
+  calibration points for every run, ML points where ML corrected the term, the
+  y = x line - with the fallback rate by reason. The data is `GET
+  /v1/planner/ml/predictions?term=&set=&limit=` (admin; newest 500 matched runs
+  by default, at most 2000; read from the stored decisions, ~300 ms budget at
+  10 000 decisions). Pin / unpin / train are there too (admin, each asks for
+  confirmation) and do what the `compute planner ml` commands do.
 - `run -f` streams the logs and exits like the job: `0` succeeded; the workload's own
   exit code (1-125) when it failed; `126` when the fabric failed it (the failure type
   is printed: `node_lost`, `deadline_exceeded`, `output_error` …); `128` cancelled.

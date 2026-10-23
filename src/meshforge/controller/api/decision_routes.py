@@ -18,6 +18,12 @@ each decision its ``calibration_version``, ``replay_version`` and
 ``margin_sentence``. V0.14 G6 (D324): each decision its ``decision_ms``
 (the dispatcher's wall time; null before migration 0033). Derived at read time by
 ``controller/jobs/decision_explain.py`` - the same strings the CLI prints.
+
+V0.15 G5b (D373): each term its typed ``ml`` (what the ML model did for it,
+``common/ml_explain.term_ml`` over the stored ``detail.ml``; a one-lane Mode 3
+row's ``compute`` nests its lane rate's block as ``ml.rate``) and each
+decision its ``ml_model_version`` and ``ml_fallback`` (D363) - all null for a
+decision planned without a model or recorded before V0.15, never an error.
 """
 
 from __future__ import annotations
@@ -29,6 +35,7 @@ from pydantic import ConfigDict, Field
 
 from meshforge.common.errors import FailureType, InvalidIdError
 from meshforge.common.ids import validate_job_id
+from meshforge.common.ml_explain import decision_ml
 from meshforge.controller.api.auth import CurrentUser
 from meshforge.controller.api.errors import ApiError
 from meshforge.controller.api.job_routes import Jobs
@@ -49,6 +56,8 @@ __all__ = [
     "DecisionList",
     "DecisionOut",
     "TermCalibrationOut",
+    "TermMlOut",
+    "TermMlRateOut",
     "TermOut",
     "decision_router",
 ]
@@ -79,6 +88,42 @@ class TermCalibrationOut(_Stored):
     capped)."""
 
 
+class TermMlRateOut(_Stored):
+    """V0.15 G5b (D373): what the ML model did for a term (``detail.ml``).
+    The same fields describe a Mode 3 lane's rate (seconds per item), nested
+    as :attr:`TermMlOut.rate`."""
+
+    model_version: str | None = None
+    """The model (artefact) that answered, or the set's version when it was
+    not asked (G4 ``ml_block``)."""
+    used: bool
+    """True = the planner used ``raw_s x e^y_hat`` for this term."""
+    reason: str | None = None
+    """Why not (``no_model`` / ``ood`` / ``interval_too_wide`` /
+    ``exact_by_construction`` / ``below_min_predicted`` /
+    ``predictor_error`` ...); null when used."""
+    ood_reason: str | None = None
+    """``ood`` only: the out-of-distribution test's own reason."""
+    y_hat: float | None = None
+    """The predicted residual ``ln(actual / raw)``; null = the model was not
+    asked."""
+    lo: float | None = None
+    hi: float | None = None
+    """The interval of ``y_hat`` (log space)."""
+    raw_s: float | None = None
+    """The analytical (pre-calibration) prediction ML corrected; null when
+    not used."""
+    corrected_s: float | None = None
+    """What ML made of it (a term: its ``seconds``; a rate: ``raw_s x
+    e^y_hat`` per item); null when not used."""
+
+
+class TermMlOut(TermMlRateOut):
+    rate: TermMlRateOut | None = None
+    """A one-lane Mode 3 row's ``compute``: the block of the lane's rate
+    (seconds per item) the compute seconds were derived from."""
+
+
 class TermOut(_Stored):
     seconds: float
     source: Literal["measured", "history", "scaled", "assumed"]
@@ -93,6 +138,9 @@ class TermOut(_Stored):
     candidate only, after its attempt ended ``done``; null = no honest phase."""
     ratio: float | None = None
     """``actual_s / seconds`` (null without an actual or for a 0 s prediction)."""
+    ml: TermMlOut | None = None
+    """V0.15 G5b (D373): what the ML model did; null = planned without a
+    model, a term ML never covers, or a row from before V0.15."""
 
 
 class EstimateOut(_Stored):
@@ -191,6 +239,12 @@ class DecisionOut(ApiModel):
     decision_ms: float | None = None
     """V0.14 G6 (D324): how long the dispatcher took to make this decision
     (ms; criterion 3). Null for a row written before migration 0033."""
+    ml_model_version: str | None = None
+    """V0.15 G5b (D373, D364): the ML model set the decision was planned
+    with; null = no model (``ml = off``, none active, or before V0.15)."""
+    ml_fallback: str | None = None
+    """V0.15 G5b (D373, D363): set when the whole decision fell back to
+    calibration because the predictor failed (``predictor_error``)."""
 
 
 class DecisionList(ApiModel):
@@ -206,6 +260,7 @@ def _out(record: DecisionRecordOut) -> DecisionOut:
         chosen_node_id=record.chosen_node_id,
         actuals=term_actuals(record),
     )
+    ml_version, ml_fallback = decision_ml(record.candidates)
     return DecisionOut(
         id=record.id,
         attempt_no=record.attempt_no,
@@ -232,6 +287,8 @@ def _out(record: DecisionRecordOut) -> DecisionOut:
         replay_version=record.replay_version,
         margin_sentence=margin_sentence_of(record),
         decision_ms=record.decision_ms,
+        ml_model_version=ml_version,
+        ml_fallback=ml_fallback,
     )
 
 

@@ -48,6 +48,7 @@ from __future__ import annotations
 
 import dataclasses
 import datetime as dt
+import math
 import time
 from collections import OrderedDict
 from collections.abc import Callable, Mapping, Sequence
@@ -128,7 +129,12 @@ from meshforge.controller.settings import (
 )
 from meshforge.workqueue.core import QueuePolicy
 
-__all__ = ["DispatchPlanner", "decision_record", "with_decision_ms"]
+__all__ = [
+    "DispatchPlanner",
+    "MlServingStats",
+    "decision_record",
+    "with_decision_ms",
+]
 
 log = get_logger(__name__)
 
@@ -140,6 +146,20 @@ _ERRORS_LOGGED_MAX: Final = 1024
 ML_ERROR_LOG_EVERY_S: Final = 60.0
 """V0.15 G4 (D363): a failing predictor is logged at most once a minute (every
 failure is counted in :attr:`DispatchPlanner.ml_predictor_errors`)."""
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
+class MlServingStats:
+    """V0.15 G5b (G4 reviewer): the live ML numbers of the dispatcher."""
+
+    predict_last_ms: float | None
+    """The current model's last ``predict`` call (wall clock, ms); None = no
+    model or not asked yet. The D363 budget is wall clock too: a model near
+    it can flip a decision to ``predictor_error``."""
+    predictor_errors_total: int
+    """Decisions that fell back to calibration because the predictor failed
+    (since the controller started)."""
+
 
 DEFAULT_OBJECTIVE: Final = "min_time"
 """V0.14 D295: what a decision whose request named no objective ranked by
@@ -1146,6 +1166,17 @@ class DispatchPlanner:
         while len(self._errors_logged) > _ERRORS_LOGGED_MAX:
             self._errors_logged.popitem(last=False)
         return True
+
+    @property
+    def ml_predict_last_ms(self) -> float | None:
+        """V0.15 G5b (G4 reviewer): how long the current model's last
+        ``predict`` call took (wall clock, ms; the ``BudgetedPredictor``'s
+        ``last_ms``); None = no model, or not asked yet."""
+        ml = self.ml
+        value = None if ml is None else getattr(ml.predictor, "last_ms", None)
+        if isinstance(value, bool) or not isinstance(value, int | float):
+            return None
+        return float(value) if math.isfinite(value) and value >= 0.0 else None
 
     def _note_ml(self, job: JobRecord, ml: MlUse | None) -> None:
         """V0.15 G4 (D363): a decision whose predictor failed is counted, and
