@@ -77,6 +77,7 @@ __all__ = [
     "ml_compare_lines",
     "ml_compare_table",
     "ml_dataset_lines",
+    "ml_eval_lines",
     "ml_missing_libraries",
     "planner_app",
     "reports_table",
@@ -336,6 +337,58 @@ def eval_lines(record: Mapping[str, Any]) -> list[str]:
                 f"{render.echo(c.get('unmeasured_groups'))} unmeasured"
             )
     lines.extend(latency_lines(report.get("latency")))
+    lines.extend(ml_eval_lines(report.get("ml")))
+    return lines
+
+
+def ml_eval_lines(ml: Any) -> list[str]:
+    """V0.15 G5a (D369/D370): the ML criteria of a report (none for a
+    version 1 report) - one line per verdict, criterion 2's families, and
+    how often ML was used in the chosen plans (pure)."""
+    if not isinstance(ml, Mapping):
+        return []
+    lines: list[str] = []
+    if ml.get("status") != "evaluated":
+        lines.append(
+            f"ML: {render.echo(ml.get('status'))} - {render.echo(ml.get('reason'))}"
+        )
+    for verdict in ml.get("verdicts") or []:
+        if not isinstance(verdict, Mapping):
+            continue
+        status = render.echo(verdict.get("status"))
+        if verdict.get("would_be") is not None:
+            status += f" (would be {render.echo(verdict.get('would_be'))})"
+        lines.append(
+            f"{render.echo(verdict.get('name'))}: {status} - "
+            f"{render.echo(verdict.get('detail'))}"
+        )
+        for family in verdict.get("families") or []:
+            if not isinstance(family, Mapping):
+                continue
+            lines.append(
+                f"  {render.echo(family.get('family'))}: ML "
+                f"{_num(family.get('mean_regret_ml_pct'), 2)} % vs calibrated "
+                f"{_num(family.get('mean_regret_calibrated_pct'), 2)} % over "
+                f"{render.echo(family.get('common_groups'))} groups - "
+                f"{render.echo(family.get('status'))}"
+            )
+    fallback = ml.get("fallback")
+    total = fallback.get("total") if isinstance(fallback, Mapping) else None
+    if ml.get("status") == "evaluated" and isinstance(total, Mapping):
+        terms = total.get("terms")
+        reasons = (
+            ", ".join(
+                f"{render.echo(k)} {render.echo(v)}" for k, v in sorted(terms.items())
+            )
+            if isinstance(terms, Mapping) and terms
+            else _DASH
+        )
+        lines.append(
+            f"ML in the chosen plans: used rate {_num(total.get('used_rate'), 2)} "
+            f"({reasons}); decisions without a fold model "
+            f"{render.echo(total.get('no_fold_model'))}, predictor errors "
+            f"{render.echo(total.get('predictor_error'))}"
+        )
     return lines
 
 

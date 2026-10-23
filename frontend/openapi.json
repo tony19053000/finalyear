@@ -2534,6 +2534,65 @@
         "title": "EvalCountsOut",
         "type": "object"
       },
+      "EvalMlOut": {
+        "additionalProperties": false,
+        "description": "The report's ``ml`` block (V0.15 G5a, ``eval_version`` 2).",
+        "properties": {
+          "fallback": {
+            "$ref": "#/components/schemas/MlFallbackOut"
+          },
+          "folds": {
+            "items": {
+              "$ref": "#/components/schemas/MlFoldOut"
+            },
+            "title": "Folds",
+            "type": "array"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "settings": {
+            "$ref": "#/components/schemas/MlEvalSettingsOut"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "terms": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/MlTermMetricsOut"
+            },
+            "title": "Terms",
+            "type": "object"
+          },
+          "verdicts": {
+            "items": {
+              "$ref": "#/components/schemas/MlVerdictOut"
+            },
+            "title": "Verdicts",
+            "type": "array"
+          }
+        },
+        "required": [
+          "status",
+          "reason",
+          "settings",
+          "verdicts",
+          "fallback",
+          "folds",
+          "terms"
+        ],
+        "title": "EvalMlOut",
+        "type": "object"
+      },
       "EvalReportListOut": {
         "additionalProperties": false,
         "properties": {
@@ -2553,7 +2612,7 @@
       },
       "EvalReportOut": {
         "additionalProperties": false,
-        "description": "``planner_eval_report.report`` (``eval_version`` 1).",
+        "description": "``planner_eval_report.report`` (``eval_version`` 1 or 2).",
         "properties": {
           "calibrations": {
             "items": {
@@ -2614,6 +2673,16 @@
           "leaked": {
             "title": "Leaked",
             "type": "boolean"
+          },
+          "ml": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EvalMlOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "policies": {
             "items": {
@@ -5103,6 +5172,200 @@
         "title": "MlDatasetSummaryOut",
         "type": "object"
       },
+      "MlEvalSettingsOut": {
+        "additionalProperties": false,
+        "properties": {
+          "compared_with": {
+            "title": "Compared With",
+            "type": "string"
+          },
+          "criterion_policy": {
+            "title": "Criterion Policy",
+            "type": "string"
+          },
+          "family_tolerance_pp": {
+            "title": "Family Tolerance Pp",
+            "type": "number"
+          },
+          "min_family_groups": {
+            "title": "Min Family Groups",
+            "type": "integer"
+          },
+          "min_groups": {
+            "title": "Min Groups",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "criterion_policy",
+          "compared_with",
+          "family_tolerance_pp",
+          "min_family_groups",
+          "min_groups"
+        ],
+        "title": "MlEvalSettingsOut",
+        "type": "object"
+      },
+      "MlFallbackCountsOut": {
+        "additionalProperties": false,
+        "description": "What ML did in the criterion ML row's decisions (V0.15 D369).",
+        "properties": {
+          "decisions": {
+            "title": "Decisions",
+            "type": "integer"
+          },
+          "no_fold_model": {
+            "title": "No Fold Model",
+            "type": "integer"
+          },
+          "predictor_error": {
+            "title": "Predictor Error",
+            "type": "integer"
+          },
+          "terms": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Terms",
+            "type": "object"
+          },
+          "used_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Used Rate"
+          }
+        },
+        "required": [
+          "decisions",
+          "no_fold_model",
+          "predictor_error",
+          "terms",
+          "used_rate"
+        ],
+        "title": "MlFallbackCountsOut",
+        "type": "object"
+      },
+      "MlFallbackOut": {
+        "additionalProperties": false,
+        "properties": {
+          "families": {
+            "items": {
+              "$ref": "#/components/schemas/MlFamilyFallbackOut"
+            },
+            "title": "Families",
+            "type": "array"
+          },
+          "total": {
+            "$ref": "#/components/schemas/MlFallbackCountsOut"
+          }
+        },
+        "required": [
+          "total",
+          "families"
+        ],
+        "title": "MlFallbackOut",
+        "type": "object"
+      },
+      "MlFamilyFallbackOut": {
+        "additionalProperties": false,
+        "properties": {
+          "decisions": {
+            "title": "Decisions",
+            "type": "integer"
+          },
+          "family": {
+            "title": "Family",
+            "type": "string"
+          },
+          "no_fold_model": {
+            "title": "No Fold Model",
+            "type": "integer"
+          },
+          "predictor_error": {
+            "title": "Predictor Error",
+            "type": "integer"
+          },
+          "terms": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Terms",
+            "type": "object"
+          },
+          "used_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Used Rate"
+          }
+        },
+        "required": [
+          "decisions",
+          "no_fold_model",
+          "predictor_error",
+          "terms",
+          "used_rate",
+          "family"
+        ],
+        "title": "MlFamilyFallbackOut",
+        "type": "object"
+      },
+      "MlFamilyVerdictOut": {
+        "additionalProperties": false,
+        "description": "One family of ML criterion 2 (V0.15 D370).",
+        "properties": {
+          "common_groups": {
+            "title": "Common Groups",
+            "type": "integer"
+          },
+          "diff_pct": {
+            "title": "Diff Pct",
+            "type": "number"
+          },
+          "family": {
+            "title": "Family",
+            "type": "string"
+          },
+          "mean_regret_calibrated_pct": {
+            "title": "Mean Regret Calibrated Pct",
+            "type": "number"
+          },
+          "mean_regret_ml_pct": {
+            "title": "Mean Regret Ml Pct",
+            "type": "number"
+          },
+          "status": {
+            "enum": [
+              "pass",
+              "fail",
+              "too_few_groups"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "family",
+          "common_groups",
+          "mean_regret_ml_pct",
+          "mean_regret_calibrated_pct",
+          "diff_pct",
+          "status"
+        ],
+        "title": "MlFamilyVerdictOut",
+        "type": "object"
+      },
       "MlFeatureOut": {
         "additionalProperties": false,
         "properties": {
@@ -5135,6 +5398,100 @@
           "doc"
         ],
         "title": "MlFeatureOut",
+        "type": "object"
+      },
+      "MlFoldOut": {
+        "additionalProperties": false,
+        "description": "The model one held-out family's ML rows planned with (V0.15 D368):\ntrained by the production pipeline on every other family, never\nregistered (``source`` ``fold``); ``active`` = the serving set\n(``allow_leak`` only); ``none`` = no usable model (``reason``).",
+        "properties": {
+          "excluded_rows": {
+            "title": "Excluded Rows",
+            "type": "integer"
+          },
+          "family": {
+            "title": "Family",
+            "type": "string"
+          },
+          "learned_terms": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Learned Terms",
+            "type": "array"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "set_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Set Version"
+          },
+          "source": {
+            "enum": [
+              "fold",
+              "active",
+              "none"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
+          "train_rows": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Train Rows"
+          },
+          "trained_families": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Trained Families",
+            "type": "array"
+          },
+          "until": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Until"
+          }
+        },
+        "required": [
+          "family",
+          "source",
+          "set_version",
+          "reason",
+          "train_rows",
+          "trained_families",
+          "excluded_rows",
+          "learned_terms",
+          "until"
+        ],
+        "title": "MlFoldOut",
         "type": "object"
       },
       "MlInUseOut": {
@@ -5648,6 +6005,122 @@
         "title": "MlSetOut",
         "type": "object"
       },
+      "MlTermMetricsOut": {
+        "additionalProperties": false,
+        "description": "The fold models' prediction error on their held-out family's rows,\none term (V0.15 D370; log error MALE, MAPE on seconds).",
+        "properties": {
+          "coverage": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Coverage"
+          },
+          "families": {
+            "title": "Families",
+            "type": "integer"
+          },
+          "male_model": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Male Model"
+          },
+          "male_raw": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Male Raw"
+          },
+          "mape_model": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mape Model"
+          },
+          "mape_raw": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mape Raw"
+          },
+          "median_ape_model": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Median Ape Model"
+          },
+          "ood_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ood Rate"
+          },
+          "rows": {
+            "title": "Rows",
+            "type": "integer"
+          },
+          "usable_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Usable Rate"
+          }
+        },
+        "required": [
+          "rows",
+          "families",
+          "male_model",
+          "male_raw",
+          "mape_model",
+          "mape_raw",
+          "median_ape_model",
+          "coverage",
+          "ood_rate",
+          "usable_rate"
+        ],
+        "title": "MlTermMetricsOut",
+        "type": "object"
+      },
       "MlTermOut": {
         "additionalProperties": false,
         "properties": {
@@ -5706,6 +6179,118 @@
         ],
         "title": "MlTrainOut",
         "type": "object"
+      },
+      "MlVerdictOut": {
+        "additionalProperties": false,
+        "description": "``ml_criterion_1`` (paired bootstrap of ``regret(ML) -\nregret(calibrated)``) or ``ml_criterion_2`` (per family, absolute\npercentage-point tolerance) - V0.15 D370.",
+        "properties": {
+          "ci_high": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ci High"
+          },
+          "ci_low": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ci Low"
+          },
+          "common_groups": {
+            "title": "Common Groups",
+            "type": "integer"
+          },
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "families": {
+            "items": {
+              "$ref": "#/components/schemas/MlFamilyVerdictOut"
+            },
+            "title": "Families",
+            "type": "array"
+          },
+          "mean_diff_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mean Diff Pct"
+          },
+          "name": {
+            "enum": [
+              "ml_criterion_1",
+              "ml_criterion_2"
+            ],
+            "title": "Name",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/MlVerdictStatus"
+          },
+          "threshold": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Threshold"
+          },
+          "would_be": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Would Be"
+          }
+        },
+        "required": [
+          "name",
+          "status",
+          "would_be",
+          "detail",
+          "common_groups",
+          "mean_diff_pct",
+          "ci_low",
+          "ci_high",
+          "threshold",
+          "families"
+        ],
+        "title": "MlVerdictOut",
+        "type": "object"
+      },
+      "MlVerdictStatus": {
+        "enum": [
+          "PASS",
+          "FAIL",
+          "not_separable",
+          "too_few_groups",
+          "leaked",
+          "ml_unavailable"
+        ],
+        "type": "string"
       },
       "NetworkOut": {
         "additionalProperties": false,

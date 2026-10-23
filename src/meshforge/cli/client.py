@@ -57,6 +57,9 @@ _RETRY_HINT: Final = " - retry in a moment"
 
 _TRANSFER_TIMEOUT_S: Final = 300.0
 """Bundle/output transfers and log downloads: bigger than one small JSON call."""
+_EVAL_TIMEOUT_S: Final = 3600.0
+"""V0.15 G5a (D368): ``POST /v1/planner/eval-reports`` trains one fold model
+set per evaluated family before it replays - minutes, not seconds."""
 
 
 class ControllerError(MeshForgeError):
@@ -403,8 +406,8 @@ class ControllerClient:
         allow_leak: bool = False,
     ) -> Mapping[str, Any]:
         """``POST /v1/planner/eval-reports`` (admin): evaluate + store. It
-        replays every record under every policy, so it may take a while:
-        the transfer timeout applies."""
+        trains the ML fold models (V0.15 G5a) and replays every record under
+        every policy, so it may take a while: :data:`_EVAL_TIMEOUT_S`."""
         body: dict[str, Any] = {"campaign_ids": campaign_ids, "allow_leak": allow_leak}
         if holdout is not None:
             body["holdout"] = holdout
@@ -412,7 +415,7 @@ class ControllerClient:
             "POST",
             "/v1/planner/eval-reports",
             json_body=body,
-            timeout=_TRANSFER_TIMEOUT_S,
+            timeout=_EVAL_TIMEOUT_S,
         )
 
     def planner_eval_reports(self, *, limit: int = 50) -> Mapping[str, Any]:
