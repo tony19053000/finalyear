@@ -162,7 +162,8 @@ def test_json_and_errors(runner: CliRunner, controller: TransportFactory) -> Non
         cli_app.app, ["planner", "eval", "--campaign", CAMP, "--json"]
     )
     assert result.exit_code == 0, result.output
-    assert json.loads(result.stdout)["report"]["eval_version"] == 1
+    # V0.15 G5a (D369): the evaluator writes eval_version 2
+    assert json.loads(result.stdout)["report"]["eval_version"] == 2
     result = runner.invoke(cli_app.app, ["planner", "eval", "--campaign", CAMP])
     assert result.exit_code == 8 and result.stdout == ""
     bad = runner.invoke(cli_app.app, ["planner", "eval", "--campaign", "../x"])

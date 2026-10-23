@@ -140,7 +140,9 @@ def test_signal_is_accepted_and_the_document_is_complete() -> None:
     _, _, result = _gate(_rows())
     assert result.accepted and result.rule is None and result.reason is None
     doc = result.doc
-    assert doc["accepted"] is True and doc["regret"] == "pending_g4"
+    assert (
+        doc["accepted"] is True and doc["regret"]["status"] == "not_run"
+    )  # V0.15 G5a (D371)
     assert doc["reference"]["kind"] == "calibration"
     term = doc["terms"]["compute"]
     for key in ("male_new", "male_calibration", "male_reference", "coverage"):

@@ -155,7 +155,8 @@ async def test_store_activates_supersedes_rejects_and_skips(
     )
     assert stored3.row is not None and stored3.row.status == "rejected"
     assert (stored3.row.reason or "").startswith("not_better")
-    assert stored3.row.gate["regret"] == "pending_g4"
+    # V0.15 G5a (D371): the child never writes pending_g4 again
+    assert stored3.row.gate["regret"]["status"] == "not_run"
     assert stored3.row.inputs["watermark"] == {"x": 1}
 
     again = await registry.store(

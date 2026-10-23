@@ -149,7 +149,8 @@ def test_signal_is_accepted_against_the_calibration(signal: Table) -> None:
     term = gate.doc["terms"]["compute"]
     assert term["male_new"] < term["male_calibration"] - 0.02
     assert term["reference"] == "calibration"
-    assert gate.doc["regret"] == "pending_g4"
+    # V0.15 G5a (D371): the controller runs the regret check after this
+    assert gate.doc["regret"]["status"] == "not_run"
     assert gate.doc["reference"]["kind"] == "calibration"
     assert gate.doc["better_terms"] == ["compute"]
 
