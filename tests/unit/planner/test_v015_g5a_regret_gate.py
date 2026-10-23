@@ -131,7 +131,7 @@ def test_apply_turns_a_regret_rejection_into_a_rejected_set() -> None:
 
 
 def test_the_regret_slice_is_the_error_gates_split() -> None:
-    pytest.importorskip("numpy", reason="needs the ml extra")
+    pytest.importorskip("sklearn", reason="needs the ml extra")
     from mf_ml_synthetic import synthetic_rows
 
     from meshforge.controller.ml.dataset import sort_key
