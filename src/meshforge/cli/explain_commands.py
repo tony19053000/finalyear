@@ -31,6 +31,7 @@ characters flattened). ``--json`` prints the API answer + ``schema_version`` (do
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping
 from typing import Annotated, Any, Final
 
@@ -70,7 +71,45 @@ def _term_cell(term: Any, name: str | None = None) -> str:
     note = term["note"] if "note" in term else term_note(term, name=name)
     extra = f", {note}" if isinstance(note, str) and note else ""
     extra += _calibration_note(term)  # V0.14 G2 (D293)
+    extra += _ml_note(term)  # V0.15 G4 (D336)
     return f"{_seconds(term.get('seconds'))} ({term.get('source')}{extra})"
+
+
+def _finite(value: Any) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    number = float(value)
+    return number if math.isfinite(number) else None
+
+
+def _ml_note(term: Mapping[str, Any]) -> str:
+    """V0.15 G4 (D336): what the ML model did for the term, from the stored
+    ``detail.ml`` - ``, ML <raw> -> <seconds> (<version>, x0.79, +-18 %)`` when
+    it corrected it, ``, ML not used: <reason>`` when it did not; empty for a
+    decision planned without a model."""
+    detail = term.get("detail")
+    block = detail.get("ml") if isinstance(detail, Mapping) else None
+    if not isinstance(block, Mapping):
+        return ""
+    version = block.get("model_version")
+    name = version[:12] if isinstance(version, str) else "?"
+    if block.get("used") is not True:
+        reason = block.get("reason")
+        why = reason if isinstance(reason, str) else "?"
+        ood = block.get("ood_reason")
+        if isinstance(ood, str) and ood:
+            why += f" ({ood})"
+        return f", ML not used: {why}"
+    numbers = [_finite(block.get(key)) for key in ("y_hat", "lo", "hi")]
+    y_hat, lo, hi = numbers
+    if y_hat is None or lo is None or hi is None or abs(y_hat) > 50.0:
+        return f", ML {name}"
+    factor = math.exp(y_hat)
+    spread = (math.exp(min((hi - lo) / 2.0, 50.0)) - 1.0) * 100.0
+    return (
+        f", ML {_seconds(block.get('raw_s'))} -> {_seconds(term.get('seconds'))} "
+        f"({name}, x{factor:.2f}, +-{spread:.0f} %)"
+    )
 
 
 def _calibration_block(term: Mapping[str, Any]) -> Mapping[str, Any] | None:

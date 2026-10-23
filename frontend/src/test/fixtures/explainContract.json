@@ -61,7 +61,12 @@
                   "seconds": 1.0,
                   "source": "assumed",
                   "detail": {
-                    "env_cached": true
+                    "env_cached": true,
+                    "ml": {
+                      "model_version": "mem-3a1f00aa",
+                      "used": false,
+                      "reason": "exact_by_construction"
+                    }
                   },
                   "calibration": null,
                   "note": "cached",
@@ -78,6 +83,15 @@
                       "key_level": "global",
                       "version": 7,
                       "raw_s": 24.0
+                    },
+                    "ml": {
+                      "model_version": "mem-3a1f00aa",
+                      "used": false,
+                      "reason": "ood",
+                      "ood_reason": "range:hw_cpu_gflops",
+                      "y_hat": -0.2,
+                      "lo": -0.3,
+                      "hi": -0.1
                     }
                   },
                   "calibration": {
@@ -94,7 +108,16 @@
                 "output": {
                   "seconds": 2.0,
                   "source": "scaled",
-                  "detail": {},
+                  "detail": {
+                    "ml": {
+                      "model_version": "mem-3a1f00aa",
+                      "used": true,
+                      "y_hat": -0.235722,
+                      "lo": -0.4,
+                      "hi": -0.07,
+                      "raw_s": 2.531
+                    }
+                  },
                   "calibration": null,
                   "note": null,
                   "actual_s": 2.5,
@@ -176,7 +199,12 @@
                   "seconds": 1.0,
                   "source": "assumed",
                   "detail": {
-                    "env_cached": true
+                    "env_cached": true,
+                    "ml": {
+                      "model_version": "mem-3a1f00aa",
+                      "used": false,
+                      "reason": "exact_by_construction"
+                    }
                   },
                   "calibration": null,
                   "note": "cached",
@@ -193,6 +221,15 @@
                       "key_level": "global",
                       "version": 7,
                       "raw_s": 24.0
+                    },
+                    "ml": {
+                      "model_version": "mem-3a1f00aa",
+                      "used": false,
+                      "reason": "ood",
+                      "ood_reason": "range:hw_cpu_gflops",
+                      "y_hat": -0.2,
+                      "lo": -0.3,
+                      "hi": -0.1
                     }
                   },
                   "calibration": {
@@ -209,7 +246,16 @@
                 "output": {
                   "seconds": 2.0,
                   "source": "scaled",
-                  "detail": {},
+                  "detail": {
+                    "ml": {
+                      "model_version": "mem-3a1f00aa",
+                      "used": true,
+                      "y_hat": -0.235722,
+                      "lo": -0.4,
+                      "hi": -0.07,
+                      "raw_s": 2.531
+                    }
+                  },
                   "calibration": null,
                   "note": null,
                   "actual_s": null,

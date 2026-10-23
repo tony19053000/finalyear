@@ -120,10 +120,13 @@ async def test_a_controller_without_the_extra_boots_and_never_trains(
     settings = make_settings(pg_settings)
     with structlog.testing.capture_logs() as logs:
         async with ControllerRuntime.start(settings) as runtime:
-            assert runtime.ml_retrainer is not None and runtime.ml_models is not None
+            assert (
+                runtime.ml_retrainer is not None
+                and runtime.ml_source.models is not None
+            )
             assert runtime.ml_retrainer.available is False
-            assert runtime.ml_models.mode == "auto"
-            assert runtime.ml_models.current is None
+            assert runtime.ml_source.models.mode == "auto"
+            assert runtime.ml_source.models.current is None
             result = await runtime.ml_retrainer.retrain_now()
             assert result.skipped == "ml_unavailable"
             assert runtime.failed_task is None

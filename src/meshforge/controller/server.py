@@ -125,7 +125,9 @@ from meshforge.controller.jobs.logs import LogHub
 from meshforge.controller.jobs.peers import PeerSources
 from meshforge.controller.liveness import LivenessEvent
 from meshforge.controller.ml.registry import ModelRegistry
-from meshforge.controller.ml.source import ModelSource
+
+# V0.15 G3 + G4 (D336/D339): the registry's model set, as the planner's input
+from meshforge.controller.ml.source import ModelSource, RegistryMlInputSource
 from meshforge.controller.ml_retrain_task import MlRetrainer
 from meshforge.controller.named_inputs import NamedInputStore, PinBroadcaster
 from meshforge.controller.network import NetworkProber, NetworkStore
@@ -229,8 +231,10 @@ class ControllerRuntime:
         self.calibration: CalibrationSource | None = None
         """V0.14 G2 (D293): the calibration the dispatcher plans with."""
         self.calibration_refresher: CalibrationRefresher | None = None
-        self.ml_models: ModelSource | None = None
-        """V0.15 G3 (D339): the ML model set the planner may use (G4 wires it)."""
+        self.ml_source: RegistryMlInputSource | None = None
+        """V0.15 G3 + G4 (D336/D339): the ML model set the dispatcher plans
+        with, read once per tick (``ml_source.models`` = the registry-side
+        :class:`~.ml.source.ModelSource`; None before start)."""
         self.ml_retrainer: MlRetrainer | None = None
         self.bench: BenchStore | None = None
         self.bench_submitter: BenchSubmitter | None = None
@@ -566,13 +570,18 @@ class ControllerRuntime:
         # V0.15 G3 (D339/D361): the model registry; a configured pin that does
         # not exist, was rejected or cannot load stops the start
         ml_registry = ModelRegistry(engine, blobs.cas, used=blobs.used)
-        self.ml_models = ModelSource(ml_registry, cfg.planner.ml)
-        await self.ml_models.check()
-        await self.ml_models.refresh()
-        self.ml_retrainer = MlRetrainer(
-            engine, ml_registry, self.ml_models, cfg.planner
+        ml_models = ModelSource(ml_registry, cfg.planner.ml)
+        await ml_models.check()
+        # G3 + G4 merge: the dispatcher's model = the serving set, built with
+        # ml_input (warm-up; None = no usable model) per loaded set version
+        self.ml_source = RegistryMlInputSource(
+            ml_models,
+            max_interval_log=cfg.planner.ml_max_interval_log,
+            budget_ms=cfg.planner.ml_predict_budget_ms,
         )
-        if self.ml_models.mode == "auto":
+        await self.ml_source.current()
+        self.ml_retrainer = MlRetrainer(engine, ml_registry, ml_models, cfg.planner)
+        if ml_models.mode == "auto":
             self._spawn(self.ml_retrainer.run(), "ml-retrain")
         self.dispatcher = Dispatcher(
             self.jobs,
@@ -607,6 +616,7 @@ class ControllerRuntime:
             split=cfg.split,
             on_split_change=tracker.touch,
             calibration=self.calibration,
+            ml=self.ml_source,  # V0.15 G4 (D336)
             on_integrity_failure=(
                 functools.partial(
                     self.scrubber.suspect_tree_soon, why="attempt_integrity_error"
@@ -866,7 +876,7 @@ class ControllerRuntime:
             # V0.15 G3 (D339): the model registry
             ml_models=MlModelsApi(
                 registry=ml_registry,
-                source=self.ml_models,
+                source=ml_models,
                 retrainer=self.ml_retrainer,
             ),
         )

@@ -84,17 +84,17 @@ async def _seed(runtime: ControllerRuntime) -> tuple[str, str, str]:
 async def test_startup_matrix_restart_and_off(pg_settings: DatabaseSettings) -> None:
     async with running_controller(make_settings(pg_settings)) as runtime:
         old, active, rejected = await _seed(runtime)
-        await runtime.ml_models.refresh()  # type: ignore[union-attr]
-        assert runtime.ml_models is not None
-        assert runtime.ml_models.current is not None
-        assert runtime.ml_models.current.set_version == active
+        await runtime.ml_source.models.refresh()  # type: ignore[union-attr]
+        assert runtime.ml_source.models is not None
+        assert runtime.ml_source.models.current is not None
+        assert runtime.ml_source.models.current.set_version == active
 
     # restart: ml = auto keeps the active set (nothing re-trained or re-judged)
     async with running_controller(make_settings(pg_settings)) as runtime:
-        assert runtime.ml_models is not None
-        assert runtime.ml_models.current is not None
-        assert runtime.ml_models.current.set_version == active
-        assert runtime.ml_models.kind == "active"
+        assert runtime.ml_source.models is not None
+        assert runtime.ml_source.models.current is not None
+        assert runtime.ml_source.models.current.set_version == active
+        assert runtime.ml_source.models.kind == "active"
 
     # a configured pin of a rejected / unknown / malformed set refuses to start
     for bad in (rejected, "sha256:" + "7" * 64):
@@ -115,10 +115,10 @@ async def test_startup_matrix_restart_and_off(pg_settings: DatabaseSettings) -> 
     async with running_controller(
         make_settings(pg_settings, planner={"ml": old})
     ) as runtime:
-        assert runtime.ml_models is not None
-        assert runtime.ml_models.kind == "config"
-        assert runtime.ml_models.current is not None
-        assert runtime.ml_models.current.set_version == old
+        assert runtime.ml_source.models is not None
+        assert runtime.ml_source.models.kind == "config"
+        assert runtime.ml_source.models.current is not None
+        assert runtime.ml_source.models.current.set_version == old
         # the retrain task is not scheduled for a configured pin
         assert runtime.failed_task is None
 
@@ -126,10 +126,10 @@ async def test_startup_matrix_restart_and_off(pg_settings: DatabaseSettings) -> 
     async with running_controller(
         make_settings(pg_settings, planner={"ml": "off"})
     ) as runtime:
-        assert runtime.ml_models is not None
-        assert runtime.ml_models.mode == "off"
-        assert await runtime.ml_models.refresh() is None
-        assert runtime.ml_models.current is None
+        assert runtime.ml_source.models is not None
+        assert runtime.ml_source.models.mode == "off"
+        assert await runtime.ml_source.models.refresh() is None
+        assert runtime.ml_source.models.current is None
         assert runtime._engine is not None
         async with runtime._engine.connect() as conn:
             statuses = sorted(
@@ -146,14 +146,14 @@ async def test_the_database_pin_changes_what_a_running_controller_serves(
 ) -> None:
     async with running_controller(make_settings(pg_settings)) as runtime:
         old, active, _rejected = await _seed(runtime)
-        assert runtime.ml_models is not None and runtime._engine is not None
+        assert runtime.ml_source.models is not None and runtime._engine is not None
         registry = ModelRegistry(runtime._engine, runtime.blobs.cas)  # type: ignore[union-attr]
         await registry.pin(old)
-        loaded = await runtime.ml_models.refresh()
+        loaded = await runtime.ml_source.models.refresh()
         assert loaded is not None and loaded.set_version == old
-        assert runtime.ml_models.kind == "pinned"
+        assert runtime.ml_source.models.kind == "pinned"
         await registry.unpin(old)
-        loaded = await runtime.ml_models.refresh()
+        loaded = await runtime.ml_source.models.refresh()
         assert loaded is not None and loaded.set_version == active
 
 
@@ -162,7 +162,7 @@ async def test_a_missing_blob_for_the_active_set_is_survived_and_logged_once(
 ) -> None:
     async with running_controller(make_settings(pg_settings)) as runtime:
         _old, active, _rejected = await _seed(runtime)
-        assert runtime.ml_models is not None and runtime.blobs is not None
+        assert runtime.ml_source.models is not None and runtime.blobs is not None
         registry = ModelRegistry(runtime._engine, runtime.blobs.cas)  # type: ignore[arg-type]
         row = await registry.get(active)
         assert row is not None
@@ -171,16 +171,16 @@ async def test_a_missing_blob_for_the_active_set_is_survived_and_logged_once(
         for member in row.members:
             if member.artefact_digest:
                 runtime.blobs.cas.evict(Digest.parse(member.artefact_digest))
-        runtime.ml_models.current = None
-        runtime.ml_models._unreadable = None
+        runtime.ml_source.models.current = None
+        runtime.ml_source.models._unreadable = None
         with structlog.testing.capture_logs() as logs:
             for _ in range(5):
-                assert await runtime.ml_models.refresh() is None
+                assert await runtime.ml_source.models.refresh() is None
         errors = [
             e for e in logs if e["event"] == "controller.planner.ml_set_unloadable"
         ]
         assert len(errors) == 1, errors
-        assert runtime.ml_models.unavailable == "artefact_missing"
+        assert runtime.ml_source.models.unavailable == "artefact_missing"
         assert runtime.failed_task is None
 
 
@@ -305,6 +305,6 @@ async def test_gc_on_the_real_blob_store_keeps_what_is_served(
         await runtime.gc.run_pass("test")
         assert await present(old) and await present(active)
         # the controller still serves after the pass
-        assert runtime.ml_models is not None
-        loaded = await runtime.ml_models.refresh()
+        assert runtime.ml_source.models is not None
+        loaded = await runtime.ml_source.models.refresh()
         assert loaded is not None and loaded.set_version == old

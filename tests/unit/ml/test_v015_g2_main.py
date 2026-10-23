@@ -62,6 +62,25 @@ def test_an_unknown_feature_version_is_exit_2(
     assert "feature_version 7" in capsys.readouterr().err
 
 
+def test_a_feature_version_1_dataset_is_refused_with_the_rebuild_hint(
+    dataset: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """D366: FEATURE_VERSION 2 changed what a Mode 3 set's lane rows hold;
+    a version-1 file is refused (exit 2) and told how to rebuild."""
+    pytest.importorskip("sklearn", reason="needs the ml extra")
+    table = pq.read_table(dataset)
+    assert table.schema.metadata[FEATURE_METADATA_KEY] == b"2"
+    meta = dict(table.schema.metadata)
+    meta[FEATURE_METADATA_KEY] = b"1"
+    old = tmp_path / "v1.parquet"
+    pq.write_table(table.replace_schema_metadata(meta), old)
+    assert train_main.main(_args(old, tmp_path / "o")) == 2
+    err = capsys.readouterr().err
+    assert "feature_version 1" in err and "D366" in err
+    assert "compute planner ml dataset --out" in err
+    assert not (tmp_path / "o").exists()
+
+
 def test_an_unreadable_file_is_exit_1(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

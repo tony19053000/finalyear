@@ -32,11 +32,16 @@ from __future__ import annotations
 import datetime as dt
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
-from typing import Final
+from typing import Any, Final
 
 # V0.14 G2 (D293): a lane's stage + env are calibrated per node
-from meshforge.controller.planner.calibration import Calibration, calibrate_lane
+from meshforge.controller.planner.calibration import (
+    Calibration,
+    calibrate_lane,
+    calibrate_term,
+)
 from meshforge.controller.planner.candidates import FORCED_SET, Candidate, candidates
+from meshforge.controller.planner.estimator import bounded
 from meshforge.controller.planner.objectives import (
     COST_MODEL,
     objective_of,
@@ -45,10 +50,22 @@ from meshforge.controller.planner.objectives import (
     set_bytes_moved,
 )
 from meshforge.controller.planner.policies import Ranked, Scored, rank
+
+# V0.15 G4 (D336): lane terms and the combine corrected by the model
+from meshforge.controller.planner.predictor import (
+    MlSession,
+    TermContext,
+    corrected,
+    ml_block,
+    ml_term,
+    stored_raw,
+)
 from meshforge.controller.planner.risk import lane_risk, with_risk
 from meshforge.controller.planner.split import (
+    MIN_SECONDS_PER_ITEM,
     ChunkChoice,
     Lane,
+    Rate,
     SetEstimate,
     choose_chunk_items,
     chunk_overhead,
@@ -230,6 +247,154 @@ def _pick_key(item: SetEstimate | None, is_set: bool) -> tuple[bool, tuple[str, 
 # --- end V0.14 G3 ---------------------------------------------------------------
 
 
+# --- V0.15 G4 (D336) -------------------------------------------------------------
+
+
+def _ml_lanes(
+    request: PlanRequest,
+    snapshot: ClusterSnapshot,
+    lanes: Sequence[Lane],
+    session: MlSession,
+    calibration: Calibration | None,
+) -> tuple[list[Lane], dict[str, dict[str, Any]]]:
+    """Every lane's ``lane_stage`` / ``lane_env`` / ``chunk_rate`` with the
+    D336 precedence (one predictor call), before any set is generated or
+    costed - so chunk sizing, water filling and the margin test all see the
+    corrected lanes. A lane's terms are described as its one-lane candidate
+    (``lanes`` 1, that candidate's chunk): a set's lane count and chunk size
+    depend on the corrected rates themselves."""
+    split = request.split
+    if split is None:  # pragma: no cover - decide_split checked it
+        raise ValueError("a split job's lanes need its split")
+    family = None if calibration is None else calibration.family_of(request.fingerprint)
+    contexts: list[TermContext] = []
+    for item in lanes:
+        chunk = _single_chunk(split, item, request, snapshot).items
+        for name, term in (("lane_stage", item.stage), ("lane_env", item.env)):
+            contexts.append(
+                TermContext(
+                    term=name,
+                    node_id=item.node_id,
+                    raw_s=stored_raw(name, term.seconds),
+                    source=term.source.value,
+                    detail=term.detail,
+                    chunk_items=chunk,
+                )
+            )
+        contexts.append(
+            TermContext(
+                term="chunk_rate",
+                node_id=item.node_id,
+                raw_s=stored_raw("chunk_rate", item.rate.seconds_per_item),
+                source=item.rate.source.value,
+                chunk_items=chunk,
+            )
+        )
+    outcomes = iter(session.resolve(contexts))
+    out: list[Lane] = []
+    rate_blocks: dict[str, dict[str, Any]] = {}
+    for item in lanes:
+        node_id = item.node_id
+        stage = ml_term(
+            item.stage,
+            next(outcomes),
+            name="lane_stage",
+            version=session.version,
+            fallback=calibrate_term(
+                "transfer", item.stage, calibration, node_id=node_id, family=family
+            ),
+        )
+        env = ml_term(
+            item.env,
+            next(outcomes),
+            name="lane_env",
+            version=session.version,
+            fallback=calibrate_term(
+                "env", item.env, calibration, node_id=node_id, family=family
+            ),
+        )
+        rate_outcome = next(outcomes)
+        spi = item.rate.seconds_per_item
+        block = ml_block(rate_outcome, session.version, stored_raw("chunk_rate", spi))
+        if rate_outcome.used and rate_outcome.prediction is not None:
+            spi = max(
+                MIN_SECONDS_PER_ITEM, corrected(spi, rate_outcome.prediction.y_hat)
+            )
+        # G4 fix r1 (G4-R1-1): the rate's block is in seconds PER ITEM, so it
+        # is never put in a term's detail as that term's ``ml`` (a one-lane
+        # row's compute detail copies its rate's); _ml_compute gives that
+        # compute term its own block, the rate's nested as ``ml.rate``
+        rate_blocks[item.node_id] = block
+        rate = Rate(spi, item.rate.source, dict(item.rate.detail))
+        out.append(replace(item, stage=stage, env=env, rate=rate))
+    return out, rate_blocks
+
+
+def _ml_compute(
+    singles: Sequence[SetEstimate],
+    rate_blocks: dict[str, dict[str, Any]],
+    raw_spi: dict[str, float],
+    items: int,
+) -> list[SetEstimate]:
+    """G4 fix r1 (G4-R1-1): each one-lane candidate's ``compute`` term gets
+    a ``detail.ml`` **in its own unit**: what the model did to the lane's
+    rate (used / reason / ``y_hat`` / interval), with ``raw_s`` = the
+    analytical compute seconds of the lane (``items x`` the raw seconds per
+    item - the raw planner's very formula), so ``raw_s x e^y_hat`` is the
+    term's seconds and ``raw_prediction`` returns its uncalibrated seconds.
+    The rate's own block (seconds per item) is nested as ``ml.rate`` - what
+    ``ml/targets`` reads the chunk_rate's raw from."""
+    out: list[SetEstimate] = []
+    for item in singles:
+        compute = item.estimate.compute
+        node_id = item.node_ids[0]
+        rate_block = rate_blocks.get(node_id)
+        if rate_block is None or node_id not in raw_spi:
+            out.append(item)
+            continue
+        block: dict[str, Any] = {k: v for k, v in rate_block.items() if k != "raw_s"}
+        if block.get("used") is True:
+            pure = 1.0 / raw_spi[node_id]
+            block["raw_s"] = stored_raw("compute", bounded(max(1, items) / pure))
+        block["rate"] = dict(rate_block)
+        fixed = replace(compute, detail={**compute.detail, "ml": block})
+        out.append(replace(item, estimate=replace(item.estimate, compute=fixed)))
+    return out
+
+
+def _ml_combine(items: Sequence[SetEstimate], session: MlSession) -> list[SetEstimate]:
+    """Every costed candidate's ``combine`` with the D336 precedence (one
+    predictor call): the combine node and lane count are the candidate's
+    own. Never calibrated (V0.14: ``no_phase``), so the fallback is raw."""
+    contexts = []
+    for item in items:
+        term = item.estimate.extra["combine"]
+        node_id = term.detail.get("combine_node_id")
+        contexts.append(
+            TermContext(
+                term="combine",
+                node_id=node_id if isinstance(node_id, str) else item.node_ids[0],
+                raw_s=stored_raw("combine", term.seconds),
+                source=term.source.value,
+                detail=term.detail,
+                lanes=len(item.active),
+                chunk_items=item.chunk.items,
+            )
+        )
+    out: list[SetEstimate] = []
+    for item, outcome in zip(items, session.resolve(contexts), strict=True):
+        term = item.estimate.extra["combine"]
+        fixed = ml_term(
+            term, outcome, name="combine", version=session.version, fallback=term
+        )
+        extra = {**item.estimate.extra, "combine": fixed}
+        out.append(replace(item, estimate=replace(item.estimate, extra=extra)))
+    return out
+
+
+# --- end V0.15 G4 ----------------------------------------------------------------
+
+
 def decide_split(
     request: PlanRequest,
     snapshot: ClusterSnapshot,
@@ -238,6 +403,7 @@ def decide_split(
     *,
     now: dt.datetime | None = None,
     calibration: Calibration | None = None,
+    ml: MlSession | None = None,
 ) -> SplitOutcome:
     """The split job's feasible rows (singles + sets) ranked, its rejected
     ``split`` row if any, the chosen candidate and its plan (module
@@ -253,7 +419,11 @@ def decide_split(
     ]
     # V0.14 G2 (D293): each lane's stage + env x its node's factors, before
     # the sets are generated and costed (start times, water filling, margin)
-    if calibration is not None:
+    raw_spi = {item.node_id: item.rate.seconds_per_item for item in lanes}
+    rate_blocks: dict[str, dict[str, Any]] = {}
+    if ml is not None:  # V0.15 G4 (D336): ML -> calibration -> raw per term
+        lanes, rate_blocks = _ml_lanes(request, snapshot, lanes, ml, calibration)
+    elif calibration is not None:
         family = calibration.family_of(request.fingerprint)
         lanes = [calibrate_lane(item, calibration, family=family) for item in lanes]
     generated = candidates(request, snapshot, lanes=lanes)
@@ -275,6 +445,10 @@ def decide_split(
         chunk = set_chunk(request, members, snapshot)  # V0.14 G3: shared rule
         sets.append(estimate_split(request, members, snapshot, chunk, now=now))
     forced_row = next((_refused_row(c) for c in generated.refused_sets), None)
+    if ml is not None:  # V0.15 G4 (D336): the combine of every candidate
+        singles = _ml_compute(singles, rate_blocks, raw_spi, split.items)
+        both = _ml_combine([*singles, *sets], ml)
+        singles, sets = both[: len(singles)], both[len(singles) :]
     # V0.14 G3 (D296): the risk term - the margin test compares risked totals
     singles = [_risked(s, request, snapshot) for s in singles]
     sets = [_risked(s, request, snapshot) for s in sets]

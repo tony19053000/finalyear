@@ -23,7 +23,14 @@ import meshforge.controller.planner as planner_pkg
 pytestmark = pytest.mark.unit
 
 ML_ROOT = Path(ml_pkg.__file__).parent
-PURE = ("schema.py", "features.py", "targets.py", "splits.py", "dataset.py")
+PURE = (
+    "schema.py",
+    "features.py",
+    "targets.py",
+    "splits.py",
+    "dataset.py",
+    "replay.py",  # V0.15 G4: re-plan with the stored model version (pure)
+)
 ALLOWED_STD = {
     "__future__",
     "collections",
@@ -97,6 +104,7 @@ def test_every_ml_module_is_listed_as_pure_or_io() -> None:
     # V0.15 G2: cache.py (D355, I/O through loader / export)
     # V0.15 G3: the serving side (prep, artefact, serve: numpy) and the
     # registry / model source (I/O)
+    # V0.15 G4: predictor.py (the planner input + budget clock, D336/D363)
     assert names == {
         *PURE,
         "__init__.py",
@@ -106,6 +114,7 @@ def test_every_ml_module_is_listed_as_pure_or_io() -> None:
         *SERVING,
         "registry.py",
         "source.py",
+        "predictor.py",
     }
 
 

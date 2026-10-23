@@ -69,7 +69,10 @@ __all__ = [
     "term",
 ]
 
-FEATURE_VERSION: Final = 1
+FEATURE_VERSION: Final = 2
+"""2 (D366): a Mode 3 set's lane rows use the one-lane candidate shape
+(``job_lanes`` 1, that row's ``job_chunk_items``) - the shape serving computes;
+1 gave them the set's shape (no longer read: rebuild the dataset)."""
 DATASET_VERSION: Final = 1
 
 
@@ -251,6 +254,8 @@ def schema_fingerprint() -> str:
 
 SCHEMA_FINGERPRINTS: Final[dict[tuple[int, int], str]] = {
     (1, 1): "8627956ae0cada485b1df97b8e43b611f3ada9bf46d0d6ee4d7ed2d2c7780087",
+    # D366: same features and terms, set-lane rows use the one-lane shape
+    (1, 2): "909f9c818df53a152b955d56a20b203fadc2ecb9398001773f8d3fd9d3dc4b23",
 }
 """Published (dataset_version, feature_version) -> :func:`schema_fingerprint`.
 Never edit one: a changed feature or term list needs a version bump (a unit

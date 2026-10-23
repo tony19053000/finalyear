@@ -108,11 +108,43 @@ def _whole() -> DecisionRecordOut:
             last_transfer_age_s=7200.0,
             calibration=_calibration(2.0, 14, "node", 2.0),
         ),
-        "env": _term(1.0, "assumed", env_cached=True),
-        "compute": _term(
-            30.0, "history", calibration=_calibration(1.25, 9, "global", 24.0)
+        "env": _term(
+            1.0,
+            "assumed",
+            env_cached=True,
+            # V0.15 G4 (D336): what the ML model did (detail.ml)
+            ml={
+                "model_version": "mem-3a1f00aa",
+                "used": False,
+                "reason": "exact_by_construction",
+            },
         ),
-        "output": _term(2.0, "scaled"),
+        "compute": _term(
+            30.0,
+            "history",
+            calibration=_calibration(1.25, 9, "global", 24.0),
+            ml={
+                "model_version": "mem-3a1f00aa",
+                "used": False,
+                "reason": "ood",
+                "ood_reason": "range:hw_cpu_gflops",
+                "y_hat": -0.2,
+                "lo": -0.3,
+                "hi": -0.1,
+            },
+        ),
+        "output": _term(
+            2.0,
+            "scaled",
+            ml={
+                "model_version": "mem-3a1f00aa",
+                "used": True,
+                "y_hat": -0.235722,
+                "lo": -0.4,
+                "hi": -0.07,
+                "raw_s": 2.531,
+            },
+        ),
         "risk": _term(
             1.48, "history", p_fail=0.04, failures=1, total=20, window_days=7.0
         ),

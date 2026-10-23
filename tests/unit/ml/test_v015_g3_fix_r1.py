@@ -17,6 +17,7 @@ import structlog
 
 from meshforge.controller.ml.artefact import ArtefactError
 from meshforge.controller.ml.registry import safe_json, safe_text
+from meshforge.controller.ml.schema import FEATURE_VERSION
 from meshforge.controller.ml.serve import LoadedSet
 from meshforge.controller.ml.source import ModelSource
 
@@ -28,6 +29,7 @@ class _Row:
         self.set_version = version
         self.status = "active"
         self.reason = None
+        self.feature_version = FEATURE_VERSION  # SetRow field (merge: stale check)
 
 
 class _Registry:

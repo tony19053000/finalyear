@@ -31,12 +31,13 @@ import datetime as dt
 import hashlib
 import json
 from dataclasses import asdict, replace
-from typing import Any
+from typing import Any, Final
 
 # V0.14 G2 (D293): calibration factors
 from meshforge.controller.planner.calibration import (
     Calibration,
     calibrate_estimate,
+    calibrate_term,
     calibration_json,
 )
 from meshforge.controller.planner.candidates import STORED_MODE, candidates
@@ -54,6 +55,16 @@ from meshforge.controller.planner.objectives import (
     reason_suffix,
 )
 from meshforge.controller.planner.policies import Scored, rank
+
+# V0.15 G4 (D336): the optional ML term predictor
+from meshforge.controller.planner.predictor import (
+    MlInput,
+    MlSession,
+    PredictorFailed,
+    TermContext,
+    ml_term,
+    stored_raw,
+)
 from meshforge.controller.planner.retry_exclusion import LIFT_ORDER
 from meshforge.controller.planner.risk import risked_singles
 from meshforge.controller.planner.split_plan import decide_split
@@ -61,6 +72,8 @@ from meshforge.controller.planner.types import (
     CandidateEval,
     ClusterSnapshot,
     Decision,
+    Estimate,
+    EstimateTerm,
     Mode,
     NodeSnapshot,
     Objective,
@@ -133,6 +146,7 @@ def snapshot_digest(
     request: PlanRequest,
     snapshot: ClusterSnapshot,
     calibration: Calibration | None = None,
+    ml_version: str | None = None,
 ) -> str:
     """SHA-256 of the canonical (request, snapshot) pair."""
     data = _without_unset_g3(  # V0.14 G3
@@ -148,6 +162,10 @@ def snapshot_digest(
             "version": calibration.version,
             **calibration_json(calibration),
         }
+    # V0.15 G4 (D336): a decision planned with a model saw its version too
+    # (None -> the digest of every decision before G4, unchanged)
+    if ml_version is not None:
+        data["ml"] = {"version": ml_version}
     text = json.dumps(data, sort_keys=True, separators=(",", ":"), default=str)
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
@@ -223,6 +241,62 @@ def _with_exclusion(request: PlanRequest, snapshot: ClusterSnapshot) -> PlanRequ
     return request
 
 
+# --- V0.15 G4 (D336, D363) ------------------------------------------------------
+
+_WHOLE_TERMS: Final = ("transfer", "env", "compute", "output")
+"""A whole job's learnable terms (their planner and dataset names agree)."""
+
+
+def _ml_estimates(
+    scored: list[Scored],
+    session: MlSession,
+    calibration: Calibration | None,
+    family: str | None,
+) -> list[Estimate]:
+    """Every scored single's estimate with the D336 precedence applied per
+    term - one predictor call for all of them (batching)."""
+    contexts = [
+        TermContext(
+            term=name,
+            node_id=item.node.node_id,
+            raw_s=stored_raw(name, term.seconds),
+            source=term.source.value,
+            detail=term.detail,
+        )
+        for item in scored
+        for name, term in (
+            (name, getattr(item.estimate, name)) for name in _WHOLE_TERMS
+        )
+    ]
+    outcomes = iter(session.resolve(contexts))
+    out: list[Estimate] = []
+    for item in scored:
+        node_id = item.node.node_id
+        changed: dict[str, EstimateTerm] = {}
+        for name in _WHOLE_TERMS:
+            term: EstimateTerm = getattr(item.estimate, name)
+            fallback = calibrate_term(
+                name, term, calibration, node_id=node_id, family=family
+            )
+            changed[name] = ml_term(
+                term,
+                next(outcomes),
+                name=name,
+                version=session.version,
+                fallback=fallback,
+            )
+        out.append(
+            replace(
+                item.estimate,
+                transfer=changed["transfer"],
+                env=changed["env"],
+                compute=changed["compute"],
+                output=changed["output"],
+            )
+        )
+    return out
+
+
 def plan(
     request: PlanRequest,
     snapshot: ClusterSnapshot,
@@ -230,6 +304,7 @@ def plan(
     now: dt.datetime | None = None,
     *,
     calibration: Calibration | None = None,
+    ml: MlInput | None = None,
 ) -> Decision:
     """See module docstring. ``now`` judges the age of network-matrix links
     (V0.6 G4, D111); without it no link counts as fresh.
@@ -237,8 +312,46 @@ def plan(
     V0.14 G2 (D293): ``calibration`` scales each candidate's non-``measured``
     terms by its fitted factors (:mod:`.calibration`) before the policy, the
     margin test and the ranking see them; None = uncalibrated (bit-identical
-    to the planner before G2)."""
+    to the planner before G2).
+
+    V0.15 G4 (D336): ``ml`` corrects each learnable term with the model's
+    predicted residual where it is usable (:mod:`.predictor`: precedence ML ->
+    calibration -> raw, per term, per candidate); None = no model
+    (bit-identical to the planner before G4). D363: a failing predictor never
+    fails the plan - the decision is planned again with every learnable term
+    on its calibration fallback, and :attr:`~.types.Decision.ml` names the
+    error."""
+    if ml is None:
+        return _plan(request, snapshot, policy, now, calibration, None)
+    try:
+        return _plan(
+            request,
+            snapshot,
+            policy,
+            now,
+            calibration,
+            MlSession(ml, request, snapshot, now),
+        )
+    except PredictorFailed as failed:
+        session = MlSession(ml, request, snapshot, now, failed=failed.cause)
+        return _plan(request, snapshot, policy, now, calibration, session)
+
+
+# --- end V0.15 G4 ---------------------------------------------------------------
+
+
+def _plan(
+    request: PlanRequest,
+    snapshot: ClusterSnapshot,
+    policy: str,
+    now: dt.datetime | None,
+    calibration: Calibration | None,
+    session: MlSession | None,
+) -> Decision:
+    """:func:`plan` with the decision's ML session (None = no model)."""
     config = snapshot.config
+    ml_use = None if session is None else session.use()  # V0.15 G4
+    ml_version = None if ml_use is None else ml_use.version
     objective = objective_of(request.objective)  # V0.14 G3: unknown -> ValueError
     request = _with_exclusion(request, snapshot)
     # V0.14 G2: the request's workload family, as the calibration knows it
@@ -273,7 +386,7 @@ def plan(
             feasible.append((node, local, slot))
             continue
         guess = estimate(request, node, slot, snapshot, local=local, now=now)
-        if calibration is not None:  # V0.14 G2 (D293)
+        if calibration is not None and session is None:  # V0.14 G2 (D293)
             guess = calibrate_estimate(
                 guess, calibration, node_id=node.node_id, family=family
             )
@@ -281,6 +394,12 @@ def plan(
         evals.append(
             CandidateEval(node.node_id, mode, feasible=True, slot=slot, estimate=guess)
         )
+    if session is not None and scored:
+        # V0.15 G4 (D336): ML -> calibration -> raw per term, one batch call
+        corrected = _ml_estimates(scored, session, calibration, family)
+        scored = [
+            replace(i, estimate=e) for i, e in zip(scored, corrected, strict=True)
+        ]
     # V0.14 G3 (D296): the risk term, once every single is costed - from the
     # calibrated terms (V0.14 G2 above), added after them and never scaled
     if scored:
@@ -294,7 +413,13 @@ def plan(
         ]
     if request.split is not None:
         outcome = decide_split(
-            request, snapshot, policy, feasible, now=now, calibration=calibration
+            request,
+            snapshot,
+            policy,
+            feasible,
+            now=now,
+            calibration=calibration,
+            ml=session,  # V0.15 G4
         )
         rows = [*outcome.rows, *evals]
         rows.sort(key=lambda c: (c.rank is None, c.rank or 0, c.node_id))
@@ -302,13 +427,14 @@ def plan(
             policy=policy,
             candidates=tuple(rows),
             chosen=outcome.chosen,
-            snapshot_digest=snapshot_digest(request, snapshot, calibration),
+            snapshot_digest=snapshot_digest(request, snapshot, calibration, ml_version),
             reason_key=_reason_key(
                 rows, objective if outcome.objective_changed else None
             ),
             split=outcome.plan,
             objective=request.objective,
             pruned=outcome.pruned,
+            ml=ml_use,
         )
     # V0.14 G3 (D295): cost_model ranks by the objective (min_time = as before)
     changed = False
@@ -333,7 +459,8 @@ def plan(
         policy=policy,
         candidates=tuple(final),
         chosen=chosen,
-        snapshot_digest=snapshot_digest(request, snapshot, calibration),
+        snapshot_digest=snapshot_digest(request, snapshot, calibration, ml_version),
         reason_key=_reason_key(final, objective if changed and chosen else None),
         objective=request.objective,
+        ml=ml_use,
     )

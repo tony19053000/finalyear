@@ -21,30 +21,67 @@ once, and the source answers None for it (the planner falls back to the
 calibration) - it is tried again only every ``retry_s`` (60 s), so a
 restored blob serves again without a restart.
 
-Loading runs in a worker thread (:meth:`~.registry.ModelRegistry.load`);
-G4/G5 call :meth:`refresh` from the dispatcher and turn :attr:`current`
-into the planner's ``TermPredictor``.
+A set trained on another **feature version** than this code's
+(:data:`~.schema.FEATURE_VERSION`; D366 moved it to 2) is never loaded: one
+``controller.planner.ml_set_stale_features`` info line, the source answers
+None (the planner keeps calibration) until a set of this feature version
+serves - the next retrain trains one.
+
+Loading runs in a worker thread (:meth:`~.registry.ModelRegistry.load`).
+
+**What the planner reads (G3 + G4 merge).** :class:`SetPredictor` is the
+planner's :class:`~meshforge.controller.planner.predictor.TermPredictor`
+over a :class:`~.serve.LoadedSet`, and :class:`RegistryMlInputSource` is the
+dispatcher's :class:`~.predictor.MlInputSource` (``server.ml_source``): per
+tick it calls :meth:`ModelSource.refresh` (one cheap query) and, when the
+loaded set changed, builds the planner's
+:class:`~meshforge.controller.planner.predictor.MlInput` with
+:func:`~.predictor.ml_input` (warm-up outside the budget; ``ml_max_interval_log``,
+``ml_predict_budget_ms``). A set whose warm-up fails is not used (None).
 """
 
 from __future__ import annotations
 
+import asyncio
+import math
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import Final, Literal
+
+import numpy as np
 
 from meshforge.common.errors import ConfigError
 from meshforge.common.logging import get_logger
 from meshforge.controller.ml.artefact import ArtefactError
+from meshforge.controller.ml.predictor import DEFAULT_PREDICT_BUDGET_MS, ml_input
 from meshforge.controller.ml.registry import MlRegistryError, ModelRegistry
-from meshforge.controller.ml.serve import LoadedSet
+from meshforge.controller.ml.schema import FEATURE_VERSION
+from meshforge.controller.ml.serve import LoadedModel, LoadedSet
+from meshforge.controller.planner.predictor import (
+    DEFAULT_MAX_INTERVAL_LOG,
+    MlInput,
+    PredictorFailed,
+    TermPrediction,
+    TermQuery,
+)
 
-__all__ = ["ML_OFF", "MlMode", "ModelSource", "parse_ml_mode"]
+__all__ = [
+    "ML_OFF",
+    "STALE_FEATURES",
+    "MlMode",
+    "ModelSource",
+    "RegistryMlInputSource",
+    "SetPredictor",
+    "parse_ml_mode",
+]
 
 log = get_logger(__name__)
 
 ML_OFF: Final = "off"
 UNREADABLE_RETRY_S: Final = 60.0
 """A set that could not be loaded is tried again after this long."""
+STALE_FEATURES: Final = "stale_feature_version"
+""":attr:`ModelSource.unavailable` for a set of another feature version."""
 type MlMode = Literal["auto", "off", "pinned"]
 
 
@@ -82,6 +119,9 @@ class ModelSource:
         self._unreadable_at = 0.0
         """When :attr:`_unreadable` was last tried (fix r1, D2: it is tried
         again after ``retry_s`` - a restored blob serves without a restart)."""
+        self._stale: str | None = None
+        """The serving set of another feature version (never loaded; logged
+        once)."""
 
     async def check(self) -> None:
         """Startup (module docstring): a configured pin must exist, not be
@@ -117,6 +157,8 @@ class ModelSource:
             kind, version = await self._registry.serving_version()
             if version is None:
                 self.current, self.kind, self.unavailable = None, None, None
+            elif version == self._stale:
+                self.current, self.kind = None, kind  # quietly: logged once
             elif (
                 version == self._unreadable
                 and self._clock() - self._unreadable_at < self._retry_s
@@ -152,6 +194,19 @@ class ModelSource:
         row = await self._registry.get(version)
         if row is None:  # changed between the two reads; next refresh
             return
+        if row.feature_version != FEATURE_VERSION:
+            # trained on other features (D366): never loaded, logged once;
+            # the planner keeps calibration until a new set is trained
+            log.info(
+                "controller.planner.ml_set_stale_features",
+                ml_set_version=version,
+                set_feature_version=row.feature_version,
+                feature_version=FEATURE_VERSION,
+                hint="the next retrain trains a set for this feature version",
+            )
+            self._stale = version
+            self.current, self.kind, self.unavailable = None, kind, STALE_FEATURES
+            return
         try:
             loaded = await self._registry.load(row)
         except ArtefactError as exc:
@@ -174,3 +229,112 @@ class ModelSource:
             terms=list(loaded.terms),
         )
         self.current, self.kind, self.unavailable = loaded, kind, None
+
+
+# ------------------------------------------------- the planner's view (G3+G4)
+
+
+def _usable(model: LoadedModel) -> bool:
+    """An infinite conformal ``q`` (too few rows for an interval) can never
+    pass the D336 width test: such a member is "no model" to the planner
+    (asking it would only produce non-finite intervals)."""
+    return math.isfinite(model.q)
+
+
+class SetPredictor:
+    """The planner's ``TermPredictor`` over one loaded model set (module
+    docstring). ``predictor_version`` = the set version (what decisions and
+    replays record); each answer's ``model_version`` = the member that
+    answered. A member ``none`` (or with no usable interval) -> ``has_model``
+    False, so the planner never asks for it (``no_model``). Any failure of a
+    member while predicting (an :class:`~.artefact.ArtefactError` from a
+    native library, a wrong row width) is a
+    :class:`~meshforge.controller.planner.predictor.PredictorFailed` - the
+    decision falls back to calibration (D363)."""
+
+    def __init__(self, loaded: LoadedSet) -> None:
+        self.loaded = loaded
+        self._models = {
+            term: model for term, model in loaded.models.items() if _usable(model)
+        }
+
+    @property
+    def predictor_version(self) -> str:
+        return self.loaded.set_version
+
+    def has_model(self, term: str) -> bool:
+        return term in self._models
+
+    def predict(self, rows: Sequence[TermQuery]) -> Sequence[TermPrediction]:
+        out: list[TermPrediction | None] = [None] * len(rows)
+        by_term: dict[str, list[int]] = {}
+        for index, row in enumerate(rows):
+            by_term.setdefault(row.term, []).append(index)
+        for term, indices in by_term.items():
+            model = self._models.get(term)
+            if model is None:
+                raise PredictorFailed(f"no_model:{term}")
+            try:
+                answer = model.predict(
+                    np.asarray([rows[i].features for i in indices], dtype=np.float64)
+                )
+            except ArtefactError as exc:
+                raise PredictorFailed(
+                    f"artefact_error:{exc.details.get('reason', 'bad_model')}"
+                ) from exc
+            except ValueError as exc:  # wrong feature width / non-numeric row
+                raise PredictorFailed("malformed_features") from exc
+            for k, i in enumerate(indices):
+                out[i] = TermPrediction(
+                    y_hat=float(answer.y_hat[k]),
+                    lo=float(answer.lo[k]),
+                    hi=float(answer.hi[k]),
+                    ood=bool(answer.ood[k]),
+                    reason=answer.reasons[k],
+                    model_version=answer.model_version,
+                )
+        return [p for p in out if p is not None]
+
+
+class RegistryMlInputSource:
+    """``server.ml_source`` (module docstring): the dispatcher's
+    :class:`~.predictor.MlInputSource` over a :class:`ModelSource`."""
+
+    def __init__(
+        self,
+        models: ModelSource,
+        *,
+        max_interval_log: float = DEFAULT_MAX_INTERVAL_LOG,
+        budget_ms: float = DEFAULT_PREDICT_BUDGET_MS,
+    ) -> None:
+        self.models = models
+        """The registry-side source (API, retrain task, tests)."""
+        self.max_interval_log = max_interval_log
+        self.budget_ms = budget_ms
+        self._loaded: LoadedSet | None = None
+        self._input: MlInput | None = None
+
+    async def current(self) -> MlInput | None:
+        """The model to plan this tick with (None = no model / not usable).
+        Never raises (a failed read keeps the set, :meth:`ModelSource.
+        refresh`)."""
+        loaded = await self.models.refresh()
+        if loaded is None:
+            self._loaded = self._input = None
+            return None
+        if loaded is not self._loaded:
+            self._loaded = loaded
+            # warm-up = one batch per modelled term: off the event loop
+            self._input = await asyncio.to_thread(
+                ml_input,
+                SetPredictor(loaded),
+                max_interval_log=self.max_interval_log,
+                budget_ms=self.budget_ms,
+            )
+            log.info(
+                "controller.planner.ml_input_ready"
+                if self._input is not None
+                else "controller.planner.ml_input_unavailable",
+                ml_set_version=loaded.set_version,
+            )
+        return self._input

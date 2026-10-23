@@ -11,6 +11,7 @@ import structlog
 from meshforge.common.errors import ConfigError
 from meshforge.controller.ml.artefact import ArtefactError
 from meshforge.controller.ml.registry import MlRegistryError
+from meshforge.controller.ml.schema import FEATURE_VERSION
 from meshforge.controller.ml.serve import LoadedSet
 from meshforge.controller.ml.source import ModelSource, parse_ml_mode
 
@@ -22,6 +23,7 @@ class Row:
         self.set_version = version
         self.status = status
         self.reason = None
+        self.feature_version = FEATURE_VERSION  # SetRow field (merge: stale check)
 
 
 class Registry:
