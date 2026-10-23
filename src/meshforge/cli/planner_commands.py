@@ -12,11 +12,17 @@ calibration (V0.14 G2, D293/D301/D306).
   the planner plans with now (``auto`` / ``off`` / ``pinned``).
 
 * ``eval --campaign ID [--campaign ID ...] [--holdout FAMILY] [--allow-leak]
-  [--md PATH]`` (**admin**, V0.14 G4, ``POST /v1/planner/eval-reports``):
-  evaluate the campaigns' labelled groups - every policy replayed on what the
-  planner saw, regret vs the best measured configuration, calibrated rows on
-  leave-one-family-out refits - store the report and print the verdicts and
-  the per-policy table; ``--md`` also writes the stored report's Markdown.
+  [--md PATH] [--timeout S]`` (**admin**, V0.14 G4, ``POST
+  /v1/planner/eval-reports``): evaluate the campaigns' labelled groups -
+  every policy replayed on what the planner saw, regret vs the best measured
+  configuration, calibrated rows on leave-one-family-out refits - store the
+  report and print the verdicts and the per-policy table; ``--md`` also
+  writes the stored report's Markdown. V0.15 G6b (D378): the controller
+  evaluates in the background; the CLI polls ``GET
+  /v1/planner/eval-reports/{id}`` every 2 s for up to ``--timeout`` seconds
+  (default: the controller's default fold budget + the replay margin, 3600
+  s) - over it, or a report that ends ``failed`` (its reason printed), exits
+  1. The evaluation is not stopped by the CLI giving up.
 * ``reports [--limit N]`` (G4 fix round 1, ``GET /v1/planner/eval-reports``):
   the stored reports, newest first - id, time, campaigns, held-out family,
   leaked, evaluated groups and both verdicts.
@@ -56,9 +62,10 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Annotated, Any, Final
+from typing import TYPE_CHECKING, Annotated, Any, Final, TypeGuard
 
 import typer
 from rich.table import Table
@@ -66,6 +73,10 @@ from rich.table import Table
 from meshforge.cli import render
 from meshforge.cli import shared as cli
 from meshforge.cli.exits import CliExit
+from meshforge.common.ml_eval import EVAL_WAIT_DEFAULT_S
+
+if TYPE_CHECKING:
+    from meshforge.cli.client import ControllerClient
 
 __all__ = [
     "calibration_lines",
@@ -497,6 +508,45 @@ def reports(
     render.show(reports_table(doc))
 
 
+_EVAL_POLL_S: Final = 2.0
+"""V0.15 G6b (D378): how often ``compute planner eval`` asks for its report."""
+
+
+def _is_int(value: Any) -> TypeGuard[int]:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _wait_for_report(
+    client: ControllerClient, report_id: int, timeout: float
+) -> Mapping[str, Any]:
+    """Poll ``GET /v1/planner/eval-reports/{id}`` until it is no longer
+    ``running`` (D378); exit 1 after ``timeout`` seconds (the evaluation
+    keeps running on the controller)."""
+    deadline = time.monotonic() + timeout
+    while True:
+        doc = cli._fetch(lambda: client.planner_eval_report(report_id))
+        if doc.get("status") != "running":
+            return doc
+        left = deadline - time.monotonic()
+        if left <= 0.0:
+            cli._die(
+                f"evaluation report {report_id} did not finish within {timeout:g} s "
+                "(--timeout); it keeps running on the controller - see "
+                "compute planner reports",
+                CliExit.FAILURE,
+            )
+        time.sleep(min(_EVAL_POLL_S, left))
+
+
+def failed_line(record: Mapping[str, Any]) -> str:
+    """The one line of a failed report (pure)."""
+    reason = render.echo(record.get("reason") or "unknown")
+    detail = record.get("detail")
+    return f"evaluation report {render.echo(record.get('id'))} failed: {reason}" + (
+        f" - {render.echo(detail)}" if detail else ""
+    )
+
+
 @planner_app.command("eval")
 def evaluate(
     campaign: Annotated[
@@ -520,6 +570,16 @@ def evaluate(
         Path | None,
         typer.Option("--md", help="Also write the report as Markdown to this file."),
     ] = None,
+    timeout: Annotated[
+        float,
+        typer.Option(
+            "--timeout",
+            min=1.0,
+            help="Give up waiting after this many seconds (the evaluation keeps "
+            "running on the controller). Default: the controller's default "
+            "fold budget plus the replay margin.",
+        ),
+    ] = EVAL_WAIT_DEFAULT_S,
     json_output: cli.JsonOption = False,
 ) -> None:
     """Evaluate benchmark campaigns: every policy's regret vs the oracle (admin)."""
@@ -528,16 +588,37 @@ def evaluate(
         cli._die(f"{md} exists; choose a new file", CliExit.USAGE_ERROR)
     settings = cli._settings()
     with cli._client(settings) as client:
-        doc = cli._fetch(
+        started = cli._fetch(
             lambda: client.planner_eval(
                 campaign_ids=ids, holdout=holdout, allow_leak=allow_leak
             )
         )
+        report_id = started.get("report_id")
+        if isinstance(started.get("report"), Mapping) and report_id is None:
+            doc = started  # a controller from before V0.15 G6b answered at once
+        elif _is_int(report_id):
+            if not json_output:
+                render.note(
+                    f"evaluation report {report_id} started; waiting up to "
+                    f"{timeout:g} s"
+                )
+            doc = _wait_for_report(client, report_id, timeout)
+        else:
+            cli._die(
+                "the controller did not say which report it started",
+                CliExit.FAILURE,
+            )
+        if doc.get("status", "done") != "done":
+            if json_output:
+                cli._echo_json(doc)
+            else:
+                render.line(failed_line(doc))
+            raise typer.Exit(int(CliExit.FAILURE))
         text = None
         if md is not None:
-            report_id = doc.get("id")
-            if isinstance(report_id, int) and not isinstance(report_id, bool):
-                text = cli._fetch(lambda: client.planner_eval_markdown(report_id))
+            done_id = doc.get("id")
+            if _is_int(done_id):
+                text = cli._fetch(lambda: client.planner_eval_markdown(done_id))
     if md is not None and text is not None:
         try:
             with md.open("x", encoding="utf-8") as handle:

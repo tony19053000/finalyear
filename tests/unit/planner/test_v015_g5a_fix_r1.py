@@ -33,8 +33,11 @@ pytest.importorskip("fastapi", reason="needs the controller extra")
 
 from mf_eval_world import fabric, group, records
 
-from meshforge.cli import client as cli_client
-from meshforge.common.ml_eval import DEFAULT_ML_EVAL_TIMEOUT_S, EVAL_REPLAY_MARGIN_S
+from meshforge.common.ml_eval import (
+    DEFAULT_ML_EVAL_TIMEOUT_S,
+    EVAL_REPLAY_MARGIN_S,
+    EVAL_WAIT_DEFAULT_S,
+)
 from meshforge.controller import ml_retrain_task
 from meshforge.controller.api.planner_eval_models import EvalReportOut
 from meshforge.controller.ml import child as child_mod
@@ -245,9 +248,7 @@ def test_the_guard_works_across_event_loops() -> None:
 
 def test_the_budget_default_and_the_cli_timeout_derive_from_it() -> None:
     assert PlannerSettings().ml_eval_timeout_s == DEFAULT_ML_EVAL_TIMEOUT_S
-    assert (
-        cli_client._EVAL_TIMEOUT_S == DEFAULT_ML_EVAL_TIMEOUT_S + EVAL_REPLAY_MARGIN_S
-    )
+    assert EVAL_WAIT_DEFAULT_S == DEFAULT_ML_EVAL_TIMEOUT_S + EVAL_REPLAY_MARGIN_S
     with pytest.raises(ValueError, match="ml_eval_timeout_s"):
         PlannerSettings(ml_eval_timeout_s=0.0)
 

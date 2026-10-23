@@ -34,7 +34,6 @@ from pydantic import SecretStr
 
 from meshforge.cli.exits import exit_code_for
 from meshforge.common.errors import FailureType, MeshForgeError
-from meshforge.common.ml_eval import DEFAULT_ML_EVAL_TIMEOUT_S, EVAL_REPLAY_MARGIN_S
 
 __all__ = ["ControllerClient", "ControllerError", "exit_code_for"]
 
@@ -58,12 +57,6 @@ _RETRY_HINT: Final = " - retry in a moment"
 
 _TRANSFER_TIMEOUT_S: Final = 300.0
 """Bundle/output transfers and log downloads: bigger than one small JSON call."""
-_EVAL_TIMEOUT_S: Final = DEFAULT_ML_EVAL_TIMEOUT_S + EVAL_REPLAY_MARGIN_S
-"""V0.15 G5a (D368): ``POST /v1/planner/eval-reports`` trains one fold model
-set per evaluated family before it replays - minutes, not seconds. The
-controller caps the fold training at ``ml_eval_timeout_s`` (default
-:data:`~meshforge.common.ml_eval.DEFAULT_ML_EVAL_TIMEOUT_S`); the CLI waits
-that plus the replay margin."""
 
 
 class ControllerError(MeshForgeError):
@@ -409,18 +402,23 @@ class ControllerClient:
         holdout: str | None = None,
         allow_leak: bool = False,
     ) -> Mapping[str, Any]:
-        """``POST /v1/planner/eval-reports`` (admin): evaluate + store. It
-        trains the ML fold models (V0.15 G5a) and replays every record under
-        every policy, so it may take a while: :data:`_EVAL_TIMEOUT_S`."""
-        body: dict[str, Any] = {"campaign_ids": campaign_ids, "allow_leak": allow_leak}
+        """``POST /v1/planner/eval-reports`` (admin): start an evaluation
+        (V0.15 G6b, D378: 202 ``{report_id, status: running}``; poll
+        :meth:`planner_eval_report`). A controller from before G6b answers
+        201 with the whole record instead - returned as it is."""
+        body: dict[str, Any] = {
+            "campaign_ids": campaign_ids,
+            "allow_leak": allow_leak,
+            "background": True,
+        }
         if holdout is not None:
             body["holdout"] = holdout
-        return self._request(
-            "POST",
-            "/v1/planner/eval-reports",
-            json_body=body,
-            timeout=_EVAL_TIMEOUT_S,
-        )
+        return self._request("POST", "/v1/planner/eval-reports", json_body=body)
+
+    def planner_eval_report(self, report_id: int) -> Mapping[str, Any]:
+        """``GET /v1/planner/eval-reports/{id}`` (status, and the report once
+        done)."""
+        return self._get(f"/v1/planner/eval-reports/{report_id}")
 
     def planner_eval_reports(self, *, limit: int = 50) -> Mapping[str, Any]:
         """``GET /v1/planner/eval-reports`` (summaries, newest first)."""
