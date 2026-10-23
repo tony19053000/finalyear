@@ -82,7 +82,7 @@ function amount(value: unknown, perItem: boolean): string {
 }
 
 function one(ml: TermMlRateOut, perItem: boolean): string {
-  if (ml.used === true) {
+  if (ml.used) {
     return `ML ${amount(ml.raw_s, perItem)} -> ${amount(ml.corrected_s, perItem)} ${said(ml)}`;
   }
   let why = reasonText(ml.reason);
