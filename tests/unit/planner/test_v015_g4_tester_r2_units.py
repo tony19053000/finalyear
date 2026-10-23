@@ -42,7 +42,12 @@ from meshforge.controller.planner.replay import project
 pytestmark = pytest.mark.unit
 
 SEEDS = range(150)
-COVERED: dict[str, Any] = {"one_lane": 0, "used": 0, "heavy_used": 0, "heavy_names": set()}
+COVERED: dict[str, Any] = {
+    "one_lane": 0,
+    "used": 0,
+    "heavy_used": 0,
+    "heavy_names": set(),
+}
 SPLIT_SEEDS = [s for s in range(300) if random_case(s)[0].split]
 
 
@@ -272,7 +277,9 @@ def test_targets_reads_the_rate_raw_from_ml_rate_only() -> None:
     def lane(compute_detail: Any, rate_items_s: float = 100.0) -> dict[str, Any]:
         return {
             "rate_items_s": rate_items_s,
-            "estimate": {"terms": {"compute": {"seconds": 9.0, "detail": compute_detail}}},
+            "estimate": {
+                "terms": {"compute": {"seconds": 9.0, "detail": compute_detail}}
+            },
         }
 
     rate = {"used": True, "raw_s": 0.004, "y_hat": 0.5}

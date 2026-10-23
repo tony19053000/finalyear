@@ -73,7 +73,9 @@ def test_warm_up_runs_once_per_build_not_per_decision() -> None:
     after_one = stub.calls
     plan(request, view, "cost_model", now, ml=ml)
     assert stub.calls == after_one * 2 - 1  # +1 per decision, warm-up not repeated
-    assert ml_input(stub) is not None and stub.calls == after_one * 2  # a new build warms
+    assert (
+        ml_input(stub) is not None and stub.calls == after_one * 2
+    )  # a new build warms
 
 
 def test_warm_up_rows_have_the_feature_width_the_planner_builds() -> None:
