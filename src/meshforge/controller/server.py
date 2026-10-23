@@ -58,10 +58,12 @@ from meshforge.controller.alerts import AlertLog
 from meshforge.controller.api.auth import ApiAuth
 from meshforge.controller.api.auth_routes import AuthApi
 from meshforge.controller.api.bench_routes import BenchApi
-from meshforge.controller.api.fabric_routes import InviteApi
-from meshforge.controller.api.job_routes import JobApi
 
 # V0.15 G3 (D339, D361): ML model registry, model source, retrain task
+from meshforge.controller.api.decision_replay_routes import DecisionReplayApi
+from meshforge.controller.api.fabric_routes import InviteApi
+from meshforge.controller.api.job_routes import JobApi
+from meshforge.controller.api.ml_classify_routes import MlClassifyApi
 from meshforge.controller.api.ml_model_routes import MlModelsApi
 from meshforge.controller.api.ml_prediction_routes import MlPredictionsApi
 from meshforge.controller.api.ml_routes import MlDatasetApi
@@ -126,6 +128,7 @@ from meshforge.controller.jobs.logs import LogHub
 from meshforge.controller.jobs.peers import PeerSources
 from meshforge.controller.liveness import LivenessEvent
 from meshforge.controller.ml import export as ml_export
+from meshforge.controller.ml.decision_replay import DecisionReplayer
 from meshforge.controller.ml.registry import ModelRegistry
 from meshforge.controller.ml.registry_loader import RegistryLoader
 
@@ -145,6 +148,9 @@ from meshforge.controller.planner.calibration import Calibration
 from meshforge.controller.planner_calibration_task import (
     CalibrationRefresher,
     calibration_config,
+)
+from meshforge.controller.planner_eval.classifier_service import (
+    ClassifierExamplesService,
 )
 from meshforge.controller.planner_eval.latency import LatencyConfig
 from meshforge.controller.planner_eval.ml_inputs import FoldMlInputs
@@ -919,6 +925,17 @@ class ControllerRuntime:
             ),
             # V0.15 G5b (D374): predicted vs actual per term
             ml_predictions=MlPredictionsApi(engine, calibration_store),
+            # V0.15 G6a (D375): the 0.15.10 classifier experiment's examples
+            ml_classify=MlClassifyApi(
+                ClassifierExamplesService(
+                    engine,
+                    calibration_store,
+                    calibration_config(cfg.planner),
+                    max_rows=self.settings.controller.telemetry.export_max_rows,
+                )
+            ),
+            # V0.15 G6a (D364): re-plan a stored decision with its model set
+            decision_replay=DecisionReplayApi(DecisionReplayer(engine, ml_sets)),
         )
         http_config = uvicorn.Config(
             http_app,

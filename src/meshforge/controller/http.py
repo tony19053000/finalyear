@@ -51,6 +51,11 @@ from meshforge.controller.api.bench_routes import (
 )
 from meshforge.controller.api.blob_routes import BLOBS_STATE_KEY, blob_router
 from meshforge.controller.api.data_routes import data_router
+from meshforge.controller.api.decision_replay_routes import (
+    DECISION_REPLAY_STATE_KEY,
+    DecisionReplayApi,
+    decision_replay_router,
+)
 from meshforge.controller.api.decision_routes import decision_router
 from meshforge.controller.api.event_routes import EVENTS_STATE_KEY, event_router
 from meshforge.controller.api.fabric_routes import (
@@ -62,6 +67,11 @@ from meshforge.controller.api.job_routes import JOBS_STATE_KEY, JobApi, job_rout
 from meshforge.controller.api.log_routes import log_router
 
 # V0.15 G1 (D333): the ML training dataset
+from meshforge.controller.api.ml_classify_routes import (
+    ML_CLASSIFY_STATE_KEY,
+    MlClassifyApi,
+    ml_classify_router,
+)
 from meshforge.controller.api.ml_model_routes import (
     ML_MODELS_STATE_KEY,
     MlModelsApi,
@@ -168,6 +178,8 @@ def create_http_app(
     ml_dataset: MlDatasetApi | None = None,
     ml_models: MlModelsApi | None = None,
     ml_predictions: MlPredictionsApi | None = None,
+    ml_classify: MlClassifyApi | None = None,
+    decision_replay: DecisionReplayApi | None = None,
     web_dist: Path | None = DEFAULT_DIST,
     wall_clock: Callable[[], float] = time.time,
 ) -> FastAPI:
@@ -296,6 +308,12 @@ def create_http_app(
     if ml_predictions is not None:
         setattr(app.state, ML_PREDICTIONS_STATE_KEY, ml_predictions)
         app.include_router(ml_predictions_router)  # V0.15 G5b scatter (D374)
+    if ml_classify is not None:
+        setattr(app.state, ML_CLASSIFY_STATE_KEY, ml_classify)
+        app.include_router(ml_classify_router)  # V0.15 G6a classifier (D375)
+    if decision_replay is not None:
+        setattr(app.state, DECISION_REPLAY_STATE_KEY, decision_replay)
+        app.include_router(decision_replay_router)  # V0.15 G6a replay (D364)
     return app
 
 
@@ -331,6 +349,8 @@ def openapi_document() -> dict[str, Any]:
         ml_dataset=inert(),
         ml_models=inert(),
         ml_predictions=inert(),
+        ml_classify=inert(),
+        decision_replay=inert(),
         web_dist=None,
     )
     return app.openapi()
