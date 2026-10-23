@@ -293,12 +293,12 @@ def test_has_model_raising_falls_back() -> None:
     assert decision.chosen is not None
 
 
-def test_a_raising_predictor_version_escapes_d363_today_observation() -> None:
-    """OBSERVATION (hardening, not asserted as desired): ``MlInput.version`` is
-    read when the session is created, outside the D363 fallback. A predictor
-    whose ``predictor_version`` raises therefore makes ``plan()`` raise (the
-    dispatcher then leaves every job queued while that model is active).
-    Pinned here so a change is noticed; the state afterwards is clean."""
+def test_a_raising_predictor_version_falls_back_under_d363() -> None:
+    """Was an OBSERVATION in tester r1 (``MlInput.version`` read outside the
+    D363 guard -> ``plan()`` raised, every job stayed queued). Lead decision
+    O-1 (G4 fix r1): the version is read inside the guard - a raising or
+    non-text ``predictor_version`` is a calibration fallback with reason
+    ``predictor_error``; the plan never fails."""
     request, view, now = _inputs(False)
 
     class P(StubPredictor):
@@ -306,8 +306,25 @@ def test_a_raising_predictor_version_escapes_d363_today_observation() -> None:
         def predictor_version(self) -> str:
             raise RuntimeError("no version")
 
-    with pytest.raises(RuntimeError):
-        plan(request, view, "cost_model", now, ml=MlInput(P(), term_features))
+    class Q(StubPredictor):
+        @property
+        def predictor_version(self) -> str:
+            return 7  # type: ignore[return-value]
+
+    for predictor, error in ((P(), "RuntimeError"), (Q(), "malformed_version")):
+        decision = plan(
+            request, view, "cost_model", now, ml=MlInput(predictor, term_features)
+        )
+        assert decision.chosen is not None
+        assert decision.ml is not None and decision.ml.error == error
+        assert decision.ml.version == "unknown"
+        for row in decision.candidates:
+            if row.estimate is None:
+                continue
+            for name in ("transfer", "env", "compute", "output"):
+                block = getattr(row.estimate, name).detail["ml"]
+                assert block["used"] is False
+                assert block["reason"] in {"predictor_error", "exact_by_construction"}
     # and the next plain plan is unaffected
     assert plan(request, view, "cost_model", now).chosen is not None
 

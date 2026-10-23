@@ -159,3 +159,40 @@ def test_the_ml_settings() -> None:
     ):
         with pytest.raises(ValidationError):
             PlannerSettings(**bad)
+
+
+# ------------------------------------------------ G4 fix r1 (G4-R1-2): warm-up
+
+
+def test_ml_input_warms_the_model_up_outside_the_budget() -> None:
+    stub = StubPredictor(rules={("compute", None): Rule(), ("env", None): Rule()})
+    ml = ml_input(stub, budget_ms=20.0, clock=lambda: 0.0)
+    assert ml is not None
+    assert stub.calls == 1  # one warm-up batch ...
+    assert {q.term for q in stub.queries} == {"compute", "env"}  # ... per term
+    assert len(stub.queries) == 8
+    assert ml.predictor.last_ms is None  # type: ignore[attr-defined]  # not budgeted
+    # nothing to warm without a model: no call at all
+    empty = StubPredictor(rules={})
+    assert ml_input(empty) is not None and empty.calls == 0
+
+
+@pytest.mark.parametrize("broken", ["raises", "short", "version"])
+def test_a_model_failing_its_warm_up_is_unavailable_never_a_crash(broken: str) -> None:
+    class Bad(StubPredictor):
+        @property
+        def predictor_version(self) -> str:
+            if broken == "version":
+                raise RuntimeError("no version")
+            return "bad-v1"
+
+    kwargs: dict[str, Any] = {}
+    if broken == "raises":
+        kwargs["raises"] = OSError("model file gone")
+    if broken == "short":
+        kwargs["answer_count_delta"] = -1
+    stub = Bad(rules={("compute", None): Rule()}, **kwargs)
+    with structlog.testing.capture_logs() as logs:
+        assert ml_input(stub) is None
+    (event,) = [e for e in logs if e["event"] == "controller.ml.model_warm_up_failed"]
+    assert event["error_type"] in {"OSError", "malformed_prediction", "RuntimeError"}

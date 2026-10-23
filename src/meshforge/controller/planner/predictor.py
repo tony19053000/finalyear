@@ -77,6 +77,7 @@ __all__ = [
     "DEFAULT_MAX_INTERVAL_LOG",
     "MAX_Y_HAT",
     "ML_TERMS",
+    "UNKNOWN_VERSION",
     "FeatureFn",
     "MlInput",
     "MlOutcome",
@@ -113,6 +114,9 @@ space - the interval spans at most a factor 2)."""
 MAX_Y_HAT: Final = 50.0
 """``|y_hat|`` above this is not a prediction (``e^50`` ~ 5e21): treated as a
 malformed answer (:class:`PredictorFailed`), never applied."""
+UNKNOWN_VERSION: Final = "unknown"
+"""The version recorded when the predictor cannot name its own (G4 fix r1,
+O-1): the decision then falls back (``predictor_error``)."""
 _ROUND: Final = 6
 
 _STAGE_TERMS: Final = frozenset({"transfer", "lane_stage"})
@@ -322,7 +326,16 @@ class MlSession:
         failed: str | None = None,
     ) -> None:
         self.ml = ml
-        self.version = ml.version
+        # G4 fix r1 (O-1): even the version is the model's code - read it
+        # inside the D363 guard; a raising or non-text version = the
+        # decision falls back (predictor_error), never a failed plan
+        try:
+            version = ml.version
+        except Exception as exc:  # noqa: BLE001 - D363: any model fault falls back
+            version, failed = UNKNOWN_VERSION, failed or type(exc).__name__
+        if not isinstance(version, str) or not version:
+            version, failed = UNKNOWN_VERSION, failed or "malformed_version"
+        self.version: str = version
         self.request = request
         self.snapshot = snapshot
         self.now = now

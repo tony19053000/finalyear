@@ -15,6 +15,13 @@ version:
   falls back to calibration (D363). A synchronous call cannot be pre-empted:
   the budget bounds what a slow model can *change*, and the error (logged once
   a minute by the dispatcher) says the model is too slow for live planning;
+* the model is **warmed up** when it is built (G4 fix r1, G4-R1-2): one
+  representative batch per modelled term goes through the real predictor
+  *outside* the budget, so the first live decision after an activation is not
+  a cold call (measured ~28 ms on a fresh LightGBM + kNN model, over the 20 ms
+  budget) that would always fall back. A model whose warm-up fails is treated
+  as **unavailable** (logged, ``ml_input`` returns None -> no model), never a
+  crash;
 * :class:`ModelSource` is what the dispatcher reads once per tick (like the
   calibration's ``CalibrationSource``). G4 ships :class:`StaticModelSource`
   (a fixed model, or none); G3's registry loader implements the same
@@ -30,9 +37,12 @@ import time
 from collections.abc import Callable, Sequence
 from typing import Final, Protocol
 
+from meshforge.common.logging import get_logger
 from meshforge.controller.ml.features import term_features
+from meshforge.controller.ml.schema import NUMERIC_FEATURES
 from meshforge.controller.planner.predictor import (
     DEFAULT_MAX_INTERVAL_LOG,
+    ML_TERMS,
     MlInput,
     PredictorFailed,
     TermPrediction,
@@ -47,7 +57,14 @@ __all__ = [
     "ModelSource",
     "StaticModelSource",
     "ml_input",
+    "warm_up",
 ]
+
+log = get_logger(__name__)
+
+WARM_UP_ROWS: Final = 4
+"""Rows per modelled term in the warm-up batch (a decision asks a few per
+term: one per candidate node)."""
 
 DEFAULT_PREDICT_BUDGET_MS: Final = 20.0
 """D363 ``ml_predict_budget_ms``."""
@@ -90,18 +107,64 @@ class BudgetedPredictor:
         return answers
 
 
+def _warm_rows() -> list[tuple[float, ...]]:
+    """Representative rows: all features missing, all zero, and two in
+    between - every branch a tree / the kNN imputation can take on NaN and on
+    values."""
+    width = len(NUMERIC_FEATURES)
+    nan = math.nan
+    rows = [(nan,) * width, (0.0,) * width]
+    rows += [
+        tuple(float(10**k) if j % 2 else nan for j in range(width)) for k in (1, 6)
+    ]
+    return rows[:WARM_UP_ROWS]
+
+
+def warm_up(predictor: TermPredictor) -> bool:
+    """One representative ``predict`` batch for every term the predictor has
+    a model for, outside any budget (module docstring). False (and one log
+    line) when anything of it fails - the model is then not used."""
+    version = "unknown"
+    error: str | None = None
+    try:
+        version = str(predictor.predictor_version)
+        queries = [
+            TermQuery(term, "warm-up", features)
+            for term in ML_TERMS
+            if predictor.has_model(term)
+            for features in _warm_rows()
+        ]
+        if queries and len(list(predictor.predict(queries))) != len(queries):
+            error = "malformed_prediction"
+    except Exception as exc:  # noqa: BLE001 - a broken model is unavailable, not a crash
+        error = type(exc).__name__
+    if error is None:
+        return True
+    log.warning(
+        "controller.ml.model_warm_up_failed",
+        ml_model_version=version,
+        error_type=error,
+    )
+    return False
+
+
 def ml_input(
     predictor: TermPredictor,
     *,
     max_interval_log: float = DEFAULT_MAX_INTERVAL_LOG,
     budget_ms: float | None = DEFAULT_PREDICT_BUDGET_MS,
     clock: Callable[[], float] = time.perf_counter,
-) -> MlInput:
-    """The planner's input for ``predictor`` (module docstring);
+) -> MlInput | None:
+    """The planner's input for ``predictor`` (module docstring), warmed up;
+    None = the warm-up failed (the model is unavailable: plan without it).
     ``budget_ms`` None = no budget (offline replays and evaluations, where
-    time does not decide anything)."""
+    time does not decide anything). ``ValueError`` for nonsense limits."""
     if not (math.isfinite(max_interval_log) and max_interval_log >= 0.0):
         raise ValueError("ml_max_interval_log must be a non-negative number")
+    if budget_ms is not None and not (math.isfinite(budget_ms) and budget_ms > 0.0):
+        raise ValueError("the predict budget must be a positive number of ms")
+    if not warm_up(predictor):
+        return None
     wrapped: TermPredictor = (
         predictor
         if budget_ms is None

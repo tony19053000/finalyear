@@ -265,7 +265,13 @@ def test_a_one_lane_compute_term_reads_back_in_its_own_unit(seed: int) -> None:
     ml, _ = stub_ml(
         {(t, None): Rule(y_hat=rng.uniform(-1, 1), half_width=0.05) for t in ML_TERMS}
     )
-    raw_rows = {_key(r): r for r in _rows(plan(request, view, "cost_model", now))}
+    # (implementer, G4 fix r1: feasible rows only - a refused one-node "split"
+    # row shares the one-lane row's (node_id, node_set) key and overwrote it)
+    raw_rows = {
+        _key(r): r
+        for r in _rows(plan(request, view, "cost_model", now))
+        if r.get("feasible")
+    }
     for row in _rows(plan(request, view, "cost_model", now, ml=ml)):
         if not row.get("feasible") or len(row.get("node_set") or ()) != 1:
             continue

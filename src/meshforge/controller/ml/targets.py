@@ -371,11 +371,13 @@ def _raw_seconds_per_item(lane_row: Mapping[str, Any]) -> float | None:
     """The one-lane row's **analytical** seconds per item: ``1 /
     rate_items_s``; V0.15 G4 (D336/D362): when the ML model corrected the
     lane's rate, the row's rate is the corrected one and the analytical value
-    is the ``compute`` term's ``detail.ml.raw_s`` (a one-lane row's compute
-    detail is its rate's)."""
+    is the rate's block nested in the ``compute`` term's ``detail.ml.rate``
+    (G4 fix r1: seconds per item; the compute term's own ``detail.ml`` is in
+    its seconds)."""
     compute = _terms(lane_row).get("compute")
     if isinstance(compute, Mapping):
-        ml = _detail(compute).get("ml")
+        outer = _detail(compute).get("ml")
+        ml = outer.get("rate") if isinstance(outer, Mapping) else None
         if isinstance(ml, Mapping) and ml.get("used") is True:
             raw = ml.get("raw_s")
             if not isinstance(raw, bool) and isinstance(raw, int | float):

@@ -17,9 +17,12 @@ builder + the 20 ms predict budget):
   so every queried term is really corrected (an OOD or wide answer would be
   cheaper - it is not the worst case).
 
-Asserts: p99 < 100 ms at 4 nodes (and < 500 ms at 16), **no** decision fell
-back (a ``budget_exceeded`` fallback would make a slow model look fast), and
-prints p50 / p99 of the decision and of the slowest predict call. Marked
+The model is warmed up by ``ml_input`` (G4 fix r1, G4-R1-2). Asserts: p99 <
+100 ms at 4 and at 16 nodes; at 4 nodes (criterion 4) **no** decision fell
+back (a ``budget_exceeded`` fallback would make a slow model look fast); at
+16 nodes a fallback is counted and printed, not asserted (D363 behaviour on
+a busy machine). Prints p50 / p99 of the decision and of the slowest predict
+call. Marked
 ``perf`` (``pytest -m perf tests/unit/planner/test_v015_g4_latency.py -s
 --run-perf``); numbers recorded in the progress note.
 """
@@ -67,7 +70,12 @@ from meshforge.controller.planner.types import (
 pytestmark = [pytest.mark.unit, pytest.mark.perf]
 
 RUNS = 200
-BUDGET_MS = {4: 100.0, 16: 500.0}
+BUDGET_MS = {4: 100.0, 16: 100.0}
+"""G4 fix r1: 16 nodes is held to the 4-node budget too (100 ms p99)."""
+CRITERION_NODES = 4
+"""Criterion 4's fabric: after the warm-up no decision may fall back. At 16
+nodes a fallback (budget_exceeded) is reported, not asserted (D363 by
+design on a busy machine)."""
 OOD_REFS = 20_000
 TREES = 400
 TRAIN_ROWS = 4_000
@@ -189,12 +197,14 @@ def test_decision_latency_with_ml_on(
     worst: InMemoryPredictor, nodes: int, split: bool, objective: str
 ) -> None:
     request, snapshot, now = _dispatcher_inputs(nodes, split=split, objective=objective)
-    ml = ml_input(worst, budget_ms=20.0)
+    ml = ml_input(worst, budget_ms=20.0)  # G4 fix r1: warmed up here
+    assert ml is not None
     budgeted = ml.predictor
     assert isinstance(budgeted, BudgetedPredictor)
     samples: list[float] = []
     predict_ms: list[float] = []
     calls_before = worst.calls
+    fallbacks = 0
     for _ in range(RUNS):
         started = time.perf_counter()
         view = project(request, snapshot)
@@ -202,12 +212,19 @@ def test_decision_latency_with_ml_on(
         canonical_json(to_replay(request, view, now, ml=decision.ml))
         samples.append((time.perf_counter() - started) * 1000.0)
         assert decision.chosen is not None
-        assert decision.ml is not None and decision.ml.error is None, decision.ml
+        assert decision.ml is not None
+        if nodes == CRITERION_NODES:
+            assert decision.ml.error is None, decision.ml  # warm: never falls back
+        elif decision.ml.error is not None:
+            assert decision.ml.error == "budget_exceeded", decision.ml
+            fallbacks += 1
         assert budgeted.last_ms is not None
         predict_ms.append(budgeted.last_ms)
+        if decision.ml.error is None:
+            last_ml = decision
     used = [
         term.detail["ml"]["used"]
-        for row in decision.candidates
+        for row in last_ml.candidates
         if row.estimate is not None
         for term in row.estimate.terms().values()
         if "ml" in term.detail
@@ -222,7 +239,8 @@ def test_decision_latency_with_ml_on(
         f"job={'split' if split else 'whole'} objective={objective} runs={RUNS} "
         f"p50={p50:.2f}ms p99={p99:.2f}ms max={samples[-1]:.2f}ms "
         f"predict_calls/decision={calls:.0f} last_predict_p99="
-        f"{_pct(predict_ms, 0.99):.2f}ms corrected_terms={sum(used)}"
+        f"{_pct(predict_ms, 0.99):.2f}ms corrected_terms={sum(used)} "
+        f"budget_fallbacks={fallbacks}/{RUNS}"
     )
     budget = BUDGET_MS[nodes]
     assert p99 < budget, f"p99 {p99:.1f} ms over the {nodes}-node budget {budget} ms"
