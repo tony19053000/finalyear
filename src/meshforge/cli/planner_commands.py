@@ -31,6 +31,7 @@ calibration (V0.14 G2, D293/D301/D306).
   names the same digest (the dataset did not change in between).
 
 * ``ml compare --dataset FILE [--terms a,b] [--algorithms a,b] [--with-family]
+  [--ablations]
   [--min-rows N] [--min-families N] [--min-effect X] [--out DIR] [--timeout S]``
   (V0.15 G2, D353; ``--timeout`` V0.15 G3, default 3600 s -> exit 1): offline,
   no controller needed - per term, does any learned model predict the
@@ -71,6 +72,7 @@ __all__ = [
     "eval_lines",
     "eval_table",
     "factor_table",
+    "ml_ablation_table",
     "ml_app",
     "ml_compare_lines",
     "ml_compare_table",
@@ -728,6 +730,36 @@ def ml_compare_table(doc: Mapping[str, Any]) -> Table:
     return table
 
 
+_ABLATION_HEADER: Final = ("term", "dropped", "fam", "dMALE", "mean [CI]", "verdict")
+
+
+def ml_ablation_table(doc: Mapping[str, Any]) -> Table:
+    """V0.15 G5a (D372): the feature-group ablations of a comparison report
+    (pure; ``dMALE`` = MALE without the group - MALE full, > 0 = it helps)."""
+    table = render.table(
+        *_ABLATION_HEADER, title="Feature-group ablations (held-out families)"
+    )
+    block = doc.get("ablations")
+    terms = block.get("terms") if isinstance(block, Mapping) else None
+    for term, groups in sorted(terms.items()) if isinstance(terms, Mapping) else []:
+        for row in groups if isinstance(groups, list) else []:
+            if not isinstance(row, Mapping):
+                continue
+            evaluated = row.get("status") == "evaluated"
+            table.add_row(
+                render.cell(term),
+                render.cell(row.get("group")),
+                render.cell(row.get("families")),
+                _num(row.get("delta_male_pooled")),
+                f"{_num(row.get('mean'))} [{_num(row.get('low'))}, "
+                f"{_num(row.get('high'))}]"
+                if evaluated
+                else _DASH,
+                _words(row.get("verdict")) if evaluated else _words(row.get("reason")),
+            )
+    return table
+
+
 def ml_compare_lines(doc: Mapping[str, Any]) -> list[str]:
     """The header and footer lines of a comparison report (pure)."""
     dataset = doc.get("dataset")
@@ -779,6 +811,15 @@ def ml_compare(
     with_family: Annotated[
         bool,
         typer.Option("--with-family", help="Ablation: add the family as a feature."),
+    ] = False,
+    ablations: Annotated[
+        bool,
+        typer.Option(
+            "--ablations",
+            help="Also re-run the evaluation without each feature group and "
+            "report how much each one matters (about 7x the time: raise "
+            "--timeout).",
+        ),
     ] = False,
     min_rows: Annotated[
         int | None,
@@ -852,6 +893,8 @@ def ml_compare(
                 argv += [flag, str(value)]
         if with_family:
             argv.append("--with-family")
+        if ablations:
+            argv.append("--ablations")
         try:
             # subprocess.run kills the child when the timeout expires
             result = subprocess.run(  # noqa: S603 - this interpreter, our own module
@@ -882,6 +925,8 @@ def ml_compare(
     for line in ml_compare_lines(doc):
         render.line(line)
     render.show(ml_compare_table(doc))
+    if isinstance(doc.get("ablations"), Mapping):
+        render.show(ml_ablation_table(doc))
     render.line(f"compared in {render.echo(timings.get('total_s'))} s")
     if out is not None:
         render.line(f"wrote {out / 'report.json'} and {out / 'report.md'}")

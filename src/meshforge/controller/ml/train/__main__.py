@@ -4,7 +4,7 @@ task (V0.15 G3, D361) run.
 
     compare --dataset FILE --out DIR [--terms a,b] [--algorithms a,b]
             [--with-family] [--min-rows N] [--min-families N]
-            [--min-effect X]
+            [--min-effect X] [--ablations]
     fit     --dataset FILE --out DIR [--reference DIR] [--terms a,b]
             [--algorithms a,b] [--min-rows N] [--min-families N]
             [--min-effect X] [--max-interval-log X]
@@ -63,6 +63,12 @@ def _parser() -> argparse.ArgumentParser:
     cmp = sub.add_parser("compare", help="compare models per term on a dataset")
     _common(cmp)
     cmp.add_argument("--with-family", action="store_true")
+    cmp.add_argument(
+        "--ablations",
+        action="store_true",
+        help="V0.15 D372: also re-run the evaluation without each feature group "
+        "(about 7x the time)",
+    )
     fit = sub.add_parser("fit", help="train, gate and write a model set (G3)")
     _common(fit)
     fit.add_argument("--reference", type=Path, default=None)
@@ -223,8 +229,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     node_failures, sidecar = _sidecar(args.dataset, table.digest)
     try:
         results = compare(table, settings)
+        ablations = None
+        if args.ablations:
+            from meshforge.controller.ml.train.ablate import ablate
+
+            ablations = ablate(table, results, settings)
         doc = report(
-            table, settings, results, node_failures=node_failures, sidecar=sidecar
+            table,
+            settings,
+            results,
+            node_failures=node_failures,
+            sidecar=sidecar,
+            ablations=ablations,
         )
     except Exception as exc:  # noqa: BLE001 - one line for the operator, no traceback
         detail = str(exc).splitlines()[0] if str(exc) else "no detail"

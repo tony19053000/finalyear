@@ -40,7 +40,10 @@ __all__ = [
     "report",
 ]
 
-REPORT_VERSION: Final = 1
+REPORT_VERSION: Final = 2
+"""2 (V0.15 G5a, D372): the importance is the mean of
+``importance_repeats`` permutations (and names its repeats), and a report
+made with ``--ablations`` has an ``ablations`` block."""
 FAILURE_CLASSIFIER_MIN_EVENTS: Final = 50
 _LIBRARIES: Final = (
     ("numpy", "numpy"),
@@ -183,6 +186,7 @@ def _term(result: TermResult) -> dict[str, Any]:
                 "learned": result.importance_folds,
                 "total": len(result.folds),
             },
+            "importance_repeats": result.importance_repeats,
         }
     )
     return out
@@ -195,6 +199,7 @@ def report(
     *,
     node_failures: int | None,
     sidecar: str,
+    ablations: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """The report document (canonical once through :func:`canonical_json`).
     ``sidecar`` = ``matched`` | ``missing`` | ``digest_mismatch`` |
@@ -228,6 +233,8 @@ def report(
                 "bootstrap_resamples": settings.bootstrap_resamples,
                 "bootstrap_seed": settings.bootstrap_seed,
                 "seed": settings.seed,
+                "importance_repeats": settings.importance_repeats,
+                "ablations": ablations is not None,
                 "ood": {
                     "range_margin": settings.ood_margin,
                     "k": settings.ood_k,
@@ -244,6 +251,8 @@ def report(
             "terms": [_term(r) for r in results],
         }
     )
+    if ablations is not None:
+        doc["ablations"] = _clean(ablations)
     return doc
 
 
@@ -349,6 +358,7 @@ def markdown(doc: Mapping[str, Any]) -> str:
             f"{'; '.join(flags) if flags else 'no'}; top features: {top} "
             f"(from {folds.get('learned', 0)} of {folds.get('total', 0)} folds)"
         )
+    lines += _ablation_lines(doc.get("ablations"))
     if failures["status"] == "not_trained":
         line = (
             f"failure classifier: not trained, {failures['node_failures']} < "
@@ -363,3 +373,59 @@ def markdown(doc: Mapping[str, Any]) -> str:
         line = "failure classifier: unknown (no matching dataset sidecar)"
     lines += ["", line, ""]
     return "\n".join(lines)
+
+
+ABLATION_HEADER: Final = (
+    "term",
+    "group dropped",
+    "families",
+    "delta MALE (pooled)",
+    "mean delta [CI]",
+    "verdict",
+)
+
+
+def ablation_rows(doc: Mapping[str, Any]) -> list[list[str]]:
+    """The ablation table (V0.15 G5a, D372; the CLI prints the same)."""
+    block = doc.get("ablations")
+    terms = block.get("terms") if isinstance(block, Mapping) else None
+    rows: list[list[str]] = []
+    for term, groups in sorted((terms or {}).items()):
+        for row in groups if isinstance(groups, list) else []:
+            if not isinstance(row, Mapping):
+                continue
+            if row.get("status") != "evaluated":
+                verdict = f"skipped ({row.get('reason')})"
+                ci = "-"
+            else:
+                verdict = str(row.get("verdict"))
+                ci = (
+                    f"{_cell(row.get('mean'))} [{_cell(row.get('low'))}, "
+                    f"{_cell(row.get('high'))}]"
+                )
+            rows.append(
+                [
+                    str(term),
+                    str(row.get("group")),
+                    str(row.get("families")),
+                    _cell(row.get("delta_male_pooled")),
+                    ci,
+                    verdict,
+                ]
+            )
+    return rows
+
+
+def _ablation_lines(block: Any) -> list[str]:
+    if not isinstance(block, Mapping):
+        return []
+    lines = [
+        "",
+        "## Feature-group ablations (delta = MALE without the group - MALE full; "
+        "> 0 = the group helps)",
+        "",
+        "| " + " | ".join(ABLATION_HEADER) + " |",
+        "|" + "---|" * len(ABLATION_HEADER),
+    ]
+    lines += ["| " + " | ".join(r) + " |" for r in ablation_rows({"ablations": block})]
+    return lines

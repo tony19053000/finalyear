@@ -30,8 +30,12 @@ model, D348):
   selected in >= half of the outer folds and shipped; no learned model
   shipped -> ``no_learned_model``; the verdict carries its ``reason``.
 * **Permutation importance** of each fold's learned model on its held-out
-  rows (one seeded permutation per feature; MALE increase, weighted by the
-  fold's rows; folds that picked a baseline add 0) - the top 10.
+  rows (V0.15 G5a, D372: ``importance_repeats`` = 5 seeded permutations per
+  feature, their mean MALE increase; weighted by the fold's rows; folds that
+  picked a baseline add 0, and the report says from how many folds the
+  numbers came) - the top 10. ``importance_repeats`` 0 skips it (the
+  feature-group ablations, :mod:`.ablate`, re-run this evaluation and do not
+  need it).
 * **The shipped candidate** (G3 stores it): the selection re-run on **all**
   the term's rows, its conformal ``q`` from those all-row out-of-fold
   residuals. ``trained`` when it is a learned model, else
@@ -127,6 +131,9 @@ class CompareSettings:
     ood_percentile: float = OOD_PERCENTILE
     quantile_alternative: bool = True
     importance_top: int = 10
+    importance_repeats: int = 5
+    """V0.15 G5a (D372): seeded permutations per feature and fold (0 = no
+    importance)."""
     calibration: CalibrationConfig = field(default_factory=CalibrationConfig)
 
 
@@ -165,6 +172,8 @@ class TermResult:
     importance_folds: int = 0
     """V0.15 G3 (G2 tech debt): the outer folds whose learned model the
     importance came from (a fold that picked a baseline adds 0)."""
+    importance_repeats: int = 0
+    """V0.15 G5a (D372): permutations per feature and fold behind it."""
 
 
 def _quantile(
@@ -188,19 +197,27 @@ def _quantile(
 
 
 def _importance(
-    model: Any, table: Table, test: IntArray, seed: int, fold_index: int
+    model: Any,
+    table: Table,
+    test: IntArray,
+    seed: int,
+    fold_index: int,
+    repeats: int,
 ) -> FloatArray:
-    """MALE increase per feature when that column is permuted (one seeded
-    permutation each) on the held-out rows."""
+    """Mean MALE increase per feature when that column is permuted
+    (``repeats`` seeded permutations each) on the held-out rows."""
     X = table.X[test]
     y = table.y[test]
     base = male(y, model.predict(X, test))
     out = np.zeros(len(NUMERIC_FEATURES), dtype=np.float64)
     for j in range(len(NUMERIC_FEATURES)):
-        rng = np.random.default_rng([seed, fold_index, j])
-        permuted = X.copy()
-        permuted[:, j] = rng.permutation(permuted[:, j])
-        out[j] = male(y, model.predict(permuted, test)) - base
+        total = 0.0
+        for repeat in range(repeats):
+            rng = np.random.default_rng([seed, fold_index, j, repeat])
+            permuted = X.copy()
+            permuted[:, j] = rng.permutation(permuted[:, j])
+            total += male(y, model.predict(permuted, test)) - base
+        out[j] = total / repeats
     return out
 
 
@@ -280,10 +297,10 @@ def _fold(
         out.q_y.append(y)
         q_cov = float(np.mean((y >= low) & (y <= high)))
         q_width = float(np.median(high - low))
-    if selected.learned:
-        importance += _importance(model, table, test, settings.seed, fold_index) * len(
-            test
-        )
+    if selected.learned and settings.importance_repeats > 0:
+        importance += _importance(
+            model, table, test, settings.seed, fold_index, settings.importance_repeats
+        ) * len(test)
     return FoldResult(
         family=family,
         train_rows=len(train),
@@ -458,8 +475,11 @@ def _compare_term(
             "any": coverage_low or bool(worse) or bool(families_low),
         },
         quantile=quantile,
-        importance=tuple(ranked[: settings.importance_top]) if any_learned else (),
+        importance=tuple(ranked[: settings.importance_top])
+        if any_learned and settings.importance_repeats > 0
+        else (),
         importance_folds=sum(1 for f in folds if f.selected.learned),
+        importance_repeats=settings.importance_repeats,
     )
 
 
