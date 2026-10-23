@@ -19,6 +19,12 @@ planner ml train``). One retrain:
    (``ml_retrain_timeout_s``; killed when it overruns): training, the
    activation gate, artefacts - never on the event loop, never in the
    controller's memory;
+3b. (V0.15 G5a, D371) when the child's error gate accepted the set, the
+   **regret check** (:mod:`.ml.regret`): the candidate vs what serves now,
+   paired on the held-out slice's labelled benchmark groups, on the live
+   calibration; ``rejected`` -> the set is stored ``rejected`` with rule
+   ``regret_worse``; the gate document's ``regret`` block records it
+   (``passed`` / ``rejected`` / ``skipped``);
 4. store the result (:meth:`~meshforge.controller.ml.registry.ModelRegistry.
    store`: artefacts into the CAS, the set ``active`` or ``rejected`` with
    the gate's reason) and refresh the :class:`~.ml.source.ModelSource`.
@@ -42,7 +48,7 @@ import datetime as dt
 import json
 import sys
 import tempfile
-from collections.abc import Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Final
@@ -52,7 +58,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from meshforge.common.logging import get_logger
-from meshforge.controller.ml import export, loader
+from meshforge.controller.ml import export, loader, regret
 from meshforge.controller.ml.child import (
     ML_TRAIN_LIBRARIES,
     TRAIN_MODULE,
@@ -64,6 +70,7 @@ from meshforge.controller.ml.child import (
     read_output,
     run_child,
 )
+from meshforge.controller.ml.folds import train_settings_argv
 from meshforge.controller.ml.loader import MlLoadError
 from meshforge.controller.ml.registry import (
     MlRegistryError,
@@ -71,7 +78,10 @@ from meshforge.controller.ml.registry import (
     SetRow,
     StoreResult,
 )
+from meshforge.controller.ml.registry_loader import RegistryLoader
 from meshforge.controller.ml.source import ModelSource
+from meshforge.controller.planner.calibration import Calibration
+from meshforge.controller.planner_eval.loader import EvalLoadError
 from meshforge.controller.settings import PlannerSettings
 
 __all__ = [
@@ -88,6 +98,9 @@ __all__ = [
 log = get_logger(__name__)
 
 _MIN_INTERVAL_S: Final = 1.0
+_MAX_LABEL_ROWS: Final = 200_000
+"""The D371 slice's label-read cap when the server does not pass its
+``[controller.telemetry] export_max_rows``."""
 _SESSION_LOCK: Final = (
     "SELECT pg_try_advisory_lock(hashtextextended('meshforge.ml_retrain', 0))"
 )
@@ -134,16 +147,7 @@ def train_argv(
         str(dataset),
         "--out",
         str(out),
-        "--min-rows",
-        str(settings.ml_min_rows),
-        "--min-families",
-        str(settings.ml_min_families),
-        "--min-effect",
-        repr(settings.ml_min_effect_log),
-        "--max-interval-log",
-        repr(settings.ml_max_interval_log),
-        "--family-tolerance-log",
-        repr(settings.ml_family_tolerance_log),
+        *train_settings_argv(settings),
     ]
     if reference is not None:
         argv += ["--reference", str(reference)]
@@ -174,8 +178,18 @@ class MlRetrainer:
         python: str = sys.executable,
         child: ChildRunner = run_child,
         clock: Callable[[], dt.datetime] = lambda: dt.datetime.now(dt.UTC),
+        set_loader: RegistryLoader | None = None,
+        calibration: Callable[[], Awaitable[Calibration | None]] | None = None,
+        max_label_rows: int = _MAX_LABEL_ROWS,
     ) -> None:
         self._engine = engine
+        # V0.15 G5a (D371): the regret check's inputs - the reference set by
+        # version, the planner's live calibration, the D319 label-read cap
+        self._loader = set_loader or RegistryLoader(
+            registry, max_interval_log=settings.ml_max_interval_log
+        )
+        self._calibration = calibration
+        self._max_label_rows = max_label_rows
         self._registry = registry
         self._source = source
         self._settings = settings
@@ -331,7 +345,7 @@ class MlRetrainer:
                     with contextlib.suppress(Exception):
                         await conn.execute(text(_SESSION_UNLOCK))
                         await conn.commit()
-        except (MlLoadError, MlRegistryError) as exc:
+        except (MlLoadError, MlRegistryError, EvalLoadError) as exc:
             return RetrainResult(
                 trigger,
                 started,
@@ -454,6 +468,10 @@ class MlRetrainer:
                 rows=rows,
                 seconds=timings,
             )
+        if doc.get("accepted") is True:
+            doc = await self._regret(
+                built.dataset.rows, doc, artefacts, reference_version
+            )
         inputs = {
             **key,
             "trigger": trigger,
@@ -494,6 +512,41 @@ class MlRetrainer:
             rows=rows,
             seconds=timings,
         )
+
+    async def _regret(
+        self,
+        rows: Any,
+        doc: dict[str, Any],
+        artefacts: Mapping[str, bytes],
+        reference_version: str | None,
+    ) -> dict[str, Any]:
+        """``doc`` after the D371 regret check (module docstring, step 3b).
+        Database failures raise (the retrain fails ``database``; nothing is
+        stored)."""
+        calibration = None if self._calibration is None else await self._calibration()
+        outcome = await regret.check_candidate(
+            self._engine,
+            rows,
+            doc,
+            artefacts,
+            reference_version=reference_version,
+            loader=self._loader,
+            calibration=calibration,
+            max_label_rows=self._max_label_rows,
+            max_interval_log=self._settings.ml_max_interval_log,
+        )
+        check = outcome.check
+        log.info(
+            "controller.planner.ml_regret_check",
+            ml_set_version=doc.get("set_version"),
+            status=check.status,
+            groups=check.groups,
+            regret_candidate=check.regret_new,
+            regret_current=check.regret_active,
+            current_set=outcome.current_version,
+            reason=check.reason,
+        )
+        return regret.apply(doc, outcome)
 
     def _invalid_output(
         self, trigger: str, started: dt.datetime, detail: str

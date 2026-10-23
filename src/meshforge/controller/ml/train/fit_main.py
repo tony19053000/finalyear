@@ -20,6 +20,15 @@ the controller stores, the gate document, library versions) and one
 ``timings.json`` (wall times, kept out of ``set.json`` so it stays
 byte-identical). Prints ``{"set": ..., "seconds": ...}`` on stdout.
 
+**Fold mode** (V0.15 G5a, D368: ``--exclude-family F [--until TS]
+[--exclude-groups FILE]``): the planner evaluator's model for held-out
+family ``F`` - the same :func:`~.fit.train_set` on the rows
+:func:`~.fold.split_rows` keeps (no row of ``F`` or of its workload groups,
+none after ``TS``), **no gate** (a fold set is never registered); ``set.json``
+gets a ``fold`` block (what it trained on) and ``heldout.json`` holds every
+learned member's predictions for ``F``'s rows, made through the serving
+loader (:func:`~.fold.heldout_predictions`).
+
 Exit codes: 0 done (accepted or rejected - the gate's answer is data);
 1 = the dataset or the reference cannot be read, the output cannot be
 written, or the training failed. Messages go to stderr, one line.
@@ -27,9 +36,12 @@ written, or the training failed. Messages go to stderr, one line.
 
 from __future__ import annotations
 
+import datetime as dt
 import json
 import sys
 import time
+from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final
 
@@ -41,16 +53,54 @@ from meshforge.controller.ml.train.data import (
     DatasetValueError,
     DatasetVersionError,
     load,
+    load_rows,
+    table_from_rows,
 )
 from meshforge.controller.ml.train.fit import TrainResult, train_set
+from meshforge.controller.ml.train.fold import (
+    HELDOUT_FILE,
+    fold_document,
+    held_table,
+    heldout_predictions,
+    split_rows,
+)
 from meshforge.controller.ml.train.gate import GateResult, Reference, run_gate
 from meshforge.controller.ml.train.report import clean, library_versions
 
-__all__ = ["SET_DOC_VERSION", "SET_FILE", "artefact_name", "read_reference", "run_fit"]
+__all__ = [
+    "SET_DOC_VERSION",
+    "SET_FILE",
+    "FoldArgs",
+    "artefact_name",
+    "read_groups",
+    "read_reference",
+    "run_fit",
+    "run_fold",
+]
 
 SET_FILE: Final = "set.json"
 SET_DOC_VERSION: Final = 1
 _REFERENCE_FILE: Final = "reference.json"
+
+
+@dataclass(frozen=True, slots=True)
+class FoldArgs:
+    """``fit --exclude-family`` (module docstring, fold mode)."""
+
+    family: str
+    until: dt.datetime | None = None
+    groups: Sequence[str] = ()
+
+
+def read_groups(path: Path | None) -> list[str]:
+    """``--exclude-groups FILE``: a JSON list of workload fingerprints;
+    ``ValueError`` for anything else."""
+    if path is None:
+        return []
+    doc = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(doc, list) or not all(isinstance(g, str) for g in doc):
+        raise ValueError("--exclude-groups is not a JSON list of strings")
+    return list(doc)
 
 
 def artefact_name(version: str) -> str:
@@ -215,6 +265,72 @@ def run_fit(
     except OSError as exc:
         _err(f"cannot write the set to {out}: {exc.strerror or exc}")
         return int(ExitCode.FAILURE)
+    sys.stdout.write(json.dumps({"set": str(path), "seconds": timings["total_s"]}))
+    sys.stdout.write("\n")
+    return int(ExitCode.OK)
+
+
+def _write(out: Path, result: TrainResult, files: dict[str, str]) -> None:
+    out.mkdir(parents=True, exist_ok=True)
+    for member in result.members:
+        if member.artefact is not None:
+            (out / artefact_name(member.version)).write_bytes(member.artefact)
+    for name, text in files.items():
+        (out / name).write_text(text, encoding="utf-8")
+
+
+def _canonical(doc: object) -> str:
+    return json.dumps(doc, sort_keys=True, indent=2, allow_nan=False) + "\n"
+
+
+def run_fold(
+    dataset: Path, out: Path, fold: FoldArgs, settings: CompareSettings
+) -> int:
+    """The ``fit --exclude-family`` command (module docstring, fold mode)."""
+    started = time.monotonic()
+    try:
+        rows = load_rows(dataset)
+        split = split_rows(rows, fold.family, until=fold.until, groups=fold.groups)
+        table = table_from_rows(split.train)
+        held = held_table(split)
+    except (DatasetVersionError, DatasetValueError) as exc:
+        _err(f"{dataset}: {exc}")
+        return int(ExitCode.FAILURE)
+    except Exception as exc:  # noqa: BLE001 - any unreadable file is one answer
+        _err(f"{dataset}: cannot read the dataset ({type(exc).__name__})")
+        return int(ExitCode.FAILURE)
+    loaded = time.monotonic()
+    try:
+        result = train_set(table, settings)
+        trained = time.monotonic()
+        doc = set_document(result, None, settings)
+        doc["fold"] = fold_document(split, result)
+        predictions = heldout_predictions(result, held)
+    except Exception as exc:  # noqa: BLE001 - one line for the controller's log
+        detail = str(exc).splitlines()[0] if str(exc) else "no detail"
+        _err(f"the fold training failed ({type(exc).__name__}: {detail})")
+        return int(ExitCode.FAILURE)
+    timings = {
+        "load_s": round(loaded - started, 3),
+        "train_s": round(trained - loaded, 3),
+        "predict_s": round(time.monotonic() - trained, 3),
+        "total_s": round(time.monotonic() - started, 3),
+        "rows": table.n,
+    }
+    try:
+        _write(
+            out,
+            result,
+            {
+                SET_FILE: _canonical(doc),
+                HELDOUT_FILE: _canonical(predictions),
+                "timings.json": json.dumps(timings, sort_keys=True) + "\n",
+            },
+        )
+    except OSError as exc:
+        _err(f"cannot write the fold set to {out}: {exc.strerror or exc}")
+        return int(ExitCode.FAILURE)
+    path = out / SET_FILE
     sys.stdout.write(json.dumps({"set": str(path), "seconds": timings["total_s"]}))
     sys.stdout.write("\n")
     return int(ExitCode.OK)

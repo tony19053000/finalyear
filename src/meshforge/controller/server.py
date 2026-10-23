@@ -124,7 +124,9 @@ from meshforge.controller.jobs.execution_store import ExecutionStore
 from meshforge.controller.jobs.logs import LogHub
 from meshforge.controller.jobs.peers import PeerSources
 from meshforge.controller.liveness import LivenessEvent
+from meshforge.controller.ml import export as ml_export
 from meshforge.controller.ml.registry import ModelRegistry
+from meshforge.controller.ml.registry_loader import RegistryLoader
 
 # V0.15 G3 + G4 (D336/D339): the registry's model set, as the planner's input
 from meshforge.controller.ml.source import ModelSource, RegistryMlInputSource
@@ -136,13 +138,15 @@ from meshforge.controller.peer_signing import (
     load_or_create_signing_key,
     public_key_fingerprint,
 )
+
+# V0.14 G4 (D297/D318): the offline evaluator
+from meshforge.controller.planner.calibration import Calibration
 from meshforge.controller.planner_calibration_task import (
     CalibrationRefresher,
     calibration_config,
 )
-
-# V0.14 G4 (D297/D318): the offline evaluator
 from meshforge.controller.planner_eval.latency import LatencyConfig
+from meshforge.controller.planner_eval.ml_inputs import FoldMlInputs
 from meshforge.controller.planner_eval.model import EvalConfig
 from meshforge.controller.planner_eval.service import EvalService
 from meshforge.controller.planner_eval.store import EvalReportStore
@@ -580,7 +584,25 @@ class ControllerRuntime:
             budget_ms=cfg.planner.ml_predict_budget_ms,
         )
         await self.ml_source.current()
-        self.ml_retrainer = MlRetrainer(engine, ml_registry, ml_models, cfg.planner)
+        # V0.15 G5a: stored sets by version (any status, LRU of 4) for the
+        # D371 regret check and the evaluator's allow_leak rows
+        ml_sets = RegistryLoader(
+            ml_registry, max_interval_log=cfg.planner.ml_max_interval_log
+        )
+        calibration_source = self.calibration
+
+        async def live_calibration() -> Calibration | None:
+            return calibration_source.current
+
+        self.ml_retrainer = MlRetrainer(
+            engine,
+            ml_registry,
+            ml_models,
+            cfg.planner,
+            set_loader=ml_sets,
+            calibration=live_calibration,
+            max_label_rows=self.settings.controller.telemetry.export_max_rows,
+        )
         if ml_models.mode == "auto":
             self._spawn(self.ml_retrainer.run(), "ml-retrain")
         self.dispatcher = Dispatcher(
@@ -868,6 +890,17 @@ class ControllerRuntime:
                         latency=LatencyConfig(
                             budget_ms=cfg.planner.decision_latency_budget_ms
                         )
+                    ),
+                    # V0.15 G5a (D368): the ML rows' fold models
+                    ml=FoldMlInputs(
+                        cfg.planner,
+                        ml_models,
+                        ml_sets,
+                        functools.partial(
+                            ml_export.build_dataset,
+                            engine,
+                            max_runs=cfg.planner.ml_dataset_max_runs,
+                        ),
                     ),
                 )
             ),

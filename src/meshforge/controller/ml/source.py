@@ -150,6 +150,19 @@ class ModelSource:
             ) from None
         self.kind = "config"
 
+    async def serving_version(self) -> tuple[str | None, str | None]:
+        """``(kind, set version)`` of what serves now, without loading it
+        (V0.15 G5a: the evaluator's ``allow_leak`` rows and the D371 regret
+        check load it by version): the configured pin, else the registry's
+        pinned / active set; ``(None, None)`` when ``ml = off`` or nothing
+        serves. :class:`~.registry.MlRegistryError` when the database
+        fails."""
+        if self.mode == "off":
+            return None, None
+        if self.mode == "pinned":
+            return "config", self.pinned
+        return await self._registry.serving_version()
+
     async def refresh(self) -> LoadedSet | None:
         """The set to plan with now (module docstring)."""
         if self.mode == "off":

@@ -56,6 +56,7 @@ __all__ = [
     "feature_indices",
     "load",
     "load_bytes",
+    "load_rows",
     "table_from_rows",
 ]
 
@@ -200,7 +201,8 @@ def table_from_rows(rows: Sequence[Mapping[str, Any]]) -> Table:
     )
 
 
-def _from_arrow(table: pa.Table) -> Table:
+def _rows_of(table: pa.Table) -> list[dict[str, Any]]:
+    """The file's rows, after the version and column checks (below)."""
     metadata = table.schema.metadata
     versions = (
         _version(metadata, DATASET_METADATA_KEY),
@@ -222,7 +224,19 @@ def _from_arrow(table: pa.Table) -> Table:
         raise DatasetVersionError(
             "the file's columns are not the published dataset columns"
         )
-    return table_from_rows(table.to_pylist())
+    return list(table.to_pylist())
+
+
+def _from_arrow(table: pa.Table) -> Table:
+    return table_from_rows(_rows_of(table))
+
+
+def load_rows(path: Path) -> list[dict[str, Any]]:
+    """The dataset's rows as column -> value mappings (file order), with
+    :func:`load`'s version and column checks - V0.15 G5a: a fold (D368)
+    filters them before :func:`table_from_rows`, so a fold's table is
+    exactly the table of its rows (same digest, same set version)."""
+    return _rows_of(pq.read_table(path))
 
 
 def load(path: Path) -> Table:

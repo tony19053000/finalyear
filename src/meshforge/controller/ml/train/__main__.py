@@ -9,10 +9,14 @@ task (V0.15 G3, D361) run.
             [--algorithms a,b] [--min-rows N] [--min-families N]
             [--min-effect X] [--max-interval-log X]
             [--family-tolerance-log X]
+            [--exclude-family F [--until ISO-TIME] [--exclude-groups FILE]]
 
 ``fit`` (:mod:`.fit_main`): train the model set on the dataset, run the
 activation gate against the ``--reference`` set (or the calibration) and
 write ``DIR/set.json`` + one ``DIR/<sha256 hex>.art`` per learned member.
+With ``--exclude-family F`` (V0.15 G5a, D368) it trains the planner
+evaluator's fold set for held-out family ``F`` instead (no gate, never
+registered; ``DIR/heldout.json`` = its predictions for ``F``'s rows).
 
 Reads the G1 dataset ``FILE`` (and its sidecar ``FILE.json`` when present),
 runs :func:`~.compare.compare` in this process (no server) and writes
@@ -32,6 +36,7 @@ the extra gets the clear message, never a traceback.
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import json
 import sys
 import time
@@ -45,6 +50,7 @@ from meshforge.controller.ml.train import EXTRA_HINT, missing_libraries
 
 if TYPE_CHECKING:
     from meshforge.controller.ml.train.compare import CompareSettings
+    from meshforge.controller.ml.train.fit_main import FoldArgs
 
 __all__ = ["main"]
 
@@ -62,6 +68,9 @@ def _parser() -> argparse.ArgumentParser:
     fit.add_argument("--reference", type=Path, default=None)
     fit.add_argument("--max-interval-log", type=float, default=None)
     fit.add_argument("--family-tolerance-log", type=float, default=None)
+    fit.add_argument("--exclude-family", default=None)
+    fit.add_argument("--until", default=None)
+    fit.add_argument("--exclude-groups", type=Path, default=None)
     return parser
 
 
@@ -146,6 +155,25 @@ def _settings(args: argparse.Namespace) -> CompareSettings:
     return settings
 
 
+def _fold_args(args: argparse.Namespace) -> FoldArgs:
+    """``fit --exclude-family`` (V0.15 G5a, D368); ``ValueError`` for a bad
+    time, an empty family, a ``--reference`` (a fold is never gated) or an
+    unreadable groups file."""
+    from meshforge.controller.ml.train.fit_main import FoldArgs, read_groups
+
+    family = str(args.exclude_family).strip()
+    if not family:
+        raise ValueError("--exclude-family needs a family name")
+    if args.reference is not None:
+        raise ValueError("a fold (--exclude-family) is never gated: no --reference")
+    until = None
+    if args.until is not None:
+        until = dt.datetime.fromisoformat(args.until)
+        if until.tzinfo is None:
+            raise ValueError("--until needs a time zone (e.g. ...+00:00)")
+    return FoldArgs(family=family, until=until, groups=read_groups(args.exclude_groups))
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     missing = missing_libraries()
@@ -166,8 +194,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         _err(str(exc))
         return int(ExitCode.USAGE_ERROR)
     if args.command == "fit":
-        from meshforge.controller.ml.train.fit_main import run_fit
+        from meshforge.controller.ml.train.fit_main import run_fit, run_fold
 
+        if args.exclude_family is not None:
+            try:
+                fold = _fold_args(args)
+            except (OSError, ValueError) as exc:
+                _err(str(exc))
+                return int(ExitCode.USAGE_ERROR)
+            return run_fold(args.dataset, args.out, fold, settings)
+        if args.until is not None or args.exclude_groups is not None:
+            _err("--until and --exclude-groups need --exclude-family")
+            return int(ExitCode.USAGE_ERROR)
         return run_fit(args.dataset, args.out, args.reference, settings)
     started = time.monotonic()
     try:
