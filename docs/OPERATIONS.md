@@ -2005,8 +2005,15 @@ The install moves the per-user identity (`~/.local/share/meshforge/identity`) an
 The node keeps its `node_id`, so its telemetry history continues.
 It refuses — nothing copied, nothing renamed, the service not started, `apt` still
 succeeds (Q13) — when the choice is not clear: two homes with an identity, a
-partial or corrupt one, or a config file with unknown keys. The message names
-every path; then:
+partial or corrupt one (including an unusable enrolment: a `node.crt` that does
+not parse or is not this key's/node's, or no `ca.crt` next to it), or a config
+file with unknown keys. Because it runs as root over folders a user controls, it
+also refuses a source it cannot read safely: a symbolic link anywhere on the
+path, a file or folder of another owner, or a folder others can write
+(group-writable is fine only for the user's own private group, the Ubuntu
+default). On an **upgrade** a refusal does not stop a running service: it keeps
+running the previous version until it restarts. The message names every path;
+then:
 
 ```bash
 sudo meshforge-agent migrate-identity --from /home/<user>/.local/share/meshforge/identity
