@@ -769,7 +769,10 @@ def _protect_windows(path: Path) -> None:
     # Argument list, no shell; icacls resolves via PATH (system32). Also removes
     # the explicit ACEs CPython's mkdir(mode=0o700) and the logon session's
     # default DACL add on Windows.
-    for argv in owner_only_icacls_argvs(path, sid, current_logon_sid()):
+    argvs = owner_only_icacls_argvs(
+        path, sid, current_logon_sid(), directory=path.is_dir()
+    )
+    for argv in argvs:
         _run_icacls(argv, path)
 
 

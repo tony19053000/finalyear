@@ -216,7 +216,7 @@ _LOGON_SID = re.compile(r"S-1-5-5-\d+-\d+")
 
 
 def owner_only_icacls_argvs(
-    path: Path, sid: str, logon_sid: str | None = None
+    path: Path, sid: str, logon_sid: str | None = None, *, directory: bool = False
 ) -> list[list[str]]:
     """``icacls`` runs leaving ``path`` with exactly one ACE: full control for ``sid``.
 
@@ -229,10 +229,19 @@ def owner_only_icacls_argvs(
     ``PermissionError`` (D399, Windows CI). ``logon_sid`` is the process's
     logon session: a token's default DACL (a service or batch logon, e.g. a CI
     runner) grants it read+execute on every new file.
+
+    ``directory``: the owner's grant is **inheritable** (``(OI)(CI)``), so
+    the owner-only ACE is what every file made in the folder later inherits,
+    and what a file made there *meanwhile* keeps when ``/inheritance:r``
+    re-propagates the folder's ACL. With a plain grant the folder had no
+    inheritable ACE left: a lock file created concurrently lost every ACE
+    (``PermissionError`` for the owner too), and later files got the token's
+    default DACL (the logon-session ACE) instead (D399, Windows CI).
     """
     removed = (*MKDIR_700_SIDS, logon_sid) if logon_sid else MKDIR_700_SIDS
     others = [f"*{other}" for other in removed if other != sid]
-    grant = ["icacls", str(path), "/grant:r", f"*{sid}:(F)"]
+    rights = "(OI)(CI)(F)" if directory else "(F)"
+    grant = ["icacls", str(path), "/grant:r", f"*{sid}:{rights}"]
     strip = ["icacls", str(path), "/inheritance:r"]
     return [grant, [*strip, "/remove:g", *others] if others else strip]
 
@@ -242,10 +251,14 @@ def current_logon_sid() -> str | None:  # pragma: no cover - Windows only
 
     Best effort: only some logon types put it in new files' ACLs, so a failed
     lookup leaves those files as they are rather than failing the caller.
+    ``/logonid`` takes no ``/fo`` (``whoami [/upn | /fqdn | /logonid]`` is its
+    own syntax line): with ``/fo csv`` whoami exits non-zero, so the lookup
+    always gave ``None`` and the ACE stayed (D399, Windows CI). It prints the
+    bare SID, found by :data:`_LOGON_SID`.
     """
     try:
         result = subprocess.run(
-            ["whoami", "/logonid", "/fo", "csv"],  # noqa: S607 - Windows built-in
+            ["whoami", "/logonid"],  # noqa: S607 - Windows built-in
             capture_output=True,
             text=True,
             errors="replace",
@@ -260,7 +273,10 @@ def current_logon_sid() -> str | None:  # pragma: no cover - Windows only
 
 def _protect_windows(path: Path) -> None:  # pragma: no cover - Windows only
     sid = _current_user_sid()
-    for argv in owner_only_icacls_argvs(path, sid, current_logon_sid()):
+    argvs = owner_only_icacls_argvs(
+        path, sid, current_logon_sid(), directory=path.is_dir()
+    )
+    for argv in argvs:
         _run_icacls(argv, path)
 
 
