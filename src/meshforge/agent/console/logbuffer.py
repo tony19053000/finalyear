@@ -30,7 +30,10 @@ from meshforge.common.logging import redact_processor
 __all__ = ["LogBuffer", "LogLine", "install_log_buffer"]
 
 _MAX_LINE_CHARS: Final = 8192
-_KNOWN: Final = frozenset({"timestamp", "level", "event", "logger", "component"})
+_KNOWN: Final = frozenset(
+    {"timestamp", "level", "event", "logger", "component", "color_message"}
+)
+"""Shown as columns - or, ``color_message`` (uvicorn), dropped: ANSI codes."""
 
 
 @dataclass(frozen=True, slots=True)

@@ -75,32 +75,9 @@ def _fail(message: str, code: int) -> typer.Exit:
 
 
 def _view(settings: AgentSettings) -> dict[str, Any]:
-    from meshforge.agent.policy import LivePolicy, effective_settings, policy_path
-    from meshforge.common.errors import MeshForgeError
+    from meshforge.agent.policy import policy_view
 
-    live = LivePolicy(
-        settings.agent.policy,
-        policy_path(settings),
-        gpu_count=0,
-        max_concurrent_attempts=settings.agent.execution.max_concurrent_attempts,
-    )
-    state = live.state
-    policy = state.policy.as_dict()
-    policy.pop("revision", None)
-    policy.pop("not_enforced", None)
-    try:
-        effective = effective_settings(settings.agent.policy, state.overlay)
-    except MeshForgeError:
-        effective = None
-    return {
-        "policy": policy,
-        "max_cpu_jobs": 0 if effective is None else effective.max_cpu_jobs,
-        "max_gpu_jobs": 0 if effective is None else effective.max_gpu_jobs,
-        "live_file": str(live.path),
-        "live_keys": sorted(state.overlay or {}),
-        "invalid": state.invalid_reason,
-        "deprecated_keys": list(settings.agent.deprecated_keys),
-    }
+    return policy_view(settings)
 
 
 @policy_app.command("show")

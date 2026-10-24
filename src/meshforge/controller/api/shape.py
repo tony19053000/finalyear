@@ -115,6 +115,7 @@ class _SummaryFields(TypedDict):
 
     node_id: str
     hostname: str
+    display_name: str
     os: str
     platform: str
     state: NodeState
@@ -158,6 +159,7 @@ def _summary_fields(
     return {
         "node_id": node.node_id,
         "hostname": node.hostname,
+        "display_name": node.display_name,
         "os": node.os,
         "platform": node.platform,
         "state": node.state,

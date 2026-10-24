@@ -72,6 +72,7 @@ __all__ = [
     "parse_assignments",
     "parse_overlay",
     "policy_path",
+    "policy_view",
     "read_overlay",
     "startup_policy",
     "write_overlay",
@@ -561,3 +562,34 @@ def apply_changes(
         if getattr(effective, key) and (before is None or not getattr(before, key))
     )
     return PolicyChange(path=path, effective=effective, restart_keys=restart)
+
+
+def policy_view(settings: AgentSettings) -> dict[str, Any]:
+    """The effective policy as ``policy show --json`` prints it (and the
+    console's Settings page reads it): the policy, the slots, the live file,
+    which keys it sets, why it is invalid (fails closed), deprecated keys."""
+    live = LivePolicy(
+        settings.agent.policy,
+        policy_path(settings),
+        gpu_count=0,
+        max_concurrent_attempts=settings.agent.execution.max_concurrent_attempts,
+    )
+    state = live.state
+    policy = state.policy.as_dict()
+    policy.pop("revision", None)
+    policy.pop("not_enforced", None)
+    try:
+        effective: PolicySettings | None = effective_settings(
+            settings.agent.policy, state.overlay
+        )
+    except ConfigError:
+        effective = None
+    return {
+        "policy": policy,
+        "max_cpu_jobs": 0 if effective is None else effective.max_cpu_jobs,
+        "max_gpu_jobs": 0 if effective is None else effective.max_gpu_jobs,
+        "live_file": str(live.path),
+        "live_keys": sorted(state.overlay or {}),
+        "invalid": state.invalid_reason,
+        "deprecated_keys": list(settings.agent.deprecated_keys),
+    }

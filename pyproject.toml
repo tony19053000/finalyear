@@ -116,6 +116,8 @@ gpu = [
 compute = "meshforge.cli.app:main"
 meshforge-controller = "meshforge.controller.app:main"
 meshforge-agent = "meshforge.agent.main:main"
+# V0.17 G3 (D391): the app-menu launcher of the agent's local console
+meshforge-console-open = "meshforge.agent.console.launcher:main"
 
 [dependency-groups]
 # Roadmap 0.1.2 says "extra dev"; a PEP 735 dependency group is used instead so dev

@@ -114,6 +114,8 @@ class NodeRecord:
     """V0.7 G4 (D140): a renewed certificate not yet in use; the node's first
     Hello with it makes it current (:mod:`~.enrollment.renewal`)."""
     pending_cert_not_after: dt.datetime | None = None
+    display_name: str = ""
+    """V0.17 G3 (Q27): ``Hello.display_name``; empty = none."""
 
 
 class PeerCertFacts(Protocol):
@@ -274,6 +276,7 @@ def _node_record(row: Node) -> NodeRecord:
         public_key_fingerprint=row.public_key_fingerprint,
         pending_cert_serial=row.pending_cert_serial,
         pending_cert_not_after=row.pending_cert_not_after,
+        display_name=row.display_name or "",
     )
 
 
@@ -353,8 +356,12 @@ class Registry:
         cpu_slots: int | None = None,
         gpu_slots: int | None = None,
         cert: PeerCertFacts | None = None,
+        display_name: str = "",
     ) -> NodeRecord:
         """Insert the node on its first Hello, else refresh it; sets ``state``.
+
+        ``display_name`` (V0.17 G3, Q27): the owner's name for the laptop,
+        always written like ``hostname`` (empty clears it).
 
         ``cert`` (V0.7 G3): the session's verified client certificate. It is
         recorded only on a node with **no** certificate on record (enrolled
@@ -394,6 +401,7 @@ class Registry:
                 .where(Node.node_id == node_id)
                 .values(
                     hostname=hostname,
+                    display_name=display_name,
                     os=os,
                     platform=platform,
                     hardware=dict(hardware),
@@ -423,6 +431,7 @@ class Registry:
                 row = Node(
                     node_id=node_id,
                     hostname=hostname,
+                    display_name=display_name,
                     os=os,
                     platform=platform,
                     hardware=dict(hardware),
