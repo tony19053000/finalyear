@@ -60,6 +60,11 @@ controller = [
     # Byte-identical exports (D222) hold for one pyarrow version: the file names
     # its writer (created_by), so a lock bump is a dataset-format change.
     "pyarrow>=26",
+    # V0.17 G2: the ML planner's model *serving* (controller/ml/artefact.py,
+    # serve.py - D359) is numpy-only and imported by the server at start-up; it
+    # came in through the agent extra in a developer checkout, so the packaged
+    # controller (controller extra only) could not start without it.
+    "numpy>=2.3,<3",
 ]
 agent = [
     "psutil>=7.2",

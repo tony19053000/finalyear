@@ -11,6 +11,9 @@ launchers that find the interpreter by a path relative to themselves::
     bin/meshforge-agent      launchers (Windows: .cmd); controller role: meshforge-controller
     bin/compute
     uv -> python/bin/uv      POSIX only: the pinned uv (see "uv" below)
+    pgsql/{bin,lib,share}    controller role only: the trimmed, sha256-pinned
+                             PostgreSQL 16 of the managed database (V0.17 G2,
+                             D390; scripts/pg_bundle.py)
 
 and, next to it, ``meshforge-<ver>-<os>-<arch>.tar.xz`` (reproducible), whose size
 is the **download** size checked against the role's budget (Q17:
@@ -83,6 +86,7 @@ _SCRIPTS: Final = Path(__file__).resolve().parent
 if str(_SCRIPTS) not in sys.path:  # loaded by path (tests) rather than run
     sys.path.insert(0, str(_SCRIPTS))
 
+import pg_bundle  # noqa: E402
 from bundle_lib import (  # noqa: E402
     BUILDINFO_NAME,
     MANIFEST_NAME,
@@ -727,6 +731,24 @@ def build(options: BuildOptions) -> Path:
         for path in bad:
             log(f"warning: does not compile (shipped as source only): {path}")
         write_launchers(root, layout, entries, options.role)
+        if options.role == "controller":
+            # V0.17 G2 (D390): the managed PostgreSQL, trimmed, at <bundle>/pgsql.
+            pg_pin_ = pg_bundle.pg_pin(pins, f"{layout.os_name}-{arch}")
+            log(f"postgresql {pg_pin_.version} ({pg_pin_.file_name})")
+            try:
+                trimmed = pg_bundle.ensure_trimmed(pg_pin_, options.cache / "pg")
+            except OSError as exc:
+                raise BundleError(
+                    f"PostgreSQL download failed: {exc}", reason="download_failed"
+                ) from None
+            pg_bundle.install_pgsql(trimmed, root)
+            postgresql = {
+                "version": pg_pin_.version,
+                "sha256": pg_pin_.sha256,
+                "urls": list(pg_pin_.urls),
+            }
+        else:
+            postgresql = None
         normalise_tree(root, epoch)
 
         needles = leak_needles(
@@ -767,6 +789,7 @@ def build(options: BuildOptions) -> Path:
                 "uv_lock_sha256": hashlib.sha256(lock_text.encode("utf-8")).hexdigest(),
                 "wheel_sha256": sha256_file(wheel),
                 "dashboard": has_dashboard,
+                "postgresql": postgresql,
                 "source_date_epoch": epoch,
                 "installed_bytes": sum(int(str(f.get("size", 0))) for f in files),
                 "uncompiled": bad,

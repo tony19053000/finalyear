@@ -71,8 +71,8 @@ def pg_bin_dir(settings: ControllerSettings, *, bundle: Path | None = None) -> P
     raise ConfigError(
         "[controller.db] mode = 'managed' needs the bundled PostgreSQL, and this "
         "controller does not run from a MeshForge bundle: set [controller.db] "
-        "bin_dir (a developer checkout: `uv run python scripts/build_bundle.py "
-        "--pg-only --out .cache/pg` prints the folder), or use mode = 'external'",
+        "bin_dir (a developer checkout: `uv run python scripts/pg_bundle.py "
+        "--out .cache/pg` prints the folder), or use mode = 'external'",
         details={"setting": "[controller.db] bin_dir"},
     )
 
