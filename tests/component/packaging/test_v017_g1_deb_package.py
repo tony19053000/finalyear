@@ -363,10 +363,11 @@ def test_fresh_install_waits_for_the_join(
     assert sb.ok(f"{_PY} /tmp/probe.py evil.example:47130").strip() == "421"
     # LAN never: nothing listens on 47130 except loopback
     listen = sb.ok("cat /proc/net/tcp")
-    assert ":B83A " in listen  # 47130
+    port_hex = f":{47130:04X}"
+    assert f"{port_hex} " in listen
     for line in listen.splitlines()[1:]:
         local = line.split()[1]
-        if local.endswith(":B83A"):
+        if local.endswith(port_hex):
             assert local.startswith("0100007F:"), line  # 127.0.0.1 only
     # who may open it: a member of meshforge-admin yes, another user no
     sb.ok("useradd -m carol && usermod -aG meshforge-admin carol && useradd -m dave")
