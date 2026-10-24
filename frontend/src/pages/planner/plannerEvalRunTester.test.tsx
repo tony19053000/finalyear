@@ -53,8 +53,8 @@ function routes(over: Record<string, Handler> = {}): Record<string, Handler> {
 }
 
 describe("Planner page: start-then-poll under races", () => {
-  // defect T5 (minor): it.fails = known defect; remove `.fails` when fixed
-  it.fails(
+  // defect T5 (minor), fixed in G6b fix round 1
+  it(
     "a 409 (another admin already started one) refreshes the list so the running report is shown",
     async () => {
       let started = false;
@@ -105,8 +105,8 @@ describe("Planner page: start-then-poll under races", () => {
     },
   );
 
-  // defect T6 (minor): after a 202 the button re-enables until the list shows the running row
-  it.fails("double-clicking Run evaluation sends one POST", async () => {
+  // defect T6 (minor), fixed in G6b fix round 1: the button stays disabled after a 202
+  it("double-clicking Run evaluation sends one POST", async () => {
     const fake = fakeController(
       routes({
         "POST /v1/planner/eval-reports": () =>

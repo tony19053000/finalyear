@@ -93,6 +93,14 @@ export function isEvalUnavailable(error: unknown): boolean {
   return error instanceof ApiError && error.status === 404 && error.reason !== UNKNOWN_EVAL_REPORT_REASON;
 }
 
+/** The 409 reason of a start while another evaluation runs (D378). */
+export const EVAL_ALREADY_RUNNING_REASON = "eval_already_running";
+
+/** A start refused because an evaluation already runs on the controller. */
+export function isEvalAlreadyRunning(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 409 && error.reason === EVAL_ALREADY_RUNNING_REASON;
+}
+
 /** A 404 meaning "the route exists, this report id does not". */
 export function isEvalReportNotFound(error: unknown): boolean {
   return error instanceof ApiError && error.status === 404 && error.reason === UNKNOWN_EVAL_REPORT_REASON;

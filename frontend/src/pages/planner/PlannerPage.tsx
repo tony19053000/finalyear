@@ -51,6 +51,7 @@ import {
   getCalibration,
   getEvalReport,
   isDone,
+  isEvalAlreadyRunning,
   isEvalReportNotFound,
   isEvalUnavailable,
   listEvalReports,
@@ -549,22 +550,50 @@ const FIELD = "h-8 rounded-md border border-border-strong bg-surface px-2 text-s
  * background (`POST`, 202) and selects the new report, whose view shows the
  * progress state; while one runs, the button says so (one at a time).
  */
-function RunEvaluation({ running, onStarted }: { running: EvalReportSummaryOut | null; onStarted: (id: number) => void }) {
+function RunEvaluation({
+  running,
+  listedIds,
+  onStarted,
+}: {
+  running: EvalReportSummaryOut | null;
+  listedIds: readonly number[];
+  onStarted: (id: number) => void;
+}) {
   const [campaigns, setCampaigns] = useState("");
   const [holdout, setHoldout] = useState("");
+  // the report this page just started, until the list shows it (G6b tester T6)
+  const [awaiting, setAwaiting] = useState<number | null>(null);
   const client = useQueryClient();
   const toast = useToast();
   const ids = parseCampaignIds(campaigns);
   const start = useMutation({
     mutationFn: () => startEvalReport({ campaign_ids: ids, holdout: holdout.trim() === "" ? null : holdout.trim(), allow_leak: false }),
     onSuccess: (out) => {
+      setAwaiting(out.report_id);
       void client.invalidateQueries({ queryKey: plannerKeys.reports });
       toast({ title: "Evaluation started", description: `Report #${String(out.report_id)} is running.`, tone: "ok" });
       onStarted(out.report_id);
     },
+    onError: (error) => {
+      // another admin's evaluation runs: re-read the list so it (and its note) appear (T5)
+      if (isEvalAlreadyRunning(error)) void client.invalidateQueries({ queryKey: plannerKeys.reports });
+    },
   });
+  // the started report, from the same cache as its view: once it ended, stop waiting
+  const started = useQuery({
+    queryKey: plannerKeys.report(awaiting ?? 0),
+    queryFn: ({ signal }) => getEvalReport(awaiting ?? 0, signal),
+    enabled: awaiting !== null,
+    refetchInterval: (q) => (q.state.data?.status === "running" ? EVAL_POLL_MS : false),
+  });
+  const waiting =
+    awaiting !== null &&
+    !listedIds.includes(awaiting) &&
+    !started.isError &&
+    started.data?.status !== "done" &&
+    started.data?.status !== "failed";
   const tooMany = ids.length > MAX_EVAL_CAMPAIGNS;
-  const busy = running !== null || start.isPending;
+  const busy = running !== null || start.isPending || waiting;
   return (
     <Card title="Run evaluation">
       <form
@@ -601,7 +630,7 @@ function RunEvaluation({ running, onStarted }: { running: EvalReportSummaryOut |
           />
         </label>
         <Button type="submit" variant="primary" loading={busy} disabled={ids.length === 0 || tooMany}>
-          {running !== null ? `Report #${String(running.id)} running…` : start.isPending ? "Starting…" : "Run evaluation"}
+          {running !== null ? `Report #${String(running.id)} running…` : start.isPending || waiting ? "Starting…" : "Run evaluation"}
         </Button>
       </form>
       {running !== null && (
@@ -653,7 +682,7 @@ function EvalReports({ selected, onSelect }: { selected: number | null; onSelect
   }
   const reports = list.data.reports;
   const running = reports.find((r) => r.status === "running") ?? null;
-  const run = admin ? <RunEvaluation running={running} onStarted={onSelect} /> : null;
+  const run = admin ? <RunEvaluation running={running} listedIds={reports.map((r) => r.id)} onStarted={onSelect} /> : null;
   if (reports.length === 0) {
     return (
       <div className="flex flex-col gap-4">
