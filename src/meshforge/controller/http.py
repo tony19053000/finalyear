@@ -122,6 +122,7 @@ from meshforge.controller.resources import ResourceTracker
 from meshforge.controller.revocation import Revocations
 from meshforge.controller.secret_store import SecretStore
 from meshforge.controller.session.manager import SessionManager
+from meshforge.controller.setup.routes import gone_router
 from meshforge.controller.web.spa import (
     DEFAULT_DIST,
     SecurityHeadersMiddleware,
@@ -251,6 +252,7 @@ def create_http_app(
         return {"status": "ok", "sessions": len(manager)}
 
     app.include_router(router)
+    app.include_router(gone_router)  # V0.17 G2: /v1/setup/* is 410 Gone (D392)
     if blobs is not None:
         setattr(app.state, BLOBS_STATE_KEY, blobs)
         app.include_router(blob_router)

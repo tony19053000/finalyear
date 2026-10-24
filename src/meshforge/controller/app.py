@@ -89,6 +89,13 @@ ca_app = typer.Typer(
     no_args_is_help=True,
 )
 app.add_typer(ca_app)
+setup_app = typer.Typer(
+    name="setup",
+    help="The one-time 'create fabric' page of a new controller (V0.17).",
+    add_completion=False,
+    no_args_is_help=True,
+)
+app.add_typer(setup_app)
 db_app = typer.Typer(
     name="db",
     help="The managed database (V0.17): status, backup, restore.",
@@ -820,6 +827,59 @@ def user_reset_password(
     result = _user_command(config, action)
     revoked = result[1] if isinstance(result, tuple) else 0
     typer.echo(f"password of {name} reset ({revoked} API token(s) revoked)")
+
+
+# ------------------------------------------------------------------ setup
+
+
+@setup_app.command("url")
+def setup_url(
+    config: ConfigOption = None,
+    json_out: Annotated[
+        bool, typer.Option("--json", help="Machine-readable output.")
+    ] = False,
+) -> None:
+    """Print the setup page's link (with its one-time token) for a controller
+    that has no fabric yet. Open it in a browser ON THIS MACHINE. Exits 5 when
+    the fabric already exists."""
+    import json
+
+    from meshforge.common.errors import MeshForgeError
+    from meshforge.controller.fabric_ca import fabric_present
+    from meshforge.controller.setup.token import ensure_setup_token
+
+    settings = _load_settings(config)
+    if settings.security.insecure:
+        typer.echo(
+            f"{PROG_NAME}: the setup page is for [security] mode = 'mtls'; in "
+            "insecure-dev mode run `fabric create` and `user create` instead",
+            err=True,
+        )
+        raise typer.Exit(ExitCode.CONFIG_ERROR)
+    if fabric_present(settings.ca_dir):
+        typer.echo(
+            f"{PROG_NAME}: this controller is already set up (it has a fabric CA); "
+            "sign in on its dashboard",
+            err=True,
+        )
+        raise typer.Exit(ExitCode.CONFLICT)
+    try:
+        token, created = ensure_setup_token(settings.setup_token_path)
+    except MeshForgeError as exc:
+        typer.echo(f"{PROG_NAME}: {exc}", err=True)
+        raise typer.Exit(exc.exit_code) from None
+    url = f"http://{settings.setup_bind}/setup#token={token.get_secret_value()}"
+    port = settings.setup_bind.rsplit(":", 1)[-1]
+    if json_out:
+        typer.echo(json.dumps({"url": url, "created": created}, sort_keys=True))
+        return
+    typer.echo(url)
+    typer.echo(
+        "Open this link in a browser on this machine to create the fabric (it works "
+        "once). From another computer: ssh -L "
+        f"{port}:127.0.0.1:{port} <this machine>, then open the same link there.",
+        err=True,
+    )
 
 
 # ----------------------------------------------------------------- doctor

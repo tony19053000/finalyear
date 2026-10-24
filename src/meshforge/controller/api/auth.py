@@ -98,6 +98,12 @@ OPEN_ROUTES: Final = frozenset(
         ("POST", "/v1/session"),  # D170: the browser's way in
         ("GET", "/v1/session"),  # D191 b: "signed out" is 200 {session: null}
         ("DELETE", "/v1/session"),  # D170: logout clears the cookies even when dead
+        # V0.17 G2 (D392): the setup page's API is 410 Gone once the fabric
+        # exists - for everyone, so a signed-out page can tell it.
+        ("GET", "/v1/setup/state"),
+        ("POST", "/v1/setup/session"),
+        ("GET", "/v1/setup/info"),
+        ("POST", "/v1/setup/complete"),
     }
 )
 """(method, route template) pairs that need no user (D148: only these)."""

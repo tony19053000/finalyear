@@ -61,6 +61,7 @@ __all__ = [
     "DEFAULT_HTTP_PORT",
     "DEFAULT_MANAGED_DB_PORT",
     "DEFAULT_SERVICE_TYPE",
+    "SETUP_TOKEN_NAME",
     "ApiSettings",
     "AuthSettings",
     "BlobStoreSettings",
@@ -77,6 +78,7 @@ __all__ = [
     "PlannerSettings",
     "RenewalSettings",
     "ResourceHistorySettings",
+    "SetupSettings",
     "TlsSettings",
 ]
 
@@ -94,6 +96,7 @@ DB_DIR_NAME = "db"
 (a sibling, not inside it: the agent package's purge must be able to tell the
 controller's state apart by top-level name)."""
 LOGS_DIR_NAME = "logs"
+SETUP_TOKEN_NAME = "setup-token"  # noqa: S105 - a file name
 _ADVERTISE_URL = re.compile(
     r"https?://(\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9.-]{1,253}):\d{1,5}"
 )
@@ -1609,6 +1612,38 @@ class HttpSettings(SectionModel):
         return value
 
 
+class SetupSettings(SectionModel):
+    """``[controller.setup]`` - the one-time "create fabric" page (V0.17 G2, D392).
+
+    A controller in ``mtls`` mode with no fabric CA, no users and a setup token
+    (``<data_dir>/controller/setup-token``, made by ``meshforge-controller
+    setup url`` - the package's postinst runs it) serves only the setup page,
+    in plain HTTP on this loopback address, until the fabric is created; then it
+    restarts itself into the normal mode.
+    """
+
+    bind: str | None = Field(
+        default=None,
+        description=(
+            "Loopback ip:port of the setup page (127.0.0.1 or [::1] only). "
+            "Default: 127.0.0.1 with the http_bind port (47110)."
+        ),
+    )
+
+    @field_validator("bind")
+    @classmethod
+    def _loopback_only(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        bind = parse_bind(value, allow_any=False)
+        if bind.host not in LOOPBACK_PLAIN_HOSTS:
+            raise ValueError(
+                "[controller.setup] bind must be 127.0.0.1 or [::1] (the setup "
+                f"page is plain HTTP and never leaves this machine), got {value}"
+            )
+        return value
+
+
 class EventsSettings(SectionModel):
     """``[controller.events]`` - the dashboard's live event stream (V0.8 G1,
     D172): ``/v1/events/ws``. All in memory; lost on restart (clients resync)."""
@@ -2189,6 +2224,7 @@ class ControllerSection(SectionModel):
     auth: AuthSettings = Field(default_factory=AuthSettings)
     events: EventsSettings = Field(default_factory=EventsSettings)
     http: HttpSettings = Field(default_factory=HttpSettings)
+    setup: SetupSettings = Field(default_factory=SetupSettings)
     telemetry: TelemetrySettings = Field(default_factory=TelemetrySettings)
     bench: BenchSettings = Field(default_factory=BenchSettings)
     split: SplitSettings = Field(default_factory=SplitSettings)
@@ -2401,6 +2437,22 @@ class ControllerSettings(MeshForgeSettings):
             advertise_url=cfg.api.advertise_url,
             extra=cfg.tls.extra_sans,
         )
+
+    @property
+    def setup_token_path(self) -> Path:
+        """V0.17 G2 (D392): the one-time setup token
+        (``<data_dir>/controller/setup-token``)."""
+        return self.data_dir / CONTROLLER_DIR_NAME / SETUP_TOKEN_NAME
+
+    @property
+    def setup_bind(self) -> str:
+        """Where the setup page listens (``[controller.setup] bind`` or
+        127.0.0.1 with the http_bind port)."""
+        configured = self.controller.setup.bind
+        if configured is not None:
+            return configured
+        port = parse_bind(self.controller.http_bind, allow_any=True).port
+        return f"127.0.0.1:{port or DEFAULT_HTTP_PORT}"
 
     @property
     def logs_dir(self) -> Path:

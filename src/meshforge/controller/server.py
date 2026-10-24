@@ -348,6 +348,11 @@ class ControllerRuntime:
         self._db_watch: asyncio.Task[None] | None = None
         self._rollback: UpgradeBackup | None = None
         """D393: the pre-upgrade backup :meth:`stop` restores (failed upgrade)."""
+        self.setup_pending = False
+        """V0.17 G2 (D392): running the setup page only (no CA yet)."""
+        self.setup_port: int = 0
+        self.restart_requested = False
+        """Set when setup completed: :func:`_serve` starts a new runtime."""
         self.failed_task: str | None = None
         """Name of the owned task whose crash caused the stop, if any (NB3): a
         controller that stopped because its lease timer died exits ``FAILURE``."""
@@ -393,8 +398,10 @@ class ControllerRuntime:
         )
         # V0.7 D134: the fabric CA (if created) and the server cert, renewed at
         # 2/3 life. A CA that exists but cannot be trusted stops the start-up.
+        # V0.17 G2 (D392): no CA + a setup token -> only the setup page runs.
+        self.setup_pending = await asyncio.to_thread(_setup_offered, self.settings)
         self.fabric, self.server_cert = await asyncio.to_thread(
-            _prepare_fabric, self.settings
+            _prepare_fabric, self.settings, self.setup_pending
         )
         if self.fabric is not None and self.server_cert is not None:
             # D149 carry-over: renewed while running; listeners follow it.
@@ -410,7 +417,7 @@ class ControllerRuntime:
         # D168 N2: one value for "is the REST + blob port TLS" - listener,
         # URL scheme and the D139 node-certificate lock all read it.
         self.blob_port = blob_port_security(
-            insecure=self.settings.security.insecure,
+            insecure=self.settings.security.insecure or self.setup_pending,
             server_tls_ready=self.server_tls is not None,
         )
         self.blob_port.check_url(
@@ -446,13 +453,65 @@ class ControllerRuntime:
         health_s = cfg.db.health_timeout_s if upgrade is not None else None
         try:
             async with asyncio.timeout(health_s):
-                await self._start_services(cfg, loop, blobs, engine)
+                if self.setup_pending:
+                    await self._start_setup(engine)
+                else:
+                    await self._start_services(cfg, loop, blobs, engine)
                 await check_connection(engine, database)
         except Exception as exc:
             if upgrade is None:
                 raise
             raise self._upgrade_failed(upgrade, exc) from exc
         await self._record_good_start(migrate_as)
+
+    async def _start_setup(self, engine: AsyncEngine) -> None:
+        """V0.17 G2 (D392): setup mode - only the "create fabric" page, plain
+        HTTP on a loopback socket, until the fabric exists; then a restart."""
+        from meshforge.controller.doctor import run_checks
+        from meshforge.controller.setup.routes import create_setup_app
+        from meshforge.controller.setup.service import SetupService
+
+        users = await UserStore(engine).list_users()
+        if users:
+            # Users without a CA: the fabric was made by hand once - setup is
+            # over (410 forever); the CLI must recreate the CA.
+            raise ConfigError(
+                "this controller has users but no fabric CA: run `meshforge-"
+                "controller fabric create` on it (the setup page is only for a "
+                "new controller)",
+                details={"path": str(self.settings.ca_dir)},
+            )
+        settings = self.settings
+        service = SetupService(
+            settings,
+            engine,
+            on_done=self._setup_done,
+            checks=lambda: run_checks(settings, cluster_running=lambda: True).as_dict(),
+        )
+        bind = parse_bind(settings.setup_bind, allow_any=False)
+        self._plain_sock = _bind_socket(bind)
+        self.setup_port = self._plain_sock.getsockname()[1]
+        config = uvicorn.Config(
+            LoopbackHostGuard(create_setup_app(service), port=self.setup_port),
+            host=bind.host,
+            port=self.setup_port,
+            log_config=None,
+            access_log=False,
+            lifespan="off",
+            timeout_graceful_shutdown=int(settings.controller.shutdown_drain_s) or 1,
+        )
+        self._plain_server = _NoSignalUvicorn(config)
+        self._spawn(self._plain_server.serve(sockets=[self._plain_sock]), "setup-page")
+        log.warning(
+            "controller.setup.waiting",
+            url=f"http://{BindAddress((bind.host, self.setup_port)).grpc_target()}/setup",
+            hint="sudo meshforge-controller setup url  (prints the link with its token)",
+        )
+
+    def _setup_done(self) -> None:
+        log.warning("controller.setup.restarting")
+        self.restart_requested = True
+        self.request_stop()
 
     async def _start_services(
         self,
@@ -1538,8 +1597,20 @@ class _RuntimeContext:
         await self._runtime.stop()
 
 
+def _setup_offered(settings: ControllerSettings) -> bool:
+    """V0.17 G2: ``mtls``, no fabric CA and a setup token -> setup mode."""
+    from meshforge.controller.setup.token import read_setup_token
+
+    if settings.security.insecure:
+        return False
+    recover_interrupted(settings.ca_dir)
+    if fabric_present(settings.ca_dir):
+        return False
+    return read_setup_token(settings.setup_token_path) is not None
+
+
 def _prepare_fabric(
-    settings: ControllerSettings,
+    settings: ControllerSettings, setup_pending: bool = False
 ) -> tuple[FabricCa | None, ServerCert | None]:
     """Load the fabric CA and ensure the server cert (V0.7 G1, D134).
 
@@ -1549,11 +1620,15 @@ def _prepare_fabric(
     """
     recover_interrupted(settings.ca_dir)
     if not fabric_present(settings.ca_dir):
+        if setup_pending:
+            log.info("controller.fabric.absent", setup="pending")
+            return None, None
         if not settings.security.insecure:
             raise ConfigError(
                 "this controller has no fabric CA, and [security] mode = 'mtls' "
-                "needs one: run `meshforge-controller fabric create` once on this "
-                "machine (or, for development on one machine only, set "
+                "needs one: open the setup page (`meshforge-controller setup url` "
+                "prints its link) or run `meshforge-controller fabric create` once "
+                "on this machine (or, for development on one machine only, set "
                 "[security] mode = 'insecure-dev')",
                 details={"path": str(settings.ca_dir)},
             )
@@ -1598,13 +1673,19 @@ def _bind_socket(bind: BindAddress) -> socket.socket:
 
 
 async def _serve(settings: ControllerSettings) -> int:
-    runtime = ControllerRuntime(settings)
-    # Before start-up, not after: start-up awaits migrations and the mDNS
-    # registration (~1 s), and a SIGTERM in that window must still be a graceful
-    # stop, not the default "killed by signal" exit (G3 finding).
-    runtime.install_signal_handlers()
-    async with _RuntimeContext(runtime):
-        await runtime.wait_for_stop()
+    while True:
+        runtime = ControllerRuntime(settings)
+        # Before start-up, not after: start-up awaits migrations and the mDNS
+        # registration (~1 s), and a SIGTERM in that window must still be a
+        # graceful stop, not the default "killed by signal" exit (G3 finding).
+        runtime.install_signal_handlers()
+        async with _RuntimeContext(runtime):
+            await runtime.wait_for_stop()
+        if not runtime.restart_requested:
+            break
+        # V0.17 G2: the setup page created the fabric - start again, now with
+        # the CA (TLS listeners, gRPC, enrolment) - in this same process.
+        log.info("controller.restarting", reason="setup_complete")
     if runtime.failed_task is not None:
         log.error("controller.exited_after_task_failure", task=runtime.failed_task)
     return int(runtime.exit_code)

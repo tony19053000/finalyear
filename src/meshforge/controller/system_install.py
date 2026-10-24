@@ -50,6 +50,6 @@ CONTROLLER_PROGRAM: Final = SystemProgram(
     # Admin commands act on the service's state; anything else (the server
     # itself, `--version`) runs in place.
     reexec_commands=frozenset(
-        {"token", "fabric", "node", "user", "ca", "db", "doctor"}
+        {"token", "fabric", "node", "user", "ca", "db", "doctor", "setup"}
     ),
 )
