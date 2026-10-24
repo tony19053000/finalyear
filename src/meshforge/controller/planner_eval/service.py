@@ -45,9 +45,10 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import threading
 import time
 from collections import OrderedDict
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Any, Final
 
@@ -209,26 +210,30 @@ class EvalService:
             )
         else:
             runs = await self._calibrations.matched_runs(self._calibration_config)
-            choices = await asyncio.to_thread(
-                refit_choices, runs, families, self._calibration_config
+            choices = await _stoppable(
+                lambda cancel: refit_choices(
+                    runs, families, self._calibration_config, cancel=cancel
+                )
             )
         ml = (
             EvalMl(ML_UNAVAILABLE, "the controller has no ML evaluation inputs")
             if self._ml is None
             else await self._ml.prepare(families, allow_leak=allow_leak)
         )
-        return await asyncio.to_thread(
-            evaluate,
-            inputs.groups,
-            inputs.records,
-            choices,
-            default_policies(ml=True),
-            self._config,
-            campaign_ids=ids,
-            holdout=holdout,
-            leaked=allow_leak,
-            latency=inputs.latency,  # V0.14 G6 (D324)
-            ml=ml,  # V0.15 G5a (D368/D369)
+        return await _stoppable(
+            lambda cancel: evaluate(
+                inputs.groups,
+                inputs.records,
+                choices,
+                default_policies(ml=True),
+                self._config,
+                campaign_ids=ids,
+                holdout=holdout,
+                leaked=allow_leak,
+                latency=inputs.latency,  # V0.14 G6 (D324)
+                ml=ml,  # V0.15 G5a (D368/D369)
+                cancel=cancel,
+            )
         )
 
     async def _checked_report(
@@ -453,6 +458,18 @@ class EvalService:
             return None
         running.task.cancel()
         return running.task
+
+
+async def _stoppable[T](work: Callable[[threading.Event], T]) -> T:
+    """``work(cancel)`` in a worker thread; a cancelled caller (the controller
+    stops) sets ``cancel`` so the thread ends at its next check instead of
+    replaying on unseen (G6b reviewer N1)."""
+    cancel = threading.Event()
+    try:
+        return await asyncio.to_thread(work, cancel)
+    except asyncio.CancelledError:
+        cancel.set()
+        raise
 
 
 def _log_report(

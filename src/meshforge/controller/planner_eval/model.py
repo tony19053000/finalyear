@@ -7,6 +7,7 @@ campaign's labels, run records and ``plan_decision`` replays; the pure core
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Final, Literal
@@ -50,6 +51,17 @@ UNMEASURED: Final = "unmeasured"
 """The vote of a record whose pick matches no measured configuration."""
 
 type PolicyKind = Literal["rule", "cost_model", "oracle"]
+
+
+class EvalCancelledError(Exception):
+    """The evaluation was stopped (the controller stops): raised in the
+    replay thread at the next group / family boundary (G6b reviewer N1)."""
+
+
+def check_cancel(cancel: threading.Event | None) -> None:
+    """Raise :class:`EvalCancelledError` when ``cancel`` is set."""
+    if cancel is not None and cancel.is_set():
+        raise EvalCancelledError("the evaluation was stopped")
 
 
 @dataclass(frozen=True, slots=True)
