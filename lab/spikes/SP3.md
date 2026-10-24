@@ -6,12 +6,24 @@ hashes), **small enough** (brief target: < 150 MB agent, < 250 MB controller inc
 PostgreSQL), **relocatable** (works after a move, with no system Python and no `uv` on
 `PATH`), and able to run the agent's **job env builds** with its own `uv`?
 
-**Answer (Linux x86_64, 2026-10-24):** yes to reproducible, relocatable and env builds;
-**no to the size targets as written**. The agent bundle is 297 MB on disk (67 MB as
-`tar.xz`), the controller bundle 410 MB (90 MB `tar.xz`) before PostgreSQL. The
-floors are the interpreter (31 MB), the pinned `uv` (50 MB), numpy+OpenBLAS (66 MB,
-agent) and pyarrow (165 MB, controller). See "Sizes" for what could be cut and what
-the Lead must decide.
+## Verdict (Linux x86_64, 2026-10-24)
+
+**PASS with one decision for the Lead (size targets) and five findings for G1.**
+
+| Question | Verdict | Number |
+|---|---|---|
+| Reproducible (same commit -> same bytes) | **yes** on this machine | 2 agent builds (one with a cold download cache, one into a path with a space) and 2+1 controller builds: `--diff` 0 differences |
+| Small enough (D384: < 150 MB agent, < 250 MB controller incl. PostgreSQL) | **no, as written** | agent **298 MB** on disk / **67 MB** `tar.xz`; controller **410 MB** / **90 MB** `tar.xz` *before* PostgreSQL |
+| Relocatable, no system Python / no `uv` on `PATH` | **yes** | all 11 agent and 8 controller CLI checks pass after a move, with `PATH=/usr/bin:/bin` and with a Python-free toolbox `PATH` |
+| Job env builds with the bundle's own `uv` | **yes for the subprocess (`--target`) runtime; venv runtime needs a G1 fix (F1)** | `ensure_target` built in all three `PATH`s; `ensure_venv` picks the system Python or fails `python_not_found` |
+| Build time | fine for CI and dev | **7.0 s** warm cache (agent, 2 runs: 6.99 / 7.11 s), **8.9 s** controller warm; **21-38 s** agent with an empty cache (downloads; network-dependent) |
+| Cold start of the CLIs | **on par with the dev venv** | `meshforge-agent --version` **0.09 s** cold / **0.066 s** warm (dev venv 0.063 s); details in (c) |
+
+The bundle design (D384) holds: G1 can build on `scripts/build_bundle.py` as is. The
+size targets must be restated (see (b), "Conclusion for the Lead"), and F1/F2 must be
+fixed in the env builder before the venv runtime is used from an installed bundle.
+Not shown yet: GPU visibility from the bundle, a real controller-dispatched job (🧑
+step below), a second build machine for cross-machine reproducibility, and Windows (SP1).
 
 Machine: the team's Linux laptop (i7-12650H, Ubuntu, glibc 2.39), uv 0.12.21 (the
 `uv.lock` pin), CPython 3.12.14 from python-build-standalone release 20260929.
@@ -29,7 +41,13 @@ uv run --no-sync python scripts/pytest_exit_guard.py \
 ```
 
 `sp3_bundle.py` writes `<work>/sp3-<role>.json` with every command's exit code, time,
-stdout/stderr tail, the env-probe results and the sizes.
+stdout/stderr tail, the env-probe results, the sizes, both builds' wall time and each
+CLI's cold/warm start-up. The builder's own unit tests (no downloads, < 1 s):
+
+```bash
+uv run --no-sync python scripts/pytest_exit_guard.py \
+    tests/unit/test_v017_sp3_build_bundle.py tests/unit/test_v017_sp3_bundle_lib.py -q
+```
 
 ## What the builder does (and why)
 
@@ -53,9 +71,11 @@ stdout/stderr tail, the env-probe results and the sizes.
 |---|---|---|
 | a | Agent bundle built twice, different out dirs, **cold** download cache for the second, one out dir containing a space | `MANIFEST.json` byte-identical (sha256 `12a85271…` before the single-worker change; identical again after it, regression test passes) |
 | a | Controller bundle built 3× | identical (`3325f459…`) **after** the single-worker compile fix (see residue history) |
-| b | Agent bundle size | **296.8 MB** on disk; `tar` 315 MB → gzip -6 **98.2 MB**, xz -6 **66.9 MB** |
+| b | Agent bundle size | **298.0 MB** on disk; `tar` 316 MB → gzip -6 **98.7 MB**, xz -6 **67.4 MB** (final run; the earlier wip run measured 296.8 / 66.9 MB) |
 | b | Controller bundle size (no PostgreSQL yet) | **410.3 MB** on disk; gzip -6 130.1 MB, xz -6 **90.2 MB** |
 | b | Controller + `ml` extra | 703.4 MB on disk |
+| - | Build time, agent, warm cache (`/usr/bin/time`, 2 runs) | **6.99 s / 7.11 s**, max RSS 120 MB; controller warm **8.9 s** |
+| - | Build time, agent, empty cache (downloads PBS + ~60 wheels) | **37.7 s** (first) / **21.4 s** (second, own empty cache) - network-bound |
 | c | Moved to `…/moved here/agent/`, only `PATH` + `HOME` set (`PATH=/usr/bin:/bin`) | `meshforge-agent --version` ✔ 0.07 s · `hardware show` ✔ 0.80 s · `compute --help` ✔ 0.22 s · `uv --version` ✔ (0.12.21) · interpreter `sys.executable`/`sys.prefix`/`sys.path` all inside the moved bundle ✔ |
 | c | Same, `PATH` = a toolbox holding only `realpath`, `dirname` (no Python, no uv by name) | all five ✔ (same times) |
 | c | Launcher reached through a symlink on `PATH` (the `.deb` shape) | ✔ |
@@ -89,6 +109,14 @@ so GPU visibility from the bundle is **not** proven here (see 🧑 step).
    back-references based on object reference counts, which depend on what the same
    worker compiled before). Fix: one worker (`workers=1`): a fixed order gives fixed
    state. Cost: build time ~8 s warm instead of ~4 s.
+
+5. Found by the new unit tests, not by a real build: `compile_bytecode` returned the
+   files that do not compile as **absolute** paths, and they go into
+   `MANIFEST.json` (`uncompiled`). The leak scan runs before the manifest is written,
+   so it would not have caught it; today's lock has no such file (both manifests:
+   `"uncompiled": []`), but a future wheel shipping Python-2 test data would have
+   broken reproducibility. Fix: root-relative paths
+   (`test_compile_bytecode_is_deterministic_and_path_free`).
 
 No residue is left on this machine. **Not yet shown:** identical output on a second
 build machine (different distro/glibc/CPU) - the CI runner should build and `--diff`
@@ -128,6 +156,29 @@ making the Parquet export lazy-import an optional extra would bring the controll
 (compressed) size: agent < 100 MB, controller < 150 MB incl. PostgreSQL** and on-disk
 size as a recorded number, not a gate; decide separately whether pyarrow stays in the
 base controller install.
+
+### (c) Cold start of the CLIs from the bundle
+
+"Cold" = every file of the bundle evicted from the page cache first
+(`posix_fadvise(POSIX_FADV_DONTNEED)` per file, `checks.evict_page_cache`; no root
+needed), so the interpreter, stdlib and pycs come from the SSD, as on the first
+start after boot. Median of 3 cold runs / median of 5 warm runs (after a warm-up),
+toolbox `PATH`, moved bundle. Dev-venv column: the same command from `.venv/bin`,
+warm.
+
+| Command | cold (median / max) | warm (median) | dev venv, warm |
+|---|---|---|---|
+| `meshforge-agent --version` | 0.090 / 0.093 s | 0.066 s | 0.063 s |
+| `compute --help` (agent bundle) | 0.292 / 0.322 s | 0.203 s | 0.210 s |
+| `meshforge-agent hardware show` | 0.837 / 1.542 s | 0.623 s | 0.783 s |
+| `meshforge-controller --version` | 0.097 / 0.101 s | 0.072 s | - |
+| `meshforge-controller --help` | 0.173 / 0.180 s | 0.121 s | - |
+| `compute --help` (controller bundle) | 0.291 / 0.302 s | 0.223 s | - |
+
+The bundle starts as fast as the dev venv; cold costs ~25-40 ms for the small
+commands. `hardware show`'s 1.5 s outlier is its first cold run (GPU/NVML probing
+libraries read from disk). Without shipped pycs on a read-only tree the agent's
+`--version` takes 0.327 s every time (row above), which is why pycs stay.
 
 ## Findings for G1 (not fixed in the spike - `src/` untouched)
 

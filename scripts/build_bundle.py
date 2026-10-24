@@ -463,7 +463,7 @@ def compile_bytecode(root: Path, layout: Layout, env: Mapping[str, str]) -> list
     path stripped from ``co_filename``, ``PYTHONHASHSEED=0``. The program dir is
     read-only once installed, so without these every start would recompile in
     memory. Returns files that do not compile (warned, not fatal: some wheels ship
-    deliberately invalid sources, e.g. Python-2 test data)."""
+    deliberately invalid sources, e.g. Python-2 test data), relative to ``root``."""
     for cache in sorted((root / "python").rglob("__pycache__")):
         shutil.rmtree(cache)
     # PYTHONDONTWRITEBYTECODE stays set: py_compile ignores it, but the modules
@@ -487,7 +487,18 @@ def compile_bytecode(root: Path, layout: Layout, env: Mapping[str, str]) -> list
         raise BundleError(
             f"compileall crashed:\n{done.stderr[-2000:]}", reason="tool_failed"
         )
-    return sorted(set(re.findall(r"\*\*\* Error compiling '([^']+)'", done.stdout)))
+    # Root-relative: the list goes into MANIFEST.json, which must not name the
+    # build dir (it would break reproducibility and the leak rule; the leak scan
+    # runs before the manifest is written, so it would not catch it).
+    found = re.findall(r"\*\*\* Error compiling '([^']+)'", done.stdout)
+    return sorted({_root_relative(root, path) for path in found})
+
+
+def _root_relative(root: Path, path: str) -> str:
+    try:
+        return Path(path).relative_to(root).as_posix()
+    except ValueError:
+        return Path(path).name
 
 
 def write_launchers(

@@ -205,6 +205,45 @@ def startup_seconds(
     }
 
 
+def evict_page_cache(root: Path) -> int:
+    """Drop ``root``'s files from the OS page cache (``POSIX_FADV_DONTNEED``; no
+    root needed, works for clean pages of files we can open). The next run reads
+    the interpreter, stdlib and pycs from disk: a first-start-after-boot model.
+    Returns the number of files advised."""
+    count = 0
+    for dirpath, _dirs, files in os.walk(root):
+        for name in files:
+            path = Path(dirpath) / name
+            if path.is_symlink():
+                continue
+            fd = os.open(path, os.O_RDONLY)
+            try:
+                os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)
+            finally:
+                os.close(fd)
+            count += 1
+    return count
+
+
+def cold_start_seconds(
+    argv: Sequence[str | Path], env: Mapping[str, str], bundle: Path, reps: int
+) -> dict[str, float]:
+    """Wall time of ``argv`` right after evicting ``bundle`` from the page cache
+    (median / max of ``reps`` cold runs)."""
+    times: list[float] = []
+    for _ in range(reps):
+        evict_page_cache(bundle)
+        started = time.monotonic()
+        subprocess.run(
+            [str(a) for a in argv], env=dict(env), capture_output=True, check=True
+        )
+        times.append(time.monotonic() - started)
+    return {
+        "median_s": round(statistics.median(times), 3),
+        "max_s": round(max(times), 3),
+    }
+
+
 def strip_bytecode_read_only(bundle: Path) -> None:
     """Remove every pyc and make the tree read-only: the "no pyc shipped,
     installed read-only" case, where Python recompiles in memory at every start."""
