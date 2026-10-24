@@ -259,3 +259,101 @@ def test_json_is_the_polled_record_plus_schema_version(
     )
     assert result.stdout == expected + "\n"
     assert result.stderr == ""  # no "started" note with --json
+
+
+# ----------------------------------------------- fix round 1 (tester T2/T3)
+
+
+def _start(get: Any) -> Any:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST":
+            return httpx.Response(202, json={"report_id": 9, "status": "running"})
+        return get(request)
+
+    return handler
+
+
+def _unavailable(retry_after: str | None = None) -> httpx.Response:
+    headers = {} if retry_after is None else {"Retry-After": retry_after}
+    return httpx.Response(
+        503,
+        headers=headers,
+        json={"error": {"code": "network_error", "message": "database down"}},
+    )
+
+
+@pytest.mark.parametrize("value", ["inf", "-inf", "nan"])
+def test_a_non_finite_timeout_is_a_usage_error(
+    runner: CliRunner, controller: TransportFactory, value: str
+) -> None:
+    sent: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sent.append(request.method)
+        return httpx.Response(500)
+
+    controller(handler)
+    result = runner.invoke(
+        cli_app.app, ["planner", "eval", "--campaign", CAMP, "--timeout", value]
+    )
+    assert result.exit_code == 2, result.output
+    assert sent == []  # refused before any request
+
+
+def test_transient_errors_are_retried_and_retry_after_is_honoured(
+    runner: CliRunner, controller: TransportFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sleeps: list[float] = []
+    monkeypatch.setattr(planner_commands.time, "sleep", sleeps.append)
+    answers = iter(
+        [
+            _unavailable("3"),
+            httpx.ConnectError("refused"),
+            _unavailable("9999"),  # clamped
+            httpx.Response(200, json=_done()),
+        ]
+    )
+
+    def get(request: httpx.Request) -> httpx.Response:
+        answer = next(answers)
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+    controller(_start(get))
+    result = runner.invoke(
+        cli_app.app, ["planner", "eval", "--campaign", CAMP, "--timeout", "99999"]
+    )
+    assert result.exit_code == 0, result.output
+    assert sleeps[0] == 3.0 and sleeps[1] == 0.01 and sleeps[2] == 60.0
+    assert result.stderr.count("retrying") == 3
+
+
+def test_a_4xx_during_the_poll_exits_at_once(
+    runner: CliRunner, controller: TransportFactory
+) -> None:
+    calls = [0]
+
+    def get(_r: httpx.Request) -> httpx.Response:
+        calls[0] += 1
+        return httpx.Response(
+            401, json={"error": {"code": "unauthorized", "message": "no"}}
+        )
+
+    controller(_start(get))
+    result = runner.invoke(cli_app.app, ["planner", "eval", "--campaign", CAMP])
+    assert result.exit_code not in (0, 1), result.output
+    assert calls[0] == 1
+
+
+def test_transient_errors_until_the_deadline_end_as_a_timeout(
+    runner: CliRunner, controller: TransportFactory
+) -> None:
+    controller(_start(lambda _r: _unavailable()))
+    t0 = time.monotonic()
+    result = runner.invoke(
+        cli_app.app, ["planner", "eval", "--campaign", CAMP, "--timeout", "1"]
+    )
+    assert result.exit_code == 1, result.output
+    assert "did not finish within 1 s" in result.stderr
+    assert time.monotonic() - t0 < 10

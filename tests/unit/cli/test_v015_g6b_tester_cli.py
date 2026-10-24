@@ -51,11 +51,6 @@ def _start_then(get: Any) -> Any:
     return handler
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="defect T2: one 503 (database blip) during the poll aborts the CLI "
-    "with exit 6 although the evaluation keeps running on the controller",
-)
 def test_one_503_during_a_long_poll_does_not_abandon_the_evaluation(
     runner: CliRunner, controller: TransportFactory
 ) -> None:
@@ -140,13 +135,7 @@ def test_an_unknown_status_does_not_spin_forever_or_print_a_report(
 @pytest.mark.parametrize(
     "value",
     [
-        pytest.param(
-            "nan",
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason="defect T3: --timeout nan passes min=1.0 and polls forever",
-            ),
-        ),
+        "nan",
         "-5",
         "0.5",
         "abc",

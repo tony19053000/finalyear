@@ -22,7 +22,11 @@ calibration (V0.14 G2, D293/D301/D306).
   /v1/planner/eval-reports/{id}`` every 2 s for up to ``--timeout`` seconds
   (default: the controller's default fold budget + the replay margin, 3600
   s) - over it, or a report that ends ``failed`` (its reason printed), exits
-  1. The evaluation is not stopped by the CLI giving up.
+  1. The evaluation is not stopped by the CLI giving up. A transient
+  ``network_error`` while polling (503 database blip, controller
+  unreachable) is retried until the deadline, honouring ``Retry-After``
+  (at most 60 s); any other error exits at once. ``--timeout`` must be
+  finite (``nan`` / ``inf``: exit 2).
 * ``reports [--limit N]`` (G4 fix round 1, ``GET /v1/planner/eval-reports``):
   the stored reports, newest first - id, time, campaigns, held-out family,
   leaked, evaluated groups and both verdicts.
@@ -58,6 +62,7 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
+import math
 import os
 import subprocess
 import sys
@@ -73,6 +78,7 @@ from rich.table import Table
 from meshforge.cli import render
 from meshforge.cli import shared as cli
 from meshforge.cli.exits import CliExit
+from meshforge.common.errors import FailureType
 from meshforge.common.ml_eval import EVAL_WAIT_DEFAULT_S
 
 if TYPE_CHECKING:
@@ -522,11 +528,25 @@ def _wait_for_report(
     """Poll ``GET /v1/planner/eval-reports/{id}`` until it is no longer
     ``running`` (D378); exit 1 after ``timeout`` seconds (the evaluation
     keeps running on the controller)."""
+    from meshforge.cli.client import ControllerError, exit_code_for
+
     deadline = time.monotonic() + timeout
     while True:
-        doc = cli._fetch(lambda: client.planner_eval_report(report_id))
-        if doc.get("status") != "running":
-            return doc
+        wait_s = _EVAL_POLL_S
+        try:
+            doc = client.planner_eval_report(report_id)
+        except ControllerError as exc:
+            if exc.failure_type is not FailureType.NETWORK_ERROR:
+                cli._die(exc.message, exit_code_for(exc))  # the usual typed exit
+            # transient (a database blip, the controller restarting): keep
+            # waiting until the deadline (G6b tester T2), honouring Retry-After
+            retry_after = exc.details.get("retry_after_s")
+            if isinstance(retry_after, int | float):
+                wait_s = max(float(retry_after), _EVAL_POLL_S)
+            render.note(f"evaluation report {report_id}: {exc.message}; retrying")
+        else:
+            if doc.get("status") != "running":
+                return doc
         left = deadline - time.monotonic()
         if left <= 0.0:
             cli._die(
@@ -535,7 +555,7 @@ def _wait_for_report(
                 "compute planner reports",
                 CliExit.FAILURE,
             )
-        time.sleep(min(_EVAL_POLL_S, left))
+        time.sleep(min(wait_s, left))
 
 
 def failed_line(record: Mapping[str, Any]) -> str:
@@ -583,6 +603,8 @@ def evaluate(
     json_output: cli.JsonOption = False,
 ) -> None:
     """Evaluate benchmark campaigns: every policy's regret vs the oracle (admin)."""
+    if not math.isfinite(timeout):  # nan passes min=1.0 (G6b tester T3)
+        cli._die("--timeout must be a finite number of seconds", CliExit.USAGE_ERROR)
     ids = [cli._checked_campaign_id(c) for c in campaign]
     if md is not None and md.exists():
         cli._die(f"{md} exists; choose a new file", CliExit.USAGE_ERROR)

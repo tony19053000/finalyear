@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import math
 import os
 import ssl
 from collections.abc import Iterator, Mapping
@@ -679,10 +680,14 @@ class ControllerClient:
         if failure_type is FailureType.NETWORK_ERROR:
             # 503: the controller is up but its database is not - to a caller this
             # is still "the fabric cannot answer right now", hence UNAVAILABLE.
+            unavailable: dict[str, Any] = {"status": status, "path": path}
+            retry_after = _retry_after(response)
+            if retry_after is not None:
+                unavailable["retry_after_s"] = retry_after
             return ControllerError(
                 f"the controller cannot answer right now: {detail}" + _RETRY_HINT,
                 failure_type=FailureType.NETWORK_ERROR,
-                details={"status": status, "path": path},
+                details=unavailable,
             )
         hint = _NOT_FOUND_HINT if failure_type is FailureType.NOT_FOUND else ""
         details: dict[str, Any] = {"status": status, "path": path, "code": code or None}
@@ -694,6 +699,25 @@ class ControllerClient:
             failure_type=failure_type,
             details=details,
         )
+
+
+_RETRY_AFTER_MAX_S: Final = 60.0
+"""The longest ``Retry-After`` the CLI honours (a hostile header cannot stall it)."""
+
+
+def _retry_after(response: httpx.Response) -> float | None:
+    """``Retry-After`` in seconds (delta-seconds only), clamped to
+    ``[0, _RETRY_AFTER_MAX_S]``; None when absent or not a finite number."""
+    raw = response.headers.get("Retry-After")
+    if raw is None:
+        return None
+    try:
+        value = float(raw.strip())
+    except ValueError:
+        return None
+    if not math.isfinite(value):
+        return None
+    return min(max(value, 0.0), _RETRY_AFTER_MAX_S)
 
 
 _STATUS_FALLBACK: Final = {
