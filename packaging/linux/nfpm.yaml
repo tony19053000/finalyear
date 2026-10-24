@@ -1,18 +1,20 @@
 # nfpm config for the meshforge-agent .deb (V0.17 G1, D394). Do not run nfpm on it
-# directly: scripts/build_deb.py sets the MF_* variables below (nfpm expands
-# ${VAR} from the environment), stages the generated docs, runs the pinned nfpm
-# (packaging/pins.toml) and checks the download-size budget.
+# directly: scripts/build_deb.py fills the ${MF_*} placeholders below (nfpm does
+# not expand variables in `contents`), stages the packaging files with fixed
+# modes and mtimes, runs the pinned nfpm (packaging/pins.toml) and checks the
+# result (paths, control fields, download-size budget).
 #
-#   MF_DEB_VERSION  Debian version, e.g. 0.1.0~dev0-1
+#   MF_DEB_VERSION  Debian version, e.g. 0.1.0~~dev0-1 (from the PEP 440 version)
 #   MF_VERSION      the package (= bundle) version, e.g. 0.1.0.dev0
 #   MF_BUNDLE       the built agent bundle folder (scripts/build_bundle.py)
-#   MF_PACKAGING    this folder
-#   MF_STAGE        generated files (copyright, changelog)
+#   MF_STAGE        this folder's files, staged, + the generated changelog
+#   MF_MTIME        the bundle's SOURCE_DATE_EPOCH (RFC 3339): reproducible .deb
 name: meshforge-agent
 arch: amd64
 platform: linux
 version: ${MF_DEB_VERSION}
 version_schema: none
+mtime: ${MF_MTIME}
 section: net
 priority: optional
 maintainer: MeshForge team <meshforge@example.org>
@@ -45,11 +47,15 @@ contents:
   - src: /opt/meshforge/current/bin/compute
     dst: /usr/bin/compute
     type: symlink
-  - src: ${MF_PACKAGING}/meshforge-agent.service
+  - src: ${MF_STAGE}/meshforge-agent.service
     dst: /usr/lib/systemd/system/meshforge-agent.service
     file_info:
       mode: 0644
-  - src: ${MF_PACKAGING}/lintian-overrides
+  - src: ${MF_STAGE}/meshforge-agent.path
+    dst: /usr/lib/systemd/system/meshforge-agent.path
+    file_info:
+      mode: 0644
+  - src: ${MF_STAGE}/lintian-overrides
     dst: /usr/share/lintian/overrides/meshforge-agent
     file_info:
       mode: 0644
@@ -63,10 +69,10 @@ contents:
       mode: 0644
 
 scripts:
-  preinstall: ${MF_PACKAGING}/scripts/preinst
-  postinstall: ${MF_PACKAGING}/scripts/postinst
-  preremove: ${MF_PACKAGING}/scripts/prerm
-  postremove: ${MF_PACKAGING}/scripts/postrm
+  preinstall: ${MF_STAGE}/scripts/preinst
+  postinstall: ${MF_STAGE}/scripts/postinst
+  preremove: ${MF_STAGE}/scripts/prerm
+  postremove: ${MF_STAGE}/scripts/postrm
 
 deb:
   compression: xz

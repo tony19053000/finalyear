@@ -3,15 +3,18 @@
 # upgrade it keeps running until postinst restarts it on the new version.
 set -eu
 
-UNIT=meshforge-agent.service
+UNITS="meshforge-agent.path meshforge-agent.service"
 
 case "${1:-}" in
 remove | deconfigure)
+	# the path unit first, so it cannot start the service again
 	if [ -d /run/systemd/system ]; then
-		systemctl stop "$UNIT" || true
+		# shellcheck disable=SC2086 # two unit names
+		systemctl stop $UNITS || true
 	fi
 	# disable works without a running systemd too (it only removes the links)
-	systemctl disable "$UNIT" >/dev/null 2>&1 || true
+	# shellcheck disable=SC2086
+	systemctl disable $UNITS >/dev/null 2>&1 || true
 	;;
 upgrade | failed-upgrade) ;;
 *) ;;

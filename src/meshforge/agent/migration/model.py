@@ -146,8 +146,8 @@ class MigrationReport:
                 )
             case MigrationOutcome.NOTHING_TO_MIGRATE:
                 out.append(
-                    f"{prefix}no per-user identity found; the service will create "
-                    f"a new one in {p.paths.target_identity} on its first start"
+                    f"{prefix}no per-user identity found; a new one is created in "
+                    f"{p.paths.target_identity} when this laptop joins a fabric"
                 )
             case MigrationOutcome.BLOCKED:
                 out.append(

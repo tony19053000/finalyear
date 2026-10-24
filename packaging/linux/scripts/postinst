@@ -6,11 +6,15 @@
 #  3. identity + config migration from a per-user agent (D387): refusal leaves
 #     the package installed but the service NOT started, with the reason above
 #     (Q13: a failed dpkg state would be worse for a new user);
-#  4. enable + start (install) or restart (upgrade), then check that the service
-#     really is running before saying so.
+#  4. enable the service + its path unit; a laptop that has not joined yet gets
+#     the join command (the path unit starts the service on the join);
+#  5. start (install) or restart (upgrade) an enrolled agent, then check that the
+#     service really is running before saying so.
 set -eu
 
 UNIT=meshforge-agent.service
+PATH_UNIT=meshforge-agent.path
+ENROLMENT=/var/lib/meshforge/identity/node.crt
 AGENT=/opt/meshforge/current/bin/meshforge-agent
 say() { printf 'meshforge-agent: %s\n' "$*"; }
 
@@ -59,17 +63,32 @@ if [ "$systemd_running" -ne 1 ]; then
 	exit 0
 fi
 
-# 4. start and verify
+# 4. enable (install) and start; the service only runs once this laptop has
+#    joined (ConditionPathExists in the unit); meshforge-agent.path starts it
+#    on the join.
 if [ -z "$previous" ]; then
-	systemctl enable "$UNIT" >/dev/null 2>&1 || systemctl enable "$UNIT"
-	systemctl start "$UNIT" || true
-elif systemctl is-enabled --quiet "$UNIT"; then
-	systemctl restart "$UNIT" || true
-else
-	say "upgraded; $UNIT is disabled, so it was left stopped (enable: sudo systemctl enable --now $UNIT)"
+	systemctl enable "$UNIT" "$PATH_UNIT" >/dev/null 2>&1 || systemctl enable "$UNIT" "$PATH_UNIT"
+elif ! systemctl is-enabled --quiet "$UNIT"; then
+	say "upgraded; $UNIT is disabled, so it was left stopped (enable: sudo systemctl enable --now $UNIT $PATH_UNIT)"
+	exit 0
+fi
+systemctl restart "$PATH_UNIT" || say "warning: $PATH_UNIT did not start (the service will not start by itself after a join)"
+
+if [ ! -e "$ENROLMENT" ]; then
+	systemctl stop "$UNIT" 2>/dev/null || true
+	say "installed. This laptop has not joined a fabric yet. Join it with the code from"
+	say "the fabric admin:   sudo meshforge-agent join <code>"
+	say "The service starts by itself once the laptop has joined."
 	exit 0
 fi
 
+if [ -z "$previous" ]; then
+	systemctl start "$UNIT" || true
+else
+	systemctl restart "$UNIT" || true
+fi
+
+# 5. say what is true: active for a few seconds, or not running (with why)
 state=inactive
 i=0
 while [ "$i" -lt 5 ]; do

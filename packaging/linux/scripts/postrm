@@ -4,6 +4,8 @@
 # `apt purge` removes them and the service account. Idempotent.
 set -eu
 
+UNITS="meshforge-agent.service meshforge-agent.path"
+
 case "${1:-}" in
 purge)
 	rm -rf /var/lib/meshforge /etc/meshforge
@@ -17,11 +19,17 @@ purge)
 	done
 	if [ -d /run/systemd/system ]; then
 		systemctl daemon-reload || true
+		# shellcheck disable=SC2086 # two unit names
+		systemctl reset-failed $UNITS >/dev/null 2>&1 || true
 	fi
 	;;
 remove)
+	# the unit files are gone now; also forget a "failed" state systemd would
+	# otherwise keep listing (lab/verify_uninstall.py checks for it)
 	if [ -d /run/systemd/system ]; then
 		systemctl daemon-reload || true
+		# shellcheck disable=SC2086 # two unit names
+		systemctl reset-failed $UNITS >/dev/null 2>&1 || true
 	fi
 	;;
 upgrade | failed-upgrade | abort-install | abort-upgrade | disappear) ;;

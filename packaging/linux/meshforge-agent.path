@@ -1,0 +1,22 @@
+# MeshForge node agent - start the service when this laptop joins a fabric
+# (V0.17 G1). Installed and enabled by the meshforge-agent .deb.
+#
+# meshforge-agent.service only runs once the laptop is enrolled
+# (ConditionPathExists= on the node certificate): an agent that never joined
+# has nothing to connect to and would exit 4 ("not enrolled") on every start.
+# `meshforge-agent join` writes node.crt; this unit sees it and starts the
+# service, so the owner never has to type a systemctl command.
+#
+# PathChanged= (not PathExists=) on purpose: it fires on the write itself, so a
+# service that stopped on its own (exit 4/5, or `systemctl stop`) is NOT started
+# again behind the admin's back while the certificate stays in place.
+
+[Unit]
+Description=Start the MeshForge node agent when this laptop joins a fabric
+
+[Path]
+PathChanged=/var/lib/meshforge/identity/node.crt
+Unit=meshforge-agent.service
+
+[Install]
+WantedBy=paths.target

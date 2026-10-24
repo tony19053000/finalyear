@@ -19,6 +19,10 @@ Description=MeshForge node agent
 # for as long as it takes (ADR-0002 Updates section 3).
 After=network-online.target
 Wants=network-online.target
+# Only an enrolled laptop has a fabric to connect to (an agent that never joined
+# exits 4 "not enrolled"). Until `meshforge-agent join`, a start is skipped
+# (inactive, not failed); meshforge-agent.path starts the service on the join.
+ConditionPathExists=/var/lib/meshforge/identity/node.crt
 
 [Service]
 Type=simple
