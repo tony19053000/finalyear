@@ -734,7 +734,10 @@ A version is **complete** only when all apply:
 **Concepts introduced:** OS services · installers · bundled runtimes · upgrade/uninstall · first-run UX.
 **Prerequisites:** V0.7, V0.8.
 
+**Brief:** `docs/briefs/V0.17-productization.md` (APPROVED 2026-10-24, D384–D397, ADR-0022). Groups G0 (repo+CI, spikes SP1–SP3) → G1 → G2 ∥ G3 → G4 → G5 → 🧑.
+
 **Tasks**
+- [~] **0.17.0** G0 prerequisites: private GitHub repo + Linux/Windows CI; spikes SP1 (Windows service), SP2 (managed PostgreSQL), SP3 (bundle)
 - [ ] **0.17.1** Windows installer: bundled Python runtime, agent as Windows service, firewall rules, NVIDIA/Docker checks
 - [ ] **0.17.2** Linux packages (.deb and/or AppImage) + systemd service
 - [ ] **0.17.3** Controller install incl. managed PostgreSQL
