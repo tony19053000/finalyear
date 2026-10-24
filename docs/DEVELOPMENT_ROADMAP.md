@@ -739,7 +739,7 @@ A version is **complete** only when all apply:
 **Tasks**
 - [~] **0.17.0** G0 prerequisites: private GitHub repo + Linux/Windows CI; spikes SP1 (Windows service), SP2 (managed PostgreSQL), SP3 (bundle)
 - [ ] **0.17.1** Windows installer: bundled Python runtime, agent as Windows service, firewall rules, NVIDIA/Docker checks
-- [ ] **0.17.2** Linux packages (.deb and/or AppImage) + systemd service
+- [~] **0.17.2** Linux packages (.deb and/or AppImage) + systemd service — agent-side DONE: G1 merged b1d34a23 (tester r2 PASS 47/47 container tests on 22.04+24.04, reviewer APPROVE, post-merge unit agent+common 5226 green); open: 🧑 .deb on a real joined laptop (`identity show` before/after) and controller package (G2)
 - [ ] **0.17.3** Controller install incl. managed PostgreSQL
 - [ ] **0.17.4** First-run wizard (create fabric / join fabric with code or QR)
 - [ ] **0.17.5** Settings UI: resource caps, GPU sharing, node name

@@ -82,3 +82,14 @@ Implemented as decided, with these concrete choices (details: `docs/briefs/progr
   purge, fresh install waiting for the join); cluster — the packaged agent joins a real fabric through the path
   unit, the CPU cap is reported enforced (24.04), and a requirements job is built by the bundled uv on the
   bundled interpreter. CI job `package-linux` builds, lintian-checks, cmp-checks and runs all of it.
+- **Hardening deliberately omitted from the unit (accepted by the Lead, 2026-10-25):** `ProtectClock=` (on
+  systemd 249 / Ubuntu 22.04 it implies a device allow-list that blocks `/dev/nvidia*`, so GPU chunks fail);
+  `PrivateDevices=` (hides the GPU device nodes); `RestrictNamespaces=` (Docker/bubblewrap-style sandboxes and
+  uv's build isolation need namespaces); `MemoryDenyWriteExecute=` (breaks JIT users — PyTorch, numba, LightGBM);
+  `SystemCallFilter=` (the workload runs arbitrary user code under the agent's process tree; a filter strict
+  enough to matter breaks real jobs). Isolation of user code is the sandbox's job (ADR on V0.7 security), not
+  the unit's. Revisit per-flag if the sandbox moves fully out of the agent's tree.
+- **Start on join via a path unit** (above) is a G1 stop-gap; G3 replaces it with the agent running before join.
+- **Accepted G1 deviations:** `safe_source` accepts a group-writable source when the group is the owner's
+  private group (Debian user-private-group convention); a source caught mid-rotation is refused (operator
+  re-runs `migrate-identity`) rather than retried.

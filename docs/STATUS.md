@@ -2,7 +2,7 @@
 
 > Concise current state. Long-term plan: [`DEVELOPMENT_ROADMAP.md`](DEVELOPMENT_ROADMAP.md). Update at the end of every work session.
 
-**Last updated:** 2026-10-24 (V0.15 G6 CLOSED, 0.15.10 [x])
+**Last updated:** 2026-10-25 (session 4: CI-green, G2, G3 resumed in parallel; ADR-0022 hardening note; 0.17.2 [~])
 
 ```
 TOTAL   ██████████████▒▒░░░░  71%  113/158 done, 16 in progress
