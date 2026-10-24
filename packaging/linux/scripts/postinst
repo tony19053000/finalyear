@@ -24,6 +24,15 @@ abort-upgrade | abort-remove | abort-deconfigure) exit 0 ;;
 *) exit 0 ;;
 esac
 previous="${2:-}"
+# `apt remove` keeps the state (and dpkg then passes the last configured version
+# here as if this were an upgrade); prerm leaves this mark so a re-install is
+# treated as a fresh install: the units it disabled are enabled again.
+REMOVED_MARK=/var/lib/meshforge/.package-removed
+fresh=0
+if [ -z "$previous" ] || [ -e "$REMOVED_MARK" ]; then
+	fresh=1
+fi
+rm -f "$REMOVED_MARK"
 
 # 1. state folders (never loosened if an admin tightened them further)
 install -d -m 0755 -o root -g root /etc/meshforge
@@ -66,7 +75,7 @@ fi
 # 4. enable (install) and start; the service only runs once this laptop has
 #    joined (ConditionPathExists in the unit); meshforge-agent.path starts it
 #    on the join.
-if [ -z "$previous" ]; then
+if [ "$fresh" -eq 1 ]; then
 	systemctl enable "$UNIT" "$PATH_UNIT" >/dev/null 2>&1 || systemctl enable "$UNIT" "$PATH_UNIT"
 elif ! systemctl is-enabled --quiet "$UNIT"; then
 	say "upgraded; $UNIT is disabled, so it was left stopped (enable: sudo systemctl enable --now $UNIT $PATH_UNIT)"
@@ -82,11 +91,7 @@ if [ ! -e "$ENROLMENT" ]; then
 	exit 0
 fi
 
-if [ -z "$previous" ]; then
-	systemctl start "$UNIT" || true
-else
-	systemctl restart "$UNIT" || true
-fi
+systemctl restart "$UNIT" || true
 
 # 5. say what is true: active for a few seconds, or not running (with why)
 state=inactive

@@ -7,6 +7,10 @@ UNITS="meshforge-agent.path meshforge-agent.service"
 
 case "${1:-}" in
 remove | deconfigure)
+	# the state stays on remove; postinst sees this mark on a re-install
+	if [ -d /var/lib/meshforge ]; then
+		: >/var/lib/meshforge/.package-removed
+	fi
 	# the path unit first, so it cannot start the service again
 	if [ -d /run/systemd/system ]; then
 		# shellcheck disable=SC2086 # two unit names
