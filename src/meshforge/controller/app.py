@@ -89,6 +89,13 @@ ca_app = typer.Typer(
     no_args_is_help=True,
 )
 app.add_typer(ca_app)
+db_app = typer.Typer(
+    name="db",
+    help="The managed database (V0.17): status, backup, restore.",
+    add_completion=False,
+    no_args_is_help=True,
+)
+app.add_typer(db_app)
 
 ConfigOption = Annotated[
     Path | None,
@@ -813,6 +820,125 @@ def user_reset_password(
     result = _user_command(config, action)
     revoked = result[1] if isinstance(result, tuple) else 0
     typer.echo(f"password of {name} reset ({revoked} API token(s) revoked)")
+
+
+# --------------------------------------------------------------------- db
+
+
+def _db_run(config: Path | None, action: str, *args: object) -> dict[str, object]:
+    from meshforge.common.errors import MeshForgeError
+    from meshforge.common.logging import configure_logging
+    from meshforge.controller.db_managed import admin
+
+    settings = _load_settings(config)
+    configure_logging("WARNING", fmt=settings.log.format, component="controller")
+    try:
+        if action == "status":
+            return admin.status(settings)
+        if action == "backup":
+            return admin.backup(settings, *args)  # type: ignore[arg-type]
+        return admin.restore(settings, *args)  # type: ignore[arg-type]
+    except MeshForgeError as exc:
+        typer.echo(f"{PROG_NAME}: {exc}", err=True)
+        raise typer.Exit(exc.exit_code) from None
+
+
+JsonOption = Annotated[bool, typer.Option("--json", help="Machine-readable output.")]
+
+
+@db_app.command("status")
+def db_status(config: ConfigOption = None, json_out: JsonOption = False) -> None:
+    """Show the controller's database: mode, running, last good start, backups."""
+    import json
+
+    facts = _db_run(config, "status")
+    if json_out:
+        typer.echo(json.dumps(facts, indent=2, sort_keys=True))
+        return
+    for key in (
+        "mode",
+        "url",
+        "root",
+        "port",
+        "running",
+        "data_major",
+        "bundled_major",
+        "disk_free_bytes",
+    ):
+        if key in facts:
+            typer.echo(f"{key + ':':<17} {facts[key]}")
+    last = facts.get("last_good_start")
+    if isinstance(last, dict):
+        typer.echo(
+            f"{'last good start:':<17} {last['version']} (revision "
+            f"{last['revision']}, {last['at']})"
+        )
+    backups = facts.get("backups")
+    if isinstance(backups, list):
+        typer.echo(f"{'backups:':<17} {len(backups)}")
+        for item in backups:
+            typer.echo(
+                f"  {item['modified']}  {item['size_bytes']:>12}  {item['kind']:<11} "
+                f"{item['path']}"
+            )
+
+
+@db_app.command("backup")
+def db_backup(
+    config: ConfigOption = None,
+    out: Annotated[
+        Path | None,
+        typer.Option(
+            "--out",
+            help="Dump file (default <db root>/backups/manual-<UTC time>.dump).",
+            dir_okay=False,
+        ),
+    ] = None,
+    json_out: JsonOption = False,
+) -> None:
+    """Dump the database (pg_dump custom format, owner-only file). Works while
+    the controller runs; the file is the whole fabric database - keep it safe."""
+    import json
+
+    facts = _db_run(config, "backup", out)
+    if json_out:
+        typer.echo(json.dumps(facts, indent=2, sort_keys=True))
+        return
+    typer.echo(str(facts["path"]))
+    typer.echo(
+        f"{facts['size_bytes']} bytes in {facts['seconds']} s ({facts['cluster']})",
+        err=True,
+    )
+
+
+@db_app.command("restore")
+def db_restore(
+    dump: Annotated[
+        Path, typer.Argument(help="A dump made by `db backup` or pg_dump -Fc.")
+    ],
+    config: ConfigOption = None,
+    yes: Annotated[
+        bool,
+        typer.Option("--yes", help="Confirm: the current database is replaced."),
+    ] = False,
+) -> None:
+    """Replace the database with a backup. The controller must be stopped
+    (sudo systemctl stop meshforge-controller). Everything newer than the
+    backup is lost."""
+    if not yes:
+        typer.echo(
+            f"{PROG_NAME}: this replaces the whole database with {dump}; "
+            "add --yes to confirm",
+            err=True,
+        )
+        raise typer.Exit(ExitCode.USAGE_ERROR)
+    facts = _db_run(config, "restore", dump)
+    typer.echo(f"restored from {facts['restored_from']} in {facts['seconds']} s")
+    typer.echo(
+        "start the controller again: sudo systemctl start meshforge-controller "
+        "(it migrates an older backup on start)",
+        err=True,
+    )
 
 
 def _server_lifetime(settings: "ControllerSettings") -> "timedelta":

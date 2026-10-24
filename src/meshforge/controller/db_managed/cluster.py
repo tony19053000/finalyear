@@ -209,6 +209,7 @@ class ManagedCluster:
         self._password: SecretStr | None = None
         self._app_password: SecretStr | None = None
         self._log_marks: dict[Path, int] = {}
+        self._attached = False
 
     # ------------------------------------------------------------ properties
     @property
@@ -216,6 +217,11 @@ class ManagedCluster:
         """The postmaster pid while running (our child)."""
         proc = self._proc
         return proc.pid if proc is not None and proc.returncode is None else None
+
+    @property
+    def running(self) -> bool:
+        """Started by this object (our child) or attached to a running one."""
+        return self.pid is not None or self._attached
 
     def database_settings(
         self,
@@ -275,6 +281,52 @@ class ManagedCluster:
                 reason=ManagedDbReason.NOT_RUNNING,
             )
         return self._password
+
+    # ----------------------------------------------------------------- attach
+    def lock_free(self) -> bool:
+        """True when no process (no controller) manages this cluster now.
+
+        Takes and immediately releases the lock; a caller that wants to *keep*
+        the cluster to itself calls :meth:`start` instead.
+        """
+        self.layout.root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        with open(self.layout.lock_file, "a+b") as fh:
+            if not try_lock(fh):
+                return False
+            with contextlib.suppress(OSError):
+                unlock(fh)
+            return True
+
+    def attach(self) -> int:
+        """Use the cluster a running controller manages (admin tools: ``db
+        backup`` while the service runs); returns the postmaster pid.
+
+        Nothing is started, stopped or locked. Raises ``not_running`` unless a
+        ready postmaster of this data dir is alive. Its passwords are read
+        from the owner-only files (the caller must be the service user).
+        """
+        from meshforge.controller.db_managed.secret import read_password_file
+
+        if self._proc is not None:
+            raise RuntimeError("cluster already started by this object")
+        try:
+            info = read_postmaster_pid(self.layout.data_dir)
+        except PidFileError:
+            info = None
+        if (
+            info is None
+            or info.status is not PostmasterStatus.READY
+            or not is_postgres_of(info.pid, self.layout.data_dir)
+        ):
+            raise ManagedDbError(
+                f"no running PostgreSQL manages {self.layout.data_dir}",
+                reason=ManagedDbReason.NOT_RUNNING,
+                details={"data_dir": str(self.layout.data_dir)},
+            )
+        self._password = read_password_file(self.layout.password_file)
+        self._app_password = read_password_file(self.layout.app_password_file)
+        self._attached = True
+        return info.pid
 
     # ------------------------------------------------------------------ start
     async def start(self) -> StartOutcome:
@@ -699,7 +751,7 @@ class ManagedCluster:
     @contextlib.asynccontextmanager
     async def _pgpass(self) -> AsyncIterator[Path]:
         """A one-use ``PGPASSFILE`` (0600, in the 0700 socket dir)."""
-        if self._password is None or self.pid is None:
+        if self._password is None or not self.running:
             raise ManagedDbError(
                 "the managed database is not running",
                 reason=ManagedDbReason.NOT_RUNNING,
@@ -754,6 +806,34 @@ class ManagedCluster:
     async def drop_database(self, name: str) -> None:
         """``DROP DATABASE IF EXISTS ... WITH (FORCE)``."""
         await self._admin_sql(name, 'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
+
+    async def restore_database(self, dump_file: Path) -> float:
+        """Replace the application database with ``dump_file`` (D393 rollback,
+        ``db restore``); returns seconds.
+
+        Drops the database (``WITH (FORCE)`` - every connection is cut), creates
+        it empty and owned by the application role exactly as :meth:`start`
+        does, then restores into it as that role (objects owned by it, Q18;
+        dumps of the dev Compose database too, Q21). On a failed restore the
+        database is left empty, never half-restored (one transaction).
+        """
+        if not await asyncio.to_thread(dump_file.is_file):
+            raise ManagedDbError(
+                f"no backup file at {dump_file}",
+                reason=ManagedDbReason.RESTORE_FAILED,
+                details={"path": str(dump_file)},
+            )
+        started = time.monotonic()
+        await self.drop_database(self.database)
+        await self._ensure_database()
+        await self.restore(dump_file, database=self.database)
+        elapsed = time.monotonic() - started
+        log.warning(
+            "controller.db.managed.restored",
+            dump=str(dump_file),
+            duration_ms=round(elapsed * 1000),
+        )
+        return elapsed
 
     async def _admin_sql(self, name: str, template: str) -> None:
         import asyncpg

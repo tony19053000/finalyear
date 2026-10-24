@@ -48,6 +48,7 @@ import grpc
 import uvicorn
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from meshforge import __version__
 from meshforge.common.config import INSECURE_DEV_BANNER
 from meshforge.common.errors import ConfigError, ExitCode, MeshForgeError
 from meshforge.common.gc_index import GcIndexBusyError
@@ -90,8 +91,14 @@ from meshforge.controller.cache_index import CacheIndex, CacheLocationStore
 
 # V0.14 G2 (D293): planner calibration (store, per-tick source, refresh task)
 from meshforge.controller.calibration_store import CalibrationSource, CalibrationStore
+from meshforge.controller.db_managed.backup import (
+    UpgradeBackup,
+    clear_marker,
+    take_upgrade_backup,
+    write_marker,
+)
 from meshforge.controller.db_managed.cluster import ManagedCluster
-from meshforge.controller.db_managed.errors import ManagedDbError
+from meshforge.controller.db_managed.errors import ManagedDbError, ManagedDbReason
 from meshforge.controller.db_managed.runtime import cluster_for
 from meshforge.controller.discovery import ServiceAdvertiser
 from meshforge.controller.enrollment.invites import InviteStore
@@ -176,14 +183,22 @@ from meshforge.controller.session.live import LiveSession
 from meshforge.controller.session.manager import SessionManager
 from meshforge.controller.session.peer_cert import NodeCertInterceptor, peer_cert
 from meshforge.controller.session.servicer import AgentControlServicer
-from meshforge.controller.settings import LOOPBACK_PLAIN_HOSTS, ControllerSettings
+from meshforge.controller.settings import (
+    LOOPBACK_PLAIN_HOSTS,
+    ControllerSection,
+    ControllerSettings,
+)
 from meshforge.controller.snapshots import SnapshotFlusher
 from meshforge.controller.split.combine import CombineBusy
 from meshforge.controller.split.progress import SplitProgress
 from meshforge.controller.split.progress_events import ProgressTracker
 from meshforge.controller.split.progress_reads import ProgressReads
 from meshforge.controller.store.engine import check_connection, create_engine
-from meshforge.controller.store.migrate import upgrade_to_head
+from meshforge.controller.store.migrate import (
+    current_revision,
+    head_revision,
+    upgrade_to_head,
+)
 from meshforge.controller.store.settings import DatabaseSettings
 from meshforge.controller.telemetry.recorder import RunRecorder
 from meshforge.controller.upload_grants import UploadGrants
@@ -331,6 +346,8 @@ class ControllerRuntime:
         """V0.17 G2 (D390): the controller's own PostgreSQL in ``[controller.db]
         mode = "managed"`` (started first, stopped last); None in external mode."""
         self._db_watch: asyncio.Task[None] | None = None
+        self._rollback: UpgradeBackup | None = None
+        """D393: the pre-upgrade backup :meth:`stop` restores (failed upgrade)."""
         self.failed_task: str | None = None
         """Name of the owned task whose crash caused the stop, if any (NB3): a
         controller that stopped because its lease timer died exits ``FAILURE``."""
@@ -422,9 +439,32 @@ class ControllerRuntime:
         engine = create_engine(database)
         self._engine = engine
         await check_connection(engine, database)
-        # Alembic is synchronous (and runs its own loop inside env.py).
-        await asyncio.to_thread(upgrade_to_head, migrate_as)
+        upgrade = await self._migrate(migrate_as)
+        # D393: after an upgrade's migrations the controller must be serving
+        # within health_timeout_s; otherwise the pre-upgrade backup is
+        # restored (in stop(), once nothing uses the database) and it exits 4.
+        health_s = cfg.db.health_timeout_s if upgrade is not None else None
+        try:
+            async with asyncio.timeout(health_s):
+                await self._start_services(cfg, loop, blobs, engine)
+                await check_connection(engine, database)
+        except Exception as exc:
+            if upgrade is None:
+                raise
+            raise self._upgrade_failed(upgrade, exc) from exc
+        await self._record_good_start(migrate_as)
 
+    async def _start_services(
+        self,
+        cfg: ControllerSection,
+        loop: asyncio.AbstractEventLoop,
+        blobs: BlobStore,
+        engine: AsyncEngine,
+    ) -> None:
+        """Everything after the migrations: stores, tasks, listeners."""
+        # Set by _start before the migrations.
+        assert self.peer_tokens is not None  # noqa: S101 - narrowing
+        assert self.fetch_tokens is not None  # noqa: S101 - narrowing
         if cfg.gc.enabled:
             gc = ControllerGc(
                 blobs,
@@ -1227,6 +1267,92 @@ class ControllerRuntime:
             cluster.admin_settings(base=base),
         )
 
+    async def _migrate(self, migrate_as: DatabaseSettings) -> UpgradeBackup | None:
+        """Migrate to head; managed mode backs up first when needed (D393).
+
+        A failed migration after a backup rolls back like a failed health
+        check. Alembic is synchronous (and runs its own loop inside env.py).
+        """
+        backup: UpgradeBackup | None = None
+        if self.managed_db is not None:
+            db_revision = await asyncio.to_thread(current_revision, migrate_as)
+            backup = await take_upgrade_backup(
+                self.managed_db,
+                version=__version__,
+                db_revision=db_revision,
+                head_revision=head_revision(),
+                keep=self.settings.controller.db.backups_keep,
+            )
+        try:
+            await asyncio.to_thread(upgrade_to_head, migrate_as)
+        except Exception as exc:
+            if backup is None:
+                raise
+            raise self._upgrade_failed(backup, exc) from exc
+        return backup
+
+    def _upgrade_failed(
+        self, backup: UpgradeBackup, exc: BaseException
+    ) -> ManagedDbError:
+        """Arrange the D393 rollback (done by :meth:`stop`) and say so."""
+        self._rollback = backup
+        log.critical(
+            "controller.db.upgrade_failed",
+            cause=type(exc).__name__,
+            error=str(exc)[:500],
+            backup=str(backup.path),
+            from_version=backup.from_version,
+            to_version=backup.to_version,
+        )
+        return ManagedDbError(
+            f"the controller did not start after upgrading to {backup.to_version} "
+            f"({type(exc).__name__}: {str(exc)[:200]}); the database is restored "
+            f"from the pre-upgrade backup {backup.path} - start the previous "
+            "version, or fix the problem and start again",
+            reason=ManagedDbReason.UPGRADE_ROLLED_BACK,
+            details={
+                "backup": str(backup.path),
+                "from_version": backup.from_version,
+                "to_version": backup.to_version,
+                "cause": type(exc).__name__,
+            },
+        )
+
+    async def _record_good_start(self, migrate_as: DatabaseSettings) -> None:
+        """Managed mode: remember the version that started successfully (the
+        next start backs up before migrating when it differs, D393)."""
+        if self.managed_db is None:
+            return
+        revision = await asyncio.to_thread(current_revision, migrate_as)
+        await asyncio.to_thread(
+            write_marker,
+            self.managed_db.layout.root,
+            version=__version__,
+            revision=revision,
+        )
+
+    async def _restore_after_failed_upgrade(self) -> None:
+        backup, self._rollback = self._rollback, None
+        if backup is None or self.managed_db is None or not self.managed_db.running:
+            return
+        try:
+            await self.managed_db.restore_database(backup.path)
+        except Exception as exc:  # noqa: BLE001 - logged loudly, stop continues
+            log.critical(
+                "controller.db.rollback_failed",
+                backup=str(backup.path),
+                cause=type(exc).__name__,
+                error=str(exc)[:500],
+                hint="restore by hand: meshforge-controller db restore <backup> --yes",
+            )
+            return
+        await asyncio.to_thread(clear_marker, self.managed_db.layout.root)
+        log.warning(
+            "controller.db.rolled_back",
+            backup=str(backup.path),
+            restored_version=backup.from_version,
+        )
+
     async def _watch_database(self, cluster: ManagedCluster) -> None:
         """A postmaster that exits while the controller runs is fatal: the
         controller stops with ``FAILURE`` and systemd restarts both (the
@@ -1382,7 +1508,9 @@ class ControllerRuntime:
         if self._engine is not None:
             changes.detach(self._engine)
             await self._engine.dispose()
-        # V0.17 G2: the managed PostgreSQL last - nothing uses it any more.
+        # V0.17 G2: a failed upgrade's rollback (D393), then the managed
+        # PostgreSQL last - nothing uses it any more.
+        await self._restore_after_failed_upgrade()
         await self._stop_database()
         log.info("controller.stopped", took_s=round(drain - remaining(), 3))
 

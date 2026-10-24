@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import structlog
 from mf_fabric import seed_ca_dir
 from mf_managed_pg import free_port, managed_pg_bin_dir, short_dir
 from mf_session_client import poll_until
@@ -290,3 +291,187 @@ async def test_sigkilled_controller_process_takes_postgres_with_it(
             again.wait(timeout=10)
         if again.stdout is not None:
             again.stdout.close()
+
+
+# ------------------------------------------------------------ D393 backups
+async def _user_count(settings: ControllerSettings, root: Path) -> int:
+    conn = await _admin(settings, root)
+    try:
+        return int(await conn.fetchval("SELECT count(*) FROM app_user"))
+    finally:
+        await conn.close()
+
+
+async def _add_user(runtime: ControllerRuntime, name: str) -> None:
+    from meshforge.controller.store.models.auth import UserRole
+
+    assert runtime.users is not None
+    await runtime.users.create_user(
+        name, pw_hash="x" * 20, role=UserRole.USER, actor="test"
+    )
+
+
+async def test_upgrade_takes_a_backup_keeps_three_and_plain_restart_none(
+    tmp_path: Path,
+    pg_bin: Path,
+    db_dirs: tuple[Path, Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root, sock = db_dirs
+    settings = _managed_settings(tmp_path, pg_bin, root, sock, free_port())
+    seed_ca_dir(settings.ca_dir)
+    backups = root / "backups"
+    monkeypatch.setattr("meshforge.controller.server.__version__", "0.17.0")
+    async with ControllerRuntime.start(settings):
+        pass  # fresh database: nothing to back up
+    assert list(backups.glob("*.dump")) == []
+    marker = json.loads((root / "schema-version.json").read_text())
+    assert marker["version"] == "0.17.0" and marker["revision"]
+
+    async with ControllerRuntime.start(settings):
+        pass  # same version, at head: a plain restart takes no backup
+    assert list(backups.glob("*.dump")) == []
+
+    for version in ("0.17.1", "0.17.2", "0.17.3", "0.17.4"):
+        monkeypatch.setattr("meshforge.controller.server.__version__", version)
+        async with ControllerRuntime.start(settings):
+            pass
+        assert (backups / f"pre-{version}.dump").stat().st_mode & 0o777 == 0o600
+    names = sorted(p.name for p in backups.glob("*.dump"))
+    assert names == ["pre-0.17.2.dump", "pre-0.17.3.dump", "pre-0.17.4.dump"]
+    marker = json.loads((root / "schema-version.json").read_text())
+    assert marker["version"] == "0.17.4"
+
+
+async def test_failed_start_after_upgrade_restores_the_backup_and_exits_4(
+    tmp_path: Path,
+    pg_bin: Path,
+    db_dirs: tuple[Path, Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from meshforge.controller.db_managed import ManagedDbError, ManagedDbReason
+
+    root, sock = db_dirs
+    settings = _managed_settings(tmp_path, pg_bin, root, sock, free_port())
+    seed_ca_dir(settings.ca_dir)
+    monkeypatch.setattr("meshforge.controller.server.__version__", "0.17.0")
+    async with ControllerRuntime.start(settings) as runtime:
+        await _add_user(runtime, "asha")
+        await _add_user(runtime, "ravi")
+        assert await _user_count(settings, root) == 2
+
+    # The new version migrates, damages data, then fails its start.
+    real = ControllerRuntime._start_services
+
+    async def broken(self: ControllerRuntime, *args: Any) -> None:
+        await real(self, *args)
+        assert self._engine is not None
+        async with self._engine.begin() as conn:
+            from sqlalchemy import text
+
+            await conn.execute(text("DELETE FROM app_user"))
+        raise RuntimeError("the new version cannot start")
+
+    monkeypatch.setattr("meshforge.controller.server.__version__", "0.18.0")
+    monkeypatch.setattr(ControllerRuntime, "_start_services", broken)
+    with (
+        structlog.testing.capture_logs() as logs,
+        pytest.raises(ManagedDbError) as info,
+    ):
+        async with ControllerRuntime.start(settings):
+            pytest.fail("must not start")
+    assert info.value.reason is ManagedDbReason.UPGRADE_ROLLED_BACK
+    assert int(info.value.exit_code) == 4
+    assert "pre-0.18.0.dump" in str(info.value)
+    events = [e["event"] for e in logs]
+    assert "controller.db.upgrade_failed" in events
+    assert "controller.db.rolled_back" in events
+    assert not (root / "schema-version.json").exists()  # next start backs up again
+
+    monkeypatch.setattr(ControllerRuntime, "_start_services", real)
+    monkeypatch.setattr("meshforge.controller.server.__version__", "0.17.0")
+    async with ControllerRuntime.start(settings):
+        assert await _user_count(settings, root) == 2  # the data is back
+
+
+async def test_upgrade_not_serving_in_time_is_rolled_back(
+    tmp_path: Path,
+    pg_bin: Path,
+    db_dirs: tuple[Path, Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from meshforge.controller.db_managed import ManagedDbError, ManagedDbReason
+
+    root, sock = db_dirs
+    port = free_port()
+    settings = _managed_settings(tmp_path, pg_bin, root, sock, port)
+    seed_ca_dir(settings.ca_dir)
+    monkeypatch.setattr("meshforge.controller.server.__version__", "0.17.0")
+    async with ControllerRuntime.start(settings):
+        pass
+    slow = make_settings(
+        DatabaseSettings(),
+        db={
+            "mode": "managed",
+            "root": root,
+            "socket_dir": sock,
+            "bin_dir": pg_bin,
+            "port": port,
+            "health_timeout_s": 0.5,
+        },
+    ).model_copy(update={"data_dir": tmp_path / "data"})
+    real = ControllerRuntime._start_services
+
+    async def hangs(self: ControllerRuntime, *args: Any) -> None:
+        await real(self, *args)
+        await asyncio.sleep(30)
+
+    monkeypatch.setattr(ControllerRuntime, "_start_services", hangs)
+    monkeypatch.setattr("meshforge.controller.server.__version__", "0.18.0")
+    with pytest.raises(ManagedDbError) as info:
+        async with ControllerRuntime.start(slow):
+            pytest.fail("must not start")
+    assert info.value.reason is ManagedDbReason.UPGRADE_ROLLED_BACK
+    assert info.value.details["cause"] == "TimeoutError"
+
+
+async def test_db_cli_backup_restore_status(
+    tmp_path: Path, pg_bin: Path, db_dirs: tuple[Path, Path]
+) -> None:
+    from meshforge.controller.db_managed import ManagedDbError, ManagedDbReason, admin
+
+    root, sock = db_dirs
+    settings = _managed_settings(tmp_path, pg_bin, root, sock, free_port())
+    seed_ca_dir(settings.ca_dir)
+    async with ControllerRuntime.start(settings) as runtime:
+        await _add_user(runtime, "asha")
+        live = await asyncio.to_thread(admin.status, settings)
+        assert live["running"] is True and live["data_major"] == "16"
+        # backup while the controller runs: attaches, no interruption
+        made = await asyncio.to_thread(admin.backup, settings, None)
+        assert made["cluster"] == "running controller"
+        dump = Path(str(made["path"]))
+        assert dump.parent == root / "backups" and dump.name.startswith("manual-")
+        assert dump.stat().st_mode & 0o777 == 0o600  # noqa: ASYNC240
+        await _add_user(runtime, "ravi")
+        # restore refuses while it runs
+        with pytest.raises(ManagedDbError) as info:
+            await asyncio.to_thread(admin.restore, settings, dump)
+        assert info.value.reason is ManagedDbReason.IN_USE
+    stopped = await asyncio.to_thread(admin.status, settings)
+    assert stopped["running"] is False
+    assert [b["kind"] for b in stopped["backups"]] == ["manual"]
+
+    # backup while stopped: starts the cluster briefly
+    other = tmp_path / "out" / "x.dump"
+    made2 = await asyncio.to_thread(admin.backup, settings, other)
+    assert made2["cluster"] == "started briefly" and other.exists()
+    assert data_dir_holders(root / "data") == []
+
+    done = await asyncio.to_thread(admin.restore, settings, dump)
+    assert done["restored_from"] == str(dump)
+    assert not (root / "schema-version.json").exists()
+    async with ControllerRuntime.start(settings) as runtime:
+        assert runtime.users is not None
+        names = sorted(u.name for u in await runtime.users.list_users())
+        assert names == ["asha"]  # ravi came after the backup

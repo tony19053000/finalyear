@@ -45,6 +45,12 @@ class ManagedDbReason(StrEnum):
     NOT_RUNNING = "not_running"
     DUMP_FAILED = "dump_failed"
     RESTORE_FAILED = "restore_failed"
+    UPGRADE_ROLLED_BACK = "upgrade_rolled_back"
+    """D393: the start after an upgrade failed (migrations or the health check)
+    and the pre-upgrade backup is restored; the controller exits 4 so systemd
+    does not restart it into the same failure."""
+    IN_USE = "in_use"
+    """``db restore`` while the controller service runs the cluster."""
 
 
 class ManagedDbError(MeshForgeError):

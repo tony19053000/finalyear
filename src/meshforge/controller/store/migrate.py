@@ -33,6 +33,7 @@ __all__ = [
     "MIGRATIONS_DIR",
     "MigrationOutcome",
     "alembic_config",
+    "current_revision",
     "head_revision",
     "upgrade_to_head",
 ]
@@ -121,6 +122,12 @@ def upgrade_to_head(database: DatabaseSettings) -> MigrationOutcome:
         ) from exc
     log.info("store.migrations.upgraded", revision=target)
     return MigrationOutcome(target_revision=target, current_revision=current)
+
+
+def current_revision(database: DatabaseSettings) -> str | None:
+    """The database's migration revision, or None for an empty database.
+    Blocking (call via ``asyncio.to_thread``)."""
+    return _current_revision(database)
 
 
 def _current_revision(database: DatabaseSettings) -> str | None:
