@@ -1226,6 +1226,31 @@ Spike ports (V0.2) live in 472xx–473xx and never collide with these.
 
 ---
 
+**Install modes** (V0.17 G1, D384-D387 — [ADR-0022](adr/0022-productization-install-services.md))
+
+The table above is the **user** mode: a checkout run by a person, state in that person's folders.
+A packaged laptop runs the agent as a system service in **system** mode, chosen only by
+`MESHFORGE_INSTALL_MODE=system` in the unit's environment (Q11, never guessed from the disk;
+`common.config.install_mode()` / `platform_dirs()`):
+
+| | user mode (default; dev) | system mode (Linux `.deb`) | system mode (Windows, G4) |
+|---|---|---|---|
+| program | the checkout + `.venv` | `/opt/meshforge/<ver>/` (bundle, read-only) + `current` symlink, `/usr/bin/{meshforge-agent,compute}` | `C:\Program Files\MeshForge\<ver>\` |
+| config | `~/.config/meshforge/config.toml` | `/etc/meshforge/config.toml` (`root:meshforge 0640`) | `%PROGRAMDATA%\MeshForge\config\` |
+| data (identity, cas, envs, policy, scores) | `~/.local/share/meshforge/` | `/var/lib/meshforge/` (`meshforge 0750`, `identity/` `0700`) | `%PROGRAMDATA%\MeshForge\` |
+| runs as | the person | system user `meshforge` (unit `meshforge-agent.service`, hardened: `ProtectSystem=strict`, only `/var/lib/meshforge` writable, `Delegate=yes`) | `NT SERVICE\MeshForgeAgent` |
+| logs | stderr / user journal | `journalctl -u meshforge-agent` | Event Log / file (G4) |
+
+The bundle (`scripts/build_bundle.py`) is a relocatable python-build-standalone CPython 3.12 with the
+`meshforge` wheel and the locked dependencies of one role; launchers find the interpreter relative to themselves,
+job venvs are built on it through the version-independent `current` path, and `BUILDINFO.json` /
+`MANIFEST.sha256` describe it (`--version` prints the build's git sha). The service starts only once the laptop
+is enrolled (`ConditionPathExists=` on `identity/node.crt`); `meshforge-agent.path` starts it when `join` writes
+that file. On a packaged laptop a human's `meshforge-agent join|identity|policy|hardware` re-executes as
+`meshforge` via `sudo` (Q15), so there is one identity per laptop. Installing the package migrates an existing
+per-user identity + config (`meshforge-agent migrate-identity`, D387; never mints while one is undecided).
+Operator steps: OPERATIONS §2 and §4.
+
 ## 24. Cross-platform strategy
 
 - **Agent runs natively on Windows** (not inside WSL) — avoids WSL2 NAT/inbound problems; psutil, NVML, gRPC, PyTorch all work natively. Windows service in product; background task in dev.
