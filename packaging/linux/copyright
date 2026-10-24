@@ -1,0 +1,15 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: MeshForge
+Comment: MeshForge is a final-year student project. The team has not chosen a
+ license for its own code yet; until it does, all rights are reserved by its
+ authors. The package bundles third-party software under its own licenses:
+ a python-build-standalone build of CPython (Python Software Foundation
+ License; its bundled libraries' notices are under
+ /opt/meshforge/<version>/python/), and Python packages whose license texts
+ ship inside their *.dist-info folders under
+ /opt/meshforge/<version>/python/lib/python3.12/site-packages/.
+
+Files: *
+Copyright: the MeshForge team
+License: none-chosen-yet
+ No license has been granted yet. All rights reserved.

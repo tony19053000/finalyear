@@ -1,0 +1,72 @@
+# nfpm config for the meshforge-agent .deb (V0.17 G1, D394). Do not run nfpm on it
+# directly: scripts/build_deb.py sets the MF_* variables below (nfpm expands
+# ${VAR} from the environment), stages the generated docs, runs the pinned nfpm
+# (packaging/pins.toml) and checks the download-size budget.
+#
+#   MF_DEB_VERSION  Debian version, e.g. 0.1.0~dev0-1
+#   MF_VERSION      the package (= bundle) version, e.g. 0.1.0.dev0
+#   MF_BUNDLE       the built agent bundle folder (scripts/build_bundle.py)
+#   MF_PACKAGING    this folder
+#   MF_STAGE        generated files (copyright, changelog)
+name: meshforge-agent
+arch: amd64
+platform: linux
+version: ${MF_DEB_VERSION}
+version_schema: none
+section: net
+priority: optional
+maintainer: MeshForge team <meshforge@example.org>
+description: |-
+  MeshForge node agent (compute fabric for personal devices)
+   Shares this computer's CPU and GPU with a MeshForge fabric: runs offloaded
+   jobs, task-split parts and remote GPU work sent by the fabric's controller,
+   within the limits the owner sets. Runs as the system service
+   meshforge-agent under its own user, with a bundled Python runtime.
+license: Proprietary (no license chosen yet)
+# python-build-standalone is self-contained (static libpython; it and the
+# manylinux_2_28 wheels need glibc >= 2.28). passwd: useradd/groupadd in the
+# maintainer scripts. CI checks with ldd that nothing else is missing.
+depends:
+  - libc6 (>= 2.28)
+  - passwd
+recommends:
+  - sudo
+
+contents:
+  - src: ${MF_BUNDLE}
+    dst: /opt/meshforge/${MF_VERSION}
+    type: tree
+  - src: ${MF_VERSION}
+    dst: /opt/meshforge/current
+    type: symlink
+  - src: /opt/meshforge/current/bin/meshforge-agent
+    dst: /usr/bin/meshforge-agent
+    type: symlink
+  - src: /opt/meshforge/current/bin/compute
+    dst: /usr/bin/compute
+    type: symlink
+  - src: ${MF_PACKAGING}/meshforge-agent.service
+    dst: /usr/lib/systemd/system/meshforge-agent.service
+    file_info:
+      mode: 0644
+  - src: ${MF_PACKAGING}/lintian-overrides
+    dst: /usr/share/lintian/overrides/meshforge-agent
+    file_info:
+      mode: 0644
+  - src: ${MF_STAGE}/copyright
+    dst: /usr/share/doc/meshforge-agent/copyright
+    file_info:
+      mode: 0644
+  - src: ${MF_STAGE}/changelog.Debian.gz
+    dst: /usr/share/doc/meshforge-agent/changelog.Debian.gz
+    file_info:
+      mode: 0644
+
+scripts:
+  preinstall: ${MF_PACKAGING}/scripts/preinst
+  postinstall: ${MF_PACKAGING}/scripts/postinst
+  preremove: ${MF_PACKAGING}/scripts/prerm
+  postremove: ${MF_PACKAGING}/scripts/postrm
+
+deb:
+  compression: xz

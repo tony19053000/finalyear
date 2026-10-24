@@ -1,0 +1,92 @@
+#!/bin/sh
+# meshforge-agent postinst (V0.17 G1, D385-D387). Idempotent and re-runnable.
+#
+#  1. machine-wide state folders with their modes (D385);
+#  2. GPU device groups for the service user, if the groups exist (D386);
+#  3. identity + config migration from a per-user agent (D387): refusal leaves
+#     the package installed but the service NOT started, with the reason above
+#     (Q13: a failed dpkg state would be worse for a new user);
+#  4. enable + start (install) or restart (upgrade), then check that the service
+#     really is running before saying so.
+set -eu
+
+UNIT=meshforge-agent.service
+AGENT=/opt/meshforge/current/bin/meshforge-agent
+say() { printf 'meshforge-agent: %s\n' "$*"; }
+
+case "${1:-}" in
+configure) ;;
+abort-upgrade | abort-remove | abort-deconfigure) exit 0 ;;
+*) exit 0 ;;
+esac
+previous="${2:-}"
+
+# 1. state folders (never loosened if an admin tightened them further)
+install -d -m 0755 -o root -g root /etc/meshforge
+if [ ! -d /var/lib/meshforge ]; then
+	install -d -m 0750 -o meshforge -g meshforge /var/lib/meshforge
+else
+	chown meshforge:meshforge /var/lib/meshforge
+fi
+
+# 2. GPU access (NVIDIA/DRM device nodes); Docker deliberately not (Q12)
+for group in video render; do
+	if getent group "$group" >/dev/null && ! id -nG meshforge | tr ' ' '\n' | grep -qx "$group"; then
+		usermod -a -G "$group" meshforge
+	fi
+done
+
+systemd_running=0
+if [ -d /run/systemd/system ]; then
+	systemd_running=1
+	systemctl daemon-reload
+fi
+
+# 3. migration (exit 4 = needs a decision; anything else non-zero = an error)
+migrated=1
+if ! "$AGENT" migrate-identity; then
+	migrated=0
+fi
+
+if [ "$migrated" -ne 1 ]; then
+	say "the agent service was NOT started: the identity migration above needs a decision."
+	say "after fixing it: sudo meshforge-agent migrate-identity && sudo systemctl enable --now $UNIT"
+	exit 0
+fi
+
+if [ "$systemd_running" -ne 1 ]; then
+	say "systemd is not running here (container/chroot): service not started"
+	exit 0
+fi
+
+# 4. start and verify
+if [ -z "$previous" ]; then
+	systemctl enable "$UNIT" >/dev/null 2>&1 || systemctl enable "$UNIT"
+	systemctl start "$UNIT" || true
+elif systemctl is-enabled --quiet "$UNIT"; then
+	systemctl restart "$UNIT" || true
+else
+	say "upgraded; $UNIT is disabled, so it was left stopped (enable: sudo systemctl enable --now $UNIT)"
+	exit 0
+fi
+
+state=inactive
+i=0
+while [ "$i" -lt 5 ]; do
+	sleep 1
+	state=$(systemctl is-active "$UNIT" 2>/dev/null || true)
+	[ "$state" = active ] || break
+	i=$((i + 1))
+done
+if [ "$state" = active ]; then
+	say "service $UNIT is running (logs: journalctl -u meshforge-agent)"
+else
+	say "service $UNIT is NOT running (state: $state); see: journalctl -u meshforge-agent -n 50"
+fi
+
+if getent group docker >/dev/null && ! id -nG meshforge | tr ' ' '\n' | grep -qx docker; then
+	say "docker: no access for the service (the docker group is root-equivalent, so it is not added by default)."
+	say "to let jobs use Docker: sudo usermod -aG docker meshforge && sudo systemctl restart $UNIT"
+fi
+
+exit 0

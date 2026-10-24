@@ -1,0 +1,31 @@
+#!/bin/sh
+# meshforge-agent postrm (V0.17 G1, D393/Q9): `apt remove` keeps the laptop's
+# identity, config and caches (re-installing brings the same node back);
+# `apt purge` removes them and the service account. Idempotent.
+set -eu
+
+case "${1:-}" in
+purge)
+	rm -rf /var/lib/meshforge /etc/meshforge
+	if getent passwd meshforge >/dev/null; then
+		userdel meshforge || true
+	fi
+	for group in meshforge meshforge-admin; do
+		if getent group "$group" >/dev/null; then
+			groupdel "$group" || true
+		fi
+	done
+	if [ -d /run/systemd/system ]; then
+		systemctl daemon-reload || true
+	fi
+	;;
+remove)
+	if [ -d /run/systemd/system ]; then
+		systemctl daemon-reload || true
+	fi
+	;;
+upgrade | failed-upgrade | abort-install | abort-upgrade | disappear) ;;
+*) ;;
+esac
+
+exit 0

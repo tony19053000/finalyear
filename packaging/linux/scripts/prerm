@@ -1,0 +1,20 @@
+#!/bin/sh
+# meshforge-agent prerm (V0.17 G1): stop and disable the service on remove; on
+# upgrade it keeps running until postinst restarts it on the new version.
+set -eu
+
+UNIT=meshforge-agent.service
+
+case "${1:-}" in
+remove | deconfigure)
+	if [ -d /run/systemd/system ]; then
+		systemctl stop "$UNIT" || true
+	fi
+	# disable works without a running systemd too (it only removes the links)
+	systemctl disable "$UNIT" >/dev/null 2>&1 || true
+	;;
+upgrade | failed-upgrade) ;;
+*) ;;
+esac
+
+exit 0

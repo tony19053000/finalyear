@@ -1,0 +1,6 @@
+# meshforge-agent lintian overrides (V0.17 G1). Every entry says why.
+#
+# D385: the bundled runtime lives in a versioned, read-only /opt/meshforge/<ver>
+# with a `current` pointer, so an upgrade is a pointer swap and a rollback is
+# possible; this is a self-contained third-party package, the case /opt exists for.
+meshforge-agent: dir-or-file-in-opt [*]
