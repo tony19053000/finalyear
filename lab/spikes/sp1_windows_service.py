@@ -314,8 +314,13 @@ def _firewall_mentions() -> dict[str, Any]:
 def prepare() -> int:
     """Bundle-like interpreter: copy the uv-managed CPython, install the locked
     agent wheels + pywin32 + meshforge into it (no venv), copy the probe."""
-    found = _must(_run(["uv", "python", "find", "3.12"]))
+    # --system + a cwd outside the checkout: the managed interpreter, never .venv
+    found = _must(
+        _run(["uv", "python", "find", "--system", "3.12"], cwd=Path(os.environ["TEMP"]))
+    )
     src = Path(found["out"].strip().splitlines()[-1]).parent
+    if (src / "pyvenv.cfg").exists() or (src.parent / "pyvenv.cfg").exists():
+        raise RuntimeError(f"uv python find returned a virtual environment: {src}")
     if BUNDLE_ROOT.exists():
         shutil.rmtree(BUNDLE_ROOT)
     shutil.copytree(src, BUNDLE_PY.parent)
