@@ -9,11 +9,11 @@
 > ```
 Read docs/SESSION_HANDOFF.md §1, then docs/STATUS.md, then V0.17 in docs/DEVELOPMENT_ROADMAP.md and docs/briefs/V0.17-productization.md (APPROVED; D384–D399; G1/G2/G3 implementer briefs §5a–§5c APPROVED with Q11–Q27 as recommended; ADR-0022 Proposed).
 Done: V0.15 agent-side complete. V0.17 G0 (0.17.0 [~]): SP2 managed PostgreSQL MERGED; SP3 bundle MERGED 24141d69 (PASS, reproducible + relocatable; agent 67 MB / controller 90 MB compressed; findings F1–F5 are G1 items). Repo PUBLIC tony19053000/finalyear, origin/main = c97ddcc2 (later main commits are local only — push when asked).
-STOPPED by user 2026-10-24, wip committed in 3 worktrees, no agents running:
- (1) G1 implementer — worktree agent-a7ea2e49788d6721b @d2e37dd1: stopped at step G (Linux packaging: unit + maintainer scripts). Resume from docs/briefs/progress/V0.17-G1.md → gates → tester → reviewer → merge. Then G2 ∥ G3 implementers (briefs §5b/§5c).
- (2) SP1 Windows service — MERGED to local main (verdict pywin32, D386). Full local suite had 3 fail + 1206 errors on a busy machine (uninspected) → run full unit on main once CI fix lands. 🧑 lab: Win11 NVIDIA+Docker boot/session-0 GPU/docker-users checks (SP1.md §4).
- (3) CI green — worktree agent-adf3fe14a91fc13f0, branch ci/green @2263d2a4 (pushed) (D399): was adding a unit test for an argv builder. Resume: push, `gh workflow run CI --ref ci/green` until all jobs + ci-ok green, then merge. Check mypy error at src/meshforge/bench/workloads/kernels/_support.py:161.
-Open 🧑: SP3 lab step (bundle `hardware show` on an NVIDIA laptop + one real job from the bundle agent). Dependabot PRs: ignore until CI green. 2 stale postgres containers + many merged worktrees (ask before removing). Normal mode. Parallel agents OK. Don't delete anything without asking. User wants max speed.
+STOPPED by user 2026-10-24 (2nd time), all wip committed, no agents running:
+ (1) G1 implementer — worktree agent-a7ea2e49788d6721b @d2e37dd1: steps A–I DONE (see docs/briefs/progress/V0.17-G1.md); stopped mid-GATES (was running component tests touched by A–E). Resume: finish gates → tester → reviewer → merge. Then G2 ∥ G3 implementers (briefs §5b/§5c).
+ (2) SP1 Windows service — MERGED to local main (verdict pywin32, D386; runs 40097983450 + 40098434410 green 14/14). Its full local suite showed 3 fail + 1206 errors on a busy machine (uninspected; re-runs of failures passed) → run full unit on main after CI fix merges. Record SP1 verdict in roadmap 0.17.0.
+ (3) CI green — worktree agent-adf3fe14a91fc13f0, branch ci/green @2263d2a4 (pushed, D399; argv test + mypy _support.py fix done?—verify). Was fixing timing tests (executor/upload retry/tc_runner). Resume: `gh workflow run CI --ref ci/green` until all jobs + ci-ok green, then merge → closes G0.
+Open 🧑: SP3 lab step (bundle `hardware show` on an NVIDIA laptop + one real job from the bundle agent); SP1 lab step (Win11 NVIDIA+Docker: boot/logoff, GPU from session 0, docker-users — SP1.md §4). Dependabot PRs: ignore until CI green. 2 stale postgres containers + many merged worktrees (ask before removing). Normal mode. Parallel agents OK. Don't delete anything without asking. User wants max speed.
 ```
 >
 > Order of truth: `PROJECT_BRIEF → ARCHITECTURE → ROADMAP → STATUS → this file`. If this file
