@@ -53,6 +53,20 @@ Linux      ``$XDG_CONFIG_HOME/meshforge``              ``$XDG_DATA_HOME/meshforg
 Windows    ``%APPDATA%\\MeshForge``                     ``%LOCALAPPDATA%\\MeshForge``
 macOS      ``~/Library/Application Support/MeshForge``  same
 =========  ==========================================  =====================================
+
+**Install modes** (V0.17 G1, D385, Q11). The table above is the default *user* mode
+(a developer checkout, ``uv run``). A packaged system service runs in *system* mode,
+chosen **only** by ``MESHFORGE_INSTALL_MODE=system`` in its environment (the systemd
+unit / the Windows service set it; it is never guessed from what exists on disk):
+
+=========  ==========================================  =====================================
+Platform   config dir                                  data dir (identity, envs, caches, ...)
+=========  ==========================================  =====================================
+Linux      ``/etc/meshforge``                          ``/var/lib/meshforge``
+Windows    ``%PROGRAMDATA%\\MeshForge\\config``          ``%PROGRAMDATA%\\MeshForge``
+=========  ==========================================  =====================================
+
+macOS has no system mode (out of scope for V0.17): asking for it is a ``ConfigError``.
 """
 
 from __future__ import annotations
@@ -81,6 +95,10 @@ __all__ = [
     "CONFIG_ENV_VAR",
     "ENV_PREFIX",
     "INSECURE_DEV_BANNER",
+    "INSTALL_MODE_ENV_VAR",
+    "SYSTEM_LINUX_CONFIG_DIR",
+    "SYSTEM_LINUX_DATA_DIR",
+    "InstallMode",
     "LoggingSettings",
     "MeshForgeSettings",
     "PlatformDirs",
@@ -90,6 +108,7 @@ __all__ = [
     "default_config_dir",
     "default_config_file",
     "default_data_dir",
+    "install_mode",
     "platform_dirs",
     "resolve_config_file",
 ]
@@ -99,6 +118,10 @@ _WINDOWS_APP_NAME = "MeshForge"
 ENV_PREFIX = "MESHFORGE_"
 CONFIG_ENV_VAR = "MESHFORGE_CONFIG"
 CONFIG_FILE_NAME = "config.toml"
+INSTALL_MODE_ENV_VAR = "MESHFORGE_INSTALL_MODE"
+SYSTEM_LINUX_CONFIG_DIR: Final = PurePosixPath("/etc/meshforge")
+SYSTEM_LINUX_DATA_DIR: Final = PurePosixPath("/var/lib/meshforge")
+_WINDOWS_PROGRAM_DATA_DEFAULT: Final = PureWindowsPath("C:/ProgramData")
 
 type StrPath = str | os.PathLike[str]
 
@@ -109,6 +132,35 @@ type StrPath = str | os.PathLike[str]
 class PlatformDirs(NamedTuple):
     config_dir: PurePath
     data_dir: PurePath
+
+
+class InstallMode(StrEnum):
+    """How this process was installed (module docstring, "Install modes")."""
+
+    USER = "user"
+    """Per-user directories: a developer checkout or a hand-run agent. The default."""
+    SYSTEM = "system"
+    """Machine-wide directories of a packaged service (D385)."""
+
+
+def install_mode(environ: Mapping[str, str] | None = None) -> InstallMode:
+    """``$MESHFORGE_INSTALL_MODE`` (empty/unset = ``user``).
+
+    Raises:
+        ConfigError: any other value (the value itself is not echoed).
+    """
+    environ = os.environ if environ is None else environ
+    value = environ.get(INSTALL_MODE_ENV_VAR, "").strip().lower()
+    if not value:
+        return InstallMode.USER
+    try:
+        return InstallMode(value)
+    except ValueError:
+        raise ConfigError(
+            f"{INSTALL_MODE_ENV_VAR} must be 'user' or 'system' (it is set by the "
+            "packaged service; unset it for a developer checkout)",
+            details={"env_var": INSTALL_MODE_ENV_VAR},
+        ) from None
 
 
 def _env_abs(
@@ -125,14 +177,19 @@ def platform_dirs(
     platform: str | None = None,
     environ: Mapping[str, str] | None = None,
     home: str | None = None,
+    *,
+    mode: InstallMode | None = None,
 ) -> PlatformDirs:
     """Compute default config/data dirs for ``platform`` (defaults: this machine).
 
-    Returns pure paths so another platform's layout can be computed (and tested)
-    on any OS; public helpers convert to :class:`~pathlib.Path`.
+    ``mode`` defaults to :func:`install_mode` of ``environ``. Returns pure paths so
+    another platform's layout can be computed (and tested) on any OS; public
+    helpers convert to :class:`~pathlib.Path`.
     """
     platform = platform or sys.platform
     environ = os.environ if environ is None else environ
+    if (install_mode(environ) if mode is None else mode) is InstallMode.SYSTEM:
+        return _system_dirs(platform, environ)
 
     if platform.startswith("win"):
         win_home = PureWindowsPath(
@@ -160,6 +217,23 @@ def platform_dirs(
         or posix_home / ".local" / "share"
     )
     return PlatformDirs(config / APP_NAME, data / APP_NAME)
+
+
+def _system_dirs(platform: str, environ: Mapping[str, str]) -> PlatformDirs:
+    """Machine-wide directories (D385); see the module docstring table."""
+    if platform.startswith("win"):
+        program_data = (
+            _env_abs(environ, "PROGRAMDATA", PureWindowsPath)
+            or _WINDOWS_PROGRAM_DATA_DEFAULT
+        )
+        base = program_data / _WINDOWS_APP_NAME
+        return PlatformDirs(base / "config", base)
+    if platform == "darwin":
+        raise ConfigError(
+            f"{INSTALL_MODE_ENV_VAR}=system is not supported on macOS; unset it",
+            details={"env_var": INSTALL_MODE_ENV_VAR},
+        )
+    return PlatformDirs(SYSTEM_LINUX_CONFIG_DIR, SYSTEM_LINUX_DATA_DIR)
 
 
 def default_config_dir() -> Path:
