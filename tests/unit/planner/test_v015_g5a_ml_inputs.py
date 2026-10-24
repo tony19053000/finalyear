@@ -95,7 +95,6 @@ def _inputs(**kw: Any) -> FoldMlInputs:
         "build": _build(rows),
         "child": _child([]),
         "missing": list,
-        "clock": lambda: NOW,
     }
     args.update(kw)
     return FoldMlInputs(
@@ -125,15 +124,16 @@ def test_unavailable_without_work(kw: dict[str, Any], reason: str) -> None:
 
 def test_one_fold_per_family_with_its_fingerprints_and_one_cutoff() -> None:
     seen: list[list[str]] = []
-    build = _build(
-        synthetic_rows("signal", families=4, groups_per_family=3, runs_per_group=6)
-    )
+    rows = synthetic_rows("signal", families=4, groups_per_family=3, runs_per_group=6)
+    newest = max(r["finished_at"] for r in rows)  # G6b: the dataset's, not the clock
+    build = _build(rows)
     inputs = _inputs(child=_child(seen), build=build)
     families = {"fam01": frozenset({"fpB", "fpA"}), "fam00": frozenset()}
     out = asyncio.run(inputs.prepare(families, allow_leak=False))
     assert out.status == ML_EVALUATED and build.calls == [1]
     assert [s[s.index("--exclude-family") + 1] for s in seen] == ["fam00", "fam01"]
-    assert all(s[s.index("--until") + 1] == NOW.isoformat() for s in seen)
+    assert all(s[s.index("--until") + 1] == newest.isoformat() for s in seen)
+    assert out.until == newest.isoformat()
     assert "--exclude-groups" not in seen[0]
     groups_file = Path(seen[1][seen[1].index("--exclude-groups") + 1])
     assert not groups_file.exists()  # the scratch directory is gone

@@ -11,7 +11,8 @@ D368/D369). I/O: the dataset, the training child, the registry.
   temporary directory, and for each family ``F`` (sorted) the training child
   trains a set on it without ``F`` - without ``F``'s rows and without the
   rows of the workload groups ``F``'s evaluated records belong to (the
-  calibration refit's rule, D316) - with the report's start as the cut-off
+  calibration refit's rule, D316) - cut off at the newest ``finished_at`` of
+  the dataset (:func:`dataset_until`; deterministic, G6b fix round 1)
   (:mod:`meshforge.controller.ml.folds`). Sequential, each under
   ``ml_retrain_timeout_s``, each holding the controller-wide training-child
   guard (never next to a retrain), all together under
@@ -37,7 +38,7 @@ import asyncio
 import datetime as dt
 import sys
 import time
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Iterable, Mapping
 from pathlib import Path
 from typing import Any, Final, Protocol
 
@@ -67,6 +68,7 @@ __all__ = [
     "FOLD_BUDGET_EPSILON_S",
     "EvalMlInputs",
     "FoldMlInputs",
+    "dataset_until",
     "fold_child_timeout",
 ]
 
@@ -77,6 +79,26 @@ FOLD_BUDGET_EPSILON_S: Final = 1.0
 left, so the evaluation's own deadline always fires first and the fold reads
 ``eval_budget_exhausted``, never ``timeout``, when both would expire
 together."""
+
+
+def dataset_until(rows: Iterable[Mapping[str, Any]]) -> dt.datetime:
+    """The folds' cut-off (Lead decision, G6b fix round 1): the newest
+    ``finished_at`` among the matched runs of the dataset the folds train on -
+    never the wall clock, so two evaluations of the same data give the same
+    report bytes (``created_at`` of the row keeps the wall time). An empty
+    dataset gives the epoch (nothing to cut)."""
+    newest: dt.datetime | None = None
+    for row in rows:
+        value = row.get("finished_at")
+        if not isinstance(value, dt.datetime):
+            continue
+        stamp = value if value.tzinfo is not None else value.replace(tzinfo=dt.UTC)
+        if newest is None or stamp > newest:
+            newest = stamp
+    return _EPOCH if newest is None else newest.astimezone(dt.UTC)
+
+
+_EPOCH: Final = dt.datetime(1970, 1, 1, tzinfo=dt.UTC)
 
 
 def fold_child_timeout(retrain_timeout_s: float, remaining_s: float) -> float:
@@ -113,7 +135,6 @@ class FoldMlInputs:
         python: str = sys.executable,
         child: ChildRunner = run_child,
         missing: Callable[[], list[str]] = ml_missing,
-        clock: Callable[[], dt.datetime] = lambda: dt.datetime.now(dt.UTC),
         monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
         self._settings = settings
@@ -123,7 +144,6 @@ class FoldMlInputs:
         self._python = python
         self._child = child
         self._missing = missing
-        self._clock = clock
         self._monotonic = monotonic
 
     async def prepare(
@@ -187,10 +207,10 @@ class FoldMlInputs:
         )
 
     async def _folds(self, families: Mapping[str, frozenset[str]]) -> EvalMl:
-        until = self._clock()
         budget_s = self._settings.ml_eval_timeout_s
         deadline = self._monotonic() + budget_s
         built = await self._build()
+        until = dataset_until(built.dataset.rows)
         outcomes: list[FoldOutcome] = []
         async with scratch_dir("meshforge-ml-eval-") as root:
             dataset = root / "dataset.parquet"

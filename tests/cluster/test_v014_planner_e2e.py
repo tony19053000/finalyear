@@ -151,20 +151,6 @@ def _canonical(report: Any) -> str:
     return json.dumps(report, sort_keys=True, separators=(",", ":"))
 
 
-def _without_ml_until(report: Any) -> Any:
-    """``report`` without the ML section's wall-clock cut-offs: since V0.15
-    G5a every evaluation stamps ``ml.until`` and each ``ml.folds[].until``
-    with its own start time (the fold models train on records before it), so
-    two evaluations of the same inputs differ there and only there."""
-    out = json.loads(json.dumps(report))
-    ml = out.get("ml")
-    if isinstance(ml, dict):
-        ml.pop("until", None)
-        for fold in ml.get("folds") or []:
-            fold.pop("until", None)
-    return out
-
-
 # ------------------------------------------------------------------ checks
 
 
@@ -466,10 +452,8 @@ def test_campaigns_to_calibration_to_evaluation_to_explain(
     report = first["report"]
     assert first["leaked"] is False and report["leaked"] is False
     assert first["campaign_ids"] == campaigns == report["campaign_ids"]
-    # byte-identical apart from each evaluation's own ML cut-off time
-    assert _canonical(_without_ml_until(second["report"])) == _canonical(
-        _without_ml_until(report)
-    )
+    # byte-identical, ML block included (fold cut-off = the dataset's newest run)
+    assert _canonical(second["report"]) == _canonical(report)
     served = fabric.call("GET", f"/v1/planner/eval-reports/{first['id']}").json()
     assert served == first
 
@@ -494,9 +478,7 @@ def test_campaigns_to_calibration_to_evaluation_to_explain(
         cwd=work,
         timeout_s=600,
     )
-    assert _canonical(_without_ml_until(cli["report"])) == _canonical(
-        _without_ml_until(report)
-    )
+    assert _canonical(cli["report"]) == _canonical(report)
     listed = cli_json(fabric, data, "planner", "reports", cwd=work)
     assert {r["id"] for r in listed["reports"]} == {
         first["id"],

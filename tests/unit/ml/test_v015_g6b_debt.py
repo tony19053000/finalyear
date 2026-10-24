@@ -137,7 +137,6 @@ def test_both_expiring_together_reads_budget_exhausted_not_timeout() -> None:
         build,
         child=child,
         missing=list,
-        clock=lambda: NOW,
     )
     ml = asyncio.run(inputs.prepare({"fam_a": frozenset()}, allow_leak=False))
     assert limits and limits[0] > 1.0
@@ -160,7 +159,6 @@ def test_a_short_retrain_timeout_is_still_a_genuine_timeout() -> None:
         build,
         child=child,
         missing=list,
-        clock=lambda: NOW,
     )
     ml = asyncio.run(inputs.prepare({"fam_a": frozenset()}, allow_leak=False))
     assert ml.folds[0]["reason"] == "timeout: killed after 10 s"

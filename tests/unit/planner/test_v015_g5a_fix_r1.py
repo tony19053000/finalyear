@@ -115,7 +115,6 @@ def _inputs(child: Any, settings: PlannerSettings, **kw: Any) -> FoldMlInputs:
         build,
         child=child,
         missing=list,
-        clock=lambda: NOW,
         **kw,
     )
 
