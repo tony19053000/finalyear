@@ -21,6 +21,12 @@ from typing import TYPE_CHECKING, Final
 from uuid import uuid4
 
 import pytest
+from mf_managed_pg import (
+    SessionCluster,
+    managed_pg_bin_dir,
+    managed_pg_requested,
+    short_dir,
+)
 from mf_test_containers import (
     meshforge_test_labels,
     register_cleanup,
@@ -96,8 +102,14 @@ class PostgresServer:
 
 
 @pytest.fixture(scope="session")
-def postgres_server(docker_available: None) -> Iterator[PostgresServer]:
+def postgres_server(request: pytest.FixtureRequest) -> Iterator[PostgresServer]:
     pytest.importorskip("asyncpg", reason="needs the controller extra")
+    if managed_pg_requested():
+        # V0.17 G2 (SP2 R5): MESHFORGE_TEST_PG=managed runs the whole suite on
+        # the controller's bundled PostgreSQL instead of the Docker image.
+        yield from _managed_server()
+        return
+    request.getfixturevalue("docker_available")
     pytest.importorskip("testcontainers", reason="needs the dev dependency group")
     from testcontainers.community.postgres import PostgresContainer
 
@@ -125,6 +137,23 @@ def postgres_server(docker_available: None) -> Iterator[PostgresServer]:
         )
     finally:
         cleanup()
+
+
+def _managed_server() -> Iterator[PostgresServer]:
+    with short_dir("mfpg-suite-") as root:
+        session = SessionCluster(managed_pg_bin_dir(), root / "db")
+        session.start()
+        try:
+            cluster = session.cluster
+            yield PostgresServer(
+                host="127.0.0.1",
+                port=cluster.port,
+                user=cluster.superuser,
+                password=session.superuser_password,
+                admin_db="postgres",
+            )
+        finally:
+            session.stop()
 
 
 @pytest.fixture

@@ -3,6 +3,7 @@
 :class:`ControllerRuntime` wires everything and owns every task it starts::
 
     settings -> fabric CA + server cert (V0.7 G1; only when `fabric create` ran)
+             -> managed PostgreSQL ([controller.db] mode = "managed", V0.17 G2)
              -> engine -> migrations (thread) -> start-up sweep
              -> SessionManager + LeaseTimer task
              -> ResourceTracker + SnapshotFlusher task      (roadmap 0.3.11)
@@ -89,6 +90,9 @@ from meshforge.controller.cache_index import CacheIndex, CacheLocationStore
 
 # V0.14 G2 (D293): planner calibration (store, per-tick source, refresh task)
 from meshforge.controller.calibration_store import CalibrationSource, CalibrationStore
+from meshforge.controller.db_managed.cluster import ManagedCluster
+from meshforge.controller.db_managed.errors import ManagedDbError
+from meshforge.controller.db_managed.runtime import cluster_for
 from meshforge.controller.discovery import ServiceAdvertiser
 from meshforge.controller.enrollment.invites import InviteStore
 from meshforge.controller.enrollment.listener import (
@@ -180,6 +184,7 @@ from meshforge.controller.split.progress_events import ProgressTracker
 from meshforge.controller.split.progress_reads import ProgressReads
 from meshforge.controller.store.engine import check_connection, create_engine
 from meshforge.controller.store.migrate import upgrade_to_head
+from meshforge.controller.store.settings import DatabaseSettings
 from meshforge.controller.telemetry.recorder import RunRecorder
 from meshforge.controller.upload_grants import UploadGrants
 from meshforge.controller.web.host_guard import LoopbackHostGuard
@@ -322,6 +327,10 @@ class ControllerRuntime:
         """V0.5 G5: re-hashes stored blobs (suspects first), removes corrupt ones."""
         """D71/D72: live + final attempt logs and their followers."""
         self._logs_task: asyncio.Task[None] | None = None
+        self.managed_db: ManagedCluster | None = None
+        """V0.17 G2 (D390): the controller's own PostgreSQL in ``[controller.db]
+        mode = "managed"`` (started first, stopped last); None in external mode."""
+        self._db_watch: asyncio.Task[None] | None = None
         self.failed_task: str | None = None
         """Name of the owned task whose crash caused the stop, if any (NB3): a
         controller that stopped because its lease timer died exits ``FAILURE``."""
@@ -409,11 +418,12 @@ class ControllerRuntime:
         )
         log.info("controller.blobs.ready", parts_swept=swept_parts)
 
-        engine = create_engine(self.settings.database)
+        database, migrate_as = await self._start_database()
+        engine = create_engine(database)
         self._engine = engine
-        await check_connection(engine, self.settings.database)
+        await check_connection(engine, database)
         # Alembic is synchronous (and runs its own loop inside env.py).
-        await asyncio.to_thread(upgrade_to_head, self.settings.database)
+        await asyncio.to_thread(upgrade_to_head, migrate_as)
 
         if cfg.gc.enabled:
             gc = ControllerGc(
@@ -1193,6 +1203,63 @@ class ControllerRuntime:
                 self.failed_task = task.get_name()
             self.request_stop()
 
+    # --------------------------------------------------------------- database
+
+    async def _start_database(self) -> tuple[DatabaseSettings, DatabaseSettings]:
+        """``(engine settings, migration settings)``.
+
+        External mode: ``[database]`` for both. Managed mode (V0.17 G2, D390):
+        start the bundled PostgreSQL **here, on the event-loop thread** (its
+        parent-death signal follows the forking thread), then connect as the
+        application role and migrate as the admin role acting as it (Q18).
+        """
+        base = self.settings.database
+        if not self.settings.managed_db:
+            return base, base
+        cluster = cluster_for(self.settings)
+        self.managed_db = cluster
+        await cluster.start()
+        self._db_watch = asyncio.create_task(
+            self._watch_database(cluster), name="managed-db-watch"
+        )
+        return (
+            cluster.database_settings(base=base),
+            cluster.admin_settings(base=base),
+        )
+
+    async def _watch_database(self, cluster: ManagedCluster) -> None:
+        """A postmaster that exits while the controller runs is fatal: the
+        controller stops with ``FAILURE`` and systemd restarts both (the
+        restart's reconciliation cleans up after it)."""
+        code = await cluster.wait_exit()
+        if self._stopped:
+            return
+        log.critical(
+            "controller.db.managed.exited",
+            exit_code=code,
+            data_dir=str(cluster.layout.data_dir),
+            hint="see the PostgreSQL logs in " + str(cluster.layout.log_dir),
+        )
+        if self.failed_task is None:
+            self.failed_task = "managed-db"
+        self.request_stop()
+
+    async def _stop_database(self) -> None:
+        watch, self._db_watch = self._db_watch, None
+        if watch is not None and not watch.done():
+            watch.cancel()
+            await asyncio.gather(watch, return_exceptions=True)
+        if self.managed_db is not None:
+            try:
+                await self.managed_db.stop()
+            except ManagedDbError as exc:
+                log.error(  # noqa: TRY400 - typed, details logged; no traceback
+                    "controller.db.managed.stop_failed",
+                    error=str(exc),
+                    failure_type=exc.failure_type.value,
+                    details=exc.details,
+                )
+
     # ---------------------------------------------------------------- signals
 
     def install_signal_handlers(self) -> None:
@@ -1315,6 +1382,8 @@ class ControllerRuntime:
         if self._engine is not None:
             changes.detach(self._engine)
             await self._engine.dispose()
+        # V0.17 G2: the managed PostgreSQL last - nothing uses it any more.
+        await self._stop_database()
         log.info("controller.stopped", took_s=round(drain - remaining(), 3))
 
 

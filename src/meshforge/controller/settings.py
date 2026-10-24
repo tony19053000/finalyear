@@ -56,10 +56,10 @@ from meshforge.controller.store.settings import DatabaseSettings
 __all__ = [
     "BLOBS_DIR_NAME",
     "DB_DIR_NAME",
-    "DEFAULT_MANAGED_DB_PORT",
     "DEFAULT_ENROLL_PORT",
     "DEFAULT_GRPC_PORT",
     "DEFAULT_HTTP_PORT",
+    "DEFAULT_MANAGED_DB_PORT",
     "DEFAULT_SERVICE_TYPE",
     "ApiSettings",
     "AuthSettings",
@@ -2264,7 +2264,9 @@ class ControllerSection(SectionModel):
         return lo <= version <= hi
 
 
-_CONNECTION_FIELDS: Final = frozenset({"url", "host", "port", "name", "user", "password"})
+_CONNECTION_FIELDS: Final = frozenset(
+    {"url", "host", "port", "name", "user", "password"}
+)
 """``[database]`` fields that managed mode replaces (V0.17 G2)."""
 
 

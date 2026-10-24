@@ -427,6 +427,7 @@ async def _create_invite(
     replace: str | None,
     address: str | None,
 ) -> dict[str, object]:
+    from meshforge.controller.db_managed.runtime import tool_database_settings
     from meshforge.controller.enrollment.codes import code_address, issue_code
     from meshforge.controller.enrollment.invites import InviteStore, check_ttl
     from meshforge.controller.fabric_ca import load_fabric
@@ -437,7 +438,7 @@ async def _create_invite(
     # invite needs one), no usable address -> nothing is written.
     fabric = load_fabric(settings.ca_dir)
     host, port = code_address(settings, override=address)
-    engine = create_engine(settings.database)
+    engine = create_engine(tool_database_settings(settings))
     try:
         new = await InviteStore(engine).create(
             ttl_s=ttl_s, actor="controller-cli", replace_node_id=replace
@@ -525,10 +526,11 @@ def fabric_invite(
 async def _invites(
     settings: "ControllerSettings", revoke: str | None
 ) -> list[dict[str, object]]:
+    from meshforge.controller.db_managed.runtime import tool_database_settings
     from meshforge.controller.enrollment.invites import InviteStore
     from meshforge.controller.store.engine import create_engine
 
-    engine = create_engine(settings.database)
+    engine = create_engine(tool_database_settings(settings))
     try:
         store = InviteStore(engine)
         if revoke is not None:
@@ -583,10 +585,11 @@ def fabric_invites(
 
 
 async def _revoke(settings: "ControllerSettings", node_id: str) -> dict[str, object]:
+    from meshforge.controller.db_managed.runtime import tool_database_settings
     from meshforge.controller.revocation import RevocationStore
     from meshforge.controller.store.engine import create_engine
 
-    engine = create_engine(settings.database)
+    engine = create_engine(tool_database_settings(settings))
     try:
         store = RevocationStore(engine)
         return (await store.revoke_node(node_id, actor="controller-cli")).as_dict()
@@ -673,9 +676,10 @@ def _user_command(
 
     async def _run() -> object:
         from meshforge.controller.auth.users import UserStore
+        from meshforge.controller.db_managed.runtime import tool_database_settings
         from meshforge.controller.store.engine import create_engine
 
-        engine = create_engine(settings.database)
+        engine = create_engine(tool_database_settings(settings))
         try:
             return await action(UserStore(engine))
         finally:
@@ -819,4 +823,19 @@ def _server_lifetime(settings: "ControllerSettings") -> "timedelta":
 
 def main() -> None:
     """Console-script entry point."""
+    import sys
+
+    from meshforge.common.buildinfo import bundle_root
+    from meshforge.common.system_cli import apply, current_user
+    from meshforge.controller.system_install import CONTROLLER_PROGRAM
+
+    # V0.17 G2 (Q15): on a packaged controller, admin commands re-execute as
+    # the service user (its database passwords and CA are owner-only).
+    apply(
+        sys.argv[1:],
+        program=CONTROLLER_PROGRAM,
+        installed=CONTROLLER_PROGRAM.installed,
+        user=current_user,
+        bundled=lambda: bundle_root() is not None,
+    )
     app(prog_name=PROG_NAME)

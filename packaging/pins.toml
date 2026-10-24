@@ -42,3 +42,19 @@ sha256 = "6d7f9a28b2f397934403950fcbba83f598b08d02edbe79a0815b3b4897341750"
 # 298 MB on disk / 67 MB xz; controller 410 MB / 90 MB before PostgreSQL).
 agent = 100
 controller = 150
+
+[postgresql]
+# The managed PostgreSQL of the controller bundle (V0.17 G2, D390/D398):
+# theseus-rs/postgresql-binaries, relocatable ($ORIGIN RUNPATHs), OpenSSL 3 + ICU
+# bundled, needs glibc >= 2.36 (the controller .deb: Depends libc6 (>= 2.36)).
+# The sha256 is the identity: upstream has rebuilt assets in place before.
+# Q19: `mirror_url` = the same bytes as a release asset of our repository (tried
+# first); `url` = upstream (fallback). Must equal
+# meshforge.controller.db_managed.binaries.LINUX_X86_64 (unit-tested).
+version = "16.15"
+
+[postgresql.linux-x86_64]
+url = "https://github.com/theseus-rs/postgresql-binaries/releases/download/16.15.1/postgresql-16.15.1-x86_64-unknown-linux-gnu.tar.gz"
+mirror_url = "https://github.com/tony19053000/finalyear/releases/download/pg-16.15.1/postgresql-16.15.1-x86_64-unknown-linux-gnu.tar.gz"
+sha256 = "0c42e7c05f0cb596b82ac07990c96fc261ec2e8106055d557c76442d712dbf74"
+archive_root = "postgresql-16.15.1-x86_64-unknown-linux-gnu"
