@@ -322,6 +322,7 @@ EXTRA_IMPORTS: Final[Mapping[str, str]] = {
     "asyncpg": "controller",
     "alembic": "controller",
     "pyarrow": "controller",
+    "tzdata": "controller",
     "zeroconf": "controller/agent",
     # agent (`docker` also comes with the dev group via testcontainers)
     "psutil": "agent",
