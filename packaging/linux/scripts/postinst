@@ -56,14 +56,15 @@ if [ -d /run/systemd/system ]; then
 fi
 
 # 3. migration (exit 4 = needs a decision; anything else non-zero = an error)
-migrated=1
-if ! "$AGENT" migrate-identity; then
-	migrated=0
-fi
-
-if [ "$migrated" -ne 1 ]; then
-	say "the agent service was NOT started: the identity migration above needs a decision."
-	say "after fixing it: sudo meshforge-agent migrate-identity && sudo systemctl enable --now $UNIT"
+rc=0
+"$AGENT" migrate-identity || rc=$?
+if [ "$rc" -ne 0 ]; then
+	if [ "$rc" -eq 4 ]; then
+		say "the agent service was NOT started: the identity migration above needs a decision."
+	else
+		say "the agent service was NOT started: the identity migration failed (exit $rc, see above)."
+	fi
+	say "after fixing it: sudo meshforge-agent migrate-identity && sudo systemctl enable --now $UNIT $PATH_UNIT"
 	exit 0
 fi
 

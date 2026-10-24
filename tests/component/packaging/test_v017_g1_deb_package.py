@@ -111,18 +111,22 @@ def _no_python_on_path(box: SystemdBox) -> None:
     assert out == "", f"the test image must have no python/uv on PATH: {out}"
 
 
-def _seed_alice(box: SystemdBox, identity: Path) -> None:
-    box.ok("useradd --create-home --shell /bin/sh alice")
-    box.ok("install -d -o alice -g alice -m 0700 /home/alice/.local/share/meshforge")
-    box.copy_in(identity, ALICE_IDENTITY)
-    box.ok("install -d -o alice -g alice -m 0700 /home/alice/.config/meshforge")
+def _seed_alice(box: SystemdBox, identity: Path, user: str = "alice") -> None:
+    """``user`` with an agent identity (and config) in their home, as a V0.16
+    laptop that ran the agent from a checkout."""
+    home = f"/home/{user}"
+    target = f"{home}/.local/share/meshforge/identity"
+    box.ok(f"useradd --create-home --shell /bin/sh {user}")
+    box.ok(f"install -d -o {user} -g {user} -m 0700 {home}/.local/share/meshforge")
+    box.copy_in(identity, target)
+    box.ok(f"install -d -o {user} -g {user} -m 0700 {home}/.config/meshforge")
     box.ok(
-        "cat > /home/alice/.config/meshforge/config.toml && "
-        "chown alice:alice /home/alice/.config/meshforge/config.toml && "
-        "chmod 0600 /home/alice/.config/meshforge/config.toml",
+        f"cat > {home}/.config/meshforge/config.toml && "
+        f"chown {user}:{user} {home}/.config/meshforge/config.toml && "
+        f"chmod 0600 {home}/.config/meshforge/config.toml",
         stdin=ALICE_CONFIG,
     )
-    box.ok(f"chown -R alice:alice {ALICE_IDENTITY} && chmod 0700 {ALICE_IDENTITY}")
+    box.ok(f"chown -R {user}:{user} {target} && chmod 0700 {target}")
 
 
 def _mount_options(mountinfo: str) -> dict[str, set[str]]:
@@ -344,3 +348,48 @@ def test_fresh_install_waits_for_the_join(
     assert check.returncode == 0, check.stdout + check.stderr
     events = json.dumps(sb.journal_events())
     assert "BEGIN" not in events  # no key material in the journal
+
+
+def test_two_per_user_agents_block_the_migration_not_the_install(
+    debs: Debs, box: tuple[SystemdBox, str], tmp_path: Path
+) -> None:
+    """Q13: two candidate identities -> `apt install` succeeds, nothing is copied
+    or renamed, no identity is minted, the service does not start, and the
+    message says what to do; the documented fix then brings the chosen node up."""
+    from mf_fabric import enroll_identity
+
+    from meshforge.agent.identity import load_or_create
+
+    sb, _ = box
+    ids = {}
+    for user in ("alice", "bob"):
+        folder = tmp_path / user / "identity"
+        identity = load_or_create(folder)
+        enroll_identity(identity)
+        ids[user] = identity.node_id
+        _seed_alice(sb, folder, user)
+
+    done = sb.install(debs.first)
+    assert done.returncode == 0, done.stdout[-4000:]
+    assert "needs a decision" in done.stdout, done.stdout[-3000:]
+    assert "--from" in done.stdout and "/home/alice/" in done.stdout, done.stdout[
+        -3000:
+    ]
+    assert "is running" not in done.stdout
+    for user in ("alice", "bob"):
+        sb.ok(f"test -f /home/{user}/.local/share/meshforge/identity/node.key")
+    assert sb.run(f"test -e {SYSTEM_IDENTITY}/node.key").returncode != 0
+    assert sb.run(f"test -e {SYSTEM_IDENTITY}/migration.pending").returncode == 0
+    assert sb.show(UNIT, "ActiveState")["ActiveState"] != "active"
+    # the service would refuse to mint while the choice is open
+    shown = sb.run("meshforge-agent identity show")
+    assert shown.returncode != 0, shown.stdout
+
+    sb.ok(
+        "meshforge-agent migrate-identity --from "
+        "/home/bob/.local/share/meshforge/identity"
+    )
+    sb.ok(f"systemctl enable --now {UNIT} {PATH_UNIT}")
+    _wait_running(sb)
+    assert sb.identity()["node_id"] == ids["bob"]
+    sb.ok("test -f /home/alice/.local/share/meshforge/identity/node.key")
