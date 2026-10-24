@@ -51,6 +51,28 @@ ReadWritePaths=/var/lib/meshforge
 ProtectHome=yes
 PrivateTmp=yes
 NoNewPrivileges=yes
+# Kernel surfaces the agent and its jobs never change: /proc/sys and /sys stay
+# readable (hardware discovery) but read-only (the delegated cgroup subtree below
+# stays writable - checked on systemd 249 and 255), no module loading, no kernel
+# log, no setuid/setgid files, no personality change, no realtime scheduling.
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RestrictRealtime=yes
+# Files the agent creates (identity, envs, workdirs) are owner-only.
+UMask=0077
+# Deliberately NOT set:
+# - ProtectClock=yes: on systemd 249 (Ubuntu 22.04) it implies a device
+#   allow-list that denies /dev/nvidia* (open -> EPERM, measured), so CUDA jobs
+#   would fail. The service is not root and NoNewPrivileges is set, so it has no
+#   CAP_SYS_TIME to change the clock with anyway.
+# - RestrictNamespaces=: jobs are the owner's own programs (browsers, bwrap-based
+#   tools, a future job sandbox) and may need user namespaces.
+# - PrivateDevices=yes / DevicePolicy=: GPU jobs need /dev/nvidia*, /dev/dri, /dev/kfd.
+# - MemoryDenyWriteExecute=yes: breaks JIT (PyTorch, numba, Node).
+# - SystemCallFilter=: the jobs' syscall needs are open-ended.
 
 # V0.7 G6: the agent's own cgroup subtree, with the agent in the leaf "agent",
 # so jobs of the unsandboxed runtimes get a real CPU cap (cpu.max per job).

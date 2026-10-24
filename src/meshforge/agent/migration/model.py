@@ -137,8 +137,9 @@ class MigrationReport:
             case MigrationOutcome.MIGRATED:
                 verb = "would migrate" if self.dry_run else "migrated"
                 node = p.identity.node_id if p.identity is not None else "?"
+                of_user = f" of user {p.user}" if p.user else ""
                 out.append(
-                    f"{prefix}{verb} node {node} from {p.source} "
+                    f"{prefix}{verb} node {node}{of_user} from {p.source} "
                     f"to {p.paths.target_identity} (same node_id: the dashboard row "
                     "and its history stay)"
                 )

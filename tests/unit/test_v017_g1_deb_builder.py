@@ -52,6 +52,16 @@ lib = sys.modules[bd.BundleError.__module__]
 pytestmark = pytest.mark.unit
 
 
+_HARDENING = (
+    "ProtectKernelTunables",
+    "ProtectKernelModules",
+    "ProtectKernelLogs",
+    "RestrictSUIDSGID",
+    "LockPersonality",
+    "RestrictRealtime",
+)
+
+
 # ------------------------------------------------------------------ versions
 @pytest.mark.parametrize(
     ("pep440", "debian"),
@@ -409,6 +419,11 @@ def test_service_unit_is_the_hardened_system_service() -> None:
     assert unit["ReadWritePaths"] == [str(SYSTEM_LINUX_DATA_DIR)]
     for key in ("ProtectHome", "PrivateTmp", "NoNewPrivileges", "Delegate"):
         assert unit[key] == ["yes"], key
+    for key in _HARDENING:
+        assert unit[key] == ["yes"], key
+    assert unit["UMask"] == ["0077"]
+    # Measured to break GPU jobs on systemd 249 / jobs' own namespaces (unit comment).
+    assert "ProtectClock" not in unit and "RestrictNamespaces" not in unit
     assert unit["DelegateSubgroup"] == [LEAF_NAME]
     assert unit["KillMode"] == ["mixed"]
     assert unit["WantedBy"] == ["multi-user.target"]

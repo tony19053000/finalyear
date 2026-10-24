@@ -58,14 +58,28 @@ fi
 # 3. migration (exit 4 = needs a decision; anything else non-zero = an error)
 rc=0
 "$AGENT" migrate-identity || rc=$?
+IDENTITY_KEY=/var/lib/meshforge/identity/node.key
+PENDING=/var/lib/meshforge/identity/migration.pending
 if [ "$rc" -ne 0 ]; then
 	if [ "$rc" -eq 4 ]; then
-		say "the agent service was NOT started: the identity migration above needs a decision."
+		why="the identity migration above needs a decision"
 	else
-		say "the agent service was NOT started: the identity migration failed (exit $rc, see above)."
+		why="the identity migration failed (exit $rc, see above)"
 	fi
-	say "after fixing it: sudo meshforge-agent migrate-identity && sudo systemctl enable --now $UNIT $PATH_UNIT"
-	exit 0
+	if [ "$fresh" -eq 0 ] && [ -e "$IDENTITY_KEY" ] && [ ! -e "$PENDING" ]; then
+		# An upgrade of a service that has its own identity: nothing was moved
+		# into it, so the new version can run as before.
+		say "warning: $why; the service keeps its own identity and is restarted on the new version."
+	else
+		if [ "$fresh" -eq 1 ]; then
+			say "the agent service was NOT started: $why."
+		else
+			say "$why. A service that is running now keeps running the PREVIOUS version until it"
+			say "restarts (reboot, crash or systemctl restart); it then stays stopped until this is fixed."
+		fi
+		say "after fixing it: sudo meshforge-agent migrate-identity && sudo systemctl enable --now $UNIT $PATH_UNIT"
+		exit 0
+	fi
 fi
 
 if [ "$systemd_running" -ne 1 ]; then

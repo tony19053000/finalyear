@@ -203,7 +203,10 @@ def test_deb_lifecycle_on_a_laptop_that_already_joined(
     # the unit's real settings, read back from systemd
     unit = sb.show(UNIT, "ProtectSystem", "ProtectHome", "NoNewPrivileges",
                    "PrivateTmp", "ReadWritePaths", "User", "Environment",
-                   "RestartPreventExitStatus", "KillMode", "Delegate")  # fmt: skip
+                   "RestartPreventExitStatus", "KillMode", "Delegate",
+                   "ProtectKernelTunables", "ProtectKernelModules",
+                   "ProtectKernelLogs", "RestrictSUIDSGID", "LockPersonality",
+                   "RestrictRealtime", "UMask", "ProtectClock")  # fmt: skip
     assert unit["ProtectSystem"] == "strict" and unit["ProtectHome"] == "yes", unit
     assert unit["NoNewPrivileges"] == "yes" and unit["PrivateTmp"] == "yes", unit
     assert unit["ReadWritePaths"] == "/var/lib/meshforge", unit
@@ -211,6 +214,10 @@ def test_deb_lifecycle_on_a_laptop_that_already_joined(
     assert "MESHFORGE_INSTALL_MODE=system" in unit["Environment"], unit
     assert set(unit["RestartPreventExitStatus"].split()) == {"4", "5"}, unit
     assert unit["Delegate"] == "yes", unit
+    for key in ("ProtectKernelTunables", "ProtectKernelModules", "ProtectKernelLogs",
+                "RestrictSUIDSGID", "LockPersonality", "RestrictRealtime"):  # fmt: skip
+        assert unit[key] == "yes", (key, unit)
+    assert unit["UMask"] == "0077" and unit["ProtectClock"] == "no", unit
     assert sandboxed.split("\n")[:4] == [
         "/opt/meshforge/current/x denied",
         "/etc/meshforge/x denied",

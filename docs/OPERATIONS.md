@@ -2033,7 +2033,11 @@ its jobs, then anything left in its cgroup is killed.
 
 **Hardening.** The service runs as `meshforge` with `ProtectSystem=strict` (only
 `/var/lib/meshforge` is writable), `ProtectHome=yes`, `PrivateTmp`,
-`NoNewPrivileges`. `Delegate=yes` + `DelegateSubgroup=agent` give it its own
+`NoNewPrivileges`, `ProtectKernelTunables`/`Modules`/`Logs`, `RestrictSUIDSGID`,
+`LockPersonality`, `RestrictRealtime`, `UMask=0077`. Not set, on purpose (reasons in
+the unit file): `ProtectClock` (on systemd 249 it denies `/dev/nvidia*`),
+`RestrictNamespaces`, `PrivateDevices`, `MemoryDenyWriteExecute`,
+`SystemCallFilter`. `Delegate=yes` + `DelegateSubgroup=agent` give it its own
 cgroup subtree, so the subprocess/venv runtimes enforce the owner's CPU cap
 (V0.7 G6). `DelegateSubgroup` needs systemd >= 254 (Ubuntu 24.04); on 22.04 the
 cap is reported `not_enforced` (`max_cpu_percent:unsandboxed_linux`), never claimed.
