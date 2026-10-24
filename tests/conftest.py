@@ -36,6 +36,13 @@ Remote GPU test can be ``component`` + ``gpu`` and a Mode 4 test ``cluster`` + `
   ``scripts/ui_perf/``): minutes of seeding (4 nodes x 100 jobs, 10 000
   jobs). Skipped unless ``--run-perf`` is given or the ``-m`` expression
   selects it (``pytest -m perf``) - a bare run never pays for it.
+* ``extras("controller", ...)`` — the test needs those optional extras
+  (pyproject ``[project.optional-dependencies]``) in a way an import cannot
+  show: a subprocess or CLI run, or a whole-repo check. Skipped with the
+  reason when any package of a named extra is missing (D399; a plain
+  ``uv sync`` installs none). Plain imports need no marker: a test module or
+  test whose own import of an extras package fails is skipped automatically
+  (``_ExtrasAwareModule``, ``pytest_runtest_call``).
 * ``security`` — never skipped by itself: it says the test **proves a row of
   ``docs/THREAT_MODEL.md``** (V0.7 G7, D166). It is a marker, not a tier: a
   security test lives in its tier's directory like every other test, and
@@ -86,7 +93,7 @@ if _SUPPORT_DIR not in sys.path:
 TIERS: Final = ("unit", "component", "cluster", "lab", "e2e", "soak", "chaos")
 
 #: Capability markers: what a test needs, combined with exactly one tier.
-CAPABILITY_MARKERS: Final = ("docker", "gpu", "slow", "perf", "security")
+CAPABILITY_MARKERS: Final = ("docker", "gpu", "slow", "perf", "security", "extras")
 
 #: Tiers/markers that only run when explicitly requested with ``--run-<name>``
 #: (hardware, humans, or long runtimes). ``gpu``/``slow`` are capabilities, not tiers.
@@ -237,6 +244,10 @@ def pytest_runtest_setup(item: pytest.Item) -> None:
         reason = docker_unavailable_reason(config)
         if reason:
             pytest.skip(reason)
+    for marker in item.iter_markers("extras"):
+        reason = extras_missing_reason(marker.args)
+        if reason:
+            pytest.skip(reason)
 
 
 #: Top-level import names that only an optional extra installs (pyproject.toml
@@ -345,6 +356,56 @@ def pytest_pycollect_makemodule(
     module_path: Path, parent: pytest.Collector
 ) -> pytest.Module:
     return _ExtrasAwareModule.from_parent(parent, path=module_path)
+
+
+def extra_packages(extra: str) -> list[str]:
+    """Import names :data:`EXTRA_IMPORTS` lists for ``extra``."""
+    found = [m for m, e in EXTRA_IMPORTS.items() if extra in e.split("/")]
+    if not found:
+        raise pytest.UsageError(f"@pytest.mark.extras: unknown extra {extra!r}")
+    return found
+
+
+def extras_missing_reason(extras: tuple[object, ...]) -> str | None:
+    """Why a test marked ``extras(*extras)`` cannot run here, or ``None``.
+
+    Checked with :func:`importlib.util.find_spec` (nothing is imported).
+    """
+    import importlib.util
+
+    for extra in extras:
+        for module in extra_packages(str(extra)):
+            if importlib.util.find_spec(module) is None:
+                return (
+                    f"needs extra {extra} (`{module}` is not installed: "
+                    f"uv sync --extra {extra})"
+                )
+    return None
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_call(item: pytest.Item) -> Iterator[None]:
+    """A test whose *own* import of a missing extras package fails is skipped.
+
+    The run-time half of :class:`_ExtrasAwareModule` (D399), for imports made
+    inside a test body. Only a :class:`ModuleNotFoundError` reaching pytest for
+    the top-level name of an extras package counts (:func:`missing_extra`);
+    first-party modules the failed import left orphaned are dropped again.
+    """
+    before = set(sys.modules)
+    try:
+        return (yield)
+    except ModuleNotFoundError as exc:
+        found = missing_extra(exc)
+        if found is None:
+            raise
+        for name in first_party_orphans(set(sys.modules) - before, sys.modules):
+            del sys.modules[name]
+        module, extra = found
+        pytest.skip(
+            f"needs extra {extra} (`{module}` is not installed: "
+            f"uv sync --extra {extra.split('/')[0]})"
+        )
 
 
 @pytest.fixture(scope="session")

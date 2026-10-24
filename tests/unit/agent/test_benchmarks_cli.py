@@ -84,6 +84,7 @@ def _score(*args: str) -> Any:
     return cli.invoke(app, ["hardware", "score", *args], prog_name=PROG)
 
 
+@pytest.mark.extras("agent")
 def test_score_measures_prints_and_writes_the_cache(env: Path) -> None:
     result = _score()
     assert result.exit_code == ExitCode.OK, result.output
@@ -95,6 +96,7 @@ def test_score_measures_prints_and_writes_the_cache(env: Path) -> None:
     assert (env / "scores.json").is_file()
 
 
+@pytest.mark.extras("agent")
 def test_score_json_shape(env: Path) -> None:
     result = _score("--json")
     assert result.exit_code == ExitCode.OK, result.output
@@ -111,6 +113,7 @@ def test_score_json_shape(env: Path) -> None:
     )
 
 
+@pytest.mark.extras("agent")
 def test_a_valid_cache_is_reused_unless_forced() -> None:
     first = json.loads(_score("--json").stdout)
     again = json.loads(_score("--json").stdout)
@@ -122,6 +125,7 @@ def test_a_valid_cache_is_reused_unless_forced() -> None:
     assert forced["scores"]["run_id"] != first["scores"]["run_id"]
 
 
+@pytest.mark.extras("agent")
 def test_lock_held_by_another_scorer_is_busy_not_a_traceback(env: Path) -> None:
     with scorer_lock(env):
         result = _score()
@@ -134,6 +138,7 @@ def test_lock_held_by_another_scorer_is_busy_not_a_traceback(env: Path) -> None:
     assert not (env / "scores.json").exists()
 
 
+@pytest.mark.extras("agent")
 def test_no_blas_is_a_truthful_exit_0_with_unavailable_rows() -> None:
     def no_blas(fp: str) -> ScoreSet:
         return make_scoreset(
@@ -152,6 +157,7 @@ def test_no_blas_is_a_truthful_exit_0_with_unavailable_rows() -> None:
     assert result.stdout.count("unavailable: no_blas_backend") == 4
 
 
+@pytest.mark.extras("agent")
 def test_cache_write_failure_prints_the_scores_and_exits_failure(env: Path) -> None:
     (env / "scores.json").mkdir(parents=True)  # os.replace onto a dir fails
     result = _score()
@@ -160,6 +166,7 @@ def test_cache_write_failure_prints_the_scores_and_exits_failure(env: Path) -> N
     assert "scores: measured" in result.stdout
 
 
+@pytest.mark.extras("agent")
 def test_ctrl_c_is_reported_not_a_traceback() -> None:
     FakeRunner.result = KeyboardInterrupt()
     result = _score()
@@ -168,6 +175,7 @@ def test_ctrl_c_is_reported_not_a_traceback() -> None:
     assert isinstance(result.exception, SystemExit)
 
 
+@pytest.mark.extras("agent")
 def test_show_prints_none_cached_then_the_cached_scores() -> None:
     before = cli.invoke(app, ["hardware", "show"], prog_name=PROG)
     assert before.exit_code == ExitCode.OK, before.output
@@ -183,6 +191,7 @@ def test_show_prints_none_cached_then_the_cached_scores() -> None:
     assert payload["cpu"]["model"] == "Fictional CPU 9000"
 
 
+@pytest.mark.extras("agent")
 def test_show_marks_a_cache_from_other_hardware_stale(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

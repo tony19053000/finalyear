@@ -113,7 +113,10 @@ jobs:
   unit:
     name: unit (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+    # ~25 000 unit tests: ~22 min on an ubuntu runner (measured 2026-10-24),
+    # Windows is slower; the budget leaves room without hiding a hang (each
+    # test also has pytest-timeout's 300 s).
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -153,7 +156,7 @@ jobs:
   component:
     name: component (ubuntu-latest, Docker)
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -191,7 +194,7 @@ jobs:
   cluster:
     name: cluster (ubuntu-latest, Docker, processes)
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -225,7 +228,7 @@ jobs:
   fresh-clone:
     name: fresh-clone (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:

@@ -172,6 +172,7 @@ markers = [
     "slow: capability - takes minutes (network, cold caches, e.g. fresh-clone uv sync); skipped unless --run-slow",
     "perf: capability - UI performance thresholds (V0.8 G7, scripts/ui_perf/); skipped unless -m perf or --run-perf",
     "security: capability - proves a docs/THREAT_MODEL.md row (D166); `-m security` = the security suite across tiers",
+    "extras(*names): capability - needs these optional extras (subprocess/CLI/whole-repo checks); skipped with a reason when one is missing (D399)",
 ]
 # Every warning is an error (unknown marks, deprecations, unclosed resources);
 # add targeted `ignore:` entries here with a reason when a dependency forces one.

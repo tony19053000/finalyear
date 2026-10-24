@@ -156,6 +156,7 @@ def test_report_cli_missing_or_garbled_parquet_is_not_a_pass(tmp_path: Path) -> 
         assert code != 0, runs
 
 
+@pytest.mark.extras("controller")
 def test_report_cli_missing_file_reports_a_clean_error(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

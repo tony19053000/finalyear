@@ -89,6 +89,7 @@ async def test_docker_only_offers_exec_and_exec_docker_with_a_per_node_label(
 
 
 @pytest.mark.asyncio
+@pytest.mark.extras("agent")
 async def test_unsandboxed_needs_its_own_opt_in(tmp_path: Path) -> None:
     missing = FakeDocker(
         RuntimeAvailability("docker", False, reason="docker_sdk_missing")
