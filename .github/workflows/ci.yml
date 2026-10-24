@@ -34,7 +34,10 @@ env:
   # Never let uv silently pick a system interpreter other than the pinned one.
   UV_PYTHON_PREFERENCE: only-managed
   PYTHONUTF8: "1"
-  FORCE_COLOR: "1"
+  # Coloured pytest output only. Not FORCE_COLOR: rich (the `compute` CLI's
+  # renderer) honours it, so CLI tests would see ANSI codes and an 80-column
+  # "terminal" instead of plain piped output.
+  PY_COLORS: "1"
 
 jobs:
   lint:
