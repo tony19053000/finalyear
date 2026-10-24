@@ -340,7 +340,11 @@ async def test_snapshot_of_many_pages_replaces_exactly(
     first = tuple(item(BLOB, f"sha256:{n:064x}") for n in range(1024))
     await send(a, report(1, snap=True, last=True, add=first))
     await settle(runtime, 1)
-    assert len(await keys(runtime, a.node_id)) == 1024
+    # expect(), not one read after settle(): settle's fixed 0.4 s is not enough
+    # for 1024-3072 row writes on a loaded runner, and pages land one write at
+    # a time by design (the node is ``collecting`` until the last) - a single
+    # read saw 2048 of 3072 (D399, CI run 40134875847).
+    await expect(runtime, a.node_id, {i.key for i in first})
     pages = [
         tuple(item(BLOB, f"sha256:{5000 + p * 1024 + n:064x}") for n in range(1024))
         for p in range(3)
@@ -349,5 +353,6 @@ async def test_snapshot_of_many_pages_replaces_exactly(
     await send(a, report(3, snap=True, page=1, add=pages[1]))
     await send(a, report(4, snap=True, last=True, page=2, add=pages[2]))
     await settle(runtime, 4)
-    got = await keys(runtime, a.node_id)
-    assert len(got) == 3 * 1024 and not (got & {i.key for i in first})
+    want = {i.key for page in pages for i in page}
+    assert len(want) == 3 * 1024 and not (want & {i.key for i in first})
+    await expect(runtime, a.node_id, want)
