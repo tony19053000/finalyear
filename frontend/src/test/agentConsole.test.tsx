@@ -138,7 +138,7 @@ type Handler = (body: unknown) => { status?: number; json: unknown };
 function fakeAgent(routes: Record<string, Handler>) {
   const calls: { method: string; path: string; body: unknown }[] = [];
   const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
-    const url = new URL(typeof input === "string" ? input : input.toString(), "http://127.0.0.1:47130");
+    const url = new URL(input instanceof Request ? input.url : String(input), "http://127.0.0.1:47130");
     const method = init?.method ?? "GET";
     const path = url.pathname.replace("/console/v1", "");
     const body: unknown = typeof init?.body === "string" ? JSON.parse(init.body) : undefined;
