@@ -128,6 +128,14 @@ _DOCKER_PING_TIMEOUT_S: Final = 5
 
 def pytest_addoption(parser: pytest.Parser) -> None:
     group = parser.getgroup("meshforge", "MeshForge test tiers and capabilities")
+    group.addoption(
+        "--shard",
+        default=None,
+        metavar="K/N",
+        help="run only shard K of N (1-based): test files in sorted order are "
+        "dealt round-robin, so module/session fixtures stay within one shard "
+        "(CI splits the component tier this way)",
+    )
     for name, why in OPT_IN.items():
         group.addoption(
             f"--run-{name}",
@@ -180,6 +188,39 @@ def pytest_collection_modifyitems(
             "test tier policy violated (see tests/conftest.py):\n  "
             + "\n  ".join(problems)
         )
+    _apply_shard(config, items)
+
+
+def parse_shard(value: str) -> tuple[int, int]:
+    """``"K/N"`` -> ``(K, N)`` with ``1 <= K <= N``; :class:`pytest.UsageError` else."""
+    k_text, sep, n_text = value.partition("/")
+    try:
+        k, n = int(k_text), int(n_text)
+    except ValueError:
+        k = n = 0
+    if not sep or not 1 <= k <= n:
+        raise pytest.UsageError(f"--shard expects K/N with 1 <= K <= N, got {value!r}")
+    return k, n
+
+
+def shard_of_files(paths: list[str], k: int, n: int) -> set[str]:
+    """The files of shard ``k`` of ``n``: sorted, then dealt round-robin."""
+    return {path for i, path in enumerate(sorted(set(paths))) if i % n == k - 1}
+
+
+def _apply_shard(config: pytest.Config, items: list[pytest.Item]) -> None:
+    """``--shard K/N``: deselect every test outside shard K's files."""
+    value = config.getoption("--shard")
+    if not value:
+        return
+    k, n = parse_shard(str(value))
+    files = [str(Path(item.path).relative_to(config.rootpath)) for item in items]
+    keep_files = shard_of_files(files, k, n)
+    keep = [i for i, f in zip(items, files, strict=True) if f in keep_files]
+    dropped = [i for i, f in zip(items, files, strict=True) if f not in keep_files]
+    if dropped:
+        config.hook.pytest_deselected(items=dropped)
+        items[:] = keep
 
 
 def _probe_docker() -> str | None:

@@ -1,6 +1,6 @@
 # CI for MeshForge (roadmap 0.1.10).
 #
-# Jobs:  lint · types · unit (Linux + Windows) · component (Linux) ·
+# Jobs:  lint · types · unit (Linux + Windows) · component (Linux, 8 shards) ·
 #        cluster (Linux) · fresh-clone (Linux + Windows) · ci-ok
 # Branch protection on `main` should require ONLY the `ci-ok` check: it passes
 # iff every other job passed, so adding/renaming jobs never needs a settings change.
@@ -153,10 +153,17 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+  # ~3 300 component tests take ~3 h serially on a runner (2026-10-24), so
+  # the tier is split into shards by test file (`--shard K/N`, tests/conftest.py;
+  # files are dealt round-robin, so module/session fixtures stay in one shard).
   component:
-    name: component (ubuntu-latest, Docker)
+    name: component (shard ${{ matrix.shard }}/8, Docker)
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -173,13 +180,13 @@ jobs:
         run: docker info --format '{{.ServerVersion}} {{.OperatingSystem}}'
       # Postgres comes from testcontainers; Ryuk (enabled by default) reaps
       # containers even if the test process dies.
-      - name: pytest -m component
-        run: uv run python scripts/pytest_exit_guard.py -m component --junitxml=reports/junit-component.xml
+      - name: pytest -m component (one shard)
+        run: uv run python scripts/pytest_exit_guard.py -m component --shard ${{ matrix.shard }}/8 --junitxml=reports/junit-component-${{ matrix.shard }}.xml
       - name: upload junit report
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: junit-component
+          name: junit-component-${{ matrix.shard }}
           path: reports/
           if-no-files-found: ignore
           retention-days: 14
