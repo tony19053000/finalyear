@@ -74,7 +74,9 @@ app = typer.Typer(
 
 def _version_callback(value: bool) -> None:
     if value:
-        render.line(f"{PROG_NAME} {__version__}")
+        from meshforge.common.buildinfo import version_line
+
+        render.line(version_line(PROG_NAME))
         raise typer.Exit(CliExit.OK)
 
 

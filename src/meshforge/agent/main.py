@@ -33,7 +33,6 @@ from typing import TYPE_CHECKING, Annotated
 
 import typer
 
-from meshforge import __version__
 from meshforge.common.exit_codes import ExitCode
 
 if TYPE_CHECKING:
@@ -86,7 +85,9 @@ ConfigOption = Annotated[
 
 def _version_callback(value: bool) -> None:
     if value:
-        typer.echo(f"{PROG_NAME} {__version__}")
+        from meshforge.common.buildinfo import version_line
+
+        typer.echo(version_line(PROG_NAME))
         raise typer.Exit(ExitCode.OK)
 
 
