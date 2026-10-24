@@ -23,14 +23,20 @@ ml_classifier_timeout_s``) in total - waiting for another build included.
 Over it, :class:`ClassifierTimeoutError` (504 ``timeout``): the lock wait and
 the database reads are cancelled, the re-planning thread stops at its next
 group (it is never abandoned while still running, so builds never overlap).
+
+**Cancellation** (fix r2 D5: the client went away): the request ends at once,
+but a worker thread already running keeps the lock until it ends - the build
+sees the cancel at its next group, a refit runs to its end - so a new build
+never starts next to it.
 """
 
 from __future__ import annotations
 
 import asyncio
+import threading
 import time
 from collections.abc import Callable, Sequence
-from typing import Any, Final
+from typing import Any, Final, TypeVar
 
 from sqlalchemy.ext.asyncio import AsyncEngine
 
@@ -71,8 +77,21 @@ class ClassifierTimeoutError(MeshForgeError):
     exit_code = ExitCode.UNAVAILABLE
 
 
+_T = TypeVar("_T")
+
+
+class _Run:
+    """One call's cancel flag (read by the build's thread) and whether the
+    lock was handed to a still-running thread."""
+
+    def __init__(self) -> None:
+        self.cancelled = threading.Event()
+        self.handed_off = False
+
+
 class _ExpiredError(Exception):
-    """Raised by the build's ``check`` once the budget is spent."""
+    """Raised by the build's ``check`` once the budget is spent (or the
+    request was cancelled)."""
 
 
 def families_of(inputs: EvalInputs) -> dict[str, frozenset[str]]:
@@ -108,6 +127,28 @@ class ClassifierExamplesService:
         self._monotonic = monotonic
         self._lock = asyncio.Lock()
 
+    async def _in_thread(
+        self, run: _Run, fn: Callable[..., _T], *args: Any, **kw: Any
+    ) -> _T:
+        """``fn`` in a worker thread, awaited to its end. Cancelled meanwhile:
+        ``run.cancelled`` is set (the build's ``check`` sees it), the lock
+        passes to the thread - released when it ends - and the cancel
+        propagates."""
+        running = asyncio.ensure_future(asyncio.to_thread(fn, *args, **kw))
+        try:
+            return await asyncio.shield(running)
+        except asyncio.CancelledError:
+            run.cancelled.set()
+            if not running.done():
+                run.handed_off = True
+                running.add_done_callback(self._release_after)
+            raise
+
+    def _release_after(self, done: asyncio.Future[Any]) -> None:
+        if not done.cancelled():
+            done.exception()  # retrieved: the request is gone, nobody reads it
+        self._lock.release()
+
     def _expired(self, phase: str, ids: Sequence[str]) -> ClassifierTimeoutError:
         log.warning(
             "controller.planner.classifier_examples_timeout",
@@ -141,8 +182,10 @@ class ClassifierExamplesService:
         def left() -> float:
             return max(deadline - self._monotonic(), 0.0)
 
+        run = _Run()
+
         def check() -> None:
-            if self._monotonic() >= deadline:
+            if run.cancelled.is_set() or self._monotonic() >= deadline:
                 raise _ExpiredError
 
         try:
@@ -169,12 +212,13 @@ class ClassifierExamplesService:
             families = families_of(inputs)
             # the threads are awaited to the end (never abandoned): the
             # refit is one fit per family, the build checks before every group
-            choices = await asyncio.to_thread(
-                refit_choices, runs, families, self._calibration_config
+            choices = await self._in_thread(
+                run, refit_choices, runs, families, self._calibration_config
             )
             try:
                 check()
-                examples, counts = await asyncio.to_thread(
+                examples, counts = await self._in_thread(
+                    run,
                     build_examples,
                     inputs.groups,
                     inputs.records,
@@ -184,7 +228,8 @@ class ClassifierExamplesService:
             except _ExpiredError:
                 raise self._expired("build", ids) from None
         finally:
-            self._lock.release()
+            if not run.handed_off:
+                self._lock.release()
         log.info(
             "controller.planner.classifier_examples",
             user_id=user_id,

@@ -235,3 +235,38 @@ def test_classify_offline_from_a_saved_document(
     assert seen == []
     doc = json.loads(result.stdout)
     assert doc["classifier"]["status"] == "too_few_groups"
+
+
+@pytest.mark.parametrize(
+    ("extra", "want"), [([], 1800.0), (["--fetch-timeout", "42"], 42.0)]
+)
+def test_classify_fetch_timeout_bounds_the_request_and_a_504_is_clear(
+    runner: CliRunner, controller: TransportFactory, extra: list[str], want: float
+) -> None:
+    # fix r2: the wait for the controller is an option; the controller's own
+    # budget answers 504 with a message naming the setting
+    pytest.importorskip("sklearn", reason="needs the ml extra")
+    pytest.importorskip("lightgbm", reason="needs the ml extra")
+    seen: list[Any] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.extensions.get("timeout", {}).get("read"))
+        return httpx.Response(
+            504,
+            json={
+                "error": {
+                    "code": "timeout",
+                    "message": "the classifier examples build did not finish after "
+                    "900 s ([controller.planner] ml_classifier_timeout_s); retry "
+                    "later or use fewer campaigns",
+                }
+            },
+        )
+
+    controller(handler)
+    result = runner.invoke(
+        cli_app.app, ["planner", "ml", "classify", "--campaign", "c1", *extra]
+    )
+    assert result.exit_code != 0
+    assert seen and seen[0] == pytest.approx(want)
+    assert "ml_classifier_timeout_s" in result.output

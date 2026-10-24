@@ -113,9 +113,6 @@ def test_mixed_huge_and_tiny_features_in_one_column() -> None:
     assert s["status"] == "evaluated"
 
 
-@pytest.mark.xfail(
-    strict=True, reason="TESTER2-D4: bigint feature -> OverflowError in float()"
-)
 @pytest.mark.parametrize("big", [10**400, -(10**400)])
 def test_python_bigint_literals_do_not_crash_the_child(big: int) -> None:
     # JSON allows integers of any size
@@ -128,9 +125,6 @@ def test_python_bigint_literals_do_not_crash_the_child(big: int) -> None:
     assert s["status"] == "evaluated"
 
 
-@pytest.mark.xfail(
-    strict=True, reason="TESTER2-D4: bigint regret -> OverflowError in float()"
-)
 @pytest.mark.parametrize("big", [10**400, -(10**400)])
 def test_bigint_regret_does_not_crash_the_child(big: int) -> None:
     doc = _doc(lambda k: [float(k), 1.0])
@@ -361,10 +355,6 @@ async def test_cancelling_during_the_database_phase_frees_the_lock(
     assert not svc._lock.locked()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="TESTER2-D5: cancel mid-build releases the lock while the thread still runs",
-)
 @pytest.mark.asyncio
 async def test_cancelling_mid_build_never_lets_two_builds_run_at_once(
     monkeypatch: pytest.MonkeyPatch,

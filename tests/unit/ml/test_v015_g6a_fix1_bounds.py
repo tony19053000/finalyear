@@ -372,3 +372,67 @@ def test_build_examples_checks_before_every_group() -> None:
 
     with pytest.raises(StopError):
         ce.build_examples(groups, recs, {}, check=stop)
+
+
+# ------------------------------------------------------------------ fix r2
+
+
+@pytest.mark.asyncio
+async def test_a_cancelled_build_keeps_the_lock_until_its_thread_stops(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # fix r2 D5: the request ends at once, the thread sees the cancel at its
+    # next group, and only then is the lock free
+    entered, release = threading.Event(), threading.Event()
+    seen: list[str] = []
+
+    def step() -> None:
+        entered.set()
+        release.wait(10)
+
+    service, built = _service(monkeypatch, timeout_s=3600.0, step=step)
+    task = asyncio.create_task(service.document(["c1"]))
+    assert await asyncio.to_thread(entered.wait, 10)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(task, 5.0)
+    assert service._lock.locked()  # the thread still runs: no second build yet
+    seen.extend(built)
+    release.set()
+    for _ in range(200):
+        if not service._lock.locked():
+            break
+        await asyncio.sleep(0.01)
+    assert not service._lock.locked()
+    assert seen == ["g1"] and built == ["g1"]  # stopped at the next group
+    doc = await asyncio.wait_for(service.document(["c1"]), 5.0)
+    assert doc["examples"] == []
+
+
+@pytest.mark.parametrize("big", [10**400, -(10**400)])
+def test_integers_beyond_float_range_read_as_missing_or_unmeasured(big: int) -> None:
+    # fix r2 D4: never an OverflowError
+    pytest.importorskip("sklearn", reason="needs the ml extra")
+    pytest.importorskip("lightgbm", reason="needs the ml extra")
+    from meshforge.controller.ml.train import classify as cl
+
+    doc: dict[str, Any] = {
+        "examples_version": 1,
+        "feature_names": ["x"],
+        "examples": [
+            {
+                "campaign_id": "c",
+                "group_id": "g",
+                "family": "f",
+                "label": "local",
+                "features": [big],
+                "classes": {
+                    "local": {"config_id": "l", "status": "counted", "regret_pct": big}
+                },
+                "cost_model": {"config_id": "k", "status": "counted", "regret_pct": 1},
+            }
+        ],
+    }
+    (example,) = cl.parse_examples(doc)[1]
+    assert example.features[0] != example.features[0]  # NaN
+    assert cl.outcome_of(example, "local")["status"] == "unmeasured"

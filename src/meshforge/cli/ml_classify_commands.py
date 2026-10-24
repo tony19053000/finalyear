@@ -47,6 +47,8 @@ __all__ = ["classify_lines", "classify_table"]
 
 _TRAIN_MODULE: Final = "meshforge.controller.ml.train"
 CLASSIFY_TIMEOUT_S: Final = 1800.0
+FETCH_TIMEOUT_S: Final = 1800.0
+"""Default wait for the controller's examples (> its 900 s build budget)."""
 _HEADER: Final = (
     "model",
     "counted",
@@ -113,11 +115,13 @@ def classify_table(section: Mapping[str, Any]) -> Table:
     return table
 
 
-def _fetch_examples(campaigns: list[str]) -> Mapping[str, Any]:
+def _fetch_examples(campaigns: list[str], timeout_s: float) -> Mapping[str, Any]:
     settings = cli._settings()
     with cli._client(settings) as client:
         return cli._fetch(
-            lambda: client.planner_ml_classifier_examples(campaign_ids=campaigns)
+            lambda: client.planner_ml_classifier_examples(
+                campaign_ids=campaigns, timeout_s=timeout_s
+            )
         )
 
 
@@ -160,6 +164,19 @@ def ml_classify(
             help="Stop the training after this many seconds (exit 1).",
         ),
     ] = CLASSIFY_TIMEOUT_S,
+    fetch_timeout: Annotated[
+        float,
+        typer.Option(
+            "--fetch-timeout",
+            min=1.0,
+            help=(
+                "Wait this many seconds for the controller's examples "
+                "(--campaign). The controller stops its own build at "
+                "[controller.planner] ml_classifier_timeout_s (900 s by "
+                "default, answer 504); raise both together."
+            ),
+        ),
+    ] = FETCH_TIMEOUT_S,
     json_output: cli.JsonOption = False,
 ) -> None:
     """The 0.15.10 classifier experiment: classify the winning configuration
@@ -184,7 +201,7 @@ def ml_classify(
     with tempfile.TemporaryDirectory(prefix="meshforge-ml-classify-") as scratch:
         source = examples
         if source is None:
-            doc = _fetch_examples(sorted(set(campaign or [])))
+            doc = _fetch_examples(sorted(set(campaign or [])), fetch_timeout)
             source = Path(scratch) / "examples.json"
             text = json.dumps(doc, sort_keys=True)
             source.write_text(text, encoding="utf-8")

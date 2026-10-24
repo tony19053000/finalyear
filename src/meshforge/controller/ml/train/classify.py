@@ -25,7 +25,8 @@ metric**, next to the planner's cost regression on the same groups:
    majority, like ``majority``. A non-finite feature (``Infinity`` /
    ``NaN`` literals) reads as missing (NaN), as the controller's builder
    writes it; so does one too large to standardise (``|x| > 1e150``, its
-   square would overflow the shared D349 prep) - no real feature is near.
+   square would overflow the shared D349 prep) - no real feature is near -
+   and an integer beyond float range. Such a regret is ``unmeasured``.
 4. **Regret** - a predicted class scores the regret of **the planner's
    best-ranked candidate of that class** for the group (precomputed by the
    controller), never the label's own configuration; a class the planner did
@@ -137,7 +138,10 @@ def _number(value: Any) -> float:
         return math.nan
     if isinstance(value, bool) or not isinstance(value, int | float):
         raise ExamplesError("a feature must be a number or null")
-    number = float(value)
+    try:
+        number = float(value)
+    except OverflowError:  # a JSON integer beyond float range (fix r2 D4)
+        return math.nan
     if not math.isfinite(number) or abs(number) > _MAX_FEATURE_ABS:
         return math.nan
     return number
@@ -283,7 +287,10 @@ def _counted_regret(outcome: Mapping[str, Any]) -> float | None:
         return None
     if not isinstance(regret, int | float):
         return None
-    number = float(regret)
+    try:
+        number = float(regret)
+    except OverflowError:  # a JSON integer beyond float range (fix r2 D4)
+        return None
     return number if math.isfinite(number) else None
 
 
