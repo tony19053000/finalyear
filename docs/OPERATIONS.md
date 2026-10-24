@@ -1944,11 +1944,121 @@ Exit codes worth scripting against: `0` ok, `2` bad usage, `4` bad configuration
 
 ---
 
-## 2. Linux — systemd **user** unit
+## 2. Linux — the `meshforge-agent` package (system service)
 
-A *user* unit, not a system one: the agent runs as the person using the laptop,
-keeps its identity in `~/.local/share/meshforge/identity`
-([ADR-0013](adr/0013-node-identity-storage.md)) and needs no root.
+Since V0.17 G1 a Linux laptop installs the agent as a **`.deb`** (Ubuntu 22.04 /
+24.04; [ADR-0022](adr/0022-productization-install-services.md), D384-D387, D394).
+No checkout, no system Python, no `uv` on PATH: the package brings its own
+runtime (a relocatable CPython 3.12 + the locked wheels, `scripts/build_bundle.py`).
+
+```bash
+# build (on a Linux dev machine; CI's package-linux job uploads the same files)
+uv sync --extra agent
+uv run python scripts/build_bundle.py --role agent --out dist/
+uv run python scripts/build_deb.py --bundle dist/meshforge-<ver>-linux-x86_64 --out dist/
+
+# install (on the laptop)
+sudo apt install ./meshforge-agent_<ver>-1_amd64.deb
+```
+
+What the install does (`packaging/linux/scripts/postinst`, re-runnable):
+
+| Step | Result |
+|---|---|
+| system user + groups | `meshforge` (the service account, no login), `meshforge-admin` (for the local console, G3) |
+| state folders | `/etc/meshforge` (root, 0755), `/var/lib/meshforge` (meshforge, 0750) |
+| GPU groups | `meshforge` joins `video` / `render` if they exist. **Not** `docker` (root-equivalent, Q12): the agent reports "docker: no access" until you run `sudo usermod -aG docker meshforge && sudo systemctl restart meshforge-agent` |
+| migration (D387) | `meshforge-agent migrate-identity`: a laptop that already ran the agent as a user keeps its `node_id` (see below) |
+| services | `meshforge-agent.service` + `meshforge-agent.path` enabled; the service is started only when the laptop has joined |
+
+**Where things are** (`MESHFORGE_INSTALL_MODE=system`, set by the unit, never guessed — Q11):
+
+| What | Path |
+|---|---|
+| program (read-only) | `/opt/meshforge/<ver>/`, `/opt/meshforge/current -> <ver>`; `/usr/bin/meshforge-agent`, `/usr/bin/compute` |
+| config | `/etc/meshforge/config.toml` (optional; `root:meshforge 0640`) |
+| identity, envs, caches, policy | `/var/lib/meshforge/` (`identity/` is `meshforge 0700`) |
+| logs | `journalctl -u meshforge-agent` |
+| units | `/usr/lib/systemd/system/meshforge-agent.{service,path}` |
+
+### Joining (a fresh laptop)
+
+```bash
+sudo meshforge-agent join            # paste the mf1-... code from the fabric admin
+```
+
+You type it as yourself; the command re-executes as `meshforge` via `sudo`
+(Q15), so the identity is the **service's**, never a second one in your home.
+`join` writes `/var/lib/meshforge/identity/node.crt`; `meshforge-agent.path`
+sees it and starts the service — no `systemctl` needed. Until then the service
+is *inactive* (a start condition, not a failure) and `apt install` says
+"has not joined a fabric yet". The same re-execution applies to `identity show`,
+`hardware show`, `policy …`: on a packaged laptop they act on the service's state.
+`MESHFORGE_INSTALL_MODE=user` opts a developer out (their own state in `~`).
+
+### A laptop that already joined as a user agent (migration, D387)
+
+The install moves the per-user identity (`~/.local/share/meshforge/identity`) and
+`~/.config/meshforge/config.toml` to the machine-wide places, verifies the copy
+(`node_id` + key fingerprint), renames the sources `*.migrated-<date>`, and stops
++ disables the old **user** unit (its file stays in your home; delete it yourself).
+The node keeps its `node_id`, so its telemetry history continues.
+It refuses — nothing copied, nothing renamed, the service not started, `apt` still
+succeeds (Q13) — when the choice is not clear: two homes with an identity, a
+partial or corrupt one (including an unusable enrolment: a `node.crt` that does
+not parse or is not this key's/node's, or no `ca.crt` next to it), or a config
+file with unknown keys. Because it runs as root over folders a user controls, it
+also refuses a source it cannot read safely: a symbolic link anywhere on the
+path, a file or folder of another owner, or a folder others can write
+(group-writable is fine only for the user's own private group, the Ubuntu
+default). On an **upgrade** a refusal does not stop a running service: it keeps
+running the previous version until it restarts. The message names every path;
+then:
+
+```bash
+sudo meshforge-agent migrate-identity --from /home/<user>/.local/share/meshforge/identity
+sudo systemctl enable --now meshforge-agent.service meshforge-agent.path
+```
+
+`--dry-run` prints the plan and writes nothing. The env/peer caches are not
+moved (Q14): the service re-downloads what it needs.
+
+### Day-to-day
+
+```bash
+systemctl status   meshforge-agent
+sudo systemctl restart meshforge-agent
+journalctl -u meshforge-agent -f
+sudo systemctl edit meshforge-agent       # local changes go in a drop-in, never the unit file
+```
+
+**Restart policy.** `Restart=always`, `RestartSec=5`, except exit `4`
+(CONFIG_ERROR: bad config, refused identity) and `5` (CONFLICT: another agent owns
+this identity) — a restart loop cannot fix either; fix the cause, then
+`sudo systemctl restart meshforge-agent`. `KillMode=mixed`: on stop the agent ends
+its jobs, then anything left in its cgroup is killed.
+
+**Hardening.** The service runs as `meshforge` with `ProtectSystem=strict` (only
+`/var/lib/meshforge` is writable), `ProtectHome=yes`, `PrivateTmp`,
+`NoNewPrivileges`, `ProtectKernelTunables`/`Modules`/`Logs`, `RestrictSUIDSGID`,
+`LockPersonality`, `RestrictRealtime`, `UMask=0077`. Not set, on purpose (reasons in
+the unit file): `ProtectClock` (on systemd 249 it denies `/dev/nvidia*`),
+`RestrictNamespaces`, `PrivateDevices`, `MemoryDenyWriteExecute`,
+`SystemCallFilter`. `Delegate=yes` + `DelegateSubgroup=agent` give it its own
+cgroup subtree, so the subprocess/venv runtimes enforce the owner's CPU cap
+(V0.7 G6). `DelegateSubgroup` needs systemd >= 254 (Ubuntu 24.04); on 22.04 the
+cap is reported `not_enforced` (`max_cpu_percent:unsandboxed_linux`), never claimed.
+
+**Upgrade.** `sudo apt install ./meshforge-agent_<newer>.deb`: the service keeps
+running until the new version is in place, then restarts; identity, config and
+envs stay. (Rollback and pre-upgrade backups come with V0.17 G5.)
+
+### Development only — the systemd **user** unit
+
+A checkout can still run as a user unit (`deploy/systemd/meshforge-agent.service`):
+the agent runs as you and keeps its identity in `~/.local/share/meshforge/identity`.
+Do not run it on a laptop that has the package (two agents, two identities: the
+package's migration disables it for exactly that reason).
 
 ```bash
 mkdir -p ~/.config/systemd/user
@@ -1957,43 +2067,13 @@ cp deploy/systemd/meshforge-controller.service ~/.config/systemd/user/   # contr
 $EDITOR ~/.config/systemd/user/meshforge-agent.service     # set WorkingDirectory
 systemctl --user daemon-reload
 systemctl --user enable --now meshforge-agent
+loginctl enable-linger "$USER"   # else your user's systemd stops (with the agent) at logout
 ```
 
-### The one step people forget
-
-```bash
-loginctl enable-linger "$USER"
-```
-
-Without linger, **your user's systemd manager is shut down when you log out**, and
-the agent dies with it; with linger the manager starts at boot and keeps running
-after logout, so the laptop can contribute while nobody is logged in. This also
-earns the telemetry the V0.15 planner needs (`docs/SESSION_HANDOFF.md` §0b) and
-V0.3's 24-hour soak evidence.
-
-### Day-to-day
-
-```bash
-systemctl --user status  meshforge-agent
-systemctl --user restart meshforge-agent
-systemctl --user stop    meshforge-agent
-journalctl --user -u meshforge-agent -f              # follow
-journalctl --user -u meshforge-agent --since "1 hour ago"
-```
-
-**Logs** go to the journal (the unit sets `StandardOutput=journal`). The processes
-log structured JSON by default; for a readable journal on a dev laptop add
+`systemctl --user status|restart|stop meshforge-agent`, `journalctl --user -u
+meshforge-agent -f`. Same restart policy (exit `5` not restarted for the agent,
+`4` not restarted for the controller). For a readable journal add
 `Environment=MESHFORGE_LOG__FORMAT=console` to the unit.
-
-**Restart policy.** `Restart=always` with `RestartSec=5`, except:
-
-| Exit code | Meaning | Unit behaviour |
-|---|---|---|
-| `5` CONFLICT | another agent process owns this node identity | agent unit does **not** restart |
-| `4` CONFIG_ERROR | bad settings / database unreachable at startup | controller unit does **not** restart |
-
-Both are conditions a restart loop cannot fix; fix the cause and
-`systemctl --user restart …`.
 
 ---
 
@@ -2068,6 +2148,29 @@ productization.
 ---
 
 ## 4. Uninstall
+
+**The Linux package:**
+
+```bash
+sudo apt remove meshforge-agent    # service, units, program files gone; data KEPT
+sudo apt purge  meshforge-agent    # also /var/lib/meshforge, /etc/meshforge, the meshforge user/groups
+```
+
+`remove` keeps the identity, config and caches on purpose (D393): installing
+again brings the **same** node back. Check that nothing is left:
+
+```bash
+sudo python3 lab/verify_uninstall.py --os linux                  # after remove
+sudo python3 lab/verify_uninstall.py --os linux --data-removed   # after purge
+```
+
+It lists every leftover (unit file or enablement link, a unit systemd still knows,
+a MeshForge process, program files, ufw rule/profile, dpkg state; after purge also
+data and accounts) and exits 1 if there is one. Run it with `sudo` (ufw needs
+root; without it ufw is reported "not checked", never "clean"). A developer's old
+user unit file in a home directory is listed as *kept*: it is yours to delete.
+
+**A development setup:**
 
 ```bash
 # Linux

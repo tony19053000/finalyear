@@ -161,7 +161,14 @@ def invites(
 
 def agent_command() -> list[str] | None:
     """How to run this laptop's ``meshforge-agent``, or ``None`` if none is
-    installed (on ``PATH``, or next to this interpreter in its environment)."""
+    installed: this bundle's own launcher first (V0.17 SP3 F5 - an installed
+    ``compute`` must drive the agent it was shipped with), then ``PATH``, then
+    next to this interpreter in its environment."""
+    from meshforge.common.buildinfo import bundle_command
+
+    own = bundle_command(_AGENT)
+    if own is not None:
+        return [str(own)]
     found = shutil.which(_AGENT)
     if found:
         return [found]

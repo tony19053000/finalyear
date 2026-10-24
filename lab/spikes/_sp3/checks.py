@@ -279,7 +279,7 @@ def sizes(bundle: Path) -> dict[str, int]:
         "stdlib_incl_pyc": apparent_bytes(stdlib) - apparent_bytes(site),
         "site_packages_incl_pyc": apparent_bytes(site),
         "pyc_all": pyc,
-        "manifest": (bundle / "MANIFEST.json").stat().st_size,
+        "manifest": (bundle / "MANIFEST.sha256").stat().st_size,
     }
 
 

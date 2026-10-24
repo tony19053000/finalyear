@@ -1,0 +1,26 @@
+#!/bin/sh
+# meshforge-agent preinst (V0.17 G1, D386): the service account and the admin
+# group. Idempotent: every step checks first, so a re-run (upgrade, a failed
+# install retried) changes nothing.
+set -eu
+
+case "${1:-}" in
+install | upgrade)
+	if ! getent group meshforge >/dev/null; then
+		groupadd --system meshforge
+	fi
+	if ! getent passwd meshforge >/dev/null; then
+		useradd --system --gid meshforge --home-dir /var/lib/meshforge \
+			--no-create-home --shell /usr/sbin/nologin \
+			--comment "MeshForge node agent" meshforge
+	fi
+	# Local console access (D391, used from G3): members may read its token.
+	if ! getent group meshforge-admin >/dev/null; then
+		groupadd --system meshforge-admin
+	fi
+	;;
+abort-upgrade) ;;
+*) ;;
+esac
+
+exit 0

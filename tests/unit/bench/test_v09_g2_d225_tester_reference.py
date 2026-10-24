@@ -184,8 +184,7 @@ def test_train_loss_scaled_after_the_fact_fails() -> None:
     "family", ["ml.cnn_infer", "ml.transformer_infer", "ml.cnn_train"]
 )
 def test_check_leaves_rng_and_timed_state_alone(family: str) -> None:
-    import torch
-
+    torch: Any = pytest.importorskip("torch", reason="needs torch (gpu extra)")
     ml = _ml()
     params = TRAIN if family == "ml.cnn_train" else FAMILY_PARAMS[family]
     kernel = ml.KERNELS[family]
@@ -208,8 +207,7 @@ def test_check_leaves_rng_and_timed_state_alone(family: str) -> None:
 
 def test_prepare_with_different_global_rng_state_is_deterministic() -> None:
     """The reference must not depend on whatever the process RNG was doing."""
-    import torch
-
+    torch: Any = pytest.importorskip("torch", reason="needs torch (gpu extra)")
     ml = _ml()
     kernel = ml.KERNELS["ml.cnn_infer"]
     torch.manual_seed(1)

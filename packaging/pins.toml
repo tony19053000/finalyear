@@ -1,0 +1,44 @@
+# Pinned downloads for the D384 runtime bundle and the packaging tools (V0.17 G1).
+#
+# Rule: every external download is a fixed URL + sha256 - never "latest". The
+# builders (scripts/build_bundle.py, scripts/build_deb.py) refuse a pin without
+# both, download into their cache, and check the sha256 before using a byte.
+# Bumping any pin changes the bundle's hashes: do it deliberately, in its own
+# commit, and re-run the reproducibility check (`build_bundle.py --diff`).
+
+[python]
+# python-build-standalone "install_only_stripped" CPython. 3.12.14 / PBS 20260929
+# is what the lock-pinned uv (0.12.21) installs for "3.12" (SP3); the sha256
+# values below match the release's own SHA256SUMS file (checked 2026-10-24).
+version = "3.12.14"
+pbs_release = "20260929"
+
+[python.linux-x86_64]
+url = "https://github.com/astral-sh/python-build-standalone/releases/download/20260929/cpython-3.12.14%2B20260929-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz"
+sha256 = "ef605200f8174e87ecfc308e52a88127543f85dd5c940dc5e92cab244b98a003"
+
+[python.windows-x86_64]
+url = "https://github.com/astral-sh/python-build-standalone/releases/download/20260929/cpython-3.12.14%2B20260929-x86_64-pc-windows-msvc-install_only_stripped.tar.gz"
+sha256 = "f38e68f4d612ade6dd50c894fc80b14c0be0c3b5201145d6fff5f20b9323204d"
+
+[uv]
+# The uv binary in the bundle is the `uv` wheel locked in uv.lock (agent extra):
+# its URL and sha256 are in uv.lock and `uv pip install --require-hashes` checks
+# them. The builder refuses to run unless the lock pins exactly this version.
+version = "0.12.21"
+source = "uv.lock"
+
+[nfpm]
+# Builds the .deb (D394). Not shipped; a build tool only.
+version = "2.48.0"
+
+[nfpm.linux-x86_64]
+url = "https://github.com/goreleaser/nfpm/releases/download/v2.48.0/nfpm_2.48.0_Linux_x86_64.tar.gz"
+sha256 = "6d7f9a28b2f397934403950fcbba83f598b08d02edbe79a0815b3b4897341750"
+
+[size_budget_mb]
+# Q17: enforced on the COMPRESSED download (decimal MB): the bundle's .tar.xz and
+# the .deb. On-disk size is recorded in BUILDINFO.json, not gated (SP3: agent
+# 298 MB on disk / 67 MB xz; controller 410 MB / 90 MB before PostgreSQL).
+agent = 100
+controller = 150

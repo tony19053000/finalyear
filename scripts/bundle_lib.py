@@ -2,8 +2,9 @@
 
 No subprocesses and no network: OS layouts, launcher text, the relocation
 rewrites (``#!`` lines, wheel ``RECORD`` rows, ``/install`` placeholders), the
-build-path leak scan and the manifest. Unit-tested on their own
-(``tests/unit/test_v017_sp3_bundle_lib.py``).
+build-path leak scan, the manifest (``MANIFEST.sha256`` + ``BUILDINFO.json``),
+the pins file and the reproducible ``.tar.xz``. Unit-tested on their own
+(``tests/unit/test_v017_sp3_bundle_lib.py``, ``tests/unit/test_v017_g1_bundle.py``).
 """
 
 from __future__ import annotations
@@ -13,15 +14,20 @@ import csv
 import hashlib
 import io
 import json
+import lzma
 import os
 import re
 import stat
+import tarfile
+import tomllib
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Final
 
-MANIFEST_NAME: Final = "MANIFEST.json"
+MANIFEST_NAME: Final = "MANIFEST.sha256"
+BUILDINFO_NAME: Final = "BUILDINFO.json"
+"""Read at run time by ``meshforge.common.buildinfo`` (same name there)."""
 MANIFEST_FORMAT: Final = 1
 PLACEHOLDER: Final = "/install"
 """python-build-standalone's build prefix, which uv replaces on install."""
@@ -321,12 +327,33 @@ def replace_in_text_files(root: Path, old: bytes, new: bytes) -> list[str]:
 
 
 # ------------------------------------------------------------------ manifest
+# Two files at the bundle root (V0.17 G1, brief §5a item 1):
+#
+# * ``BUILDINFO.json`` - what was built from what (version, git sha, lock digest,
+#   Python, ...); read at run time by ``meshforge.common.buildinfo``.
+# * ``MANIFEST.sha256`` - every regular file (``BUILDINFO.json`` included), in
+#   ``sha256sum`` format so ``sha256sum -c MANIFEST.sha256`` checks an installed
+#   bundle with no MeshForge code at all. What ``sha256sum`` cannot express
+#   (symlinks, empty directories, the executable bit) is recorded on ``#`` lines,
+#   which ``sha256sum -c`` ignores (even with ``--strict``).
+#
+# Same commit + same lock -> byte-identical ``MANIFEST.sha256`` (and therefore an
+# identical BUILDINFO.json, whose hash it contains).
+
+
 @dataclass(slots=True)
 class Manifest:
+    """Build facts (``meta`` -> BUILDINFO.json) + the tree (``files``)."""
+
     meta: dict[str, object]
     files: list[dict[str, object]] = field(default_factory=list)
 
+    def buildinfo_json(self) -> str:
+        doc = {**self.meta, "format": MANIFEST_FORMAT}
+        return json.dumps(doc, indent=1, sort_keys=True, ensure_ascii=True) + "\n"
+
     def to_json(self) -> str:
+        """Meta + files as one document (``--diff`` reports, tests)."""
         total = sum(int(str(f.get("size", 0))) for f in self.files)
         doc = {
             **self.meta,
@@ -335,6 +362,79 @@ class Manifest:
             "files": self.files,
         }
         return json.dumps(doc, indent=1, sort_keys=True, ensure_ascii=True) + "\n"
+
+
+_MANIFEST_HEADER: Final = (
+    f"# MeshForge bundle manifest, format {MANIFEST_FORMAT}. Check an installed copy "
+    f"with: sha256sum -c {MANIFEST_NAME}\n"
+    "# '#' lines are ignored by sha256sum; they record symlinks, empty directories "
+    "and executable files.\n"
+)
+
+
+def _manifest_path(path: str) -> str:
+    """Refuse names ``sha256sum`` would escape (backslash, newline)."""
+    if "\n" in path or "\\" in path or "\r" in path:
+        raise BundleError(
+            f"unsupported file name in the bundle: {path!r}", reason="bad_file"
+        )
+    return path
+
+
+def manifest_text(entries: Sequence[Mapping[str, object]]) -> str:
+    """``MANIFEST.sha256`` for ``entries`` (from :func:`scan_tree`). Canonical:
+    one order, one spelling, ``\\n`` line ends."""
+    files: list[str] = []
+    notes: list[str] = []
+    for entry in sorted(entries, key=lambda e: str(e["path"])):
+        path = _manifest_path(str(entry["path"]))
+        kind = entry["type"]
+        if kind == "file":
+            files.append(f"{entry['sha256']}  {path}\n")
+            if entry.get("mode") == "0755":
+                notes.append(f"#exec {path}\n")
+        elif kind == "symlink":
+            notes.append(f"#symlink {path} -> {_manifest_path(str(entry['target']))}\n")
+        elif kind == "dir":
+            notes.append(f"#dir {path}\n")
+    return _MANIFEST_HEADER + "".join(files) + "".join(notes)
+
+
+def parse_manifest_text(text: str) -> list[dict[str, object]]:
+    """The entries of a ``MANIFEST.sha256`` (sizes are not recorded there)."""
+    files: dict[str, dict[str, object]] = {}
+    others: list[dict[str, object]] = []
+    executable: set[str] = set()
+    for number, line in enumerate(text.splitlines(), 1):
+        if not line or line.startswith("# "):
+            continue
+        if line.startswith("#exec "):
+            executable.add(line[len("#exec ") :])
+        elif line.startswith("#symlink "):
+            path, sep, target = line[len("#symlink ") :].partition(" -> ")
+            if not sep:
+                raise BundleError(
+                    f"manifest line {number}: bad symlink", reason="bad_manifest"
+                )
+            others.append({"path": path, "type": "symlink", "target": target})
+        elif line.startswith("#dir "):
+            others.append({"path": line[len("#dir ") :], "type": "dir"})
+        elif len(line) > 66 and line[64:66] == "  ":
+            path = line[66:]
+            files[path] = {
+                "path": path,
+                "type": "file",
+                "sha256": line[:64],
+                "mode": "0644",
+            }
+        else:
+            raise BundleError(
+                f"manifest line {number}: not understood", reason="bad_manifest"
+            )
+    for path in executable:
+        if path in files:
+            files[path]["mode"] = "0755"
+    return sorted([*files.values(), *others], key=lambda e: str(e["path"]))
 
 
 def file_mode(st: os.stat_result) -> str:
@@ -389,43 +489,145 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def diff_manifests(a: Mapping[str, object], b: Mapping[str, object]) -> list[str]:
-    """Human-readable differences between two manifest documents (empty = same)."""
+_COMPARED: Final = ("type", "sha256", "mode", "target")
+"""Entry fields compared by diff/verify (``size`` is implied by ``sha256`` and is
+not in ``MANIFEST.sha256``)."""
+
+
+def diff_entries(
+    a: Sequence[Mapping[str, object]], b: Sequence[Mapping[str, object]]
+) -> list[str]:
+    """Human-readable differences between two entry lists (empty = same)."""
     out: list[str] = []
-    for key in sorted(set(a) | set(b)):
-        if key in {"files", "total_bytes"}:
-            continue
-        if a.get(key) != b.get(key):
-            out.append(f"meta {key}: {a.get(key)!r} != {b.get(key)!r}")
-    files_a = _by_path(a.get("files"))
-    files_b = _by_path(b.get("files"))
+    files_a = {str(e["path"]): e for e in a}
+    files_b = {str(e["path"]): e for e in b}
     for path in sorted(set(files_a) | set(files_b)):
         left, right = files_a.get(path), files_b.get(path)
         if left is None:
             out.append(f"only in second: {path}")
         elif right is None:
             out.append(f"only in first: {path}")
-        elif left != right:
-            fields = sorted(
-                k for k in set(left) | set(right) if left.get(k) != right.get(k)
-            )
-            out.append(f"differs: {path} ({', '.join(fields)})")
+        else:
+            fields = [k for k in _COMPARED if left.get(k) != right.get(k)]
+            if fields:
+                out.append(f"differs: {path} ({', '.join(fields)})")
     return out
 
 
-def _by_path(files: object) -> dict[str, dict[str, object]]:
-    if not isinstance(files, list):
-        return {}
-    return {str(f["path"]): f for f in files if isinstance(f, dict) and "path" in f}
+def diff_meta(a: Mapping[str, object], b: Mapping[str, object]) -> list[str]:
+    return [
+        f"meta {key}: {a.get(key)!r} != {b.get(key)!r}"
+        for key in sorted(set(a) | set(b))
+        if a.get(key) != b.get(key)
+    ]
 
 
-def verify_bundle(root: Path) -> list[str]:
-    """Differences between ``root`` and its ``MANIFEST.json`` (empty = intact)."""
+def read_manifest(root: Path) -> list[dict[str, object]]:
     try:
-        recorded = json.loads((root / MANIFEST_NAME).read_text(encoding="utf-8"))
-    except (OSError, ValueError) as exc:
+        text = (root / MANIFEST_NAME).read_text(encoding="utf-8")
+    except OSError as exc:
         raise BundleError(
             f"cannot read {MANIFEST_NAME}: {exc}", reason="no_manifest"
         ) from None
-    current = {**recorded, "files": scan_tree(root)}
-    return diff_manifests(recorded, current)
+    return parse_manifest_text(text)
+
+
+def verify_bundle(root: Path) -> list[str]:
+    """Differences between ``root`` and its ``MANIFEST.sha256`` (empty = intact)."""
+    return diff_entries(read_manifest(root), scan_tree(root))
+
+
+# --------------------------------------------------------------- pins
+@dataclass(frozen=True, slots=True)
+class Download:
+    """One pinned download: never "latest" (``packaging/pins.toml``)."""
+
+    name: str
+    version: str
+    url: str
+    sha256: str
+
+    @property
+    def file_name(self) -> str:
+        return self.url.rsplit("/", 1)[-1].replace("%2B", "+")
+
+
+def load_pins(path: Path) -> dict[str, object]:
+    try:
+        return tomllib.loads(path.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError) as exc:
+        raise BundleError(
+            f"cannot read pins {path}: {exc}", reason="bad_pins"
+        ) from None
+
+
+_SHA256: Final = re.compile(r"^[0-9a-f]{64}$")
+
+
+def pinned(pins: Mapping[str, object], section: str, target: str) -> Download:
+    """``[<section>.<target>]`` of the pins file as a :class:`Download`; refuses
+    a missing / malformed pin rather than guessing a URL."""
+    table = pins.get(section)
+    entry = table.get(target) if isinstance(table, dict) else None
+    version = table.get("version") if isinstance(table, dict) else None
+    if not isinstance(entry, dict):
+        raise BundleError(
+            f"packaging/pins.toml has no [{section}.{target}] (url + sha256)",
+            reason="bad_pins",
+        )
+    url, digest = entry.get("url"), entry.get("sha256")
+    version = entry.get("version", version)
+    if not (
+        isinstance(url, str)
+        and url.startswith("https://")
+        and isinstance(digest, str)
+        and _SHA256.match(digest)
+        and isinstance(version, str)
+        and "latest" not in url
+    ):
+        raise BundleError(
+            f"[{section}.{target}] needs version, an https url (not 'latest') and a "
+            "64-hex sha256",
+            reason="bad_pins",
+        )
+    return Download(section, version, url, digest)
+
+
+# ----------------------------------------------------------- the archive
+def deterministic_tar_xz(root: Path, out: Path, epoch: int, *, preset: int = 6) -> int:
+    """``root`` as ``<root.name>/...`` in a reproducible ``.tar.xz`` (sorted
+    entries, owner 0/0 with no names, every mtime ``epoch``, normalised modes);
+    returns its size. The size budget (Q17) is checked on this file."""
+
+    def normalise(info: tarfile.TarInfo) -> tarfile.TarInfo:
+        info.uid = info.gid = 0
+        info.uname = info.gname = ""
+        info.mtime = epoch
+        if info.isdir():
+            info.mode = 0o755
+        elif info.isfile():
+            info.mode = 0o755 if info.mode & 0o111 else 0o644
+        return info
+
+    paths = [
+        root,
+        *sorted(root.rglob("*"), key=lambda p: p.relative_to(root).as_posix()),
+    ]
+    with (
+        lzma.open(out, "wb", preset=preset, format=lzma.FORMAT_XZ) as xz,
+        tarfile.open(fileobj=xz, mode="w", format=tarfile.PAX_FORMAT) as tar,
+    ):
+        for path in paths:
+            arcname = (Path(root.name) / path.relative_to(root)).as_posix()
+            tar.add(path, arcname=arcname, recursive=False, filter=normalise)
+    return out.stat().st_size
+
+
+def check_size_budget(size: int, budget_mb: float, what: str) -> None:
+    limit = int(budget_mb * 1_000_000)
+    if size > limit:
+        raise BundleError(
+            f"{what} is {size / 1e6:.1f} MB, over the {budget_mb:g} MB "
+            "download budget (Q17); see the size table in lab/spikes/SP3.md",
+            reason="size_budget",
+        )

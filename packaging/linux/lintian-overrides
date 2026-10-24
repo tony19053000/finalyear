@@ -1,0 +1,39 @@
+# meshforge-agent lintian overrides (V0.17 G1). Every entry says why.
+#
+# D385: the bundled runtime lives in a versioned, read-only /opt/meshforge/<ver>
+# with a `current` pointer, so an upgrade is a pointer swap and a rollback is
+# possible; this is a self-contained third-party package, the case /opt exists for.
+meshforge-agent: dir-or-file-in-opt [*]
+
+# Everything below is about /opt/meshforge/<ver>/python: the D384 runtime bundle,
+# a python-build-standalone CPython plus the hash-pinned wheels from uv.lock,
+# shipped exactly as published (scripts/build_bundle.py). It is not a Debian
+# Python package and must not become one: the agent runs the interpreter it was
+# tested with, and every file is checked against MANIFEST.sha256.
+#
+# Pre-compiled, reproducible bytecode (unchecked-hash .pyc) is part of the
+# bundle: /opt is read-only for the service (ProtectSystem=strict), so Python
+# could never cache it at run time and every start would compile from source.
+meshforge-agent: package-installs-python-pycache-dir [opt/meshforge/*/python/*]
+# Upstream binaries as published: the wheels' sha256 are pinned in uv.lock and
+# checked on install; stripping or re-moding them would break that chain.
+meshforge-agent: unstripped-binary-or-object [opt/meshforge/*/python/*]
+meshforge-agent: shared-library-is-executable * [opt/meshforge/*/python/*]
+meshforge-agent: library-not-linked-against-libc [opt/meshforge/*/python/*]
+meshforge-agent: shared-library-lacks-prerequisites [opt/meshforge/*/python/*]
+meshforge-agent: hardening-no-pie [opt/meshforge/*/python/*]
+meshforge-agent: executable-not-elf-or-script [opt/meshforge/*/python/*]
+# D384: a self-contained runtime that does not depend on the distribution's
+# libraries (python-build-standalone links them statically; wheels vendor them).
+meshforge-agent: embedded-library * [opt/meshforge/*/python/*]
+# Standard-library and wheel modules that carry a #! line; the bundle brings its
+# own interpreter, so no python3 dependency is wanted (none of them is run by
+# their #! line).
+meshforge-agent: python3-script-but-no-python3-dep * [opt/meshforge/*/python/*]
+meshforge-agent: unusual-interpreter * [opt/meshforge/*/python/*]
+meshforge-agent: script-not-executable [opt/meshforge/*/python/*]
+# The console scripts are python-build-standalone's sh/Python polyglot launcher
+# ("exec" of the bundled interpreter on the second line, Python after it); sh
+# never reaches the Python part, which a whole-file `sh -n` cannot know. Same for
+# stdlib modules whose #! names /usr/local/bin/python.
+meshforge-agent: shell-script-fails-syntax-check [opt/meshforge/*/python/*]

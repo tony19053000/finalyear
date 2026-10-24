@@ -1,0 +1,133 @@
+#!/bin/sh
+# meshforge-agent postinst (V0.17 G1, D385-D387). Idempotent and re-runnable.
+#
+#  1. machine-wide state folders with their modes (D385);
+#  2. GPU device groups for the service user, if the groups exist (D386);
+#  3. identity + config migration from a per-user agent (D387): refusal leaves
+#     the package installed but the service NOT started, with the reason above
+#     (Q13: a failed dpkg state would be worse for a new user);
+#  4. enable the service + its path unit; a laptop that has not joined yet gets
+#     the join command (the path unit starts the service on the join);
+#  5. start (install) or restart (upgrade) an enrolled agent, then check that the
+#     service really is running before saying so.
+set -eu
+
+UNIT=meshforge-agent.service
+PATH_UNIT=meshforge-agent.path
+ENROLMENT=/var/lib/meshforge/identity/node.crt
+AGENT=/opt/meshforge/current/bin/meshforge-agent
+say() { printf 'meshforge-agent: %s\n' "$*"; }
+
+case "${1:-}" in
+configure) ;;
+abort-upgrade | abort-remove | abort-deconfigure) exit 0 ;;
+*) exit 0 ;;
+esac
+previous="${2:-}"
+# `apt remove` keeps the state (and dpkg then passes the last configured version
+# here as if this were an upgrade); prerm leaves this mark so a re-install is
+# treated as a fresh install: the units it disabled are enabled again.
+REMOVED_MARK=/var/lib/meshforge/.package-removed
+fresh=0
+if [ -z "$previous" ] || [ -e "$REMOVED_MARK" ]; then
+	fresh=1
+fi
+rm -f "$REMOVED_MARK"
+
+# 1. state folders (never loosened if an admin tightened them further)
+if [ ! -d /etc/meshforge ]; then
+	install -d -m 0755 -o root -g root /etc/meshforge
+fi
+if [ ! -d /var/lib/meshforge ]; then
+	install -d -m 0750 -o meshforge -g meshforge /var/lib/meshforge
+else
+	chown meshforge:meshforge /var/lib/meshforge
+fi
+
+# 2. GPU access (NVIDIA/DRM device nodes); Docker deliberately not (Q12)
+for group in video render; do
+	if getent group "$group" >/dev/null && ! id -nG meshforge | tr ' ' '\n' | grep -qx "$group"; then
+		usermod -a -G "$group" meshforge
+	fi
+done
+
+systemd_running=0
+if [ -d /run/systemd/system ]; then
+	systemd_running=1
+	systemctl daemon-reload
+fi
+
+# 3. migration (exit 4 = needs a decision; anything else non-zero = an error)
+rc=0
+"$AGENT" migrate-identity || rc=$?
+IDENTITY_KEY=/var/lib/meshforge/identity/node.key
+PENDING=/var/lib/meshforge/identity/migration.pending
+if [ "$rc" -ne 0 ]; then
+	if [ "$rc" -eq 4 ]; then
+		why="the identity migration above needs a decision"
+	else
+		why="the identity migration failed (exit $rc, see above)"
+	fi
+	if [ "$fresh" -eq 0 ] && [ -e "$IDENTITY_KEY" ] && [ ! -e "$PENDING" ]; then
+		# An upgrade of a service that has its own identity: nothing was moved
+		# into it, so the new version can run as before.
+		say "warning: $why; the service keeps its own identity and is restarted on the new version."
+	else
+		if [ "$fresh" -eq 1 ]; then
+			say "the agent service was NOT started: $why."
+		else
+			say "$why. A service that is running now keeps running the PREVIOUS version until it"
+			say "restarts (reboot, crash or systemctl restart); it then stays stopped until this is fixed."
+		fi
+		say "after fixing it: sudo meshforge-agent migrate-identity && sudo systemctl enable --now $UNIT $PATH_UNIT"
+		exit 0
+	fi
+fi
+
+if [ "$systemd_running" -ne 1 ]; then
+	say "systemd is not running here (container/chroot): service not started"
+	exit 0
+fi
+
+# 4. enable (install) and start; the service only runs once this laptop has
+#    joined (ConditionPathExists in the unit); meshforge-agent.path starts it
+#    on the join.
+if [ "$fresh" -eq 1 ]; then
+	systemctl enable "$UNIT" "$PATH_UNIT" >/dev/null 2>&1 || systemctl enable "$UNIT" "$PATH_UNIT"
+elif ! systemctl is-enabled --quiet "$UNIT"; then
+	say "upgraded; $UNIT is disabled, so it was left stopped (enable: sudo systemctl enable --now $UNIT $PATH_UNIT)"
+	exit 0
+fi
+systemctl restart "$PATH_UNIT" || say "warning: $PATH_UNIT did not start (the service will not start by itself after a join)"
+
+if [ ! -e "$ENROLMENT" ]; then
+	systemctl stop "$UNIT" 2>/dev/null || true
+	say "installed. This laptop has not joined a fabric yet. Join it with the code from"
+	say "the fabric admin:   sudo meshforge-agent join <code>"
+	say "The service starts by itself once the laptop has joined."
+	exit 0
+fi
+
+systemctl restart "$UNIT" || true
+
+# 5. say what is true: active for a few seconds, or not running (with why)
+state=inactive
+i=0
+while [ "$i" -lt 5 ]; do
+	sleep 1
+	state=$(systemctl is-active "$UNIT" 2>/dev/null || true)
+	[ "$state" = active ] || break
+	i=$((i + 1))
+done
+if [ "$state" = active ]; then
+	say "service $UNIT is running (logs: journalctl -u meshforge-agent)"
+else
+	say "service $UNIT is NOT running (state: $state); see: journalctl -u meshforge-agent -n 50"
+fi
+
+if getent group docker >/dev/null && ! id -nG meshforge | tr ' ' '\n' | grep -qx docker; then
+	say "docker: no access for the service (the docker group is root-equivalent, so it is not added by default)."
+	say "to let jobs use Docker: sudo usermod -aG docker meshforge && sudo systemctl restart $UNIT"
+fi
+
+exit 0

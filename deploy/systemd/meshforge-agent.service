@@ -1,5 +1,10 @@
 # MeshForge node agent - systemd **user** unit (dev, roadmap 0.3.13).
 #
+# DEVELOPMENT ONLY since V0.17 G1: a laptop that runs MeshForge for real installs
+# the meshforge-agent .deb (system service, packaging/linux/; OPERATIONS §2). Do
+# not run both: installing the package migrates this unit's identity and
+# disables the unit.
+#
 # Install it yourself; nothing in this repository writes to your service manager:
 #
 #   mkdir -p ~/.config/systemd/user

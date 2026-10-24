@@ -1,0 +1,31 @@
+#!/bin/sh
+# meshforge-agent prerm (V0.17 G1): stop and disable the service on remove; on
+# upgrade it keeps running until postinst restarts it on the new version.
+set -eu
+
+UNITS="meshforge-agent.path meshforge-agent.service"
+
+case "${1:-}" in
+remove | deconfigure)
+	# The state stays on remove; postinst sees this mark on a re-install. Also on
+	# `deconfigure` (dpkg deconfigures this package for a conflicting/breaking
+	# one, then later runs `postinst configure <old-version>`): the units are
+	# disabled below either way, so the next configure must count as a fresh
+	# install and enable them again - which is what the mark makes it do.
+	if [ -d /var/lib/meshforge ]; then
+		: >/var/lib/meshforge/.package-removed
+	fi
+	# the path unit first, so it cannot start the service again
+	if [ -d /run/systemd/system ]; then
+		# shellcheck disable=SC2086 # two unit names
+		systemctl stop $UNITS || true
+	fi
+	# disable works without a running systemd too (it only removes the links)
+	# shellcheck disable=SC2086
+	systemctl disable $UNITS >/dev/null 2>&1 || true
+	;;
+upgrade | failed-upgrade) ;;
+*) ;;
+esac
+
+exit 0

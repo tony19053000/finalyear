@@ -1,7 +1,7 @@
 # CI for MeshForge (roadmap 0.1.10).
 #
 # Jobs:  lint · types · unit (Linux + Windows) · component (Linux) ·
-#        cluster (Linux) · fresh-clone (Linux + Windows) · ci-ok
+#        cluster (Linux) · fresh-clone (Linux + Windows) · package-linux · ci-ok
 # Branch protection on `main` should require ONLY the `ci-ok` check: it passes
 # iff every other job passed, so adding/renaming jobs never needs a settings change.
 #
@@ -244,11 +244,78 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+  # V0.17 G1 (D384, D394, Q16): the agent bundle + .deb, built from this commit
+  # and installed for real: lintian, ldd, reproducibility, then the package
+  # tests in clean Ubuntu 22.04/24.04 systemd containers (install, migration,
+  # restart/kill/exit codes, upgrade, remove, purge + lab/verify_uninstall.py)
+  # and the packaged agent joining a real fabric and running a venv job. The
+  # .deb files are uploaded with every run.
+  package-linux:
+    name: package-linux (bundle + .deb, Ubuntu systemd containers)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: ${{ env.UV_PYTHON }}
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      # agent: the lock-pinned uv wheel the bundle ships; controller: the
+      # cluster harness of the join test.
+      - run: uv sync --locked --extra controller --extra agent
+      - name: cache pinned downloads (python-build-standalone, nfpm, wheels)
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: ~/.cache/meshforge-bundle
+          key: meshforge-bundle-${{ hashFiles('packaging/pins.toml', 'uv.lock') }}
+      - name: build the agent bundle
+        run: uv run python scripts/build_bundle.py --role agent --out dist/
+      - name: build the .deb (revision 1, and 2 for the upgrade test)
+        run: |
+          bundle=$(ls -d dist/meshforge-*-linux-x86_64)
+          uv run python scripts/build_deb.py --bundle "$bundle" --out dist/
+          uv run python scripts/build_deb.py --bundle "$bundle" --out dist/ --revision 2
+      - name: the .deb is reproducible
+        run: |
+          bundle=$(ls -d dist/meshforge-*-linux-x86_64)
+          uv run python scripts/build_deb.py --bundle "$bundle" --out dist/again/
+          cmp dist/meshforge-agent_*-1_amd64.deb dist/again/meshforge-agent_*-1_amd64.deb
+      - name: lintian (errors fail)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq lintian
+          lintian --version
+          lintian --fail-on error --tag-display-limit 0 dist/meshforge-agent_*-1_amd64.deb
+      - name: package tests (systemd containers, real fabric)
+        env:
+          MESHFORGE_TEST_DEB_DIR: dist
+        run: >-
+          uv run python scripts/pytest_exit_guard.py --run-slow
+          tests/component/packaging tests/cluster/test_v017_g1_deb_service.py
+          --junitxml=reports/junit-package-linux.xml
+      - name: upload packages
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: package-linux
+          path: |
+            dist/*.deb
+            dist/*.deb.sha256
+            dist/*.tar.xz
+            dist/meshforge-*-linux-x86_64/BUILDINFO.json
+            reports/
+          if-no-files-found: error
+          retention-days: 14
+
   # Single required status check for branch protection.
   ci-ok:
     name: ci-ok
     if: ${{ always() }}
-    needs: [lint, types, unit, component, cluster, fresh-clone]
+    needs: [lint, types, unit, component, cluster, fresh-clone, package-linux]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
