@@ -67,6 +67,7 @@ __all__ = [
     "format_overlay",
     "not_enforced_caps",
     "parse_assignments",
+    "parse_overlay",
     "policy_path",
     "read_overlay",
     "startup_policy",
@@ -195,6 +196,14 @@ def read_overlay(path: Path) -> dict[str, Any] | None:
         if exc.reason is PrivateFileReason.MISSING:
             return None
         raise ConfigError(exc.message, details={"reason": exc.reason.value}) from None
+    return parse_overlay(raw, path)
+
+
+def parse_overlay(raw: bytes, path: Path) -> dict[str, Any]:
+    """The keys of live-file content already read (``path`` names it in
+    errors); :class:`ConfigError` when it is not a table of :data:`LIVE_KEYS`.
+    Used by :func:`read_overlay` and the V0.17 identity migration (which reads
+    a user's file through ``safe_source``, never by path)."""
     try:
         data = tomllib.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, tomllib.TOMLDecodeError) as exc:

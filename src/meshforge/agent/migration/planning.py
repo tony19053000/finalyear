@@ -28,6 +28,7 @@ from meshforge.agent.migration.model import (
     MigrationOutcome,
     MigrationPlan,
     Paths,
+    PolicyPlan,
 )
 from meshforge.agent.migration.safe_source import (
     ReadFile,
@@ -37,6 +38,7 @@ from meshforge.agent.migration.safe_source import (
     read_file,
     read_files,
 )
+from meshforge.agent.policy import POLICY_FILE_NAME
 from meshforge.common.errors import IdentityError, MeshForgeError
 
 
@@ -171,23 +173,17 @@ def _strings(value: object) -> Iterable[str]:
             yield from _strings(item)
 
 
-def check_config(path: Path) -> str | None:
-    """``None`` if ``path`` may become the service's config, else why not.
+def check_config_bytes(raw: bytes, path: Path) -> str | None:
+    """``None`` if ``raw`` (the content of ``path``, already read through
+    :mod:`~meshforge.agent.migration.safe_source`) may become the service's
+    config, else why not.
 
     The same settings model validates it (section keys are already strict);
     unknown *top-level* keys are refused here rather than silently dropped, and
     so are values naming a home directory (the service cannot read ``/home``:
     ``ProtectHome=yes``) and ``data_dir`` (the service's state lives in
-    ``/var/lib/meshforge``)."""
-    try:
-        raw = path.read_bytes()
-    except OSError as exc:
-        return f"cannot read {path} as TOML: {exc}"
-    return check_config_bytes(raw, path)
-
-
-def check_config_bytes(raw: bytes, path: Path) -> str | None:
-    """:func:`check_config` on content already read (``path`` names it)."""
+    ``/var/lib/meshforge``). There is deliberately no path-based variant: root
+    never reads a user's file except through ``safe_source``."""
     from meshforge.agent.settings import AgentSettings
 
     try:
@@ -327,6 +323,7 @@ def plan(
     result.config = _plan_config(paths, config_from, source, sudo_user, home_of)
     if result.config.action == "refused":
         return _blocked_config(result)
+    result.policy = plan_policy(paths, source, uid)
     return result
 
 
@@ -406,6 +403,39 @@ def _plan_config(
     if problem is not None:
         return ConfigPlan(source, "refused", problem)
     return ConfigPlan(source, "copy", uid=uid)
+
+
+def policy_problem(raw: bytes, path: Path) -> str | None:
+    """``None`` if ``raw`` (a user's ``policy.toml``) is a valid live owner
+    policy: the agent's own parser and validator (``agent.policy``), on the
+    default base. The service re-validates it against its real configuration
+    and fails closed if that combination is not valid."""
+    from meshforge.agent.policy import effective_settings, parse_overlay
+    from meshforge.agent.settings import PolicySettings
+
+    try:
+        effective_settings(PolicySettings(), parse_overlay(raw, path))
+    except MeshForgeError as exc:
+        return exc.message
+    return None
+
+
+def plan_policy(paths: Paths, identity_source: Path, uid: int) -> PolicyPlan:
+    """The owner policy beside ``identity_source`` (``<user data dir>/policy.toml``),
+    read through ``safe_source`` and validated; only ever a note when refused."""
+    source = identity_source.parent / POLICY_FILE_NAME
+    if not os.path.lexists(source):
+        return PolicyPlan()
+    if os.path.lexists(paths.target_policy):
+        return PolicyPlan(source, "kept")
+    try:
+        found = read_source_config(source, uid)
+    except UnsafeSourceError as exc:
+        return PolicyPlan(source, "refused", str(exc))
+    problem = policy_problem(found.data, source)
+    if problem is not None:
+        return PolicyPlan(source, "refused", problem)
+    return PolicyPlan(source, "copy", uid=uid)
 
 
 def read_source_config(source: Path, uid: int) -> ReadFile:

@@ -15,6 +15,7 @@ from meshforge.agent.identity import (
     ROTATION_KEY_FILE_NAME,
     NodeIdentity,
 )
+from meshforge.agent.policy import POLICY_FILE_NAME
 from meshforge.agent.settings import IDENTITY_DIR_NAME
 from meshforge.common.config import CONFIG_FILE_NAME, InstallMode, platform_dirs
 from meshforge.common.exit_codes import ExitCode
@@ -51,6 +52,12 @@ class Paths:
     target_config: Path
     home_root: Path = Path("/home")
 
+    @property
+    def target_policy(self) -> Path:
+        """The service's live owner policy: ``<data_dir>/policy.toml``, beside
+        the identity folder (``agent.policy.policy_path``)."""
+        return self.target_identity.parent / POLICY_FILE_NAME
+
 
 def system_paths() -> Paths:
     dirs = platform_dirs(mode=InstallMode.SYSTEM)
@@ -79,6 +86,20 @@ class ConfigPlan:
 
 
 @dataclass(slots=True)
+class PolicyPlan:
+    """The owner's live policy (``policy.toml``, G1 follow-up a): it moves with
+    the identity it belongs to; a refused one is only a note (the service then
+    starts with the safe default - it accepts no jobs - and the owner sets it
+    again in the console)."""
+
+    source: Path | None = None
+    action: str = "none"
+    """``none`` (no source), ``kept`` (target exists), ``copy``, ``refused``."""
+    problem: str | None = None
+    uid: int | None = None
+
+
+@dataclass(slots=True)
 class MigrationPlan:
     outcome: MigrationOutcome
     paths: Paths
@@ -91,6 +112,7 @@ class MigrationPlan:
     source_uid: int | None = None
     """The uid ``source`` / ``leftover_source`` must belong to (``safe_source``)."""
     config: ConfigPlan = field(default_factory=ConfigPlan)
+    policy: PolicyPlan = field(default_factory=PolicyPlan)
     problems: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
 
@@ -123,6 +145,12 @@ class MigrationReport:
                 "target": str(p.paths.target_config),
                 "action": p.config.action,
                 "problem": p.config.problem,
+            },
+            "policy": {
+                "source": str(p.policy.source) if p.policy.source else None,
+                "target": str(p.paths.target_policy),
+                "action": p.policy.action,
+                "problem": p.policy.problem,
             },
             "problems": list(p.problems),
             "notes": list(p.notes),
@@ -172,6 +200,22 @@ class MigrationReport:
             out.append(
                 f"  config: {p.paths.target_config} already exists; "
                 f"{p.config.source} left as is"
+            )
+        if p.policy.action == "copy":
+            out.append(
+                f"  owner policy: {'would copy' if self.dry_run else 'copied'} "
+                f"{p.policy.source} -> {p.paths.target_policy}"
+            )
+        elif p.policy.action == "kept" and p.policy.source is not None:
+            out.append(
+                f"  owner policy: {p.paths.target_policy} already exists; "
+                f"{p.policy.source} left as is"
+            )
+        elif p.policy.action == "refused":
+            out.append(
+                f"  owner policy: not migrated ({p.policy.problem}); the service "
+                "accepts no jobs until the owner sets it again (MeshForge console "
+                "-> Settings, or `meshforge-agent policy set`)"
             )
         return out
 
