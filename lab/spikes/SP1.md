@@ -74,6 +74,7 @@ console case). **G4 should build on `winservice*.py`.**
 | 40097151170 | fail (prepare) | the bundle copied `.venv`'s interpreter → `prepare` uses `uv python find --system` from outside the checkout (e554d13e) |
 | 40097330471 | 11/14 | **real bug:** on exit 4 the agent child died at interpreter shutdown with `Fatal Python error: _enter_buffered_busy: could not acquire lock for <_io.BufferedReader name='<stdin>'>` (exit `0xC0000005`), so the host saw a crash and the SCM restarted it 3×. The stop-watcher daemon thread was blocked in a *buffered* `sys.stdin.buffer.read`, holding the reader lock the shutdown flush needs. Reproduced on Linux too (SIGABRT). Fix: the watcher reads fd 0 **unbuffered**; new component test `test_the_real_agent_refusing_its_config_exits_4_not_a_shutdown_crash` fails before, passes after. Two driver bugs: `node.key` DACL read needs `SeBackupPrivilege` (the key is owner-only by design), and the probe's `whoami` was read from the wrong key (e0c74308) |
 | 40097983450 | **14/14 PASS** | — |
+| 40098434410 | **14/14 PASS** | repeat on the verdict commit (fresh runner) — same result |
 
 ## 4. Not provable on a CI runner → 🧑 lab step (before G4 is closed)
 
