@@ -106,7 +106,10 @@ import time
 import pytest
 
 
-@pytest.mark.timeout(3, method="{method}")
+# func_only: the 3 s start once the test holds the DB (after READY). Counting
+# setup too, a loaded runner's Postgres container start alone overran it, so
+# the child timed out before READY (D399, CI run 40134875847).
+@pytest.mark.timeout(3, method="{method}", func_only=True)
 def test_hold_db_past_timeout(pg_settings):
     print("{_READY}", flush=True)
     time.sleep(60)
