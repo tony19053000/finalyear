@@ -120,3 +120,4 @@ mlruns/
 # ---------- Dashboard build output (V0.8, D169) ----------
 # Built by `cd frontend && npm run build`; shipped in the wheel as an artifact.
 /src/meshforge/controller/web/dist/
+/src/meshforge/agent/console/dist/

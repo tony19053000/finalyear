@@ -7123,6 +7123,12 @@
             ],
             "title": "Cpu Percent"
           },
+          "display_name": {
+            "default": "",
+            "description": "The name the laptop's owner gave it in the agent's local console (V0.17 G3); empty = none, show the hostname.",
+            "title": "Display Name",
+            "type": "string"
+          },
           "first_seen_at": {
             "$ref": "#/components/schemas/Utc"
           },
@@ -7572,6 +7578,12 @@
               }
             ],
             "title": "Cpu Percent"
+          },
+          "display_name": {
+            "default": "",
+            "description": "The name the laptop's owner gave it in the agent's local console (V0.17 G3); empty = none, show the hostname.",
+            "title": "Display Name",
+            "type": "string"
           },
           "gpus": {
             "default": [],
