@@ -101,9 +101,18 @@ def _settings_paths(config: Path | None) -> tuple[Path, int]:
         SYSTEM_CONSOLE_TOKEN_DIR,
         AgentSettings,
     )
-    from meshforge.common.config import InstallMode, install_mode
+    from meshforge.common.config import INSTALL_MODE_ENV_VAR, InstallMode, install_mode
     from meshforge.common.errors import MeshForgeError
 
+    if (
+        config is None
+        and sys.platform == "linux"
+        and not os.environ.get(INSTALL_MODE_ENV_VAR)
+        and SYSTEM_CONSOLE_TOKEN_DIR.is_dir()
+    ):
+        # Typed in a terminal (the menu entry sets the mode itself): the system
+        # service's token folder exists, so that is the agent to open.
+        os.environ[INSTALL_MODE_ENV_VAR] = InstallMode.SYSTEM.value
     try:
         settings = AgentSettings.load(config, agent={"discovery": {"enabled": True}})
     except (MeshForgeError, OSError) as exc:
