@@ -435,6 +435,11 @@ def test_no_real_username_anywhere_in_the_document(
 
     user = getpass.getuser()
     text = json.dumps(real_machine_json)
+    # The (legitimately kept) hostname may contain the user name (CI: user
+    # `runner`, host `runnervm...`): blank it out, as the SSID check does.
+    hostname = str(real_machine_json.get("hostname") or "")
+    if hostname:
+        text = text.replace(hostname, "")
     assert user not in text, f"real username {user!r} leaked into inventory output"
     assert user not in text.lower()
 

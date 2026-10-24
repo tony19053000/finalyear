@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import getpass
 import json
+import socket
 import subprocess
 import sys
 import time
@@ -285,6 +286,8 @@ def test_real_quick_run_output_has_no_home_path_or_username(tmp_path: Path) -> N
     text = files[0].read_text(encoding="utf-8")
     assert home not in text, f"home directory leaked into the S7 JSON: {home!r}"
     if user and len(user) > 2:  # skip trivially short usernames (false positives)
+        # The hostname may contain the user name (CI: `runner` / `runnervm...`).
+        text = text.replace(socket.gethostname(), "")
         assert user not in text, f"username leaked into the S7 JSON: {user!r}"
     assert home not in proc.stderr
     out = tmp_path / "r.md"

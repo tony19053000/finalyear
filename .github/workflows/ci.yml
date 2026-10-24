@@ -138,6 +138,8 @@ jobs:
       # multi-GB CUDA wheel on Linux; the few torch-only test modules skip with
       # the reason). The no-extras install is covered by the fresh-clone job.
       - run: uv sync --locked --extra controller --extra agent --extra ml
+      # `-o junit_family=xunit1` (all pytest steps): record_property, used by
+      # the bench component tests, is incompatible with the xunit2 default.
       # Explicit (not via pytest markers) so proto generation determinism is
       # checked on Windows too (V0.1 criterion 4: identical output across OSes).
       - name: generated protos up to date
@@ -146,7 +148,7 @@ jobs:
         if: ${{ !cancelled() }}
         # Through the exit guard: a green summary with a non-zero exit (e.g. a
         # segfault at interpreter shutdown) is named as such in the log.
-        run: uv run python scripts/pytest_exit_guard.py -m unit --junitxml=reports/junit-unit-${{ matrix.os }}.xml
+        run: uv run python scripts/pytest_exit_guard.py -m unit -o junit_family=xunit1 --junitxml=reports/junit-unit-${{ matrix.os }}.xml
       - name: upload junit report
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -171,6 +173,13 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # The agent's env builder looks for a *system* Python 3.12 (`uv python
+      # find --system`, with UV_* stripped from its environment), so the
+      # setup-uv managed interpreter is invisible to it; ubuntu-latest's own
+      # python3 is not 3.12.
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ env.UV_PYTHON }}
       - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           version: ${{ env.UV_VERSION }}
@@ -184,7 +193,7 @@ jobs:
       # Postgres comes from testcontainers; Ryuk (enabled by default) reaps
       # containers even if the test process dies.
       - name: pytest -m component (one shard)
-        run: uv run python scripts/pytest_exit_guard.py -m component --shard ${{ matrix.shard }}/8 --junitxml=reports/junit-component-${{ matrix.shard }}.xml
+        run: uv run python scripts/pytest_exit_guard.py -m component --shard ${{ matrix.shard }}/8 -o junit_family=xunit1 --junitxml=reports/junit-component-${{ matrix.shard }}.xml
       - name: upload junit report
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -209,6 +218,13 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # The agent's env builder looks for a *system* Python 3.12 (`uv python
+      # find --system`, with UV_* stripped from its environment), so the
+      # setup-uv managed interpreter is invisible to it; ubuntu-latest's own
+      # python3 is not 3.12.
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ env.UV_PYTHON }}
       - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           version: ${{ env.UV_VERSION }}
@@ -220,7 +236,7 @@ jobs:
       - name: docker info
         run: docker info --format '{{.ServerVersion}} {{.OperatingSystem}}'
       - name: pytest -m cluster
-        run: uv run python scripts/pytest_exit_guard.py -m cluster --junitxml=reports/junit-cluster.xml
+        run: uv run python scripts/pytest_exit_guard.py -m cluster -o junit_family=xunit1 --junitxml=reports/junit-cluster.xml
       - name: upload junit report
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -261,7 +277,7 @@ jobs:
           uv run --no-sync meshforge-agent --help
       - name: pytest -m unit (no extras)
         if: ${{ !cancelled() }}
-        run: uv run --no-sync python scripts/pytest_exit_guard.py -m unit --junitxml=reports/junit-fresh-clone-${{ matrix.os }}.xml
+        run: uv run --no-sync python scripts/pytest_exit_guard.py -m unit -o junit_family=xunit1 --junitxml=reports/junit-fresh-clone-${{ matrix.os }}.xml
       - name: upload junit report
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
