@@ -35,6 +35,12 @@ Rules (ADR-0013 §6):
   process is waiting on would let two processes own it. A lock still held after
   the bounded wait is an :class:`IdentityError`.
 * Key material is never logged, never in ``repr`` and never in an exception.
+* **Pending migration (V0.17 G1, D387).** ``migrate-identity`` (``agent/migration.py``)
+  writes ``migration.pending`` into the machine-wide identity directory while it
+  copies a per-user identity in, and leaves it there when it had to refuse (two
+  candidates, a corrupt one). While that file exists :func:`load_or_create`
+  refuses - even on an empty directory - so the service never mints a new
+  ``node_id`` while an old identity waits to be migrated.
 
 **Key rotation (V0.7 G4, D140).** ``meshforge-agent rotate-key`` only *stages*
 a new key (``node.key.next``, private, under the lock); the running agent (or
@@ -84,6 +90,7 @@ __all__ = [
     "KEY_FILE_NAME",
     "LOCK_FILE_NAME",
     "MAX_SESSION_EPOCH",
+    "MIGRATION_PENDING_FILE_NAME",
     "NODE_CERT_FILE_NAME",
     "ROTATION_DIR_NAME",
     "ROTATION_KEY_FILE_NAME",
@@ -94,6 +101,7 @@ __all__ = [
     "load_or_create",
     "locked_identity",
     "next_epoch",
+    "read_identity",
     "reset",
     "stage_rotation_key",
     "staged_rotation_key",
@@ -113,6 +121,9 @@ ROTATION_DIR_NAME: Final = ".rotation"
 """V0.7 G4: the rotation journal (module docstring)."""
 _COMMIT_MARKER: Final = "COMMIT"
 LOCK_FILE_NAME: Final = "identity.lock"
+MIGRATION_PENDING_FILE_NAME: Final = "migration.pending"
+"""V0.17 G1: an identity migration into this directory is in progress or was
+refused (module docstring); never mint while it exists."""
 IDENTITY_FORMAT: Final = 1
 DEFAULT_LOCK_TIMEOUT_S: Final = 10.0
 MAX_SESSION_EPOCH: Final = 2**64 - 1
@@ -163,6 +174,7 @@ def load_or_create(
     _ensure_dir(directory)
 
     with _locked(directory, lock_timeout_s):
+        _refuse_pending_migration(directory)
         # State is decided *inside* the lock (double-check): whatever we saw
         # before acquiring it may have been changed by the process that held it.
         has_key, has_json = key_path.exists(), json_path.exists()
@@ -193,6 +205,39 @@ def load_or_create(
         session_epoch=identity.session_epoch,
     )
     return identity
+
+
+def read_identity(directory: Path) -> NodeIdentity:
+    """Load the identity in ``directory`` **read-only**: no lock taken, nothing
+    created, swept or recovered (V0.17 G1 migration inspects other users'
+    identities this way before deciding anything). Raises :class:`IdentityError`
+    when there is no identity, a partial one, or a corrupt / unprotected one."""
+    directory = Path(directory)
+    key_path = directory / KEY_FILE_NAME
+    json_path = directory / JSON_FILE_NAME
+    has_key, has_json = key_path.exists(), json_path.exists()
+    if not has_key and not has_json:
+        raise IdentityError("no identity here", directory, "check the path")
+    if has_key != has_json:
+        missing = json_path if has_key else key_path
+        raise IdentityError(
+            f"partial identity: {missing.name} is missing but its companion exists",
+            missing,
+            _REMEDY,
+        )
+    return _load(directory, key_path, json_path)
+
+
+def _refuse_pending_migration(directory: Path) -> None:
+    marker = directory / MIGRATION_PENDING_FILE_NAME
+    if marker.exists():
+        raise IdentityError(
+            "an identity migration into this directory is unfinished or was "
+            "refused, so no identity is loaded or minted here",
+            marker,
+            "run `sudo meshforge-agent migrate-identity` and follow what it prints "
+            "(it names the identity to keep, or why it stopped)",
+        )
 
 
 def next_epoch(

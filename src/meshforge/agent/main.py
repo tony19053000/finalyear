@@ -10,6 +10,8 @@ Commands::
     meshforge-agent hardware score [--config FILE] [--json] [--force]
     meshforge-agent prepare [--config FILE] [--base NAME]... [--timeout S] [--json]
     meshforge-agent policy show|set KEY=VALUE...|reset [--config FILE]   (V0.7 G5)
+    meshforge-agent migrate-identity [--from DIR] [--config-from FILE] [--dry-run]
+                                                               (V0.17 G1, root)
 
 Everything beyond ``--version``/``--help`` is imported inside the command so the
 module runs on a base install (no agent extra). ``run`` itself needs only core
@@ -381,6 +383,101 @@ def identity_reset(
         typer.echo(f"{PROG_NAME}: {exc}", err=True)
         raise typer.Exit(exc.exit_code) from None
     typer.echo(f"identity reset: {settings.identity_dir}")
+
+
+@app.command("migrate-identity")
+def migrate_identity(
+    from_dir: Annotated[
+        Path | None,
+        typer.Option(
+            "--from",
+            help="The per-user identity folder to move (default: $SUDO_USER's, "
+            "else the only one under /home). Use it when several were found.",
+            file_okay=False,
+        ),
+    ] = None,
+    config_from: Annotated[
+        Path | None,
+        typer.Option(
+            "--config-from",
+            help="The config.toml to move (default: the same user's).",
+            dir_okay=False,
+        ),
+    ] = None,
+    dry_run: Annotated[
+        bool, typer.Option("--dry-run", help="Print the plan; write nothing.")
+    ] = False,
+    as_json: Annotated[
+        bool, typer.Option("--json", help="Machine-readable output.")
+    ] = False,
+    root_dir: Annotated[
+        Path | None,
+        typer.Option("--root-dir", hidden=True, help="Tests: prefix for / paths."),
+    ] = None,
+    service_user: Annotated[
+        str,
+        typer.Option("--service-user", hidden=True, help="Tests: '' = no chown."),
+    ] = "meshforge",
+) -> None:
+    """Move this laptop's per-user identity + config to the system service
+    (V0.17 G1, D387) - the node keeps its node_id. Run as root; the package
+    runs it on install. Refuses (exit 4, nothing changed) when the choice is
+    not clear, and says what to do."""
+    import os
+    import sys
+
+    from meshforge.agent.migration import Paths, migrate
+    from meshforge.common.config import CONFIG_FILE_NAME
+    from meshforge.common.errors import MeshForgeError
+    from meshforge.common.logging import configure_logging
+
+    configure_logging("WARNING", fmt="console", component="agent")
+    if sys.platform != "linux":
+        typer.echo(
+            f"{PROG_NAME}: migrate-identity is Linux-only for now (the Windows "
+            "installer migrates on its own)",
+            err=True,
+        )
+        raise typer.Exit(ExitCode.NOT_IMPLEMENTED)
+    if not dry_run and service_user and os.geteuid() != 0:
+        typer.echo(
+            f"{PROG_NAME}: migrate-identity changes machine-wide files: run it with "
+            "sudo (or add --dry-run to only see the plan)",
+            err=True,
+        )
+        raise typer.Exit(ExitCode.FAILURE)
+    paths = None
+    if root_dir is not None:
+        paths = Paths(
+            target_identity=root_dir / "var/lib/meshforge/identity",
+            target_config=root_dir / "etc/meshforge" / CONFIG_FILE_NAME,
+            home_root=root_dir / "home",
+        )
+    try:
+        report = migrate(
+            explicit=from_dir,
+            config_from=config_from,
+            dry_run=dry_run,
+            paths=paths,
+            service_user=service_user or None,
+            sudo_user=os.environ.get("SUDO_USER"),
+        )
+    except MeshForgeError as exc:
+        typer.echo(f"{PROG_NAME}: {exc}", err=True)
+        raise typer.Exit(exc.exit_code) from None
+    except OSError as exc:
+        typer.echo(
+            f"{PROG_NAME}: migration failed on {exc.filename or 'a file'}: "
+            f"{exc.strerror or exc}; nothing was committed - re-run it",
+            err=True,
+        )
+        raise typer.Exit(ExitCode.FAILURE) from None
+    if as_json:
+        typer.echo(json.dumps(report.as_dict(), indent=2, sort_keys=True))
+    else:
+        for line in report.lines():
+            typer.echo(line)
+    raise typer.Exit(report.exit_code)
 
 
 def _discover_facts(settings: AgentSettings) -> HardwareFacts:
