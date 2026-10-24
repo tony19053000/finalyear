@@ -13,7 +13,9 @@ from pathlib import Path
 
 from meshforge.agent.identity import (
     JSON_FILE_NAME,
+    KEY_FILE_NAME,
     MIGRATION_PENDING_FILE_NAME,
+    NODE_CERT_FILE_NAME,
     NodeIdentity,
     read_identity,
 )
@@ -101,7 +103,31 @@ def identity_from(files: Mapping[str, ReadFile], source: Path) -> NodeIdentity:
                 where,
                 exc.remedy.replace(tmp, str(source)),
             ) from None
+        _check_enrolment(identity, source, tmp)
     return dataclasses.replace(identity, path=source)
+
+
+def _check_enrolment(identity: NodeIdentity, source: Path, scratch: str) -> None:
+    """An enrolled identity moves only with a usable enrolment: ``node.crt``
+    parses, was issued by ``ca.crt`` (present, a CA), holds this key and names
+    this node - the agent's own check (``enrollment.load``). Never enrolled (no
+    ``node.crt``) is fine: the service joins later."""
+    from meshforge.agent.enrollment import JoinError, load
+
+    try:
+        load(identity)
+    except JoinError as exc:
+        problem = exc.message.replace(scratch, str(source)).split("; re-join:")[0]
+        # "the enrolment in <dir> is unusable (<reason>: <detail>)" -> the part
+        # in brackets (the directory is named by the caller already)
+        if " is unusable (" in problem:
+            problem = problem.split(" is unusable (", 1)[1].removesuffix(")")
+        raise IdentityError(
+            f"its enrolment is unusable ({problem})",
+            source / NODE_CERT_FILE_NAME,
+            "repair it (copy back the node.crt and ca.crt from a backup), or move "
+            f"{source} aside if this laptop should start as a NEW node",
+        ) from None
 
 
 def read_source_identity(source: Path, uid: int) -> NodeIdentity:
@@ -230,21 +256,33 @@ def plan(
             )
         others = [c for c in candidates if c not in same]
         for other in others:
+            refusal = _explicit_problem(other)
+            if refusal is not None:
+                result.notes.append(f"{other}: {refusal}; nothing to migrate")
+                continue
+            other_id = _peek_node_id(other, paths.home_root)
+            held = (
+                f"another identity ({other_id})"
+                if other_id
+                else "an identity that cannot be read safely (or is damaged)"
+            )
             result.notes.append(
-                f"{other} holds another identity "
-                f"({_peek_node_id(other, paths.home_root) or 'unreadable'}) and "
-                "was left as is; the service keeps the one it has"
+                f"{other} holds {held} and was left as is; the service keeps the "
+                "one it has"
             )
         result.config = _plan_config(paths, config_from, None, sudo_user, home_of)
         _note_refused_config(result)
         return result
 
-    if explicit is not None and not explicit.is_dir():
-        return _blocked(
-            paths,
-            [f"--from {explicit}: no such directory"],
-            "give the identity folder (it holds node.key and node.json)",
-        )
+    if explicit is not None:
+        refusal = _explicit_problem(explicit)
+        if refusal is not None:
+            return _blocked(
+                paths,
+                [f"--from {explicit}: {refusal}"],
+                "give the identity folder (it holds node.key and node.json), e.g. "
+                "/home/<user>/.local/share/meshforge/identity",
+            )
     if not candidates:
         result = MigrationPlan(MigrationOutcome.NOTHING_TO_MIGRATE, paths)
         result.config = _plan_config(paths, config_from, None, sudo_user, home_of)
@@ -290,6 +328,18 @@ def plan(
     if result.config.action == "refused":
         return _blocked_config(result)
     return result
+
+
+def _explicit_problem(explicit: Path) -> str | None:
+    if not os.path.lexists(explicit):
+        return "no such directory"
+    if not explicit.is_dir():
+        return "not a directory"
+    if not any(
+        os.path.lexists(explicit / name) for name in (KEY_FILE_NAME, JSON_FILE_NAME)
+    ):
+        return "not a MeshForge identity directory (it holds no node.key or node.json)"
+    return None
 
 
 def _note_refused_config(result: MigrationPlan) -> None:

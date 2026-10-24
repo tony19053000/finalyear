@@ -385,6 +385,13 @@ def identity_reset(
     typer.echo(f"identity reset: {settings.identity_dir}")
 
 
+def _nonempty_path(value: str) -> Path:
+    """An empty path would silently mean the current folder: refuse it."""
+    if not value.strip():
+        raise typer.BadParameter("must not be empty (give the folder or file)")
+    return Path(value).absolute()
+
+
 @app.command("migrate-identity")
 def migrate_identity(
     from_dir: Annotated[
@@ -393,7 +400,8 @@ def migrate_identity(
             "--from",
             help="The per-user identity folder to move (default: $SUDO_USER's, "
             "else the only one under /home). Use it when several were found.",
-            file_okay=False,
+            parser=_nonempty_path,
+            metavar="DIR",
         ),
     ] = None,
     config_from: Annotated[
@@ -401,7 +409,8 @@ def migrate_identity(
         typer.Option(
             "--config-from",
             help="The config.toml to move (default: the same user's).",
-            dir_okay=False,
+            parser=_nonempty_path,
+            metavar="FILE",
         ),
     ] = None,
     dry_run: Annotated[

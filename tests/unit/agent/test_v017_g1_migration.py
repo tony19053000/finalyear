@@ -65,9 +65,10 @@ def _user_identity(
 ) -> NodeIdentity:
     directory = tmp_path / "home" / user / ".local/share/meshforge/identity"
     identity = load_or_create(directory)
-    if enrolled:
-        (directory / NODE_CERT_FILE_NAME).write_bytes(b"cert-of-" + user.encode())
-        (directory / CA_CERT_FILE_NAME).write_bytes(b"ca")
+    if enrolled:  # a real enrolment: the migration validates it (spec §5a item 6)
+        from mf_fabric import enroll_identity
+
+        enroll_identity(identity)
     return identity
 
 
@@ -109,6 +110,9 @@ def test_one_valid_identity_moves_with_its_node_id(tmp_path: Path) -> None:
     paths = _paths(tmp_path)
     original = _user_identity(tmp_path, "asha", enrolled=True)
     source = original.path
+    certs = {
+        n: (source / n).read_bytes() for n in (NODE_CERT_FILE_NAME, CA_CERT_FILE_NAME)
+    }
     assert _run(paths) is MigrationOutcome.MIGRATED
 
     moved = load_or_create(paths.target_identity)
@@ -116,8 +120,8 @@ def test_one_valid_identity_moves_with_its_node_id(tmp_path: Path) -> None:
         original.node_id,
         original.fingerprint,
     )
-    assert (paths.target_identity / NODE_CERT_FILE_NAME).read_bytes() == b"cert-of-asha"
-    assert (paths.target_identity / CA_CERT_FILE_NAME).read_bytes() == b"ca"
+    for name, data in certs.items():
+        assert (paths.target_identity / name).read_bytes() == data
     assert not (paths.target_identity / MIGRATION_PENDING_FILE_NAME).exists()
     assert oct(paths.target_identity.stat().st_mode & 0o777) == "0o700"
     for name in (KEY_FILE_NAME, JSON_FILE_NAME, NODE_CERT_FILE_NAME):
@@ -505,3 +509,88 @@ def test_read_identity_is_read_only(tmp_path: Path) -> None:
     assert _snapshot(identity.path) == before  # no lock file created
     with pytest.raises(IdentityError, match="no identity"):
         read_identity(tmp_path / "empty")
+
+
+# ------------------------------------------------- enrolment + --from (fix 1)
+
+
+def _garbage_cert(directory: Path) -> None:
+    (directory / NODE_CERT_FILE_NAME).write_bytes(b"junk\n")
+
+
+def _missing_ca(directory: Path) -> None:
+    (directory / CA_CERT_FILE_NAME).unlink()
+
+
+def _cert_of_another_node(directory: Path) -> None:
+    from mf_fabric import enroll_identity
+
+    other = load_or_create(directory.parent / "other")
+    enroll_identity(other)
+    shutil.copy(other.path / NODE_CERT_FILE_NAME, directory / NODE_CERT_FILE_NAME)
+    shutil.rmtree(other.path)
+
+
+@pytest.mark.parametrize("damage", [_garbage_cert, _missing_ca, _cert_of_another_node])
+def test_an_unusable_enrolment_blocks_and_is_untouched(
+    tmp_path: Path, damage: object
+) -> None:
+    """Spec §5a item 6: a corrupt candidate (here its enrolment) is refused."""
+    paths = _paths(tmp_path)
+    identity = _user_identity(tmp_path, "asha", enrolled=True)
+    damage(identity.path)  # type: ignore[operator]
+    before = _snapshot(tmp_path / "home")
+    chosen = plan(paths)
+    execute(chosen, owner=_NO_OWNER, today=_TODAY)
+    assert chosen.outcome is MigrationOutcome.BLOCKED
+    text = "\n".join(chosen.problems)
+    assert "enrolment is unusable" in text and str(identity.path) in text
+    assert "/tmp/meshforge-migrate-" not in text + "\n".join(chosen.notes)
+    assert _snapshot(tmp_path / "home") == before
+    _assert_cannot_mint(paths)
+
+
+def test_a_never_enrolled_identity_still_moves(tmp_path: Path) -> None:
+    paths = _paths(tmp_path)
+    original = _user_identity(tmp_path, "asha")
+    assert not (original.path / NODE_CERT_FILE_NAME).exists()
+    assert _run(paths) is MigrationOutcome.MIGRATED
+
+
+@pytest.mark.parametrize(
+    ("make", "words"),
+    [
+        (lambda d: d / "nope", "no such directory"),
+        (lambda d: d / "file", "not a directory"),
+        (lambda d: d / "empty", "not a MeshForge identity directory"),
+    ],
+)
+def test_a_bad_from_is_named_precisely(
+    tmp_path: Path, make: object, words: str
+) -> None:
+    paths = _paths(tmp_path)
+    (tmp_path / "file").write_text("x", encoding="utf-8")
+    (tmp_path / "empty").mkdir()
+    chosen = plan(paths, explicit=make(tmp_path))  # type: ignore[operator]
+    assert chosen.outcome is MigrationOutcome.BLOCKED
+    assert words in "\n".join(chosen.problems)
+
+
+def test_a_non_identity_from_next_to_a_service_identity_says_so(
+    tmp_path: Path,
+) -> None:
+    paths = _paths(tmp_path)
+    load_or_create(paths.target_identity)
+    (tmp_path / "empty").mkdir()
+    chosen = plan(paths, explicit=tmp_path / "empty")
+    assert chosen.outcome is MigrationOutcome.TARGET_PRESENT
+    notes = "\n".join(chosen.notes)
+    assert "not a MeshForge identity directory" in notes and "unreadable" not in notes
+
+
+@pytest.mark.parametrize("flag", ["--from", "--config-from"])
+def test_cli_refuses_an_empty_path(tmp_path: Path, flag: str) -> None:
+    base = ["migrate-identity", "--root-dir", str(tmp_path), "--service-user", ""]
+    result = CliRunner().invoke(app, [*base, "--dry-run", flag, ""])
+    assert result.exit_code == 2, result.output
+    assert "must not be empty" in result.output

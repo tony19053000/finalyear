@@ -69,9 +69,9 @@ def _paths(tmp_path: Path) -> Paths:
 def _identity(tmp_path: Path, user: str = "asha") -> NodeIdentity:
     directory = tmp_path / "home" / user / ".local/share/meshforge/identity"
     identity = load_or_create(directory)
-    (directory / NODE_CERT_FILE_NAME).write_bytes(b"cert")
-    (directory / NODE_CERT_FILE_NAME).chmod(0o600)
-    (directory / CA_CERT_FILE_NAME).write_bytes(b"ca")
+    from mf_fabric import enroll_identity
+
+    enroll_identity(identity)  # real node.crt + ca.crt (both validated)
     return identity
 
 

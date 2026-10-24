@@ -35,7 +35,9 @@ fi
 rm -f "$REMOVED_MARK"
 
 # 1. state folders (never loosened if an admin tightened them further)
-install -d -m 0755 -o root -g root /etc/meshforge
+if [ ! -d /etc/meshforge ]; then
+	install -d -m 0755 -o root -g root /etc/meshforge
+fi
 if [ ! -d /var/lib/meshforge ]; then
 	install -d -m 0750 -o meshforge -g meshforge /var/lib/meshforge
 else
