@@ -30,7 +30,10 @@ Statuses (:data:`REPLAY_STATUSES`):
 * ``no_replay`` - the row stored no replay (before V0.14, or too large);
 * ``replay_unreadable`` - the stored replay cannot be decoded.
 
-A database failure raises :class:`DecisionReplayError` (retryable).
+A database failure raises :class:`DecisionReplayError` (retryable); so does
+a model set load that takes longer than ``load_timeout_s``
+(``[controller.planner] ml_replay_load_timeout_s``, G6a fix r1 N1: the
+worker thread never waits on the event loop without a bound).
 :func:`compare` and :func:`replay_stored` are pure.
 """
 
@@ -41,7 +44,7 @@ import json
 import math
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, Final
+from typing import Any, Final, Literal
 
 from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
@@ -62,7 +65,9 @@ from meshforge.controller.store.engine import create_session_factory
 from meshforge.controller.store.models.plan import PlanDecision
 
 __all__ = [
+    "DEFAULT_LOAD_TIMEOUT_S",
     "DIFFERS",
+    "LOAD_TIMEOUT",
     "MAX_DIFFERENCES",
     "NO_REPLAY",
     "REPLAY_STATUSES",
@@ -71,6 +76,7 @@ __all__ = [
     "DecisionReplay",
     "DecisionReplayError",
     "DecisionReplayer",
+    "ReplayStatus",
     "StoredDecision",
     "compare",
     "json_differences",
@@ -78,11 +84,17 @@ __all__ = [
     "replay_stored",
 ]
 
+type ReplayStatus = Literal[
+    "reproduced", "differs", "ml_model_unavailable", "no_replay", "replay_unreadable"
+]
+"""What a replay can answer (= :data:`REPLAY_STATUSES`; the route's
+response type)."""
+
 REPRODUCED: Final = "reproduced"
 DIFFERS: Final = "differs"
 NO_REPLAY: Final = "no_replay"
 REPLAY_UNREADABLE: Final = "replay_unreadable"
-REPLAY_STATUSES: Final = (
+REPLAY_STATUSES: Final[tuple[ReplayStatus, ...]] = (
     REPRODUCED,
     DIFFERS,
     ML_MODEL_UNAVAILABLE,
@@ -92,6 +104,11 @@ REPLAY_STATUSES: Final = (
 MAX_DIFFERENCES: Final = 20
 """Differing paths listed at most (the first ones, in document order)."""
 _MAX_VALUE_CHARS: Final = 80
+DEFAULT_LOAD_TIMEOUT_S: Final = 60.0
+"""``[controller.planner] ml_replay_load_timeout_s`` default."""
+LOAD_TIMEOUT: Final = "load_timeout"
+"""``DecisionReplayError.details["cause"]`` of a model set load over its
+bound."""
 _DB_ERRORS: Final = (SQLAlchemyError, OSError, TimeoutError)
 
 
@@ -124,8 +141,7 @@ class DecisionReplay:
     job_id: str
     outcome: str
     policy: str
-    status: str
-    """One of :data:`REPLAY_STATUSES`."""
+    status: ReplayStatus
     ml_model_version: str | None
     """The model set the stored decision was planned with (None = none)."""
     stored_chosen_node_id: str | None
@@ -207,7 +223,7 @@ def _version(stored: StoredDecision) -> str | None:
 
 
 def _unplanned(
-    stored: StoredDecision, status: str, ml_model_version: str | None
+    stored: StoredDecision, status: ReplayStatus, ml_model_version: str | None
 ) -> DecisionReplay:
     return DecisionReplay(
         decision_id=stored.decision_id,
@@ -226,7 +242,14 @@ def compare(stored: StoredDecision, result: ReplayResult) -> DecisionReplay:
     """The verdict on one re-planned decision (module docstring)."""
     decision = result.decision
     if decision is None:
-        return _unplanned(stored, result.status, result.ml_model_version)
+        # not re-planned: the model set is gone (the only such answer today);
+        # anything else unexpected reads as an unreadable replay
+        status: ReplayStatus = (
+            ML_MODEL_UNAVAILABLE
+            if result.status == ML_MODEL_UNAVAILABLE
+            else REPLAY_UNREADABLE
+        )
+        return _unplanned(stored, status, result.ml_model_version)
     found = json_differences(
         {"candidates": _normal(list(stored.candidates))},
         {"candidates": _normal(candidates_json(decision))},
@@ -312,19 +335,35 @@ class DecisionReplayer:
     """The production caller of :func:`~.replay.replay_decision` (module
     docstring). One per controller."""
 
-    def __init__(self, engine: AsyncEngine, loader: RegistryLoader) -> None:
+    def __init__(
+        self,
+        engine: AsyncEngine,
+        loader: RegistryLoader,
+        *,
+        load_timeout_s: float = DEFAULT_LOAD_TIMEOUT_S,
+    ) -> None:
         self._engine = engine
         self._loader = loader
+        self._load_timeout_s = load_timeout_s
 
     async def replay(self, decision_id: int) -> DecisionReplay | None:
         """None = no such decision. :class:`DecisionReplayError` when the
-        database fails (the row read or a model set read)."""
+        database fails (the row read or a model set read) or a model set
+        load runs longer than ``load_timeout_s`` (``details.cause`` =
+        ``load_timeout``)."""
         stored = await read_decision(self._engine, decision_id)
         if stored is None:
             return None
-        load = self._loader.blocking(asyncio.get_running_loop())
+        load = self._loader.blocking(
+            asyncio.get_running_loop(), timeout_s=self._load_timeout_s
+        )
         try:
             return await asyncio.to_thread(replay_stored, stored, load)
+        except TimeoutError as exc:
+            raise DecisionReplayError(
+                f"loading the model set took longer than {self._load_timeout_s:g} s",
+                details={"cause": LOAD_TIMEOUT},
+            ) from exc
         except MlRegistryError as exc:
             raise DecisionReplayError(
                 "the model set read failed in the database",

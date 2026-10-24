@@ -119,11 +119,13 @@ class RegistryLoader:
         return built
 
     def blocking(
-        self, loop: asyncio.AbstractEventLoop
+        self, loop: asyncio.AbstractEventLoop, *, timeout_s: float | None = None
     ) -> Callable[[str], MlInput | None]:
         """A synchronous ``load`` for a worker thread (module docstring).
         Calling it on ``loop``'s own thread would deadlock: it raises
-        ``RuntimeError`` instead."""
+        ``RuntimeError`` instead. With ``timeout_s`` a load still running
+        after that long is cancelled and raises ``TimeoutError`` (the worker
+        thread never waits on the loop without a bound; None = no bound)."""
 
         def load(version: str) -> MlInput | None:
             try:
@@ -134,6 +136,11 @@ class RegistryLoader:
                 raise RuntimeError(
                     "RegistryLoader.blocking() must be called from a worker thread"
                 )
-            return asyncio.run_coroutine_threadsafe(self.load(version), loop).result()
+            future = asyncio.run_coroutine_threadsafe(self.load(version), loop)
+            try:
+                return future.result(timeout_s)
+            except TimeoutError:
+                future.cancel()
+                raise
 
         return load

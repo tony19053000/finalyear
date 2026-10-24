@@ -11,7 +11,8 @@ Nothing is stored and no model is trained here: ``compute planner ml
 classify`` fetches the document and trains + evaluates the classifiers in
 the ``ml`` child on the operator's machine (report only - a classifier is
 never wired into the planner). Unknown campaign -> 404; too many records ->
-400 ``invalid_input``; database down -> 503 ``network_error``.
+400 ``invalid_input``; database down -> 503 ``network_error``; over
+``[controller.planner] ml_classifier_timeout_s`` -> 504 ``timeout``.
 """
 
 from __future__ import annotations
@@ -30,6 +31,7 @@ from meshforge.controller.api.planner_eval_models import MAX_EVAL_CAMPAIGNS
 from meshforge.controller.calibration_store import CalibrationStoreError
 from meshforge.controller.planner_eval.classifier_service import (
     ClassifierExamplesService,
+    ClassifierTimeoutError,
 )
 from meshforge.controller.planner_eval.loader import EvalLoadError, EvalTooLargeError
 from meshforge.controller.planner_eval.service import EvalNotFoundError
@@ -138,6 +140,8 @@ async def post_classifier_examples(
         raise ApiError(FailureType.NOT_FOUND, str(exc)) from None
     except EvalTooLargeError as exc:
         raise ApiError(FailureType.INVALID_INPUT, str(exc)) from None
+    except ClassifierTimeoutError as exc:
+        raise ApiError(FailureType.TIMEOUT, exc.message) from None
     except (EvalLoadError, CalibrationStoreError):
         raise ApiError(
             FailureType.NETWORK_ERROR,

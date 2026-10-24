@@ -176,10 +176,12 @@ class _Loader:
     async def load(self, version: str) -> Any:
         return self.ml if version == self.ml.version else None
 
-    def blocking(self, loop: asyncio.AbstractEventLoop) -> Any:
+    def blocking(
+        self, loop: asyncio.AbstractEventLoop, *, timeout_s: float | None = None
+    ) -> Any:
         from meshforge.controller.ml.registry_loader import RegistryLoader
 
-        return RegistryLoader.blocking(self, loop)  # type: ignore[arg-type]
+        return RegistryLoader.blocking(self, loop, timeout_s=timeout_s)  # type: ignore[arg-type]
 
 
 @pytest.mark.asyncio

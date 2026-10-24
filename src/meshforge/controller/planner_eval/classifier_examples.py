@@ -41,7 +41,7 @@ from __future__ import annotations
 import dataclasses
 import math
 from collections import Counter
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Final, cast
 
@@ -339,11 +339,14 @@ def build_examples(
     groups: Sequence[EvalGroup],
     records: Sequence[EvalRecord],
     calibrations: Mapping[str, CalibrationChoice],
+    *,
+    check: Callable[[], None] | None = None,
 ) -> tuple[list[Example], dict[str, int]]:
     """``(examples, counts)``: one example per usable labelled group, in
     ``(campaign, group)`` order; ``counts`` = groups by why they have none
     (``not_labelled``, ``no_positive_median``, ``no_replay``) and records
-    skipped by reason (``record:<reason>``)."""
+    skipped by reason (``record:<reason>``). ``check`` runs before every
+    group and may raise to stop the build (the service's time budget)."""
     by_group: dict[tuple[str, str], list[EvalRecord]] = {}
     for record in records:
         by_group.setdefault((record.campaign_id, record.group_id), []).append(record)
@@ -351,6 +354,8 @@ def build_examples(
     counts: Counter[str] = Counter()
     skipped: Counter[str] = Counter()
     for group in sorted(groups, key=lambda g: (g.campaign_id, g.group_id)):
+        if check is not None:
+            check()
         mine = sorted(
             by_group.get((group.campaign_id, group.group_id), []),
             key=lambda r: (r.config_id, r.repetition, r.attempt_id),

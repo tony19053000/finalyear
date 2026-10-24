@@ -932,10 +932,17 @@ class ControllerRuntime:
                     calibration_store,
                     calibration_config(cfg.planner),
                     max_rows=self.settings.controller.telemetry.export_max_rows,
+                    timeout_s=cfg.planner.ml_classifier_timeout_s,
                 )
             ),
             # V0.15 G6a (D364): re-plan a stored decision with its model set
-            decision_replay=DecisionReplayApi(DecisionReplayer(engine, ml_sets)),
+            decision_replay=DecisionReplayApi(
+                DecisionReplayer(
+                    engine,
+                    ml_sets,
+                    load_timeout_s=cfg.planner.ml_replay_load_timeout_s,
+                )
+            ),
         )
         http_config = uvicorn.Config(
             http_app,

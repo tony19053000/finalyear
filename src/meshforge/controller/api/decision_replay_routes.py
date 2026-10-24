@@ -10,14 +10,15 @@ compares the candidates field for field
 (:mod:`meshforge.controller.ml.decision_replay`). Status ``reproduced`` /
 ``differs`` (with the first differing paths) / ``ml_model_unavailable`` (the
 set is gone: **never** silently re-planned with calibration) /
-``no_replay`` / ``replay_unreadable``. Unknown id -> 404; database down ->
+``no_replay`` / ``replay_unreadable``. Unknown id -> 404; database down (or a
+model set load over ``ml_replay_load_timeout_s``) ->
 503 ``network_error``. ``compute planner replay ID`` calls this route.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Annotated, Final, Literal
+from typing import Annotated, Final
 
 from fastapi import APIRouter, Depends, Path, Request
 
@@ -27,14 +28,17 @@ from meshforge.controller.api.auth import AdminUser
 from meshforge.controller.api.errors import ApiError
 from meshforge.controller.api.models import ApiModel
 from meshforge.controller.ml.decision_replay import (
+    LOAD_TIMEOUT,
     DecisionReplayer,
     DecisionReplayError,
+    ReplayStatus,
 )
 
 __all__ = [
     "DECISION_REPLAY_STATE_KEY",
     "DecisionReplayApi",
     "DecisionReplayOut",
+    "ReplayStatus",
     "decision_replay_router",
 ]
 
@@ -43,11 +47,6 @@ log = get_logger(__name__)
 DECISION_REPLAY_STATE_KEY: Final = "meshforge_decision_replay"
 
 decision_replay_router = APIRouter(prefix="/v1", tags=["planner"])
-
-type ReplayStatus = Literal[
-    "reproduced", "differs", "ml_model_unavailable", "no_replay", "replay_unreadable"
-]
-"""``ml/decision_replay.REPLAY_STATUSES`` (a unit test holds the two equal)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,10 +94,11 @@ async def get_decision_replay(
 ) -> DecisionReplayOut:
     try:
         found = await api.replayer.replay(decision_id)
-    except DecisionReplayError:
+    except DecisionReplayError as exc:
+        slow = exc.details.get("cause") == LOAD_TIMEOUT
         raise ApiError(
             FailureType.NETWORK_ERROR,
-            "the database is unavailable; retry",
+            f"{exc.message}; retry" if slow else "the database is unavailable; retry",
             headers={"Retry-After": "2"},
         ) from None
     if found is None:
@@ -117,7 +117,7 @@ async def get_decision_replay(
         job_id=found.job_id,
         outcome=found.outcome,
         policy=found.policy,
-        status=found.status,  # type: ignore[arg-type]
+        status=found.status,
         ml_model_version=found.ml_model_version,
         stored_chosen_node_id=found.stored_chosen_node_id,
         replayed_chosen_node_id=found.replayed_chosen_node_id,

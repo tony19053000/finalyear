@@ -695,6 +695,28 @@ class PlannerSettings(SectionModel):
             "eval waits this default plus 600 s."
         ),
     )
+    ml_classifier_timeout_s: float = Field(
+        default=900.0,
+        ge=1.0,
+        le=86_400.0,
+        description=(
+            "V0.15 G6a (D375, fix r1 N2): total time one classifier examples "
+            "build (POST /v1/planner/ml/classifier-examples, compute planner ml "
+            "classify) may take, waiting for another build included. Over it "
+            "the build stops and the request answers 504 timeout; nothing is "
+            "stored either way."
+        ),
+    )
+    ml_replay_load_timeout_s: float = Field(
+        default=60.0,
+        ge=1.0,
+        le=3600.0,
+        description=(
+            "V0.15 G6a (D364, fix r1 N1): a decision replay (compute planner "
+            "replay) waits at most this long for its model set to load; over "
+            "it the request answers 503 (retry)."
+        ),
+    )
     ml_min_rows: int = Field(
         default=200,
         ge=1,

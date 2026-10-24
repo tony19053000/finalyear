@@ -16,17 +16,25 @@ The document is **not** stored: ``compute planner ml classify`` trains and
 evaluates the classifiers on it in the ``ml`` child on the operator's
 machine (like ``compute planner ml compare`` on the dataset). One build at a
 time per controller.
+
+**Time budget** (G6a fix r1 N2, like the evaluator's ``ml_eval_timeout_s``):
+one call may take ``timeout_s`` (``[controller.planner]
+ml_classifier_timeout_s``) in total - waiting for another build included.
+Over it, :class:`ClassifierTimeoutError` (504 ``timeout``): the lock wait and
+the database reads are cancelled, the re-planning thread stops at its next
+group (it is never abandoned while still running, so builds never overlap).
 """
 
 from __future__ import annotations
 
 import asyncio
 import time
-from collections.abc import Sequence
-from typing import Any
+from collections.abc import Callable, Sequence
+from typing import Any, Final
 
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from meshforge.common.errors import ExitCode, FailureType, MeshForgeError
 from meshforge.common.logging import get_logger
 from meshforge.controller.calibration_store import CalibrationStore
 from meshforge.controller.planner.calibration import CalibrationConfig
@@ -42,9 +50,29 @@ from meshforge.controller.planner_eval.loader import (
 )
 from meshforge.controller.planner_eval.service import EvalNotFoundError
 
-__all__ = ["ClassifierExamplesService", "families_of"]
+__all__ = [
+    "DEFAULT_TIMEOUT_S",
+    "ClassifierExamplesService",
+    "ClassifierTimeoutError",
+    "families_of",
+]
 
 log = get_logger(__name__)
+
+DEFAULT_TIMEOUT_S: Final = 900.0
+"""``[controller.planner] ml_classifier_timeout_s`` default."""
+
+
+class ClassifierTimeoutError(MeshForgeError):
+    """The build ran past its time budget (``details.phase`` = ``lock_wait``
+    | ``load`` | ``build``)."""
+
+    default_failure_type = FailureType.TIMEOUT
+    exit_code = ExitCode.UNAVAILABLE
+
+
+class _ExpiredError(Exception):
+    """Raised by the build's ``check`` once the budget is spent."""
 
 
 def families_of(inputs: EvalInputs) -> dict[str, frozenset[str]]:
@@ -69,37 +97,94 @@ class ClassifierExamplesService:
         calibration_config: CalibrationConfig,
         *,
         max_rows: int,
+        timeout_s: float = DEFAULT_TIMEOUT_S,
+        monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
         self._engine = engine
         self._calibrations = calibrations
         self._calibration_config = calibration_config
         self._max_rows = max_rows
+        self._timeout_s = timeout_s
+        self._monotonic = monotonic
         self._lock = asyncio.Lock()
+
+    def _expired(self, phase: str, ids: Sequence[str]) -> ClassifierTimeoutError:
+        log.warning(
+            "controller.planner.classifier_examples_timeout",
+            campaign_ids=list(ids),
+            phase=phase,
+            timeout_s=self._timeout_s,
+        )
+        what = (
+            "another classifier examples build is still running"
+            if phase == "lock_wait"
+            else "the classifier examples build did not finish"
+        )
+        return ClassifierTimeoutError(
+            f"{what} after {self._timeout_s:g} s "
+            "([controller.planner] ml_classifier_timeout_s); retry later or "
+            "use fewer campaigns",
+            details={"phase": phase, "timeout_s": self._timeout_s},
+        )
 
     async def document(
         self, campaign_ids: Sequence[str], *, user_id: str | None = None
     ) -> dict[str, Any]:
         """The examples document. Raises :class:`~.service.EvalNotFoundError`,
         :class:`~.loader.EvalTooLargeError`, :class:`~.loader.EvalLoadError`,
-        :class:`~meshforge.controller.calibration_store.CalibrationStoreError`."""
-        started = time.monotonic()
+        :class:`~meshforge.controller.calibration_store.CalibrationStoreError`,
+        :class:`ClassifierTimeoutError` (module docstring)."""
+        started = self._monotonic()
+        deadline = started + self._timeout_s
         ids = sorted(set(campaign_ids))
-        async with self._lock:
-            missing = await missing_campaigns(self._engine, ids)
-            if missing:
-                raise EvalNotFoundError(
-                    "no such campaign: " + ", ".join(missing),
-                    details={"campaign_ids": missing},
-                )
-            inputs = await load_campaigns(self._engine, ids, max_rows=self._max_rows)
+
+        def left() -> float:
+            return max(deadline - self._monotonic(), 0.0)
+
+        def check() -> None:
+            if self._monotonic() >= deadline:
+                raise _ExpiredError
+
+        try:
+            await asyncio.wait_for(self._lock.acquire(), left())
+        except TimeoutError:
+            raise self._expired("lock_wait", ids) from None
+        try:
+            try:
+                async with asyncio.timeout(left()):
+                    missing = await missing_campaigns(self._engine, ids)
+                    if missing:
+                        raise EvalNotFoundError(
+                            "no such campaign: " + ", ".join(missing),
+                            details={"campaign_ids": missing},
+                        )
+                    inputs = await load_campaigns(
+                        self._engine, ids, max_rows=self._max_rows
+                    )
+                    runs = await self._calibrations.matched_runs(
+                        self._calibration_config
+                    )
+            except TimeoutError:
+                raise self._expired("load", ids) from None
             families = families_of(inputs)
-            runs = await self._calibrations.matched_runs(self._calibration_config)
+            # the threads are awaited to the end (never abandoned): the
+            # refit is one fit per family, the build checks before every group
             choices = await asyncio.to_thread(
                 refit_choices, runs, families, self._calibration_config
             )
-            examples, counts = await asyncio.to_thread(
-                build_examples, inputs.groups, inputs.records, choices
-            )
+            try:
+                check()
+                examples, counts = await asyncio.to_thread(
+                    build_examples,
+                    inputs.groups,
+                    inputs.records,
+                    choices,
+                    check=check,
+                )
+            except _ExpiredError:
+                raise self._expired("build", ids) from None
+        finally:
+            self._lock.release()
         log.info(
             "controller.planner.classifier_examples",
             user_id=user_id,
@@ -107,7 +192,7 @@ class ClassifierExamplesService:
             groups=counts.get("groups", 0),
             examples=len(examples),
             families=len({e.family for e in examples}),
-            took_s=round(time.monotonic() - started, 3),
+            took_s=round(self._monotonic() - started, 3),
         )
         return examples_document(
             examples, counts, campaign_ids=ids, calibrations=choices
