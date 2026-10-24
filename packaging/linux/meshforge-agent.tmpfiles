@@ -1,0 +1,6 @@
+# MeshForge node agent - the local console's access token folder (V0.17 G3, D391).
+# Installed as /usr/lib/tmpfiles.d/meshforge-agent.conf; created at every boot
+# (and by the package's postinst). Set-group-id: the token file the service
+# writes here inherits meshforge-admin, so the service and members of that group
+# (the laptop's owners) can read it - nobody else.
+d /run/meshforge-console 2750 meshforge meshforge-admin -

@@ -1,0 +1,17 @@
+[Desktop Entry]
+Type=Application
+Version=1.5
+Name=MeshForge
+GenericName=Compute fabric
+Comment=Join a MeshForge fabric and choose what this computer shares
+Exec=env MESHFORGE_INSTALL_MODE=system /usr/bin/meshforge-console-open
+Icon=meshforge
+Terminal=false
+Categories=Network;System;
+Keywords=fabric;cluster;GPU;compute;
+StartupNotify=false
+Actions=docker-access;
+
+[Desktop Action docker-access]
+Name=Give Docker access
+Exec=env MESHFORGE_INSTALL_MODE=system /usr/bin/meshforge-console-open --docker-access

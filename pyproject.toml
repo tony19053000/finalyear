@@ -204,7 +204,11 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/meshforge"]
 # V0.8 (D169): the built dashboard is git-ignored but belongs in the wheel.
-artifacts = ["src/meshforge/controller/web/dist/**"]
+# V0.17 G3 (D391): so is the agent's local console UI.
+artifacts = [
+    "src/meshforge/controller/web/dist/**",
+    "src/meshforge/agent/console/dist/**",
+]
 
 # ---------------------------------------------------------------------------
 # Import boundaries (roadmap 0.1.4, ARCHITECTURE §21). Run: `uv run lint-imports`.

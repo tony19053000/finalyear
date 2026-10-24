@@ -6,15 +6,16 @@
 #  3. identity + config migration from a per-user agent (D387): refusal leaves
 #     the package installed but the service NOT started, with the reason above
 #     (Q13: a failed dpkg state would be worse for a new user);
-#  4. enable the service + its path unit; a laptop that has not joined yet gets
-#     the join command (the path unit starts the service on the join);
-#  5. start (install) or restart (upgrade) an enrolled agent, then check that the
-#     service really is running before saying so.
+#  4. the local console (V0.17 G3, D391): the token folder (tmpfiles.d) and the
+#     installing user in meshforge-admin (so the app-menu entry works for them);
+#  5. enable and start (install) or restart (upgrade) the service - it always
+#     runs; a laptop that has not joined yet joins from its console - then check
+#     that it really is running before saying so.
 set -eu
 
 UNIT=meshforge-agent.service
-PATH_UNIT=meshforge-agent.path
 ENROLMENT=/var/lib/meshforge/identity/node.crt
+ADMIN_GROUP=meshforge-admin
 AGENT=/opt/meshforge/current/bin/meshforge-agent
 say() { printf 'meshforge-agent: %s\n' "$*"; }
 
@@ -79,9 +80,29 @@ if [ "$rc" -ne 0 ]; then
 			say "$why. A service that is running now keeps running the PREVIOUS version until it"
 			say "restarts (reboot, crash or systemctl restart); it then stays stopped until this is fixed."
 		fi
-		say "after fixing it: sudo meshforge-agent migrate-identity && sudo systemctl enable --now $UNIT $PATH_UNIT"
+		say "after fixing it: sudo meshforge-agent migrate-identity && sudo systemctl enable --now $UNIT"
 		exit 0
 	fi
+fi
+
+# 4. local console: token folder + the installing user may open it
+if [ "$systemd_running" -eq 1 ]; then
+	systemd-tmpfiles --create meshforge-agent.conf >/dev/null 2>&1 || true
+fi
+if [ ! -d /run/meshforge-console ]; then
+	install -d -m 2750 -o meshforge -g "$ADMIN_GROUP" /run/meshforge-console
+fi
+installer="${SUDO_USER:-}"
+if [ -z "$installer" ] && [ -n "${PKEXEC_UID:-}" ]; then
+	installer=$(getent passwd "$PKEXEC_UID" | cut -d: -f1 || true)
+fi
+if [ -n "$installer" ] && [ "$installer" != root ] && getent passwd "$installer" >/dev/null; then
+	if ! id -nG "$installer" | tr ' ' '\n' | grep -qx "$ADMIN_GROUP"; then
+		usermod -a -G "$ADMIN_GROUP" "$installer"
+		say "$installer may now open the MeshForge console (group $ADMIN_GROUP)."
+	fi
+elif [ "$fresh" -eq 1 ]; then
+	say "to let a user open the MeshForge console: sudo usermod -aG $ADMIN_GROUP <user>"
 fi
 
 if [ "$systemd_running" -ne 1 ]; then
@@ -89,28 +110,18 @@ if [ "$systemd_running" -ne 1 ]; then
 	exit 0
 fi
 
-# 4. enable (install) and start; the service only runs once this laptop has
-#    joined (ConditionPathExists in the unit); meshforge-agent.path starts it
-#    on the join.
+# 5. enable (install) and (re)start; the service always runs (its console is
+#    how a laptop joins).
 if [ "$fresh" -eq 1 ]; then
-	systemctl enable "$UNIT" "$PATH_UNIT" >/dev/null 2>&1 || systemctl enable "$UNIT" "$PATH_UNIT"
+	systemctl enable "$UNIT" >/dev/null 2>&1 || systemctl enable "$UNIT"
 elif ! systemctl is-enabled --quiet "$UNIT"; then
-	say "upgraded; $UNIT is disabled, so it was left stopped (enable: sudo systemctl enable --now $UNIT $PATH_UNIT)"
-	exit 0
-fi
-systemctl restart "$PATH_UNIT" || say "warning: $PATH_UNIT did not start (the service will not start by itself after a join)"
-
-if [ ! -e "$ENROLMENT" ]; then
-	systemctl stop "$UNIT" 2>/dev/null || true
-	say "installed. This laptop has not joined a fabric yet. Join it with the code from"
-	say "the fabric admin:   sudo meshforge-agent join <code>"
-	say "The service starts by itself once the laptop has joined."
+	say "upgraded; $UNIT is disabled, so it was left stopped (enable: sudo systemctl enable --now $UNIT)"
 	exit 0
 fi
 
 systemctl restart "$UNIT" || true
 
-# 5. say what is true: active for a few seconds, or not running (with why)
+# say what is true: active for a few seconds, or not running (with why)
 state=inactive
 i=0
 while [ "$i" -lt 5 ]; do
@@ -121,13 +132,18 @@ while [ "$i" -lt 5 ]; do
 done
 if [ "$state" = active ]; then
 	say "service $UNIT is running (logs: journalctl -u meshforge-agent)"
+	if [ ! -e "$ENROLMENT" ]; then
+		say "this laptop has not joined a fabric yet: open \"MeshForge\" from the app menu"
+		say "(or run meshforge-console-open), or join from a terminal: sudo meshforge-agent join <code>"
+	fi
 else
 	say "service $UNIT is NOT running (state: $state); see: journalctl -u meshforge-agent -n 50"
 fi
 
 if getent group docker >/dev/null && ! id -nG meshforge | tr ' ' '\n' | grep -qx docker; then
 	say "docker: no access for the service (the docker group is root-equivalent, so it is not added by default)."
-	say "to let jobs use Docker: sudo usermod -aG docker meshforge && sudo systemctl restart $UNIT"
+	say "to let jobs use Docker: app menu > MeshForge > Give Docker access (asks for an admin password),"
+	say "or: sudo usermod -aG docker meshforge && sudo systemctl restart $UNIT"
 fi
 
 exit 0

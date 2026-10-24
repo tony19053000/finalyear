@@ -362,6 +362,10 @@ ENTRIES = {
         "meshforge-agent", "meshforge.agent.main", "main"
     ),
     "compute": lib.EntryPoint("compute", "meshforge.cli.main", "main"),
+    # V0.17 G3: the agent bundle also ships the console launcher
+    "meshforge-console-open": lib.EntryPoint(
+        "meshforge-console-open", "meshforge.agent.console.launcher", "main"
+    ),
 }
 
 
@@ -370,7 +374,7 @@ def test_write_launchers_and_relative_uv_link(tmp_path: Path) -> None:
     (root / LINUX.scripts_dir).mkdir(parents=True)
     (root / LINUX.scripts_dir / "uv").write_bytes(b"\x7fELF uv")
     bb.write_launchers(root, LINUX, ENTRIES, "agent")
-    for name in ("meshforge-agent", "compute"):
+    for name in ("meshforge-agent", "compute", "meshforge-console-open"):
         path = root / "bin" / name
         assert path.stat().st_mode & 0o111
         assert path.read_text().startswith("#!/bin/sh")

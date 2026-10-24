@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC
+ "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<!-- MeshForge (V0.17 G3, Q24): the one privileged action of the local console.
+     `pkexec /usr/lib/meshforge/docker-access` from the owner's desktop session
+     (app menu: MeshForge > Give Docker access) asks for an admin password every
+     time (auth_admin, no keep): the docker group is root-equivalent. -->
+<policyconfig>
+  <vendor>MeshForge</vendor>
+  <action id="org.meshforge.docker-access">
+    <description>Give the MeshForge service access to Docker</description>
+    <message>MeshForge wants to run jobs in Docker containers. Docker access gives full control of this computer, so an administrator must allow it.</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_admin</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/lib/meshforge/docker-access</annotate>
+  </action>
+</policyconfig>

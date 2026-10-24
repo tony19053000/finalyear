@@ -7,6 +7,7 @@
 #   state     /var/lib/meshforge/{identity,envs,...}
 #   program   /opt/meshforge/current -> <version>  (read-only)
 #   logs      journalctl -u meshforge-agent
+#   console   http://127.0.0.1:47130 (loopback only; token in /run/meshforge-console)
 #
 # Docker: `meshforge` is NOT in the `docker` group (that group is root-equivalent,
 # Q12). Until the owner opts in, the agent reports "docker: no access" and runs
@@ -19,10 +20,10 @@ Description=MeshForge node agent
 # for as long as it takes (ADR-0002 Updates section 3).
 After=network-online.target
 Wants=network-online.target
-# Only an enrolled laptop has a fabric to connect to (an agent that never joined
-# exits 4 "not enrolled"). Until `meshforge-agent join`, a start is skipped
-# (inactive, not failed); meshforge-agent.path starts the service on the join.
-ConditionPathExists=/var/lib/meshforge/identity/node.crt
+# V0.17 G3: no ConditionPathExists / path unit any more. The service always runs:
+# its local console (http://127.0.0.1:47130, app menu "MeshForge") is how the
+# owner joins, and the fabric part starts by itself once the laptop has joined
+# (from the console or with `sudo meshforge-agent join <code>`).
 
 [Service]
 Type=simple
@@ -47,7 +48,9 @@ StandardError=journal
 # sandboxing lives with the executor (V0.5/V0.7). These keep the service itself
 # from writing anywhere but its own state.
 ProtectSystem=strict
-ReadWritePaths=/var/lib/meshforge
+# /run/meshforge-console: the console's access token (tmpfiles.d, 2750
+# meshforge:meshforge-admin); "-": a missing folder only disables the console.
+ReadWritePaths=/var/lib/meshforge -/run/meshforge-console
 ProtectHome=yes
 PrivateTmp=yes
 NoNewPrivileges=yes

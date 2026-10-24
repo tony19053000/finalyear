@@ -124,10 +124,17 @@ ROLE_EXTRAS: Final[Mapping[str, tuple[str, ...]]] = {
     "controller": ("controller",),
 }
 ROLE_COMMANDS: Final[Mapping[str, tuple[str, ...]]] = {
-    "agent": ("meshforge-agent", "compute"),
+    # V0.17 G3: the app-menu launcher of the local console
+    "agent": ("meshforge-agent", "compute", "meshforge-console-open"),
     "controller": ("meshforge-controller", "compute"),
 }
 DASHBOARD_INDEX: Final = "meshforge/controller/web/dist/index.html"
+CONSOLE_INDEX: Final = "meshforge/agent/console/dist/index.html"
+"""V0.17 G3 (D391): the agent's local console UI, built by the same `npm run build`."""
+ROLE_UI: Final[Mapping[str, str]] = {
+    "agent": CONSOLE_INDEX,
+    "controller": DASHBOARD_INDEX,
+}
 TRUST_ENV: Final = (
     "SSL_CERT_FILE",
     "SSL_CERT_DIR",
@@ -684,8 +691,8 @@ def build(options: BuildOptions) -> Path:
     options.cache.mkdir(parents=True, exist_ok=True)
     extras = (*ROLE_EXTRAS[options.role], *options.extra_extras)
 
-    if options.role == "controller" and options.build_dashboard:
-        log("building the dashboard (npm run build)")
+    if options.build_dashboard:
+        log("building the dashboard and the agent console (npm run build)")
         ensure_dashboard(REPO, build=True)
 
     with tempfile.TemporaryDirectory(prefix=".bundle-", dir=out) as tmp:
@@ -702,15 +709,12 @@ def build(options: BuildOptions) -> Path:
         check_python_version(root, layout, python_pin.version)
         log("building the meshforge wheel")
         wheel = build_wheel(uv, REPO, work, env)
-        has_dashboard = wheel_has(wheel, DASHBOARD_INDEX)
-        if (
-            options.role == "controller"
-            and not has_dashboard
-            and not options.allow_missing_dashboard
-        ):
+        ui = ROLE_UI[options.role]
+        has_dashboard = wheel_has(wheel, ui)
+        if not has_dashboard and not options.allow_missing_dashboard:
             raise BundleError(
-                "the wheel has no dashboard (controller/web/dist) even after the "
-                "frontend build; check `npm --prefix frontend run build`, or "
+                f"the wheel has no {ui.rsplit('/', 2)[0]} UI even after the frontend "
+                "build; check `npm --prefix frontend run build`, or "
                 "--allow-missing-dashboard",
                 reason="no_dashboard",
             )

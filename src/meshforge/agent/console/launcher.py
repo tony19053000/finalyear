@@ -27,6 +27,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -92,14 +93,58 @@ def read_token(path: Path) -> str:
 
 
 def _settings_paths(config: Path | None) -> tuple[Path, int]:
-    from meshforge.agent.settings import AgentSettings
+    """Token file + port from the agent's settings. On the system install a
+    desktop user may not be able to read ``/etc/meshforge/config.toml``; the
+    package defaults then apply (``/run/meshforge-console``, 47130)."""
+    from meshforge.agent.settings import (
+        DEFAULT_CONSOLE_PORT,
+        SYSTEM_CONSOLE_TOKEN_DIR,
+        AgentSettings,
+    )
+    from meshforge.common.config import InstallMode, install_mode
     from meshforge.common.errors import MeshForgeError
 
     try:
         settings = AgentSettings.load(config, agent={"discovery": {"enabled": True}})
-    except MeshForgeError as exc:
-        raise LaunchError(f"cannot read the agent settings: {exc.message}") from None
+    except (MeshForgeError, OSError) as exc:
+        if config is None and install_mode() is InstallMode.SYSTEM:
+            return SYSTEM_CONSOLE_TOKEN_DIR / "token", DEFAULT_CONSOLE_PORT
+        message = exc.message if isinstance(exc, MeshForgeError) else str(exc)
+        raise LaunchError(f"cannot read the agent settings: {message}") from None
     return settings.console_token_dir / "token", settings.agent.console.port
+
+
+_SG_MARK: Final = "MESHFORGE_CONSOLE_OPEN_SG"
+
+
+def _member_on_disk(group: str) -> bool:
+    """Listed in ``/etc/group`` for ``group`` (the package just added us) but
+    this login session predates it."""
+    try:
+        import grp
+        import pwd
+
+        entry = grp.getgrnam(group)
+        name = pwd.getpwuid(os.getuid()).pw_name
+    except (ImportError, KeyError):
+        return False
+    return name in entry.gr_mem and entry.gr_gid not in os.getgroups()
+
+
+def _reexec_with_group(argv: list[str]) -> None:
+    """``sg meshforge-admin``: a user listed in the group gets it without a
+    password and without logging out first (the package adds the installing
+    user, whose desktop session started before that). Returns only if it
+    cannot re-execute."""
+    sg = shutil.which("sg")
+    if sg is None or os.environ.get(_SG_MARK) or not _member_on_disk(_ADMIN_GROUP):
+        return
+    os.environ[_SG_MARK] = "1"
+    command = shlex.join(
+        [sys.executable, "-m", "meshforge.agent.console.launcher", *argv]
+    )
+    with contextlib.suppress(OSError):
+        os.execv(sg, [sg, _ADMIN_GROUP, "-c", command])  # noqa: S606 - fixed argv
 
 
 def _wait_healthy(client: httpx.Client, base: str, wait_s: float) -> None:
@@ -184,7 +229,12 @@ def main(argv: list[str] | None = None) -> None:
         raise SystemExit(docker_access())
     try:
         token_path, port = _settings_paths(args.config)
-        url = launch_url(token_path, port, wait_s=max(0.0, args.wait))
+        try:
+            url = launch_url(token_path, port, wait_s=max(0.0, args.wait))
+        except LaunchError as exc:
+            if exc.code == ExitCode.CONFIG_ERROR:  # token not readable
+                _reexec_with_group(sys.argv[1:] if argv is None else argv)
+            raise
     except LaunchError as exc:
         _tell(str(exc))
         raise SystemExit(int(exc.code)) from None
@@ -195,3 +245,7 @@ def main(argv: list[str] | None = None) -> None:
         _tell(f"no browser could be opened; open this address within a minute: {url}")
         raise SystemExit(int(ExitCode.FAILURE))
     raise SystemExit(int(ExitCode.OK))
+
+
+if __name__ == "__main__":
+    main()

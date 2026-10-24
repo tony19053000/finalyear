@@ -53,12 +53,33 @@ contents:
   - src: /opt/meshforge/current/bin/compute
     dst: /usr/bin/compute
     type: symlink
-  - src: ${MF_STAGE}/meshforge-agent.service
-    dst: /usr/lib/systemd/system/meshforge-agent.service
+  # V0.17 G3 (D391): the local console's launcher, app-menu entry, icon, token
+  # folder and the Docker-access helper (polkit, Q24)
+  - src: /opt/meshforge/current/bin/meshforge-console-open
+    dst: /usr/bin/meshforge-console-open
+    type: symlink
+  - src: ${MF_STAGE}/desktop/meshforge.desktop
+    dst: /usr/share/applications/meshforge.desktop
     file_info:
       mode: 0644
-  - src: ${MF_STAGE}/meshforge-agent.path
-    dst: /usr/lib/systemd/system/meshforge-agent.path
+  - src: ${MF_STAGE}/desktop/meshforge.svg
+    dst: /usr/share/icons/hicolor/scalable/apps/meshforge.svg
+    file_info:
+      mode: 0644
+  - src: ${MF_STAGE}/meshforge-agent.tmpfiles
+    dst: /usr/lib/tmpfiles.d/meshforge-agent.conf
+    file_info:
+      mode: 0644
+  - src: ${MF_STAGE}/desktop/docker-access
+    dst: /usr/lib/meshforge/docker-access
+    file_info:
+      mode: 0755
+  - src: ${MF_STAGE}/desktop/org.meshforge.docker-access.policy
+    dst: /usr/share/polkit-1/actions/org.meshforge.docker-access.policy
+    file_info:
+      mode: 0644
+  - src: ${MF_STAGE}/meshforge-agent.service
+    dst: /usr/lib/systemd/system/meshforge-agent.service
     file_info:
       mode: 0644
   - src: ${MF_STAGE}/lintian-overrides
