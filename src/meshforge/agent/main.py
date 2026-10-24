@@ -724,4 +724,9 @@ def _print_scores(as_json: bool, payload: dict[str, object], lines: list[str]) -
 
 def main() -> None:
     """Console-script entry point."""
+    import sys
+
+    from meshforge.agent.system_cli import apply
+
+    apply(sys.argv[1:])  # V0.17 G1 (Q15): re-executes as the service user if needed
     app(prog_name=PROG_NAME)
