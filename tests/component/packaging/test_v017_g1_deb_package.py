@@ -211,7 +211,8 @@ def test_deb_lifecycle_on_a_laptop_that_already_joined(
                    "RestrictRealtime", "UMask", "ProtectClock")  # fmt: skip
     assert unit["ProtectSystem"] == "strict" and unit["ProtectHome"] == "yes", unit
     assert unit["NoNewPrivileges"] == "yes" and unit["PrivateTmp"] == "yes", unit
-    assert unit["ReadWritePaths"] == "/var/lib/meshforge", unit
+    # V0.17 G3: + the console token folder ("-": optional)
+    assert unit["ReadWritePaths"] == "/var/lib/meshforge -/run/meshforge-console", unit
     assert unit["User"] == "meshforge" and unit["KillMode"] == "mixed", unit
     assert "MESHFORGE_INSTALL_MODE=system" in unit["Environment"], unit
     assert set(unit["RestartPreventExitStatus"].split()) == {"4", "5"}, unit
