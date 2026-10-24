@@ -9,12 +9,11 @@
 > ```
 Read docs/SESSION_HANDOFF.md §1, then docs/STATUS.md, then V0.17 in docs/DEVELOPMENT_ROADMAP.md and docs/briefs/V0.17-productization.md (APPROVED 2026-10-24, D384–D398, ADR-0022 Proposed).
 Done: V0.15 agent-side complete (0.15.1–0.15.10 [x]). V0.17 G0 (0.17.0 [~]) in progress: SP2 managed PostgreSQL MERGED to main (lab/spikes/SP2.md; theseus-rs PG 16.15.1; D398 controller needs Ubuntu 24.04+). Repo: PUBLIC tony19053000/finalyear (team choice), main pushed.
-STOPPED by user 2026-10-24, wip committed in 3 worktrees, no agents running:
- (1) SP3 bundle — DONE, merged 24141d69 (PASS; G1 findings F1–F5 folded into brief §5a; size targets → Q17).
- (2) SP1 Windows service — worktree agent-ae3f985ac81466970, branch spike/sp1-windows-service (pushed) @e554d13e; tests via .github/workflows/spike-sp1.yml on windows-latest (`gh workflow run ... --ref spike/sp1-windows-service`). Resume: get the workflow green → lab/spikes/SP1.md verdict on pywin32 vs WinSW.
- (3) CI green — worktree agent-adf3fe14a91fc13f0 @69dc52e0 (branch ci/green): first GitHub CI run 40094500920 FAILED everywhere (unit tests need extras, mypy duplicate `main` in lab/workloads, Windows portability e.g. os.geteuid). Lead decision D399 (not yet recorded in PROJECT_BRIEF §40): CI installs all extras; fresh-clone check = plain uv sync → CLIs start + non-extra unit subset passes, extras-needing modules skipped via conftest hook. Push ci/green, iterate `gh workflow run CI --ref ci/green` until all jobs + ci-ok green, then merge.
-G1 brief APPROVED (94b5aa5e, Q11–Q17 as recommended); G2+G3 briefs APPROVED §5b/§5c (start in parallel after G1 merges). G1 implementer RUNNING in its own worktree (progress note docs/briefs/progress/V0.17-G1.md) — if stopped, resume from that note. D399 recorded in V0.17 brief.
-Then: G1 brief (bundle + .deb + system service + identity migration). Dependabot PRs open (CI runs cancelled to free runners; ignore until CI green). 2 stale postgres containers + many merged worktrees (ask before removing). Normal mode. Parallel agents OK. Don't delete anything without asking. User wants max speed.
+STOPPED by user 2026-10-24 (2nd time), wip committed, no agents running. D399 recorded; SP3 MERGED 24141d69; G1/G2/G3 briefs APPROVED (§5a–§5c, Q11–Q27).
+ (1) G1 implementer — worktree agent-a7ea2e49788d6721b (branch worktree-agent-a7ea2e49788d6721b): stopped at step G (Linux packaging: unit + maintainer scripts). Resume from docs/briefs/progress/V0.17-G1.md, then gates → tester → reviewer → merge. Then G2 ∥ G3.
+ (2) SP1 Windows service — worktree agent-ae3f985ac81466970, branch spike/sp1-windows-service: workflow GREEN twice (14/14); remaining: add 2nd run to lab/spikes/SP1.md, verdict pywin32 vs WinSW, local suite, push, merge.
+ (3) CI green — worktree agent-adf3fe14a91fc13f0 (branch ci/green): was adding a unit test for an argv builder; resume iterating `gh workflow run CI --ref ci/green` until all jobs + ci-ok green, then merge. Possible mypy error at bench/workloads/kernels/_support.py:161 (check).
+Open 🧑: SP3 GPU check + real job from bundle (lab/spikes/SP3.md). Dependabot PRs: ignore until CI green. 2 stale postgres containers + merged worktrees (ask before removing). Normal mode. Parallel agents OK. Don't delete anything without asking. User wants max speed.
 ```
 >
 > Order of truth: `PROJECT_BRIEF → ARCHITECTURE → ROADMAP → STATUS → this file`. If this file
