@@ -235,6 +235,12 @@ jobs:
       - run: uv sync --locked --extra controller --extra agent --extra ml
       - name: docker info
         run: docker info --format '{{.ServerVersion}} {{.OperatingSystem}}'
+      # D399: the disk-full scenarios run an agent in its own user + mount
+      # namespace on a tiny tmpfs. The runner's AppArmor restricts unprivileged
+      # user namespaces (unshare works, then /proc/self/setgroups is EPERM);
+      # lift that on this throw-away VM so the scenarios run instead of skip.
+      - name: allow unprivileged user namespaces
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
       - name: pytest -m cluster
         run: uv run python scripts/pytest_exit_guard.py -m cluster -o junit_family=xunit1 --junitxml=reports/junit-cluster.xml
       - name: upload junit report
