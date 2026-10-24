@@ -470,7 +470,10 @@ def test_dangling_symlink_bashrc_does_not_traceback(tmp_path: Path) -> None:
     assert d.returncode in (0, 4)
 
 
-@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores permissions")
+@pytest.mark.skipif(
+    sys.platform == "win32" or os.geteuid() == 0,
+    reason="needs POSIX permission bits, non-root (root ignores permissions)",
+)
 @pytest.mark.parametrize(
     "what", ["home_ro", "rc_ro", "rc_is_dir", "completions_is_file"]
 )
@@ -494,7 +497,10 @@ def test_unwritable_target_is_an_expected_error_not_a_bug_report(
     assert "internal error" not in d.stderr, d.stderr
 
 
-@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores permissions")
+@pytest.mark.skipif(
+    sys.platform == "win32" or os.geteuid() == 0,
+    reason="needs POSIX permission bits, non-root (root ignores permissions)",
+)
 @pytest.mark.parametrize(
     "what", ["home_ro", "rc_ro", "rc_is_dir", "completions_is_file"]
 )

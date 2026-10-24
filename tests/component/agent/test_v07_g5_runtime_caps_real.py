@@ -18,7 +18,6 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import json
-import resource
 import sys
 import textwrap
 from pathlib import Path
@@ -120,6 +119,8 @@ def test_allocating_past_the_owner_cap_fails_inside(tmp_path: Path) -> None:
 
 @linux_only
 def test_without_an_owner_cap_there_is_no_address_space_limit(tmp_path: Path) -> None:
+    import resource  # POSIX only: imported here so the module collects on Windows
+
     if resource.getrlimit(resource.RLIMIT_AS)[1] != resource.RLIM_INFINITY:
         pytest.skip("this test process already runs under an address-space limit")
     target = _sub_target()
@@ -149,6 +150,8 @@ FORK_BOMB = textwrap.dedent(
 @pytest.mark.security
 @linux_only
 def test_the_task_limit_contains_a_fork_bomb(tmp_path: Path) -> None:
+    import resource  # POSIX only: imported here so the module collects on Windows
+
     if resource.getrlimit(resource.RLIMIT_NPROC)[1] != resource.RLIM_INFINITY and (
         resource.getrlimit(resource.RLIMIT_NPROC)[1] < 400
     ):

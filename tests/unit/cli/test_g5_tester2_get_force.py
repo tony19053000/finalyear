@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import sys
 from collections.abc import Callable
 from pathlib import Path
 
@@ -127,7 +128,10 @@ def test_force_never_follows_a_symlinked_target(
 
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX permission bits")
-@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores permission bits")
+@pytest.mark.skipif(
+    sys.platform == "win32" or os.geteuid() == 0,
+    reason="needs POSIX permission bits, non-root (root ignores permission bits)",
+)
 def test_force_with_an_unwritable_parent_fails_cleanly(
     runner: CliRunner, controller: TransportFactory, tmp_path: Path, bundle: bytes
 ) -> None:

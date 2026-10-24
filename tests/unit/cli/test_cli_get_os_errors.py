@@ -17,6 +17,7 @@ import errno
 import hashlib
 import os
 import re
+import sys
 from collections.abc import Callable
 from pathlib import Path
 
@@ -145,7 +146,10 @@ def test_unpack_oserror_without_strerror_names_its_type(
 
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX permission bits")
-@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores permission bits")
+@pytest.mark.skipif(
+    sys.platform == "win32" or os.geteuid() == 0,
+    reason="needs POSIX permission bits, non-root (root ignores permission bits)",
+)
 def test_unwritable_parent_names_the_folder_and_cause(
     runner: CliRunner, served: Callable[[], None], tmp_path: Path
 ) -> None:
