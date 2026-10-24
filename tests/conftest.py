@@ -239,6 +239,114 @@ def pytest_runtest_setup(item: pytest.Item) -> None:
             pytest.skip(reason)
 
 
+#: Top-level import names that only an optional extra installs (pyproject.toml
+#: ``[project.optional-dependencies]``), with the extra(s) that bring them (D399).
+#: A plain ``uv sync`` has none of them; ``tests/unit/test_ci_extras_skip.py``
+#: checks that every extras requirement is covered here.
+EXTRA_IMPORTS: Final[Mapping[str, str]] = {
+    # controller
+    "fastapi": "controller",
+    "starlette": "controller",
+    "uvicorn": "controller",
+    "sqlalchemy": "controller",
+    "asyncpg": "controller",
+    "alembic": "controller",
+    "pyarrow": "controller",
+    "zeroconf": "controller/agent",
+    # agent (`docker` also comes with the dev group via testcontainers)
+    "psutil": "agent",
+    "pynvml": "agent",
+    "docker": "agent",
+    "uv": "agent",
+    "numpy": "agent/ml",
+    # ml
+    "sklearn": "ml",
+    "lightgbm": "ml",
+    "xgboost": "ml",
+    "threadpoolctl": "ml",
+    # gpu
+    "torch": "gpu",
+}
+
+#: Packages of this repository: pure Python, so their modules left behind by an
+#: import that failed on a missing extra can be dropped and re-imported safely.
+FIRST_PARTY: Final = frozenset({"meshforge"})
+
+
+def missing_extra(exc: BaseException | None) -> tuple[str, str] | None:
+    """``(module, extra)`` if ``exc`` is "an optional extra is not installed".
+
+    Only a :class:`ModuleNotFoundError` for the *top-level* name of a known
+    extras package counts. A missing submodule of an installed package
+    (``sqlalchemy.nope``), a missing first-party module, or any other import
+    error is a real bug and stays a collection error.
+    """
+    if not isinstance(exc, ModuleNotFoundError) or not exc.name:
+        return None
+    extra = EXTRA_IMPORTS.get(exc.name)
+    return None if extra is None else (exc.name, extra)
+
+
+def first_party_orphans(new: set[str], modules: Mapping[str, object]) -> list[str]:
+    """First-party modules in ``new`` whose parent package is not loaded.
+
+    What a failed import leaves behind: Python drops the module that raised
+    (and every package whose ``__init__`` was mid-import) but keeps the
+    submodules they had already finished importing.
+    """
+    orphans = []
+    for name in new:
+        if name.partition(".")[0] not in FIRST_PARTY or name not in modules:
+            continue
+        parent = name.rpartition(".")[0]
+        while parent:
+            if modules.get(parent) is None:
+                orphans.append(name)
+                break
+            parent = parent.rpartition(".")[0]
+    return sorted(orphans)
+
+
+class _ExtrasAwareModule(pytest.Module):
+    """A test module that *skips* (not errors) when an optional extra is missing.
+
+    D399: a plain ``uv sync`` (no extras) must still collect the whole suite and
+    pass the subset of unit tests that does not need an extra. Rather than
+    ``importorskip`` in hundreds of files, a module whose import fails on a
+    missing extras package (:data:`EXTRA_IMPORTS`) becomes one skipped
+    collection report with the reason ``needs extra <name>``.
+
+    The skip is *clean*: first-party modules the failed import left orphaned are
+    removed again, so :func:`pytest_sessionfinish`'s half-import check still
+    means "a test swallowed a broken import" (third-party orphans are never
+    removed - those are what that check is for).
+    """
+
+    def _getobj(self) -> object:
+        before = set(sys.modules)
+        try:
+            return super()._getobj()
+        except self.CollectError as exc:
+            found = missing_extra(exc.__cause__)
+            if found is None:
+                raise
+            for name in first_party_orphans(set(sys.modules) - before, sys.modules):
+                del sys.modules[name]
+            module, extra = found
+            pytest.skip(
+                f"needs extra {extra} (`{module}` is not installed: "
+                f"uv sync --extra {extra.split('/')[0]})",
+                allow_module_level=True,
+            )
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_pycollect_makemodule(
+    module_path: Path, parent: pytest.Collector
+) -> pytest.Module:
+    return _ExtrasAwareModule.from_parent(parent, path=module_path)
+
+
 @pytest.fixture(scope="session")
 def docker_available(pytestconfig: pytest.Config) -> None:
     """Depend on this fixture to skip (with the reason) when Docker is unreachable."""
