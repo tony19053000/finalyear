@@ -470,9 +470,10 @@ files = ["src", "tests", "scripts", "lab"]
 # conftest.py a distinct module name. tests/unit is a base because the unit tests
 # import `_import_guard` as a top-level module; tests/_support likewise for the shared
 # test helpers (`containers`), which tests/conftest.py puts on sys.path; lab/ so the
-# lab helper package `_inventory` resolves like at runtime. Separator ","
+# lab helper package `_inventory` resolves like at runtime; scripts/ so
+# build_bundle.py's sibling import `bundle_lib` (V0.17 SP3) resolves. Separator ","
 # works on Windows too.
-mypy_path = "$MYPY_CONFIG_FILE_DIR/src,$MYPY_CONFIG_FILE_DIR/tests/unit,$MYPY_CONFIG_FILE_DIR/tests/_support,$MYPY_CONFIG_FILE_DIR/lab"
+mypy_path = "$MYPY_CONFIG_FILE_DIR/src,$MYPY_CONFIG_FILE_DIR/tests/unit,$MYPY_CONFIG_FILE_DIR/tests/_support,$MYPY_CONFIG_FILE_DIR/lab,$MYPY_CONFIG_FILE_DIR/scripts"
 explicit_package_bases = true
 plugins = ["pydantic.mypy"]
 strict = true
