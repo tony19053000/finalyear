@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import sys
 from pathlib import Path
 
@@ -112,7 +113,7 @@ def test_compute_prefers_its_own_bundle_agent(
     own = root / "bin" / f"meshforge-agent{_SUFFIX}"
     own.write_text("", encoding="utf-8")
     monkeypatch.setattr(sys, "executable", str(exe))
-    monkeypatch.setattr(fabric_commands.shutil, "which", lambda _n: "/elsewhere/agent")
+    monkeypatch.setattr(shutil, "which", lambda _n: "/elsewhere/agent")
     assert fabric_commands.agent_command() == [str(own)]
 
 
@@ -121,7 +122,7 @@ def test_compute_falls_back_to_path_outside_a_bundle(
 ) -> None:
     exe = _fake_bundle(tmp_path / "venv")
     monkeypatch.setattr(sys, "executable", str(exe))
-    monkeypatch.setattr(fabric_commands.shutil, "which", lambda _n: "/usr/bin/agent")
+    monkeypatch.setattr(shutil, "which", lambda _n: "/usr/bin/agent")
     assert fabric_commands.agent_command() == ["/usr/bin/agent"]
 
 
