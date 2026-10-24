@@ -162,6 +162,18 @@ def _verified(path: Path, wheel: LockedWheel) -> bool:
         return False
 
 
+def _settled_verified(path: Path, wheel: LockedWheel, within_s: float = 5.0) -> bool:
+    """:func:`_verified`, retried for up to ``within_s`` on Windows, where a
+    file another thread is replacing cannot be opened until that finishes."""
+    deadline = time.monotonic() + within_s
+    while True:
+        if _verified(path, wheel):
+            return True
+        if sys.platform != "win32" or time.monotonic() > deadline:
+            return False
+        time.sleep(0.01)
+
+
 def _download(url: str, dest: Path) -> None:
     """``url`` -> ``dest`` over HTTPS with the **public** CA roots (the test
     process's ``SSL_CERT_FILE`` names the test fabric's CA)."""
@@ -274,10 +286,13 @@ def ensure_wheel(
         try:
             os.replace(partial, target)
         except PermissionError:
-            # Windows: a concurrent caller holds the target open (hashing it), so
-            # it cannot be replaced. That caller placed the good wheel already,
-            # so this call has nothing to add; anything else is a real error.
-            if not _verified(target, wheel):
+            # Windows: a concurrent caller holds the target open (hashing it), or
+            # is replacing it right now, so it cannot be replaced. Then that
+            # caller placed the good wheel already and this call has nothing to
+            # add - but while its replace is still pending the target cannot be
+            # opened either (``Access is denied``, D399 Windows CI), so give it
+            # a moment to settle. Still not the good wheel = a real error.
+            if not _settled_verified(target, wheel):
                 raise
         else:
             moved = True
