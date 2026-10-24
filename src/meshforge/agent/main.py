@@ -438,7 +438,7 @@ def migrate_identity(
             "installer migrates on its own)",
             err=True,
         )
-        raise typer.Exit(ExitCode.NOT_IMPLEMENTED)
+        raise typer.Exit(ExitCode.USAGE_ERROR)
     if not dry_run and service_user and os.geteuid() != 0:
         typer.echo(
             f"{PROG_NAME}: migrate-identity changes machine-wide files: run it with "

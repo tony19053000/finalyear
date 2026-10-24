@@ -66,6 +66,14 @@ _CONTENT = "a content digest of a blob/tree (content addressing, public data)"
 #: (path under src/meshforge, the comparison as ``ast.unparse`` prints it) ->
 #: why it is not a credential check that needs a constant-time compare.
 ALLOWED: dict[tuple[str, str], str] = {
+    (
+        "agent/migration/apply.py",
+        "(copied.node_id, copied.fingerprint) != (current.node_id, current.fingerprint)",
+    ): (
+        "V0.17 G1 (D387): the migrated copy's node_id + public-key fingerprint "
+        "against its source's, both read from this laptop's own disk by root - "
+        "a copy check, no secret and no attacker-supplied value"
+    ),
     ("controller/planner_eval/heldout.py", "run.fingerprint in fingerprints"): (
         "V0.14 G4: workload fingerprints (a public digest of what a job runs) "
         "as a set-membership filter for held-out calibration runs - no secret"
