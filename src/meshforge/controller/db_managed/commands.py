@@ -29,6 +29,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Final
 
+from meshforge.common.death_signal import with_death_signal as _with_death_signal
 from meshforge.controller.db_managed.binaries import PgBinaries
 from meshforge.controller.db_managed.layout import ManagedLayout
 
@@ -49,22 +50,6 @@ LISTEN_ADDRESS: Final = "127.0.0.1"
 
 DEATH_SIGNAL: Final = signal.SIGINT
 """Fast shutdown when the controller dies (module docstring)."""
-
-#: Exec shim: argv = parent pid, signal number, executable, *argv. Stdlib only,
-#: isolated (-I) and without site (-S). 125 = could not arm, 137 = parent already gone.
-_DEATH_SIGNAL_SHIM: Final = r"""
-import ctypes, os, sys
-ppid, sig, exe, argv = int(sys.argv[1]), int(sys.argv[2]), sys.argv[3], sys.argv[4:]
-try:
-    if ctypes.CDLL(None, use_errno=True).prctl(1, sig, 0, 0, 0) != 0:
-        raise OSError(ctypes.get_errno(), "prctl(PR_SET_PDEATHSIG) failed")
-except (OSError, AttributeError) as exc:
-    sys.stderr.write("meshforge: cannot arm the parent-death signal: %s\n" % exc)
-    os._exit(125)
-if os.getppid() != ppid:
-    os._exit(137)
-os.execv(exe, argv)
-"""
 
 
 def child_env(*, pgpassfile: Path | None = None) -> dict[str, str]:
@@ -144,24 +129,13 @@ def with_death_signal(
     python: str | None = None,
     platform: str = sys.platform,
 ) -> list[str]:
-    """``argv`` wrapped in the parent-death shim on Linux; unchanged elsewhere.
-
-    The shim ``execve``s the real program, so the pid the caller gets back *is*
-    the postmaster's pid.
-    """
-    if not platform.startswith("linux"):
-        return list(argv)
-    return [
-        python or sys.executable,
-        "-I",
-        "-S",
-        "-c",
-        _DEATH_SIGNAL_SHIM,
-        str(parent_pid),
-        str(int(signum)),
-        argv[0],
-        *argv,
-    ]
+    """``argv`` wrapped in the shared parent-death shim on Linux (SIGINT by
+    default); unchanged elsewhere (:mod:`meshforge.common.death_signal`). The
+    shim ``execve``s the real program, so the pid the caller gets back *is* the
+    postmaster's pid."""
+    return _with_death_signal(
+        argv, parent_pid=parent_pid, signum=signum, python=python, platform=platform
+    )
 
 
 def _connection_args(layout: ManagedLayout, *, port: int, user: str) -> list[str]:

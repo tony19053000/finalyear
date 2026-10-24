@@ -72,6 +72,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final
 
+from meshforge.common.death_signal import ARM_SNIPPET
 from meshforge.common.errors import FailureType, MeshForgeError
 from meshforge.common.logging import get_logger
 
@@ -115,19 +116,14 @@ _TASKKILL_TIMEOUT_S: Final = 5.0
 #: one that cannot be set ends the shim with 125 and a ``meshforge:`` line.
 #: ``cg=<cgroup dir>`` (V0.7 G6): the shim first joins that cgroup v2 (writes
 #: ``0`` to its ``cgroup.procs``) - the job's CPU share; failing to is a 125.
-_PDEATHSIG_SHIM: Final = r"""
+_PDEATHSIG_SHIM: Final = (
+    r"""
 import ctypes, os, select, signal, sys
 ppid, nice, keep_lc = int(sys.argv[1]), int(sys.argv[2]), sys.argv[3] == "1"
 guard, limits, exe, argv = sys.argv[4] == "1", sys.argv[5], sys.argv[6], sys.argv[7:]
-try:
-    if ctypes.CDLL(None, use_errno=True).prctl(1, int(signal.SIGKILL), 0, 0, 0) != 0:
-        raise OSError(ctypes.get_errno(), "prctl(PR_SET_PDEATHSIG) failed")
-except (OSError, AttributeError) as exc:
-    sys.stderr.write("meshforge: cannot arm the parent-death signal: %s\n" % exc)
-    os._exit(125)
-if os.getppid() != ppid:
-    os._exit(137)
-def exited(pid):
+sig = int(signal.SIGKILL)"""
+    + ARM_SNIPPET  # shared with the controller (common/death_signal.py, V0.17 G2)
+    + r"""def exited(pid):
     try:
         os.kill(pid, 0)
         with open("/proc/%d/stat" % pid, "rb") as fh:
@@ -228,6 +224,7 @@ except OSError as exc:
     sys.stderr.write("meshforge: cannot execute %s: %s\n" % (argv[0], exc.strerror))
     os._exit(127)
 """
+)
 
 
 @dataclass(frozen=True, slots=True)
