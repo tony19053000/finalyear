@@ -685,7 +685,7 @@ A version is **complete** only when all apply:
 - [x] **0.15.7** Model registry, versioning, scheduled retraining — G3 merged `2eb065b2` (tester r3: behaviour all pass, gate fixes `dc03e98f`; reviewer APPROVE ×2; D367). Main: unit 24539 passed + 1 env-only test fixed, mypy/lint-imports clean
 - [x] **0.15.8** Evaluation report: MAPE, regret vs analytical/rules/oracle, ablations, feature importance — G5a merge `193e008d` (tester r2 PASS, reviewer APPROVE; D368–D372)
 - [x] **0.15.9** Dashboard: predicted vs actual, model versions — G5b merge `086a1b4b` (tester r1 PASS, reviewer APPROVE; D373/D374)
-- [ ] **0.15.10** Optional experiment: direct strategy classifier vs cost-regression (for the report)
+- [x] **0.15.10** Optional experiment: direct strategy classifier vs cost-regression (for the report) — G6a merge `08895552` (tester r3 PASS, reviewer APPROVE) + G6b merge `b90ebfd7` (tester r2 PASS, reviewer APPROVE; D375–D383). Main 2026-10-24: unit 24989 passed exit 0, frontend 928/928, ruff/mypy src/lint-imports clean
 - [ ] **0.15.11** 🧑 Lab data collection + validation: overnight unattended campaign on 4 laptops (all Mode 1 + Mode 3 families, ≥ 2 000 records) → train → evaluate on held-out families; criteria pasted (added 2026-10-22, D344)
 - [ ] **0.15.TD1** Tech debt (D354, added 2026-10-22 by V0.15 G2): node failure classifier - build it only when a real dataset counts ≥ 50 node-caused failures (`counts.node_failures` of the ML dataset; `compute planner ml compare` prints "failure classifier: eligible"); until then the D296 Beta risk term stays and the report says "not trained, N < 50 events"
 
