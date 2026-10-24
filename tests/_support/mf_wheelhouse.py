@@ -43,7 +43,9 @@ import contextlib
 import hashlib
 import os
 import stat
+import sys
 import tempfile
+import time
 import tomllib
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
@@ -205,7 +207,25 @@ def _only_the_wheel(folder: Path, wheel: LockedWheel) -> None:
                 f"the wheelhouse folder {folder} must hold only {wheel.filename} "
                 f"but also holds the directory {entry.name!r}; remove it"
             )
+        _unlink_shared(entry)
+
+
+def _unlink_shared(entry: Path) -> None:
+    """``unlink`` that tolerates a concurrent caller deleting the same entry.
+
+    Windows refuses a delete (``PermissionError``) while another caller's
+    delete of that file is still pending; the file is gone a moment later.
+    """
+    try:
         entry.unlink(missing_ok=True)
+    except PermissionError:
+        if sys.platform != "win32":
+            raise
+        deadline = time.monotonic() + 5.0
+        while os.path.lexists(entry):
+            if time.monotonic() > deadline:
+                raise
+            time.sleep(0.01)
 
 
 def ensure_wheel(

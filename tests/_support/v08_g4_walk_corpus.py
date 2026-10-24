@@ -165,8 +165,17 @@ def case_runs_here(case: dict[str, Any]) -> bool:
     if sys.platform != "win32":
         return True
     names = list(case["files"]) + list(case.get("dirs", []))
-    folded = {n.casefold() for n in names}
-    return len(folded) == len(names) and all(windows_storable(n) for n in names)
+    if not all(windows_storable(n) for n in names):
+        return False
+    # Every path *and every parent folder* must stay distinct when case is
+    # folded (NTFS): `M.PY/trail` and `m.py/z` would share one folder.
+    paths = {
+        "/".join(parts[:i])
+        for n in names
+        for parts in [n.split("/")]
+        for i in range(1, len(parts) + 1)
+    }
+    return len({p.casefold() for p in paths}) == len(paths)
 
 
 def verdict(case: dict[str, Any]) -> dict[str, Any]:

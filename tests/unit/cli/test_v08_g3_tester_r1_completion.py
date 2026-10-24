@@ -4,6 +4,8 @@ completion folder belongs; always exit 4 (never a traceback), always idempotent.
 
 from __future__ import annotations
 
+import os
+import sys
 from pathlib import Path
 
 import pytest
@@ -42,7 +44,9 @@ def test_bashrc_in_any_bytes_gets_the_line_once_and_is_otherwise_untouched(
     completion.install_bash(**KW)
     after_first = rc.read_bytes()
     assert after_first.startswith(seed)
-    assert after_first.count(b".bash_completions/compute.sh") == 1
+    # The OS path form (Typer's): backslashes on Windows.
+    tail = os.fsencode(str(Path(".bash_completions") / "compute.sh"))
+    assert after_first.count(tail) == 1
     completion.install_bash(**KW)
     completion.install_bash(**KW)
     assert rc.read_bytes() == after_first  # byte-identical on re-runs
@@ -80,5 +84,7 @@ def test_a_home_with_a_single_quote_is_quoted_and_still_idempotent(
     # the line must parse to exactly: source <path>
     assert shlex.split(line)[0] == "source"
     assert shlex.split(line)[1] == str(odd / ".bash_completions" / "compute.sh")
+    if sys.platform == "win32":
+        return  # `bash` on a Windows runner is the WSL launcher (no distro)
     ok = subprocess.run(["bash", "-n", "-c", line], capture_output=True, check=False)
     assert ok.returncode == 0

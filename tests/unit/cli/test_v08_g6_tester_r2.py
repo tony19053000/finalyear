@@ -440,7 +440,8 @@ def test_bashrc_original_bytes_kept_and_idempotent(
 
 def test_bashrc_with_typers_old_line_not_duplicated(tmp_path: Path) -> None:
     home = _home(tmp_path)
-    line = f"source '{home}/.bash_completions/compute.sh'"
+    # Typer's exact line: str() of the path (backslashes on Windows).
+    line = f"source '{home / '.bash_completions' / 'compute.sh'}'"
     for ending in ("\n", "\r\n"):
         rc = home / ".bashrc"
         rc.write_bytes(f"# a{ending}{line}{ending}".encode())
@@ -534,6 +535,8 @@ def test_home_with_single_quote_is_recognised_on_rerun(tmp_path: Path) -> None:
     for _ in range(3):
         assert _install(home).returncode == 0
     assert (home / ".bashrc").read_text().count("compute.sh") == 1
+    if sys.platform == "win32":
+        return  # `bash` on a Windows runner is the WSL launcher (no distro)
     # and bash can still parse the file
     d = subprocess.run(
         ["bash", "-n", str(home / ".bashrc")],

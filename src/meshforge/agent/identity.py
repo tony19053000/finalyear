@@ -76,7 +76,8 @@ from meshforge.common.ids import NodeId, new_node_id, validate_node_id
 from meshforge.common.logging import get_logger
 from meshforge.common.private_files import (
     WINDOWS_TOOL_TIMEOUT_S,
-    owner_only_icacls_argv,
+    current_logon_sid,
+    owner_only_icacls_argvs,
 )
 
 __all__ = [
@@ -766,8 +767,13 @@ def _protect(path: Path) -> None:
 def _protect_windows(path: Path) -> None:
     sid = _current_user_sid()
     # Argument list, no shell; icacls resolves via PATH (system32). Also removes
-    # the explicit ACEs CPython's mkdir(mode=0o700) adds on Windows.
-    argv = owner_only_icacls_argv(path, sid)
+    # the explicit ACEs CPython's mkdir(mode=0o700) and the logon session's
+    # default DACL add on Windows.
+    for argv in owner_only_icacls_argvs(path, sid, current_logon_sid()):
+        _run_icacls(argv, path)
+
+
+def _run_icacls(argv: list[str], path: Path) -> None:
     try:
         result = subprocess.run(  # noqa: S603 - fixed argv, values are a path and a SID
             argv,
