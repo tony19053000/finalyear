@@ -1,0 +1,72 @@
+# Spike SP1 (V0.17 G0, roadmap 0.17.0): the agent as a native Windows service.
+#
+# Manual only (workflow_dispatch): installs a real service on the runner, so it
+# is never part of the normal CI. What it proves and what it cannot (logoff on a
+# real interactive session, a real GPU from session 0, Docker Desktop via
+# docker-users) is in lab/spikes/SP1.md.
+name: spike-sp1-windows-service
+
+on:
+  workflow_dispatch:
+  # workflow_dispatch only works for workflows on the default branch; until this
+  # file is merged, a push to the spike branch is how the spike is run.
+  push:
+    branches: [spike/sp1-windows-service]
+
+permissions:
+  contents: read
+
+env:
+  UV_VERSION: "0.10.12"
+  UV_PYTHON: "3.12"
+  UV_PYTHON_PREFERENCE: only-managed
+  PYTHONUTF8: "1"
+
+jobs:
+  sp1:
+    name: SP1 Windows service (windows-latest)
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: ${{ env.UV_PYTHON }}
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - name: environment
+        shell: pwsh
+        run: |
+          [System.Environment]::OSVersion.VersionString
+          whoami /groups /fo csv | Select-String -Pattern "S-1-5-32-544"
+          Get-Command nvidia-smi -ErrorAction SilentlyContinue
+          Get-Command docker -ErrorAction SilentlyContinue
+          Get-Service docker -ErrorAction SilentlyContinue
+      - run: uv sync --locked --extra agent
+      # pywin32 is not in uv.lock yet (follow-up: Windows-only agent dependency);
+      # the driver needs it to query the SCM and ACLs.
+      - run: uv pip install pywin32==312
+      - name: prepare bundle-like interpreter
+        run: uv run --no-sync python lab/spikes/sp1_windows_service.py prepare
+      - name: run SP1
+        run: uv run --no-sync python lab/spikes/sp1_windows_service.py run --out reports/sp1-results.json
+      - name: service logs
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          Get-ChildItem C:\ProgramData\MeshForge -Recurse -ErrorAction SilentlyContinue | Select-Object FullName, Length
+          Get-Content C:\ProgramData\MeshForge\logs\service.log -Tail 80 -ErrorAction SilentlyContinue
+          Get-Content C:\ProgramData\MeshForge\logs\agent.log -Tail 80 -ErrorAction SilentlyContinue
+          Get-WinEvent -FilterHashtable @{LogName='System'; ProviderName='Service Control Manager'} -MaxEvents 40 -ErrorAction SilentlyContinue |
+            Where-Object { $_.Message -like '*MeshForge*' } | Format-List TimeCreated, Id, Message
+      - name: upload results
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sp1-results
+          path: reports/
+          if-no-files-found: warn
+          retention-days: 30
