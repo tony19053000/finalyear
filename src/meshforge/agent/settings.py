@@ -26,6 +26,7 @@ on a base install.
 from __future__ import annotations
 
 import re
+import sys
 from pathlib import Path
 from typing import Final
 
@@ -33,13 +34,20 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 from meshforge import __version__
 from meshforge.common import owner_policy
-from meshforge.common.config import MeshForgeSettings, SectionModel
+from meshforge.common.config import (
+    InstallMode,
+    MeshForgeSettings,
+    SectionModel,
+    install_mode,
+)
 from meshforge.common.errors import ConfigError
 from meshforge.common.local_node import AGENT_GC_DIR_NAME
 from meshforge.common.netaddr import is_loopback_host
 
 __all__ = [
+    "CONSOLE_HOST",
     "CUDA_PYTORCH_IMAGE",
+    "DEFAULT_CONSOLE_PORT",
     "DEFAULT_PEER_PORT",
     "DEFAULT_SERVICE_TYPE",
     "ENVS_DIR_NAME",
@@ -51,6 +59,7 @@ __all__ = [
     "BenchSettings",
     "CacheSettings",
     "CertSettings",
+    "ConsoleSettings",
     "DiscoverySettings",
     "EnvsSettings",
     "ExecutionImages",
@@ -66,6 +75,7 @@ __all__ = [
     "ResourceSettings",
     "ScoreSettings",
     "SplitSettings",
+    "check_node_name",
     "parse_controller_address",
 ]
 
@@ -1527,6 +1537,107 @@ class DiscoverySettings(SectionModel):
         return value
 
 
+CONSOLE_HOST: Final = "127.0.0.1"
+"""The local console's only address (D391): never the LAN, never ``localhost``
+(a name a hostile resolver could point elsewhere, and a second ``Host`` value
+to accept)."""
+DEFAULT_CONSOLE_PORT: Final = 47130
+SYSTEM_CONSOLE_TOKEN_DIR: Final = Path("/run/meshforge-console")
+"""Linux system install: created at boot by systemd-tmpfiles as ``2750
+meshforge:meshforge-admin`` (packaging/linux/meshforge-agent.tmpfiles), so the
+token file inherits the admin group; ``/run`` is emptied at every boot."""
+CONSOLE_DIR_NAME: Final = "console"
+NODE_NAME_MAX_LENGTH: Final = 64
+"""``Hello.display_name`` cap (controller column ``node.display_name``)."""
+
+
+def check_node_name(value: str) -> str:
+    """``value`` stripped, if it is a valid node name (empty = none); else
+    :class:`ValueError` with a plain reason. Printable only (V0.3 D22: the
+    controller rejects a Hello with a control character rather than cleaning
+    it), at most :data:`NODE_NAME_MAX_LENGTH` characters."""
+    name = value.strip()
+    if len(name) > NODE_NAME_MAX_LENGTH:
+        raise ValueError(
+            f"the node name is {len(name)} characters; the maximum is "
+            f"{NODE_NAME_MAX_LENGTH}"
+        )
+    if not name.isprintable():
+        raise ValueError(
+            "the node name may only contain printable characters (no tabs, "
+            "line breaks or control characters)"
+        )
+    return name
+
+
+class ConsoleSettings(SectionModel):
+    """``[agent.console]`` - the laptop owner's local console (V0.17 G3, D391).
+
+    A small web UI served **on 127.0.0.1 only** by the agent process itself:
+    the first-run wizard (join with a code or a QR), the owner settings
+    (policy, node name), the Docker/GPU/disk checks, the agent's own recent
+    log and "leave this fabric". It works before the laptop has joined (the
+    agent then waits for the join instead of exiting ``not_enrolled``).
+
+    Access is a random token written at every start to ``token_dir/token``
+    (readable by the service user and the ``meshforge-admin`` group only);
+    the MeshForge launcher (``meshforge-console-open``) reads it and opens the
+    browser. See :mod:`meshforge.agent.console`.
+    """
+
+    enabled: bool | None = Field(
+        default=None,
+        description=(
+            "Serve the local console. Empty = on for the installed system service "
+            "(MESHFORGE_INSTALL_MODE=system), off for a developer's `meshforge-agent "
+            "run`."
+        ),
+    )
+    bind: str = Field(
+        default=CONSOLE_HOST,
+        description="Must be 127.0.0.1: the console is never served to the LAN.",
+    )
+    port: int = Field(default=DEFAULT_CONSOLE_PORT, ge=1024, le=_PORT_MAX)
+    token_dir: Path | None = Field(
+        default=None,
+        description=(
+            "Where the access token is written. Empty = /run/meshforge-console for "
+            "the Linux system service, else <data_dir>/console."
+        ),
+    )
+    session_ttl_s: float = Field(
+        default=12 * 3600.0,
+        ge=60.0,
+        le=7 * 24 * 3600.0,
+        description="How long a browser stays signed in to the console.",
+    )
+    launch_code_ttl_s: float = Field(
+        default=60.0,
+        ge=5.0,
+        le=600.0,
+        description=(
+            "How long the one-time code the launcher puts in the browser URL is "
+            "valid (it is used once, at once)."
+        ),
+    )
+    log_lines: int = Field(
+        default=2000,
+        ge=100,
+        le=20_000,
+        description="Lines of the agent's own log the console keeps in memory.",
+    )
+
+    @field_validator("bind")
+    @classmethod
+    def _loopback_only(cls, value: str) -> str:
+        if value.strip() != CONSOLE_HOST:
+            raise ValueError(
+                f"the local console binds {CONSOLE_HOST} only (it is never served to "
+                f"the network); remove [agent.console] bind or set it to {CONSOLE_HOST}"
+            )
+        return CONSOLE_HOST
+
+
 class AgentSection(SectionModel):
     """``[agent]`` section."""
 
@@ -1573,6 +1684,15 @@ class AgentSection(SectionModel):
     conditions: ConditionSettings = Field(default_factory=ConditionSettings)
     bench: BenchSettings = Field(default_factory=BenchSettings)
     split: SplitSettings = Field(default_factory=SplitSettings)
+    console: ConsoleSettings = Field(default_factory=ConsoleSettings)
+    node_name: str = Field(
+        default="",
+        description=(
+            "A friendly name for this laptop, shown in the dashboard next to its "
+            "hostname (Hello.display_name). The owner's console overrides it "
+            "(<data_dir>/node_name). Empty = the hostname only."
+        ),
+    )
     hello_timeout_s: float = Field(
         default=3.0,
         gt=0,
@@ -1601,6 +1721,11 @@ class AgentSection(SectionModel):
         if value:
             parse_controller_address(value)
         return value
+
+    @field_validator("node_name")
+    @classmethod
+    def _node_name_shape(cls, value: str) -> str:
+        return check_node_name(value)
 
     @field_validator("agent_version")
     @classmethod
@@ -1748,6 +1873,25 @@ class AgentSettings(MeshForgeSettings):
         """GC last-use index, pins and leases (``<data_dir>/gc``, V0.5 G5): next
         to the CAS and the env cache it covers."""
         return self.data_dir / AGENT_GC_DIR_NAME
+
+    @property
+    def console_enabled(self) -> bool:
+        """``[agent.console] enabled``, or (empty) on for the system service."""
+        configured = self.agent.console.enabled
+        if configured is not None:
+            return configured
+        return install_mode() is InstallMode.SYSTEM
+
+    @property
+    def console_token_dir(self) -> Path:
+        """``[agent.console] token_dir``, ``/run/meshforge-console`` for the Linux
+        system service, else ``<data_dir>/console``."""
+        configured = self.agent.console.token_dir
+        if configured is not None:
+            return configured
+        if sys.platform == "linux" and install_mode() is InstallMode.SYSTEM:
+            return SYSTEM_CONSOLE_TOKEN_DIR
+        return self.data_dir / CONSOLE_DIR_NAME
 
     @property
     def envs_dir(self) -> Path:

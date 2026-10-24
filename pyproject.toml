@@ -80,6 +80,11 @@ agent = [
     # V0.5 G4 (brief D97): the agent's read-only peer blob server parses HTTP/1.1 with
     # h11 (already installed via httpx/httpcore; explicit because the agent imports it).
     "h11>=0.16",
+    # V0.17 G3 (D391, Q23): the local console (127.0.0.1:47130 only) - the same web
+    # stack as the controller, plain uvicorn (no [standard]: no uvloop/httptools/
+    # watchfiles in the agent bundle; h11 serves one local browser fine).
+    "fastapi>=0.141",
+    "uvicorn>=0.53",
 ]
 # V0.15 G2 (D340, Q16): the ML planner's training/comparison library
 # (meshforge.controller.ml.train - the only package allowed to import these, an
