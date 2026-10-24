@@ -27,6 +27,9 @@ lab/
     s7_hardware.py  S7 hardware scores (run / report)
     _s7/            S7 benchmarks (child process), sizing, scores, report
     S7.md           S7: what is measured, formulas, how to run, limits
+    sp2_managed_pg.py  SP2 (0.17.0) controller-managed PostgreSQL 16: bundle, lifecycle, crash, backup
+    _sp2/           SP2 bundle fetch/verify/trim, crash child, scenarios
+    SP2.md          SP2: binary source, sizes, crash design, results, what G2 must do
   reports/          one markdown report per lab run
     TEMPLATE.md     copy this for every report
     raw/            unedited command output, per run and per host
