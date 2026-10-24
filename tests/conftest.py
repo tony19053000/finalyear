@@ -325,7 +325,7 @@ class _ExtrasAwareModule(pytest.Module):
     def _getobj(self) -> object:
         before = set(sys.modules)
         try:
-            return super()._getobj()
+            return super()._getobj()  # type: ignore[no-untyped-call]
         except self.CollectError as exc:
             found = missing_extra(exc.__cause__)
             if found is None:
@@ -392,7 +392,7 @@ def _secret_bases_cleaned() -> Iterator[None]:
         created.add(base)
         return base
 
-    SecretVault._ensure_base = recording  # type: ignore[method-assign]
+    SecretVault._ensure_base = recording  # type: ignore[method-assign,assignment]
     try:
         yield
     finally:

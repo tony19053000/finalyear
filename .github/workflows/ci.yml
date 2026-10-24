@@ -95,10 +95,20 @@ jobs:
           python-version: ${{ env.UV_PYTHON }}
           enable-cache: true
           cache-dependency-glob: uv.lock
-      # controller/agent extras make SQLAlchemy, Alembic, psutil, ... importable
-      # for type checking; `gpu` (torch) is deliberately not installed.
-      - run: uv sync --locked --extra controller --extra agent
+      # The extras make SQLAlchemy, Alembic, psutil, scikit-learn, ... importable
+      # for type checking; `gpu` (torch, a multi-GB CUDA wheel on Linux) is
+      # deliberately not installed (D399).
+      - run: uv sync --locked --extra controller --extra agent --extra ml
       - run: uv run mypy
+      # Each lab workload is a standalone container entrypoint named main.py, so
+      # they cannot share one mypy run (duplicate module `main`); one run each.
+      - name: mypy lab workloads (one run per entrypoint)
+        shell: bash
+        run: |
+          for f in lab/workloads/*/main.py; do
+            echo "mypy $f"
+            uv run mypy "$f"
+          done
 
   unit:
     name: unit (${{ matrix.os }})
@@ -118,9 +128,10 @@ jobs:
           python-version: ${{ env.UV_PYTHON }}
           enable-cache: true
           cache-dependency-glob: uv.lock
-      # Plain `uv sync` (no extras) on purpose: V0.1 success criterion 1 is
-      # "fresh clone -> uv sync -> pytest -m unit passes on Linux and Windows".
-      - run: uv sync --locked
+      # D399: the main jobs install every extra except `gpu` (torch is a
+      # multi-GB CUDA wheel on Linux; the few torch-only test modules skip with
+      # the reason). The no-extras install is covered by the fresh-clone job.
+      - run: uv sync --locked --extra controller --extra agent --extra ml
       # Explicit (not via pytest markers) so proto generation determinism is
       # checked on Windows too (V0.1 criterion 4: identical output across OSes).
       - name: generated protos up to date
@@ -154,7 +165,7 @@ jobs:
           enable-cache: true
           cache-dependency-glob: uv.lock
       # No `gpu` extra: component tests never need torch.
-      - run: uv sync --locked --extra controller --extra agent
+      - run: uv sync --locked --extra controller --extra agent --extra ml
       - name: docker info
         run: docker info --format '{{.ServerVersion}} {{.OperatingSystem}}'
       # Postgres comes from testcontainers; Ryuk (enabled by default) reaps
@@ -192,7 +203,7 @@ jobs:
           enable-cache: true
           cache-dependency-glob: uv.lock
       # The controller and agent run as subprocesses: both extras are needed.
-      - run: uv sync --locked --extra controller --extra agent
+      - run: uv sync --locked --extra controller --extra agent --extra ml
       - name: docker info
         run: docker info --format '{{.ServerVersion}} {{.OperatingSystem}}'
       - name: pytest -m cluster
@@ -206,11 +217,11 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
-  # V0.1 success criterion 1, literally: copy the checkout to a temp dir, run a
-  # plain `uv sync` (no extras, own uv cache) there, then `pytest -m unit` and a
-  # Docker-unreachable bare `pytest -q` inside that clone. The test itself does
-  # the plain sync; this job only needs the dev env to run pytest. Opt-in
-  # (`slow`) locally, so it gets its own job here.
+  # V0.1 success criterion 1 + D399: a fresh checkout with a *plain*
+  # `uv sync` (default dependency group, no extras) must still start every CLI
+  # and pass the unit tests that need no extra. Test modules whose import needs
+  # an extra are skipped at collection with the reason (tests/conftest.py,
+  # `_ExtrasAwareModule`); any other collection error still fails the job.
   fresh-clone:
     name: fresh-clone (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -230,11 +241,14 @@ jobs:
           enable-cache: true
           cache-dependency-glob: uv.lock
       - run: uv sync --locked
-      - name: pytest fresh-clone criterion (--run-slow)
-        run: >-
-          uv run pytest -m component --run-slow
-          tests/component/test_fresh_clone_unit_criterion.py
-          --junitxml=reports/junit-fresh-clone-${{ matrix.os }}.xml
+      - name: CLIs start without extras (--help)
+        run: |
+          uv run --no-sync compute --help
+          uv run --no-sync meshforge-controller --help
+          uv run --no-sync meshforge-agent --help
+      - name: pytest -m unit (no extras)
+        if: ${{ !cancelled() }}
+        run: uv run --no-sync python scripts/pytest_exit_guard.py -m unit --junitxml=reports/junit-fresh-clone-${{ matrix.os }}.xml
       - name: upload junit report
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
