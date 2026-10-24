@@ -125,7 +125,11 @@ def reason_text(reason: object) -> str:
 
 
 def _factor(y_hat: float | None) -> float | None:
-    return None if y_hat is None or abs(y_hat) > MAX_Y_HAT else math.exp(y_hat)
+    # NaN fails every comparison: test the bound positively (as
+    # ml.predictions._point does), so NaN / inf give no factor (G6b tester T4)
+    if y_hat is None or not abs(y_hat) <= MAX_Y_HAT:
+        return None
+    return math.exp(y_hat)
 
 
 def _block(block: Mapping[str, Any], seconds: float | None) -> dict[str, Any]:

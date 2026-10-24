@@ -64,6 +64,7 @@ __all__ = [
     "PredictionPoint",
     "PredictionsError",
     "PredictionsRead",
+    "calibration_skips",
     "points_of",
     "read_predictions",
 ]
@@ -74,7 +75,8 @@ MAX_LIMIT: Final = 2000
 MAX_CALIBRATION_VERSIONS: Final = 16
 """Distinct calibration versions read per request (each is one row); the
 points of decisions with any other version get ``calibrated_s`` null when ML
-corrected them."""
+corrected them - counted in :attr:`PredictionsRead.calibration_skipped_points`
+(V0.15 G6b) so the Models tab can say so."""
 
 _CALIBRATED_AS: Final[Mapping[str, str]] = {
     "transfer": "transfer",
@@ -115,6 +117,15 @@ class PredictionPoint:
 class PredictionsRead:
     points: list[PredictionPoint]
     decisions_read: int
+    calibration_versions_skipped: int = 0
+    """V0.15 G6b (G5 debt): distinct calibration versions of the read
+    decisions older than the newest :data:`MAX_CALIBRATION_VERSIONS` - not
+    read, so an ML-corrected term of such a decision has ``calibrated_s``
+    null."""
+    calibration_skipped_points: int = 0
+    """Points whose ``calibrated_s`` is null because their decision's
+    calibration version was one of those skipped (the rest of the null
+    ``calibrated_s`` are versions that cannot be read)."""
 
 
 def _num(value: object) -> float | None:
@@ -315,4 +326,27 @@ async def read_predictions(
         term=term,
         set_version=set_version,
     )
-    return PredictionsRead(points=points, decisions_read=len(outcomes))
+    skipped_versions, skipped_points = calibration_skips(points, versions)
+    return PredictionsRead(
+        points=points,
+        decisions_read=len(outcomes),
+        calibration_versions_skipped=skipped_versions,
+        calibration_skipped_points=skipped_points,
+    )
+
+
+def calibration_skips(
+    points: Sequence[PredictionPoint], versions: Mapping[int, int | None]
+) -> tuple[int, int]:
+    """V0.15 G6b (G5 debt): ``(versions, points)`` - how many distinct
+    calibration versions of the read decisions are older than the newest
+    :data:`MAX_CALIBRATION_VERSIONS` (never read), and how many points have
+    ``calibrated_s`` null because of it."""
+    wanted = sorted({v for v in versions.values() if v is not None}, reverse=True)
+    skipped = set(wanted[MAX_CALIBRATION_VERSIONS:])
+    points_skipped = sum(
+        1
+        for p in points
+        if p.calibrated_s is None and versions.get(p.decision_id) in skipped
+    )
+    return len(skipped), points_skipped

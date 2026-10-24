@@ -31,6 +31,7 @@ from mf_eval_pg import (
     planner,
     register_nodes,
 )
+from mf_eval_poll import bg, wait_for_report
 from sqlalchemy import text
 
 from meshforge.controller import calibration_store
@@ -306,10 +307,13 @@ async def test_api_report_carries_paired_comparisons_and_markdown(
         "POST",
         "/v1/planner/eval-reports",
         ADMIN,
-        json={"campaign_ids": [campaign_id]},
+        json=bg({"campaign_ids": [campaign_id]}),
     )
-    assert made.status_code == 201, made.text
-    report = made.json()["report"]
+    assert made.status_code == 202, made.text  # V0.15 G6b (D378)
+    done = await wait_for_report(
+        lambda p: _call(app, "GET", p, ADMIN), made.json()["report_id"]
+    )
+    report = done.json()["report"]
     assert report["counts"]["non_finite_configs"] == 0
     crit2 = next(v for v in report["verdicts"] if v["criterion"] == 2)
     assert len(crit2["comparisons"]) == 6
@@ -328,7 +332,7 @@ async def test_api_report_carries_paired_comparisons_and_markdown(
     md = await _call(
         app,
         "GET",
-        f"/v1/planner/eval-reports/{made.json()['id']}?format=markdown",
+        f"/v1/planner/eval-reports/{made.json()['report_id']}?format=markdown",
         USER,
     )
     assert md.status_code == 200 and "common" in md.text.lower()

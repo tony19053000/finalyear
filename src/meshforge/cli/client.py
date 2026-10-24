@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import math
 import os
 import ssl
 from collections.abc import Iterator, Mapping
@@ -34,7 +35,6 @@ from pydantic import SecretStr
 
 from meshforge.cli.exits import exit_code_for
 from meshforge.common.errors import FailureType, MeshForgeError
-from meshforge.common.ml_eval import DEFAULT_ML_EVAL_TIMEOUT_S, EVAL_REPLAY_MARGIN_S
 
 __all__ = ["ControllerClient", "ControllerError", "exit_code_for"]
 
@@ -58,12 +58,6 @@ _RETRY_HINT: Final = " - retry in a moment"
 
 _TRANSFER_TIMEOUT_S: Final = 300.0
 """Bundle/output transfers and log downloads: bigger than one small JSON call."""
-_EVAL_TIMEOUT_S: Final = DEFAULT_ML_EVAL_TIMEOUT_S + EVAL_REPLAY_MARGIN_S
-"""V0.15 G5a (D368): ``POST /v1/planner/eval-reports`` trains one fold model
-set per evaluated family before it replays - minutes, not seconds. The
-controller caps the fold training at ``ml_eval_timeout_s`` (default
-:data:`~meshforge.common.ml_eval.DEFAULT_ML_EVAL_TIMEOUT_S`); the CLI waits
-that plus the replay margin."""
 
 
 class ControllerError(MeshForgeError):
@@ -409,18 +403,23 @@ class ControllerClient:
         holdout: str | None = None,
         allow_leak: bool = False,
     ) -> Mapping[str, Any]:
-        """``POST /v1/planner/eval-reports`` (admin): evaluate + store. It
-        trains the ML fold models (V0.15 G5a) and replays every record under
-        every policy, so it may take a while: :data:`_EVAL_TIMEOUT_S`."""
-        body: dict[str, Any] = {"campaign_ids": campaign_ids, "allow_leak": allow_leak}
+        """``POST /v1/planner/eval-reports`` (admin): start an evaluation
+        (V0.15 G6b, D378: 202 ``{report_id, status: running}``; poll
+        :meth:`planner_eval_report`). A controller from before G6b answers
+        201 with the whole record instead - returned as it is."""
+        body: dict[str, Any] = {
+            "campaign_ids": campaign_ids,
+            "allow_leak": allow_leak,
+            "background": True,
+        }
         if holdout is not None:
             body["holdout"] = holdout
-        return self._request(
-            "POST",
-            "/v1/planner/eval-reports",
-            json_body=body,
-            timeout=_EVAL_TIMEOUT_S,
-        )
+        return self._request("POST", "/v1/planner/eval-reports", json_body=body)
+
+    def planner_eval_report(self, report_id: int) -> Mapping[str, Any]:
+        """``GET /v1/planner/eval-reports/{id}`` (status, and the report once
+        done)."""
+        return self._get(f"/v1/planner/eval-reports/{report_id}")
 
     def planner_eval_reports(self, *, limit: int = 50) -> Mapping[str, Any]:
         """``GET /v1/planner/eval-reports`` (summaries, newest first)."""
@@ -707,10 +706,14 @@ class ControllerClient:
         if failure_type is FailureType.NETWORK_ERROR:
             # 503: the controller is up but its database is not - to a caller this
             # is still "the fabric cannot answer right now", hence UNAVAILABLE.
+            unavailable: dict[str, Any] = {"status": status, "path": path}
+            retry_after = _retry_after(response)
+            if retry_after is not None:
+                unavailable["retry_after_s"] = retry_after
             return ControllerError(
                 f"the controller cannot answer right now: {detail}" + _RETRY_HINT,
                 failure_type=FailureType.NETWORK_ERROR,
-                details={"status": status, "path": path},
+                details=unavailable,
             )
         hint = _NOT_FOUND_HINT if failure_type is FailureType.NOT_FOUND else ""
         details: dict[str, Any] = {"status": status, "path": path, "code": code or None}
@@ -722,6 +725,25 @@ class ControllerClient:
             failure_type=failure_type,
             details=details,
         )
+
+
+_RETRY_AFTER_MAX_S: Final = 60.0
+"""The longest ``Retry-After`` the CLI honours (a hostile header cannot stall it)."""
+
+
+def _retry_after(response: httpx.Response) -> float | None:
+    """``Retry-After`` in seconds (delta-seconds only), clamped to
+    ``[0, _RETRY_AFTER_MAX_S]``; None when absent or not a finite number."""
+    raw = response.headers.get("Retry-After")
+    if raw is None:
+        return None
+    try:
+        value = float(raw.strip())
+    except ValueError:
+        return None
+    if not math.isfinite(value):
+        return None
+    return min(max(value, 0.0), _RETRY_AFTER_MAX_S)
 
 
 _STATUS_FALLBACK: Final = {

@@ -63,7 +63,6 @@ def _make(child: Any, rows: list[dict[str, Any]] | None = None) -> FoldMlInputs:
         build,
         child=child,
         missing=list,
-        clock=lambda: NOW,  # type: ignore[arg-type]
     )
 
 

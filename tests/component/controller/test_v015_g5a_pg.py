@@ -45,6 +45,7 @@ from mf_eval_pg import (
     planner,
     register_nodes,
 )
+from mf_eval_poll import bg, wait_for_report
 from mf_ml_synthetic import parquet_file, synthetic_rows
 from sqlalchemy import text
 
@@ -165,10 +166,14 @@ async def _report(engine: Any, cas: CasStore, child: Any, campaign: str) -> Any:
     )
     transport = httpx.ASGITransport(app=_app(service))
     async with httpx.AsyncClient(transport=transport, base_url="http://t") as client:
-        response = await client.post(
-            "/v1/planner/eval-reports", json={"campaign_ids": [campaign]}
+        started = await client.post(
+            "/v1/planner/eval-reports", json=bg({"campaign_ids": [campaign]})
         )
-    assert response.status_code == 201, response.text
+        assert started.status_code == 202, started.text  # V0.15 G6b (D378)
+        response = await wait_for_report(
+            client.get, started.json()["report_id"], timeout_s=600.0
+        )
+    assert response.json()["status"] == "done", response.text
     return response.json()
 
 

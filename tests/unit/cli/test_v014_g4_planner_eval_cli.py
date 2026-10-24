@@ -9,6 +9,11 @@
 * ``--json`` prints the API document; errors are one stderr line + exit code;
 * an accepted calibration row's D319 note prints as ``note:``, never
   ``rejected:``.
+
+V0.15 G6b (D378): these fake controllers answer the POST with 201 and the
+whole record, as a controller from before start-then-poll did - the CLI
+still accepts that answer; the 202-then-poll path is
+``test_v015_g6b_eval_poll_cli.py``.
 """
 
 from __future__ import annotations
@@ -87,6 +92,7 @@ def test_eval_posts_the_request_and_prints_verdicts_and_table(
             {
                 "campaign_ids": [CAMP, "camp_01BBBBBBBBBBBBBBBBBBBBBBBB"],
                 "allow_leak": False,
+                "background": True,  # V0.15 G6b (D378)
                 "holdout": "cpu.matmul",
             },
         )

@@ -226,10 +226,20 @@ def _payload(fields: list[str]) -> dict[str, Any]:
     return payload
 
 
+_ONE_REQUEST_ROWS = [
+    row
+    for row in ROWS
+    if row[1] != "built by the CLI"
+    # V0.15 G6b (D378): `planner eval` POSTs, then polls GET (two requests);
+    # its --json line is pinned in test_v015_g6b_eval_poll_cli.py
+    and not row[0].startswith("planner eval ")
+]
+
+
 @pytest.mark.parametrize(
     ("command", "source", "fields"),
-    [row for row in ROWS if row[1] != "built by the CLI"],
-    ids=[row[0] for row in ROWS if row[1] != "built by the CLI"],
+    _ONE_REQUEST_ROWS,
+    ids=[row[0] for row in _ONE_REQUEST_ROWS],
 )
 def test_json_is_the_answer_plus_schema_version_on_one_sorted_line(
     runner: CliRunner,

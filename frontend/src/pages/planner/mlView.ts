@@ -318,6 +318,10 @@ export interface Scatter {
   ml: ScatterPoint[];
   /** Points of this term that cannot sit on log axes (a null or non-positive value). */
   dropped: number;
+  /** V0.15 G6b: every point of this term (plotted + dropped). */
+  total: number;
+  /** V0.15 G6b: points of this term with no calibrated value (null `calibrated_s`) - absent from the calibration series. */
+  noCalibrated: number;
   /** Shared square log domain, so the y = x line is the diagonal; null without points. */
   domain: [number, number] | null;
 }
@@ -333,8 +337,12 @@ export function scatterOf(
   const calibration: ScatterPoint[] = [];
   const ml: ScatterPoint[] = [];
   let dropped = 0;
+  let total = 0;
+  let noCalibrated = 0;
   for (const p of points) {
     if (p.term !== term) continue;
+    total += 1;
+    if (p.calibrated_s == null) noCalibrated += 1;
     const base = {
       decisionId: p.decision_id,
       nodeId: p.node_id,
@@ -359,7 +367,30 @@ export function scatterOf(
     domain[0] /= 2;
     domain[1] *= 2;
   }
-  return { term, calibration, ml, dropped, domain };
+  return { term, calibration, ml, dropped, total, noCalibrated, domain };
+}
+
+/** V0.15 G6b (G5 debt): "N of M plotted" - never hide how many points the chart leaves out. */
+export function plottedText(s: Scatter): string {
+  return `${String(s.total - s.dropped)} of ${String(s.total)} point(s) of ${s.term} plotted`;
+}
+
+/**
+ * V0.15 G6b (G5 debt): why some points have no calibrated value - their
+ * decision's calibration version is older than the newest `cap` versions the
+ * route reads per request (counted by the API). Null when none is skipped.
+ */
+export function calibrationGapText(data: {
+  calibration_versions_cap: number;
+  calibration_versions_skipped: number;
+  calibration_skipped_points: number;
+}): string | null {
+  if (data.calibration_skipped_points <= 0) return null;
+  return (
+    `${String(data.calibration_skipped_points)} point(s) have no calibrated value: their decisions used one of ` +
+    `${String(data.calibration_versions_skipped)} calibration version(s) older than the newest ` +
+    `${String(data.calibration_versions_cap)} this view reads, so they are not in the calibration series.`
+  );
 }
 
 export interface FallbackRow {

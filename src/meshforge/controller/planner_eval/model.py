@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any, Final, Literal
+from typing import Any, Final, Literal, Protocol
 
 from meshforge.bench.stats import BOOTSTRAP_LEVEL, BOOTSTRAP_RESAMPLES
 from meshforge.common.manifest import OBJECTIVES, POLICIES
@@ -50,6 +50,24 @@ UNMEASURED: Final = "unmeasured"
 """The vote of a record whose pick matches no measured configuration."""
 
 type PolicyKind = Literal["rule", "cost_model", "oracle"]
+
+
+class EvalCancelledError(Exception):
+    """The evaluation was stopped (the controller stops): raised in the
+    replay thread at the next group / family boundary (G6b reviewer N1)."""
+
+
+class CancelFlag(Protocol):
+    """What a stop request looks like to the pure replay (a
+    ``threading.Event`` in the service; no thread import here)."""
+
+    def is_set(self) -> bool: ...
+
+
+def check_cancel(cancel: CancelFlag | None) -> None:
+    """Raise :class:`EvalCancelledError` when ``cancel`` is set."""
+    if cancel is not None and cancel.is_set():
+        raise EvalCancelledError("the evaluation was stopped")
 
 
 @dataclass(frozen=True, slots=True)

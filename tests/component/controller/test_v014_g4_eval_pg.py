@@ -10,10 +10,11 @@ dispatcher -> labels + records + replays from the database -> the evaluator
   group 2; the expected picks are computed **independently** from the rows
   read back (``shadow_from_replay`` -> ``plan`` per record, majority) and the
   report must agree pick for pick, regret for regret;
-* ``POST /v1/planner/eval-reports`` (admin; 403 for a user) -> 201 and the
-  stored row; ``GET`` list (summaries, newest first) and ``GET /{id}`` (the
-  same report, and its Markdown); unknown campaign / report -> 404; an
-  unknown ``holdout`` family -> 400; the database down -> 503;
+* ``POST /v1/planner/eval-reports`` (admin; 403 for a user) -> 202 and,
+  polled (V0.15 G6b, D378), the stored row; ``GET`` list (summaries, newest
+  first) and ``GET /{id}`` (the same report, and its Markdown); unknown
+  campaign / report -> 404; an unknown ``holdout`` family -> the report ends
+  ``failed`` / ``invalid_input``; the database down -> 503;
 * the CLI's renderer prints it (verdict lines, policy table);
 * the same inputs give the same report bytes (a second evaluation).
 """
@@ -41,6 +42,7 @@ from mf_eval_pg import (
     planner,
     register_nodes,
 )
+from mf_eval_poll import bg, wait_for_report
 from sqlalchemy import text
 
 from meshforge.cli.planner_commands import eval_lines, eval_table
@@ -196,10 +198,19 @@ async def test_campaign_to_report_to_api_to_cli(engine: Any) -> None:
 
     app = _app(engine)
     created = await _call(
-        app, "POST", "/v1/planner/eval-reports", json={"campaign_ids": [campaign_id]}
+        app,
+        "POST",
+        "/v1/planner/eval-reports",
+        json=bg({"campaign_ids": [campaign_id]}),
     )
-    assert created.status_code == 201, created.text
-    record = created.json()
+    assert created.status_code == 202, created.text
+    assert created.json()["status"] == "running"
+    record = (
+        await wait_for_report(
+            lambda p: _call(app, "GET", p), created.json()["report_id"]
+        )
+    ).json()
+    assert record["status"] == "done" and record["reason"] is None
     report = record["report"]
     assert record["campaign_ids"] == [campaign_id] and record["leaked"] is False
     counts = report["counts"]
@@ -284,7 +295,10 @@ async def test_errors_unknown_campaign_report_family_and_database_down(
     campaign_id, _nodes = await _campaign(engine)
     app = _app(engine)
     missing = await _call(
-        app, "POST", "/v1/planner/eval-reports", json={"campaign_ids": ["camp_nope"]}
+        app,
+        "POST",
+        "/v1/planner/eval-reports",
+        json=bg({"campaign_ids": ["camp_nope"]}),
     )
     assert (
         missing.status_code == 404 and "camp_nope" in missing.json()["error"]["message"]
@@ -293,22 +307,30 @@ async def test_errors_unknown_campaign_report_family_and_database_down(
         app,
         "POST",
         "/v1/planner/eval-reports",
-        json={"campaign_ids": [campaign_id], "holdout": "gpu.matmul"},
+        json=bg({"campaign_ids": [campaign_id], "holdout": "gpu.matmul"}),
     )
-    assert family.status_code == 400
-    assert family.json()["error"]["code"] == "invalid_input"
+    assert family.status_code == 202, family.text
+    failed = (
+        await wait_for_report(
+            lambda p: _call(app, "GET", p), family.json()["report_id"]
+        )
+    ).json()
+    assert failed["status"] == "failed" and failed["reason"] == "invalid_input"
+    assert "gpu.matmul" in failed["detail"] and failed["report"] is None
     held = await _call(
         app,
         "POST",
         "/v1/planner/eval-reports",
-        json={"campaign_ids": [campaign_id], "holdout": FAMILY, "allow_leak": True},
+        json=bg({"campaign_ids": [campaign_id], "holdout": FAMILY, "allow_leak": True}),
     )
-    assert held.status_code == 201, held.text
-    body = held.json()
+    assert held.status_code == 202, held.text
+    body = (
+        await wait_for_report(lambda p: _call(app, "GET", p), held.json()["report_id"])
+    ).json()
     assert body["holdout"] == FAMILY and body["leaked"] is True
     assert {v["status"] for v in body["report"]["verdicts"]} == {"leaked"}
     empty = await _call(
-        app, "POST", "/v1/planner/eval-reports", json={"campaign_ids": []}
+        app, "POST", "/v1/planner/eval-reports", json=bg({"campaign_ids": []})
     )
     assert empty.status_code == 400
     gone = await _call(app, "GET", "/v1/planner/eval-reports/999999")
@@ -333,7 +355,7 @@ async def test_errors_unknown_campaign_report_family_and_database_down(
             (
                 "POST",
                 "/v1/planner/eval-reports",
-                {"json": {"campaign_ids": [campaign_id]}},
+                {"json": bg({"campaign_ids": [campaign_id]})},
             ),
         ):
             answer = await _call(down, method, path, **kw)

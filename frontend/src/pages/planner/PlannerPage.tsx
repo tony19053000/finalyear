@@ -25,30 +25,43 @@
  * Every number is the API's. Selection lives in the URL
  * (`?calibration=N`, `?report=ID`, `?tab=models&set=V`), so a view can be linked.
  */
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 import { Bar, BarChart, CartesianGrid, ErrorBar, XAxis, YAxis } from "recharts";
 import { useSearchParams } from "react-router-dom";
 
+import { describeError } from "../../api/errors";
+import { useSession } from "../../api/hooks";
 import { queryKeys } from "../../api/queryKeys";
 import { useDocumentTitle } from "../../app/useDocumentTitle";
+import { Button } from "../../components/Button";
 import { Card } from "../../components/Card";
 import { EmptyState, ErrorState } from "../../components/States";
 import { Badge } from "../../components/Status";
 import { Table, type Column } from "../../components/Table";
 import { Tabs } from "../../components/Tabs";
 import { formatTime } from "../../components/jobs/format";
-import { formatMs } from "../../lib/format";
+import { useToast } from "../../components/toastContext";
+import { formatAgo, formatMs, secondsSince } from "../../lib/format";
 import { PageHeader } from "../PageHeader";
 import { ModelsTab } from "./ModelsTab";
 import {
+  EVAL_POLL_MS,
+  failedText,
   getCalibration,
   getEvalReport,
+  isDone,
+  isEvalAlreadyRunning,
   isEvalReportNotFound,
   isEvalUnavailable,
   listEvalReports,
+  parseCampaignIds,
+  startEvalReport,
   type CalibrationSummary,
   type CalibrationView,
+  type DoneEvalRecord,
   type EvalReportRecordOut,
+  type EvalReportStatus,
   type EvalReportSummaryOut,
   type FactorOut,
   type FamilyResultOut,
@@ -253,9 +266,16 @@ function reportColumns(selected: number | null, select: (id: number) => void): C
       ),
     },
     { id: "created", header: "Created", mono: true, cell: (r) => formatTime(r.created_at) },
+    { id: "status", header: "Status", cell: (r) => <ReportStatusBadge status={r.status} reason={r.reason} /> },
     { id: "campaigns", header: "Campaigns", mono: true, cell: (r) => r.campaign_ids.join(", ") },
     { id: "holdout", header: "Held-out family", mono: true, cell: (r) => r.holdout ?? "each, in turn" },
-    { id: "groups", header: "Groups", align: "right", mono: true, cell: (r) => String(r.evaluated_groups) },
+    {
+      id: "groups",
+      header: "Groups",
+      align: "right",
+      mono: true,
+      cell: (r) => (r.status === "done" ? String(r.evaluated_groups) : "—"),
+    },
     {
       id: "verdicts",
       header: "Verdicts",
@@ -267,6 +287,13 @@ function reportColumns(selected: number | null, select: (id: number) => void): C
       ),
     },
   ];
+}
+
+/** V0.15 G6b (D378): a report's state - never colour alone. */
+function ReportStatusBadge({ status, reason }: { status: EvalReportStatus; reason: string | null }) {
+  if (status === "running") return <Badge tone="busy">running…</Badge>;
+  if (status === "failed") return <Badge tone="failed">{`failed${reason !== null ? `: ${reason}` : ""}`}</Badge>;
+  return <Badge tone="ok">done</Badge>;
 }
 
 function policyColumns(ci: string): Column<PolicyResultOut>[] {
@@ -341,7 +368,7 @@ function RegretChart({ policies, ci }: { policies: readonly PolicyResultOut[]; c
   );
 }
 
-function ReportDetail({ record }: { record: EvalReportRecordOut }) {
+function ReportDetail({ record }: { record: DoneEvalRecord }) {
   const r = record.report;
   const s = r.settings;
   const ci = ciLabel(s.ci_level);
@@ -448,8 +475,47 @@ function ReportDetail({ record }: { record: EvalReportRecordOut }) {
   );
 }
 
+/** V0.15 G6b (D378): a report still evaluating - its progress state. */
+function RunningReport({ record, checkedAt }: { record: EvalReportRecordOut; checkedAt: number }) {
+  return (
+    <Card title={`Report #${String(record.id)} - running`}>
+      <div role="status" aria-live="polite" className="flex flex-col gap-1 text-sm" data-testid="eval-report-running">
+        <p className="inline-flex items-center gap-2">
+          <span aria-hidden="true" className="size-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
+          Evaluating {record.campaign_ids.join(", ")}
+          {record.holdout !== null && <> (held-out family {record.holdout})</>} - started{" "}
+          {formatAgo(secondsSince(record.created_at, checkedAt))}.
+        </p>
+        <p className="text-xs text-fg-muted">
+          The controller trains one ML fold model per family and replays every record under every policy, so this can
+          take minutes. This view checks every {EVAL_POLL_MS / 1000} s and shows the report when it is done.
+        </p>
+      </div>
+    </Card>
+  );
+}
+
+/** V0.15 G6b (D378): a report that ended without a result. */
+function FailedReport({ record }: { record: EvalReportRecordOut }) {
+  return (
+    <div role="alert" className="rounded-lg border border-status-failed bg-status-failed-soft px-4 py-3" data-testid="eval-report-failed">
+      <p className="text-sm font-semibold text-status-failed">
+        Report #{record.id} failed: {failedText(record.reason)}
+        {record.reason !== null && <span className="font-mono font-normal"> ({record.reason})</span>}
+      </p>
+      {record.detail !== null && <p className="text-sm text-fg">{record.detail}</p>}
+      <p className="text-xs text-fg-muted">No report was stored. Run the evaluation again once the cause is fixed.</p>
+    </div>
+  );
+}
+
 function Report({ id }: { id: number }) {
-  const query = useQuery({ queryKey: plannerKeys.report(id), queryFn: ({ signal }) => getEvalReport(id, signal) });
+  const query = useQuery({
+    queryKey: plannerKeys.report(id),
+    queryFn: ({ signal }) => getEvalReport(id, signal),
+    // D378: a running report is re-read until it is done or failed
+    refetchInterval: (q) => (q.state.data?.status === "running" ? EVAL_POLL_MS : false),
+  });
   if (query.isPending) {
     return (
       <p role="status" className="text-sm text-fg-muted">
@@ -468,7 +534,119 @@ function Report({ id }: { id: number }) {
     if (isEvalUnavailable(query.error)) return <EvalUnavailable />;
     return <ErrorState title={`Could not load report #${String(id)}`} error={query.error} onRetry={() => void query.refetch()} />;
   }
-  return <ReportDetail record={query.data} />;
+  const record = query.data;
+  if (record.status === "running") return <RunningReport record={record} checkedAt={query.dataUpdatedAt} />;
+  if (!isDone(record)) return <FailedReport record={record} />;
+  return <ReportDetail record={record} />;
+}
+
+/** Most campaigns one evaluation may take (planner_eval_models `MAX_EVAL_CAMPAIGNS`). */
+const MAX_EVAL_CAMPAIGNS = 20;
+
+const FIELD = "h-8 rounded-md border border-border-strong bg-surface px-2 text-sm text-fg";
+
+/**
+ * V0.15 G6b (D378): **Run evaluation** (admins). Starts the evaluation in the
+ * background (`POST`, 202) and selects the new report, whose view shows the
+ * progress state; while one runs, the button says so (one at a time).
+ */
+function RunEvaluation({
+  running,
+  listedIds,
+  onStarted,
+}: {
+  running: EvalReportSummaryOut | null;
+  listedIds: readonly number[];
+  onStarted: (id: number) => void;
+}) {
+  const [campaigns, setCampaigns] = useState("");
+  const [holdout, setHoldout] = useState("");
+  // the report this page just started, until the list shows it (G6b tester T6)
+  const [awaiting, setAwaiting] = useState<number | null>(null);
+  const client = useQueryClient();
+  const toast = useToast();
+  const ids = parseCampaignIds(campaigns);
+  const start = useMutation({
+    mutationFn: () => startEvalReport({ campaign_ids: ids, holdout: holdout.trim() === "" ? null : holdout.trim(), allow_leak: false }),
+    onSuccess: (out) => {
+      setAwaiting(out.report_id);
+      void client.invalidateQueries({ queryKey: plannerKeys.reports });
+      toast({ title: "Evaluation started", description: `Report #${String(out.report_id)} is running.`, tone: "ok" });
+      onStarted(out.report_id);
+    },
+    onError: (error) => {
+      // another admin's evaluation runs: re-read the list so it (and its note) appear (T5)
+      if (isEvalAlreadyRunning(error)) void client.invalidateQueries({ queryKey: plannerKeys.reports });
+    },
+  });
+  // the started report, from the same cache as its view: once it ended, stop waiting
+  const started = useQuery({
+    queryKey: plannerKeys.report(awaiting ?? 0),
+    queryFn: ({ signal }) => getEvalReport(awaiting ?? 0, signal),
+    enabled: awaiting !== null,
+    refetchInterval: (q) => (q.state.data?.status === "running" ? EVAL_POLL_MS : false),
+  });
+  const waiting =
+    awaiting !== null &&
+    !listedIds.includes(awaiting) &&
+    !started.isError &&
+    started.data?.status !== "done" &&
+    started.data?.status !== "failed";
+  const tooMany = ids.length > MAX_EVAL_CAMPAIGNS;
+  const busy = running !== null || start.isPending || waiting;
+  return (
+    <Card title="Run evaluation">
+      <form
+        className="flex flex-wrap items-end gap-3 text-sm"
+        aria-label="Run an evaluation"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (ids.length > 0 && !tooMany && !busy) start.mutate();
+        }}
+      >
+        <label className="flex min-w-64 flex-1 flex-col gap-1">
+          Campaigns (ids, comma or space separated)
+          <input
+            className={`${FIELD} font-mono`}
+            value={campaigns}
+            spellCheck={false}
+            autoCapitalize="none"
+            onChange={(e) => {
+              setCampaigns(e.target.value);
+            }}
+          />
+        </label>
+        <label className="flex flex-col gap-1">
+          Held-out family (optional)
+          <input
+            className={`${FIELD} font-mono`}
+            value={holdout}
+            maxLength={64}
+            spellCheck={false}
+            autoCapitalize="none"
+            onChange={(e) => {
+              setHoldout(e.target.value);
+            }}
+          />
+        </label>
+        <Button type="submit" variant="primary" loading={busy} disabled={ids.length === 0 || tooMany}>
+          {running !== null ? `Report #${String(running.id)} running…` : start.isPending || waiting ? "Starting…" : "Run evaluation"}
+        </Button>
+      </form>
+      {running !== null && (
+        <p role="status" className="mt-2 text-xs text-fg-muted" data-testid="eval-running-note">
+          Report #{running.id} is evaluating {running.campaign_ids.join(", ")} (started {formatTime(running.created_at)}).
+          One evaluation runs at a time; this page updates every {EVAL_POLL_MS / 1000} s.
+        </p>
+      )}
+      {tooMany && <p className="mt-2 text-xs text-status-failed">At most {MAX_EVAL_CAMPAIGNS} campaigns per evaluation.</p>}
+      {start.isError && (
+        <p role="alert" className="mt-2 text-sm text-status-failed">
+          Could not start the evaluation: {describeError(start.error).message}
+        </p>
+      )}
+    </Card>
+  );
 }
 
 /** A 404 without the unknown-report reason: the controller has no such route (D321). */
@@ -482,7 +660,14 @@ function EvalUnavailable() {
 }
 
 function EvalReports({ selected, onSelect }: { selected: number | null; onSelect: (id: number) => void }) {
-  const list = useQuery({ queryKey: plannerKeys.reports, queryFn: ({ signal }) => listEvalReports(signal) });
+  const session = useSession();
+  const admin = session.data?.user.role === "admin";
+  const list = useQuery({
+    queryKey: plannerKeys.reports,
+    queryFn: ({ signal }) => listEvalReports(signal),
+    // D378: while an evaluation runs, its row (status, verdicts) is re-read
+    refetchInterval: (q) => (q.state.data?.reports.some((r) => r.status === "running") === true ? EVAL_POLL_MS : false),
+  });
   if (list.isPending) {
     return (
       <p role="status" className="text-sm text-fg-muted">
@@ -496,17 +681,24 @@ function EvalReports({ selected, onSelect }: { selected: number | null; onSelect
     return <ErrorState title="Could not load evaluation reports" error={list.error} onRetry={() => void list.refetch()} />;
   }
   const reports = list.data.reports;
+  const running = reports.find((r) => r.status === "running") ?? null;
+  const run = admin ? <RunEvaluation running={running} listedIds={reports.map((r) => r.id)} onStarted={onSelect} /> : null;
   if (reports.length === 0) {
     return (
-      <EmptyState title="No evaluation reports yet">
-        Evaluate benchmark campaigns with <code className="font-mono">compute planner eval --campaign ID</code>: the report
-        - regret per policy against the best measured configuration, and the criterion verdicts - appears here.
-      </EmptyState>
+      <div className="flex flex-col gap-4">
+        {run}
+        <EmptyState title="No evaluation reports yet">
+          Evaluate benchmark campaigns with <code className="font-mono">compute planner eval --campaign ID</code>
+          {admin && " or Run evaluation above"}: the report - regret per policy against the best measured configuration,
+          and the criterion verdicts - appears here.
+        </EmptyState>
+      </div>
     );
   }
   const shown = selected !== null ? selected : (reports[0]?.id ?? null);
   return (
     <div className="flex flex-col gap-4">
+      {run}
       <Card title={`Evaluation reports (${String(reports.length)})`} flush>
         <Table caption="Evaluation reports, newest first" columns={reportColumns(shown, onSelect)} rows={reports} rowKey={(r) => String(r.id)} />
       </Card>

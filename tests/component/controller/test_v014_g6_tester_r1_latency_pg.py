@@ -39,6 +39,7 @@ from mf_eval_pg import (
     planner,
     register_nodes,
 )
+from mf_eval_poll import bg, wait_for_report
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 
@@ -242,6 +243,17 @@ async def _call(
         )
 
 
+async def _post(app: FastAPI, body: dict[str, Any]) -> httpx.Response:
+    """V0.15 G6b (D378): start (202), then the finished report's GET."""
+    started = await _call(app, "POST", "/v1/planner/eval-reports", json=bg(body))
+    assert started.status_code == 202, started.text
+    done = await wait_for_report(
+        lambda p: _call(app, "GET", p), started.json()["report_id"]
+    )
+    assert done.json()["status"] == "done", done.text
+    return done
+
+
 async def _campaign(
     engine: Any, nodes: list[str], repeats: list[int]
 ) -> tuple[str, list[str]]:
@@ -314,10 +326,8 @@ async def test_campaign_filter_hostile_rows_budget_boundary_api_and_cli(
     assert all(s.node_count == 3 for s in both)
 
     app = _app(_service(engine))
-    posted = await _call(
-        app, "POST", "/v1/planner/eval-reports", json={"campaign_ids": [camp_a]}
-    )
-    assert posted.status_code == 201, posted.text
+    posted = await _post(app, {"campaign_ids": [camp_a]})
+    assert posted.status_code == 200, posted.text
     block = posted.json()["report"]["latency"]
     p50, p99, top = _expected(a_good)
     assert block["decisions"] == 15 and block["without_latency"] == 3
@@ -330,78 +340,44 @@ async def test_campaign_filter_hostile_rows_budget_boundary_api_and_cli(
     assert c3["status"] == "too_few_decisions"
 
     # --- A + B: both campaigns count ---------------------------------------
-    both_resp = await _call(
-        app, "POST", "/v1/planner/eval-reports", json={"campaign_ids": [camp_b, camp_a]}
-    )
+    both_resp = await _post(app, {"campaign_ids": [camp_b, camp_a]})
     both_block = both_resp.json()["report"]["latency"]
     assert both_block["decisions"] == 33 and both_block["max_ms"] == 1000.0
     assert both_block["over_budget"] == 18
 
     # --- criterion 3 on 4-node snapshots, at the budget ---------------------
     await _set_snapshot_nodes(engine, [*jobs_a, *jobs_b], 4)
-    judged = await _call(
-        app, "POST", "/v1/planner/eval-reports", json={"campaign_ids": [camp_a, camp_b]}
-    )
+    judged = await _post(app, {"campaign_ids": [camp_a, camp_b]})
     report = judged.json()["report"]
     (c3,) = [v for v in report["verdicts"] if v["criterion"] == 3]
     assert report["latency"]["judged"]["decisions"] == 33
     assert c3["status"] == "FAIL" and c3["value"] == 1000.0
 
-    only_a_4 = await _call(
-        app, "POST", "/v1/planner/eval-reports", json={"campaign_ids": [camp_a]}
-    )
+    only_a_4 = await _post(app, {"campaign_ids": [camp_a]})
     (c3a,) = [v for v in only_a_4.json()["report"]["verdicts"] if v["criterion"] == 3]
     assert c3a["status"] == "too_few_decisions"  # 15 four-node decisions < 30
     assert c3a["counted_groups"] == 15
 
     await _set_ms(engine, jobs_b, [100.0] * 18)  # p99 exactly the budget
-    at = (
-        await _call(
-            app,
-            "POST",
-            "/v1/planner/eval-reports",
-            json={"campaign_ids": [camp_a, camp_b]},
-        )
-    ).json()["report"]
+    at = (await _post(app, {"campaign_ids": [camp_a, camp_b]})).json()["report"]
     (c3_at,) = [v for v in at["verdicts"] if v["criterion"] == 3]
     assert at["latency"]["p99_ms"] == 100.0 and at["latency"]["over_budget"] == 0
     assert c3_at["status"] == "FAIL", "p99 == budget must not pass (< 100 ms)"
 
     await _set_ms(engine, jobs_b, [99.5] * 18)
-    below = (
-        await _call(
-            app,
-            "POST",
-            "/v1/planner/eval-reports",
-            json={"campaign_ids": [camp_a, camp_b]},
-        )
-    ).json()["report"]
+    below = (await _post(app, {"campaign_ids": [camp_a, camp_b]})).json()["report"]
     (c3_below,) = [v for v in below["verdicts"] if v["criterion"] == 3]
     assert c3_below["status"] == "PASS" and c3_below["value"] == 99.5
 
     # a configured budget moves the boundary
     tight = _app(_service(engine, budget_ms=50.0))
-    strict = (
-        await _call(
-            tight,
-            "POST",
-            "/v1/planner/eval-reports",
-            json={"campaign_ids": [camp_a, camp_b]},
-        )
-    ).json()["report"]
+    strict = (await _post(tight, {"campaign_ids": [camp_a, camp_b]})).json()["report"]
     (c3_strict,) = [v for v in strict["verdicts"] if v["criterion"] == 3]
     assert strict["latency"]["budget_ms"] == 50.0 and c3_strict["status"] == "FAIL"
     assert strict["latency"]["over_budget"] == 18
 
     # --- API == stored == CLI ------------------------------------------------
-    rid = (
-        await _call(
-            app,
-            "POST",
-            "/v1/planner/eval-reports",
-            json={"campaign_ids": [camp_a, camp_b]},
-        )
-    ).json()["id"]
+    rid = (await _post(app, {"campaign_ids": [camp_a, camp_b]})).json()["id"]
     got = (
         await _call(app, "GET", f"/v1/planner/eval-reports/{rid}", token=USER)
     ).json()

@@ -43,6 +43,12 @@ and how much slower is that than the best measured configuration?*
   prediction error per term. ``ml_unavailable`` when the controller has no
   ``ml`` extra or ``ml = off`` (never ``FAIL``).
 
+* (V0.15 G6b, D378) **start-then-poll**: ``POST`` answers ``202
+  {report_id, status: running}``; a record / summary carries ``status``
+  (``running`` / ``done`` / ``failed``) with ``reason`` / ``detail``, and
+  ``report`` is null until ``done``. The request must say
+  ``background: true`` - a client from before the change gets a clear 400.
+
 Regret of a group (D315) = ``(median(picked) - median(best)) / median(best)``
 in %, 0 when the pick is the best or in the label's tie set. A pick no
 configuration of the campaign measured is ``unmeasured`` - reported, never
@@ -69,9 +75,11 @@ __all__ = [
     "EvalReportListOut",
     "EvalReportOut",
     "EvalReportRecordOut",
+    "EvalReportStatus",
     "EvalReportSummaryOut",
     "EvalRequestIn",
     "EvalSettingsOut",
+    "EvalStartOut",
     "FamilyResultOut",
     "GroupPickOut",
     "GroupResultOut",
@@ -102,6 +110,8 @@ type VerdictStatus = Literal[
 ]
 type PickStatus = Literal["counted", "unmeasured", "no_replay"]
 type GroupStatus = Literal["evaluated", "excluded", "no_replay"]
+type EvalReportStatus = Literal["running", "done", "failed"]
+"""V0.15 G6b (D378): a report's state (start-then-poll)."""
 
 
 class EvalSettingsOut(ApiModel):
@@ -432,8 +442,9 @@ class EvalMlOut(ApiModel):
     """``evaluated`` | ``ml_unavailable``."""
     reason: str | None
     until: str | None
-    """The fold models' training cut-off (ISO time, the report's start):
-    rows that finished later were not trained on. None = no fold trained."""
+    """The fold models' training cut-off (ISO time): the newest finish time
+    of the runs in the dataset the folds train on (deterministic - the same
+    data gives the same report). None = no fold trained."""
     settings: MlEvalSettingsOut
     verdicts: list[MlVerdictOut]
     fallback: MlFallbackOut
@@ -469,16 +480,24 @@ class EvalReportOut(ApiModel):
 
 
 class EvalReportSummaryOut(ApiModel):
-    """One stored report in the list (no groups)."""
+    """One stored report in the list (no groups). A ``running`` or
+    ``failed`` report has ``eval_version`` 0, no evaluated groups and no
+    verdicts (V0.15 G6b, D378)."""
 
     id: int
     created_at: Utc
+    """The evaluation's start."""
     campaign_ids: list[str]
     holdout: str | None
     leaked: bool
     eval_version: int
     evaluated_groups: int
     verdicts: list[VerdictOut]
+    status: EvalReportStatus
+    """V0.15 G6b (D378): ``running`` / ``done`` / ``failed``."""
+    reason: str | None
+    """Why it failed (``controller_restart``, ``invalid_input``,
+    ``not_found``, ``database``, ``crashed``); null otherwise."""
 
 
 class EvalReportListOut(ApiModel):
@@ -487,19 +506,39 @@ class EvalReportListOut(ApiModel):
 
 
 class EvalReportRecordOut(ApiModel):
-    """One stored report (``GET /v1/planner/eval-reports/{id}``, and what
-    ``POST`` answers)."""
+    """One report (``GET /v1/planner/eval-reports/{id}``): poll it after
+    ``POST`` until ``status`` is no longer ``running`` (V0.15 G6b, D378)."""
 
     id: int
     created_at: Utc
+    """The evaluation's start."""
     campaign_ids: list[str]
     holdout: str | None
     leaked: bool
-    report: EvalReportOut
+    status: EvalReportStatus
+    """``running`` (``report`` null), ``done`` (``report`` set) or
+    ``failed`` (``reason`` / ``detail`` say why; ``report`` null)."""
+    reason: str | None
+    """``controller_restart`` (the controller stopped while it ran),
+    ``invalid_input`` (``holdout`` names no evaluated family, too many
+    records, the report too big), ``not_found`` (a campaign was deleted),
+    ``database``, ``crashed``; null unless ``failed``."""
+    detail: str | None
+    """A sentence for people (``failed`` only)."""
+    report: EvalReportOut | None
+    """The report; null while ``running`` or when ``failed``."""
+
+
+class EvalStartOut(ApiModel):
+    """``POST /v1/planner/eval-reports`` (202): the evaluation runs in the
+    background; poll ``GET /v1/planner/eval-reports/{report_id}``."""
+
+    report_id: int
+    status: Literal["running"]
 
 
 class EvalRequestIn(ApiModel):
-    """``POST /v1/planner/eval-reports`` (admin): evaluate and store."""
+    """``POST /v1/planner/eval-reports`` (admin): start an evaluation."""
 
     campaign_ids: list[Annotated[str, Field(min_length=1, max_length=_ID_MAX)]] = Field(
         min_length=1,
@@ -517,4 +556,12 @@ class EvalRequestIn(ApiModel):
         default=False,
         description="Debugging only: use the live calibration instead of "
         "held-out refits; every verdict is stamped 'leaked'.",
+    )
+    background: bool | None = Field(
+        default=None,
+        description="Must be true (V0.15 G6b, D378): the evaluation runs in "
+        "the background; the answer is 202 {report_id} and GET "
+        "/v1/planner/eval-reports/{report_id} reports its progress. A request "
+        "without it (a client from before the change, which expects the "
+        "report in the answer) is refused with 400 eval_requires_background.",
     )

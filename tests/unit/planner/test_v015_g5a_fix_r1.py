@@ -33,8 +33,11 @@ pytest.importorskip("fastapi", reason="needs the controller extra")
 
 from mf_eval_world import fabric, group, records
 
-from meshforge.cli import client as cli_client
-from meshforge.common.ml_eval import DEFAULT_ML_EVAL_TIMEOUT_S, EVAL_REPLAY_MARGIN_S
+from meshforge.common.ml_eval import (
+    DEFAULT_ML_EVAL_TIMEOUT_S,
+    EVAL_REPLAY_MARGIN_S,
+    EVAL_WAIT_DEFAULT_S,
+)
 from meshforge.controller import ml_retrain_task
 from meshforge.controller.api.planner_eval_models import EvalReportOut
 from meshforge.controller.ml import child as child_mod
@@ -43,7 +46,10 @@ from meshforge.controller.ml.export import BuiltDataset
 from meshforge.controller.ml.folds import train_fold
 from meshforge.controller.ml_retrain_task import MlRetrainer
 from meshforge.controller.planner_eval.core import evaluate
-from meshforge.controller.planner_eval.ml_inputs import FoldMlInputs
+from meshforge.controller.planner_eval.ml_inputs import (
+    FOLD_BUDGET_EPSILON_S,
+    FoldMlInputs,
+)
 from meshforge.controller.planner_eval.model import (
     ML_EVALUATED,
     EvalConfig,
@@ -109,7 +115,6 @@ def _inputs(child: Any, settings: PlannerSettings, **kw: Any) -> FoldMlInputs:
         build,
         child=child,
         missing=list,
-        clock=lambda: NOW,
         **kw,
     )
 
@@ -242,9 +247,7 @@ def test_the_guard_works_across_event_loops() -> None:
 
 def test_the_budget_default_and_the_cli_timeout_derive_from_it() -> None:
     assert PlannerSettings().ml_eval_timeout_s == DEFAULT_ML_EVAL_TIMEOUT_S
-    assert (
-        cli_client._EVAL_TIMEOUT_S == DEFAULT_ML_EVAL_TIMEOUT_S + EVAL_REPLAY_MARGIN_S
-    )
+    assert EVAL_WAIT_DEFAULT_S == DEFAULT_ML_EVAL_TIMEOUT_S + EVAL_REPLAY_MARGIN_S
     with pytest.raises(ValueError, match="ml_eval_timeout_s"):
         PlannerSettings(ml_eval_timeout_s=0.0)
 
@@ -295,7 +298,8 @@ def test_the_running_fold_is_stopped_and_its_child_cancelled() -> None:
     ml = asyncio.run(inputs.prepare(families, allow_leak=False))
     assert time.monotonic() - started < 10.0
     assert cancelled == [True]
-    assert timeouts and timeouts[0] <= 1.0  # never more than the budget left
+    # V0.15 G6b (D378): the budget left + epsilon - the evaluation deadline wins
+    assert timeouts and timeouts[0] <= 1.0 + FOLD_BUDGET_EPSILON_S
     assert [f["reason"] for f in ml.folds] == [
         "eval_budget_exhausted: stopped, ml_eval_timeout_s = 1 s",
         "eval_budget_exhausted: not trained, ml_eval_timeout_s = 1 s",

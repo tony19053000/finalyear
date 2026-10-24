@@ -138,12 +138,14 @@ from meshforge.controller.planner_eval.model import (
     ORACLE,
     RULE_POLICIES,
     UNMEASURED,
+    CancelFlag,
     ConfigRef,
     EvalConfig,
     EvalGroup,
     EvalMl,
     EvalRecord,
     PolicySpec,
+    check_cancel,
 )
 
 __all__ = [
@@ -982,6 +984,7 @@ def evaluate(
     leaked: bool = False,
     latency: Sequence[LatencySample] = (),
     ml: EvalMl | None = None,
+    cancel: CancelFlag | None = None,
 ) -> dict[str, Any]:
     """The evaluation report (module docstring) as a JSON-ready dict.
     ``calibrations`` = family -> the calibration its calibrated rows use
@@ -990,7 +993,9 @@ def evaluate(
     ``latency`` block and criterion 3, :mod:`.latency`; never filtered by
     ``holdout`` - a decision's latency does not depend on the family).
     ``ml`` (V0.15 G5a) = the fold models of the ML rows; the ML policy rows
-    in ``policies`` are dropped unless it is evaluated."""
+    in ``policies`` are dropped unless it is evaluated. ``cancel`` (G6b
+    reviewer N1) set -> :class:`~.model.EvalCancelledError` before the next
+    group, so a stopped evaluation does not keep its thread busy."""
     if ml is None or not ml.evaluated:
         policies = [spec for spec in policies if not spec.ml]
     inputs = ml.inputs if ml is not None and ml.evaluated else {}
@@ -1007,6 +1012,7 @@ def evaluate(
     skipped: Counter[str] = Counter()
     results: list[_GroupResult] = []
     for group in chosen:
+        check_cancel(cancel)
         mine = sorted(
             by_group.get((group.campaign_id, group.group_id), []),
             key=lambda r: (r.config_id, r.repetition, r.attempt_id),

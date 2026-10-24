@@ -32,6 +32,7 @@ from meshforge.controller.planner.calibration import (
     canonical,
     fit,
 )
+from meshforge.controller.planner_eval.model import CancelFlag, check_cancel
 
 __all__ = [
     "CalibrationChoice",
@@ -80,11 +81,15 @@ def refit_choices(
     runs: Sequence[MatchedRun],
     families: Mapping[str, frozenset[str]],
     config: CalibrationConfig,
+    *,
+    cancel: CancelFlag | None = None,
 ) -> dict[str, CalibrationChoice]:
     """One leave-one-family-out refit per family (``family -> the
-    fingerprints of its evaluated records``)."""
+    fingerprints of its evaluated records``); ``cancel`` set -> stop before
+    the next family (:class:`~.model.EvalCancelledError`)."""
     out: dict[str, CalibrationChoice] = {}
     for family in sorted(families):
+        check_cancel(cancel)
         kept, removed = held_out(runs, family, families[family])
         fitted = fit(kept, config)
         usable = fitted if fitted.factor_count > 0 else None

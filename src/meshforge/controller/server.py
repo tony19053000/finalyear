@@ -247,6 +247,9 @@ class ControllerRuntime:
         with, read once per tick (``ml_source.models`` = the registry-side
         :class:`~.ml.source.ModelSource`; None before start)."""
         self.ml_retrainer: MlRetrainer | None = None
+        self.planner_eval: EvalService | None = None
+        """V0.15 G6b (D378): the evaluator's background runs (stopped
+        first at shutdown, so a running evaluation's fold child is killed)."""
         self.bench: BenchStore | None = None
         self.bench_submitter: BenchSubmitter | None = None
         """V0.9 G1: the run-record sweep (:mod:`.telemetry.recorder`)."""
@@ -475,8 +478,14 @@ class ControllerRuntime:
         self.secrets = SecretStore(engine, self.settings.secrets_key_path)
         swept = await registry.sweep_open_sessions(SessionEndReason.CONTROLLER_RESTART)
         offline = await registry.mark_live_nodes_offline()
+        # V0.15 G6b (D378): an evaluation never outlives its controller
+        eval_reports = EvalReportStore(engine)
+        evals_failed = await eval_reports.sweep_running()
         log.info(
-            "controller.startup_sweep", sessions_closed=swept, nodes_offline=offline
+            "controller.startup_sweep",
+            sessions_closed=swept,
+            nodes_offline=offline,
+            evaluations_failed=evals_failed,
         )
         # D161 N3: unbound (pre-G5) score documents expire; once now, then
         # periodically (a node that never re-Hellos keeps none forever).
@@ -814,6 +823,28 @@ class ControllerRuntime:
         # is harmless.)
         self._http_sock.listen(_HTTP_BACKLOG)
         self.http_port = int(self._http_sock.getsockname()[1])
+        self.planner_eval = EvalService(
+            engine,
+            calibration_store,
+            eval_reports,
+            calibration_config(cfg.planner),
+            max_rows=self.settings.controller.telemetry.export_max_rows,
+            # V0.14 G6 (D324): criterion 3's budget is the dispatcher's
+            config=EvalConfig(
+                latency=LatencyConfig(budget_ms=cfg.planner.decision_latency_budget_ms)
+            ),
+            # V0.15 G5a (D368): the ML rows' fold models
+            ml=FoldMlInputs(
+                cfg.planner,
+                ml_models,
+                ml_sets,
+                functools.partial(
+                    ml_export.build_dataset,
+                    engine,
+                    max_runs=cfg.planner.ml_dataset_max_runs,
+                ),
+            ),
+        )
         http_app = create_http_app(
             manager,
             registry=registry,
@@ -885,32 +916,7 @@ class ControllerRuntime:
                 source=self.calibration,
                 refresher=self.calibration_refresher,
             ),
-            planner_eval=PlannerEvalApi(
-                service=EvalService(
-                    engine,
-                    calibration_store,
-                    EvalReportStore(engine),
-                    calibration_config(cfg.planner),
-                    max_rows=self.settings.controller.telemetry.export_max_rows,
-                    # V0.14 G6 (D324): criterion 3's budget is the dispatcher's
-                    config=EvalConfig(
-                        latency=LatencyConfig(
-                            budget_ms=cfg.planner.decision_latency_budget_ms
-                        )
-                    ),
-                    # V0.15 G5a (D368): the ML rows' fold models
-                    ml=FoldMlInputs(
-                        cfg.planner,
-                        ml_models,
-                        ml_sets,
-                        functools.partial(
-                            ml_export.build_dataset,
-                            engine,
-                            max_runs=cfg.planner.ml_dataset_max_runs,
-                        ),
-                    ),
-                )
-            ),
+            planner_eval=PlannerEvalApi(service=self.planner_eval),
             # V0.15 G1 (D333): the ML training dataset
             ml_dataset=MlDatasetApi(engine, max_runs=cfg.planner.ml_dataset_max_runs),
             # V0.15 G3 (D339): the model registry
@@ -1247,6 +1253,14 @@ class ControllerRuntime:
             self.calibration_refresher.request_stop()  # V0.14 G2
         if self.ml_retrainer is not None:
             self.ml_retrainer.request_stop()  # V0.15 G3
+        eval_stopped = (
+            None if self.planner_eval is None else self.planner_eval.request_stop()
+        )  # V0.15 G6b (D378): kills its fold child, marks controller_restart
+        if eval_stopped is not None:
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(
+                    asyncio.gather(eval_stopped, return_exceptions=True), remaining()
+                )
         if self.manager is not None:
             # Sessions first: their streams end with the reason persisted before the
             # transport is torn down under them.

@@ -132,10 +132,21 @@ def _evaluate(fabric: Fabric, cid: str, *, allow_leak: bool) -> dict[str, Any]:
     resp = fabric.call(
         "POST",
         "/v1/planner/eval-reports",
-        json={"campaign_ids": [cid], "allow_leak": allow_leak},
+        json={"campaign_ids": [cid], "allow_leak": allow_leak, "background": True},
     )
-    assert resp.status_code == 201, resp.text
-    return dict(resp.json())
+    # V0.15 G6b (D378): start (202), then poll the report until it is done
+    assert resp.status_code == 202, resp.text
+    report_id = resp.json()["report_id"]
+    deadline = time.monotonic() + 300
+    while True:
+        got = fabric.call("GET", f"/v1/planner/eval-reports/{report_id}")
+        assert got.status_code == 200, got.text
+        record = dict(got.json())
+        if record["status"] != "running":
+            assert record["status"] == "done", record
+            return record
+        assert time.monotonic() < deadline, f"report {report_id} still running"
+        time.sleep(0.5)
 
 
 def _verdict_text(v: dict[str, Any]) -> str:
