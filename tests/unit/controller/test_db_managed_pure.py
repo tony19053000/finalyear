@@ -381,7 +381,8 @@ def test_layout_paths() -> None:
     root = Path("/var/lib/meshforge/db")
     assert layout.data_dir == root / "data"
     assert layout.initdb_tmp_dir == root / "data.initdb-tmp"
-    assert layout.password_file == root / "password"
+    assert layout.password_file == root / "admin.password"
+    assert layout.app_password_file == root / "app.password"
     assert layout.lock_file == root / "managed.lock"
     assert layout.socket_dir == root / "run"
     assert layout.log_dir == root / "log"

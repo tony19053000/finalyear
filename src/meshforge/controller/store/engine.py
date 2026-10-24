@@ -48,13 +48,18 @@ def build_url(settings: DatabaseSettings) -> URL:
 
 def connect_args(settings: DatabaseSettings) -> dict[str, Any]:
     """asyncpg ``connect()`` keyword arguments derived from ``settings``."""
+    server_settings = {
+        "timezone": "UTC",
+        "application_name": settings.application_name,
+    }
+    if settings.session_role is not None:
+        # A startup-packet GUC: the session acts as this role from its first
+        # statement (validated identifier, so no quoting issue).
+        server_settings["role"] = settings.session_role
     return {
         "timeout": settings.connect_timeout_s,
         "command_timeout": settings.command_timeout_s,
-        "server_settings": {
-            "timezone": "UTC",
-            "application_name": settings.application_name,
-        },
+        "server_settings": server_settings,
     }
 
 

@@ -4,7 +4,9 @@ One root (``/var/lib/meshforge/db`` for an install, D390) holds everything::
 
     <root>/
       managed.lock     advisory lock: one controller per cluster (never deleted)
-      password         generated password, 0600 (secret.py)
+      admin.password   generated password of the admin role (initdb superuser,
+                       migrations/backup/restore only), 0600 (secret.py)
+      app.password     generated password of the application role, 0600
       data/            PGDATA, 0700 - created by initdb in data.initdb-tmp/ and
                        renamed, so a crash during initdb never leaves a half cluster
       run/             unix socket dir, 0700 (may be moved, e.g. /run/meshforge/db)
@@ -52,7 +54,13 @@ class ManagedLayout:
 
     @property
     def password_file(self) -> Path:
-        return self.root / "password"
+        """The admin (initdb superuser) role's password (Q18)."""
+        return self.root / "admin.password"
+
+    @property
+    def app_password_file(self) -> Path:
+        """The application role's password (Q18): what the controller connects with."""
+        return self.root / "app.password"
 
     @property
     def lock_file(self) -> Path:

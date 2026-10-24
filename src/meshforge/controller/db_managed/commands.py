@@ -171,16 +171,24 @@ def restore_argv(
     user: str,
     database: str,
     dump_file: Path,
+    role: str | None = None,
 ) -> list[str]:
     """``pg_restore`` of a custom-format dump into an **existing, empty** database,
-    all-or-nothing (``--single-transaction`` + ``--exit-on-error``)."""
-    return [
+    all-or-nothing (``--single-transaction`` + ``--exit-on-error``).
+
+    ``--no-owner`` + ``--role=<role>``: every restored object is owned by
+    ``role`` (the application role, Q18) whatever owned it in the source - so a
+    dump of the dev Compose database (owner ``meshforge`` superuser) imports
+    cleanly too (Q21). ``--no-acl``: grants of the source are not copied."""
+    argv = [
         str(binaries.program("pg_restore")),
         *_connection_args(layout, port=port, user=user),
         "--no-password",
         "--exit-on-error",
         "--single-transaction",
         "--no-owner",
-        f"--dbname={database}",
-        str(dump_file),
+        "--no-acl",
     ]
+    if role is not None:
+        argv.append(f"--role={role}")
+    return [*argv, f"--dbname={database}", str(dump_file)]

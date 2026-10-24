@@ -69,6 +69,16 @@ class DatabaseSettings(SectionModel):
     pool_recycle_s: int = Field(default=1800, ge=-1)
     application_name: str = "meshforge-controller"
     echo_sql: bool = False
+    session_role: str | None = Field(
+        default=None,
+        pattern=r"^[a-z_][a-z0-9_]{0,62}$",
+        description=(
+            "Act as this role after connecting (PostgreSQL SET ROLE, sent at "
+            "connect time). V0.17 G2 managed mode: migrations connect as the "
+            "admin role acting as the application role, so every table stays "
+            "owned by the application role (Q18)."
+        ),
+    )
 
     @field_validator("url", mode="after")
     @classmethod

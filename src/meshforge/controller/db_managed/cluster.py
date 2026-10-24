@@ -6,7 +6,8 @@
     1. take ``managed.lock`` (one controller per cluster; released when this
        process dies, so a crashed controller never blocks the next start);
     2. check the bundle (programs present, ``postgres --version`` major);
-    3. create the owner-only dirs and the password file (generated once);
+    3. create the owner-only dirs and the two password files (admin + app
+       role, Q18; generated once);
     4. ``initdb`` once - into ``data.initdb-tmp`` then renamed to ``data``, so a
        crash mid-initdb leaves no half cluster - or refuse a ``PG_VERSION`` of
        another major (:class:`~.errors.ClusterVersionMismatchError`) / a non-empty
@@ -16,13 +17,22 @@
     6. spawn ``postgres`` as a direct child (own session, parent-death SIGINT on
        Linux - see :mod:`.commands`) bound to the unix socket dir + ``127.0.0.1``;
     7. wait for ``postmaster.pid`` status ``ready`` (no client needed);
-    8. create the application database if missing.
+    8. create the application role (non-superuser, password set as a SCRAM
+       verifier) and its database (owned by it) if missing.
 
 ``stop()``
     smart (SIGTERM) -> fast (SIGINT) -> immediate (SIGQUIT) -> SIGKILL of the
     whole process group, each with its own timeout.
 
-Not wired into the controller yet (G2 adds ``[controller.db] mode = "managed"``).
+**Roles (Q18).** ``initdb``'s superuser (``meshforge_admin``) is used only by
+this module (role/database creation, ``pg_dump``, ``pg_restore``) and by the
+migrations, which connect as it *acting as* the application role (the
+``role`` startup setting), so every table is owned by the application role
+``meshforge`` - a non-superuser that owns only its own database and is what
+the controller's engine connects as.
+
+Wired into the controller by :mod:`meshforge.controller.db_managed.runtime`
+(``[controller.db] mode = "managed"``, V0.17 G2).
 """
 
 from __future__ import annotations
@@ -76,10 +86,16 @@ from meshforge.controller.db_managed.procs import (
     pid_alive,
     stop_foreign,
 )
-from meshforge.controller.db_managed.secret import ensure_password_file, pgpass_line
+from meshforge.controller.db_managed.secret import (
+    ensure_password_file,
+    pgpass_line,
+    scram_sha256_verifier,
+)
 from meshforge.controller.store.settings import DatabaseSettings
 
 __all__ = [
+    "ADMIN_ROLE",
+    "APP_ROLE",
     "ManagedCluster",
     "ReconcileKind",
     "ReconcileOutcome",
@@ -90,6 +106,10 @@ __all__ = [
 
 log = get_logger(__name__)
 
+ADMIN_ROLE: Final = "meshforge_admin"
+"""initdb's superuser: migrations (acting as :data:`APP_ROLE`), backup, restore."""
+APP_ROLE: Final = "meshforge"
+"""The application role the controller connects as (owns its database only)."""
 _IDENT: Final = re.compile(r"^[a-z_][a-z0-9_]{0,62}$")
 _LOG_TAIL_BYTES: Final = 2000
 _POLL_S: Final = 0.02
@@ -157,13 +177,20 @@ class ManagedCluster:
         layout: ManagedLayout,
         *,
         port: int,
-        superuser: str = "meshforge",
+        superuser: str = ADMIN_ROLE,
+        app_user: str = APP_ROLE,
         database: str = "meshforge",
         start_timeout_s: float = 60.0,
         stop_timeouts: StopTimeouts | None = None,
         die_with_parent: bool = True,
     ) -> None:
-        for what, value in (("superuser", superuser), ("database", database)):
+        if superuser == app_user:
+            raise ValueError("the admin and the application role must differ (Q18)")
+        for what, value in (
+            ("superuser", superuser),
+            ("app_user", app_user),
+            ("database", database),
+        ):
             if not _IDENT.match(value):
                 raise ValueError(f"{what} must be a lower-case identifier: {value!r}")
         if not 1 <= port <= 65535:
@@ -172,6 +199,7 @@ class ManagedCluster:
         self.layout = layout
         self.port = port
         self.superuser = superuser
+        self.app_user = app_user
         self.database = database
         self.start_timeout_s = start_timeout_s
         self.stop_timeouts = stop_timeouts or StopTimeouts()
@@ -179,6 +207,7 @@ class ManagedCluster:
         self._proc: asyncio.subprocess.Process | None = None
         self._lock_fh: IO[bytes] | None = None
         self._password: SecretStr | None = None
+        self._app_password: SecretStr | None = None
         self._log_marks: dict[Path, int] = {}
 
     # ------------------------------------------------------------ properties
@@ -188,15 +217,56 @@ class ManagedCluster:
         proc = self._proc
         return proc.pid if proc is not None and proc.returncode is None else None
 
-    def database_settings(self, *, database: str | None = None) -> DatabaseSettings:
-        """Controller connection settings (TCP loopback) - after :meth:`start`."""
-        return DatabaseSettings(
+    def database_settings(
+        self,
+        *,
+        database: str | None = None,
+        base: DatabaseSettings | None = None,
+    ) -> DatabaseSettings:
+        """The controller's connection (application role, TCP loopback) -
+        after :meth:`start`. ``base`` supplies the pool and timeout settings
+        (``[database]``); its connection fields are replaced."""
+        if self._app_password is None:
+            self._require_password()  # raises not_running
+        assert self._app_password is not None  # noqa: S101 - narrowing
+        return _connection(
+            base,
+            host=LISTEN_ADDRESS,
+            port=self.port,
+            name=database or self.database,
+            user=self.app_user,
+            password=self._app_password,
+            session_role=None,
+        )
+
+    def admin_settings(
+        self,
+        *,
+        database: str | None = None,
+        base: DatabaseSettings | None = None,
+    ) -> DatabaseSettings:
+        """The migrations' connection: the admin role *acting as* the
+        application role (objects stay owned by it; Q18)."""
+        return _connection(
+            base,
             host=LISTEN_ADDRESS,
             port=self.port,
             name=database or self.database,
             user=self.superuser,
             password=self._require_password(),
+            session_role=self.app_user,
         )
+
+    async def wait_exit(self) -> int:
+        """Wait until the postmaster exits; its exit code (negative = signal).
+        For the controller's supervisor task (an unexpected exit stops it)."""
+        proc = self._proc
+        if proc is None:
+            raise ManagedDbError(
+                "the managed database is not started",
+                reason=ManagedDbReason.NOT_RUNNING,
+            )
+        return await proc.wait()
 
     def _require_password(self) -> SecretStr:
         if self._password is None:
@@ -224,6 +294,7 @@ class ManagedCluster:
             self.layout.prepare()
             password, created = ensure_password_file(self.layout.password_file)
             self._password = password
+            self._app_password, _ = ensure_password_file(self.layout.app_password_file)
             initdb_s = await self._ensure_initialized()
             reconcile = await self.reconcile()
             pid, ready_s = await self._spawn_and_wait()
@@ -500,25 +571,66 @@ class ManagedCluster:
                 self._log_marks[path] = path.stat().st_size
 
     async def _ensure_database(self) -> None:
+        """The application role and its database (Q18); idempotent.
+
+        The role is a plain login role (no superuser, no CREATEDB/CREATEROLE)
+        whose password is (re)set from ``app.password`` on every start, as a
+        SCRAM verifier - the plaintext never reaches the server. The database
+        is owned by it, and only it (and the admin) may connect.
+        """
         import asyncpg  # controller extra; imported late like the store does
 
-        password = self._require_password()
+        assert self._app_password is not None  # noqa: S101 - set in start()
         conn = await asyncpg.connect(
             host=str(self.layout.socket_dir),
             port=self.port,
             user=self.superuser,
-            password=password.get_secret_value(),
+            password=self._require_password().get_secret_value(),
             database="postgres",
             timeout=10,
         )
+        app, name = self.app_user, self.database  # validated identifiers
+        verifier = scram_sha256_verifier(self._app_password)
         try:
-            exists = await conn.fetchval(
-                "SELECT 1 FROM pg_database WHERE datname = $1", self.database
+            role = await conn.fetchrow(
+                "SELECT rolsuper FROM pg_roles WHERE rolname = $1", app
             )
-            if not exists:
-                # Identifier validated by _IDENT in __init__.
-                await conn.execute(f'CREATE DATABASE "{self.database}"')
-                log.info("controller.db.managed.database_created", name=self.database)
+            if role is None:
+                await conn.execute(
+                    f'CREATE ROLE "{app}" LOGIN NOSUPERUSER NOCREATEDB '
+                    "NOCREATEROLE NOREPLICATION NOBYPASSRLS"
+                )
+                log.info("controller.db.managed.role_created", role=app)
+            elif role["rolsuper"]:
+                # A cluster made by the SP2 prototype (app = initdb superuser).
+                raise ManagedDbError(
+                    f"the database role {app!r} is a superuser in "
+                    f"{self.layout.data_dir}; this cluster was not created by this "
+                    "MeshForge version. Restore a backup into a fresh cluster",
+                    reason=ManagedDbReason.DATA_DIR_INVALID,
+                    details={"role": app},
+                )
+            # A verifier literal cannot be a bind parameter in utility
+            # statements; it is base64 + '$:' only (no quote can appear).
+            await conn.execute(f"ALTER ROLE \"{app}\" PASSWORD '{verifier}'")
+            owner = await conn.fetchval(
+                "SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname = $1",
+                name,
+            )
+            if owner is None:
+                await conn.execute(f'CREATE DATABASE "{name}" OWNER "{app}"')
+                log.info("controller.db.managed.database_created", name=name)
+            elif owner != app:
+                await conn.execute(f'ALTER DATABASE "{name}" OWNER TO "{app}"')
+                log.warning(
+                    "controller.db.managed.database_owner_fixed",
+                    name=name,
+                    previous_owner=owner,
+                )
+            await conn.execute(f'REVOKE ALL ON DATABASE "{name}" FROM PUBLIC')
+            await conn.execute(
+                f'GRANT CONNECT, TEMPORARY ON DATABASE "{name}" TO "{app}"'
+            )
         finally:
             await conn.close()
 
@@ -674,6 +786,7 @@ class ManagedCluster:
             user=self.superuser,
             database=database,
             dump_file=dump_file,
+            role=self.app_user,
         )
         started = time.monotonic()
         async with self._pgpass() as passfile:
@@ -718,6 +831,31 @@ async def _run(
         raise
     code = proc.returncode if proc.returncode is not None else await proc.wait()
     return code, out.decode("utf-8", errors="replace")
+
+
+def _connection(
+    base: DatabaseSettings | None,
+    *,
+    host: str,
+    port: int,
+    name: str,
+    user: str,
+    password: SecretStr,
+    session_role: str | None,
+) -> DatabaseSettings:
+    """``base`` (pool/timeouts) with the managed cluster's connection fields."""
+    fields: dict[str, object] = {
+        "url": None,
+        "host": host,
+        "port": port,
+        "name": name,
+        "user": user,
+        "password": password,
+        "session_role": session_role,
+    }
+    if base is None:
+        return DatabaseSettings.model_validate(fields)
+    return DatabaseSettings.model_validate({**base.model_dump(), **fields})
 
 
 def _file_tail(path: Path, *, start: int = 0) -> str:

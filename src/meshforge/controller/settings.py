@@ -18,13 +18,19 @@ from __future__ import annotations
 
 import math
 import re
+from enum import StrEnum
 from pathlib import Path
 from typing import Any, Final
 
 from pydantic import Field, ValidationError, field_validator, model_validator
 
 from meshforge.common.cas import DEFAULT_MAX_RESUMABLE, DEFAULT_MAX_RESUMABLE_PER_OWNER
-from meshforge.common.config import MeshForgeSettings, SectionModel
+from meshforge.common.config import (
+    InstallMode,
+    MeshForgeSettings,
+    SectionModel,
+    install_mode,
+)
 from meshforge.common.errors import ConfigError
 from meshforge.common.fabric_token import CONTROLLER_DIR_NAME, default_token_path
 from meshforge.common.manifest import (
@@ -49,6 +55,8 @@ from meshforge.controller.store.settings import DatabaseSettings
 
 __all__ = [
     "BLOBS_DIR_NAME",
+    "DB_DIR_NAME",
+    "DEFAULT_MANAGED_DB_PORT",
     "DEFAULT_ENROLL_PORT",
     "DEFAULT_GRPC_PORT",
     "DEFAULT_HTTP_PORT",
@@ -58,6 +66,8 @@ __all__ = [
     "BlobStoreSettings",
     "ControllerSection",
     "ControllerSettings",
+    "DbMode",
+    "DbSettings",
     "DiscoverySettings",
     "EnrollSettings",
     "GcSettings",
@@ -79,6 +89,10 @@ DEFAULT_SERVICE_TYPE = "_meshforge-ctl._tcp.local."
 DEFAULT_ADMISSION_TIMEOUT_S = 5.0
 """D41: default Hello admission deadline (below the default 6 s lease)."""
 BLOBS_DIR_NAME = "blobs"
+DB_DIR_NAME = "db"
+"""``<data_dir>/db``: the managed PostgreSQL root (D390), next to ``controller/``
+(a sibling, not inside it: the agent package's purge must be able to tell the
+controller's state apart by top-level name)."""
 LOGS_DIR_NAME = "logs"
 _ADVERTISE_URL = re.compile(
     r"https?://(\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9.-]{1,253}):\d{1,5}"
@@ -1941,6 +1955,114 @@ class SplitSettings(SectionModel):
     )
 
 
+class DbMode(StrEnum):
+    """``[controller.db] mode`` (V0.17 G2, D390)."""
+
+    MANAGED = "managed"
+    """The controller runs its own bundled PostgreSQL 16 as a child process
+    (:mod:`meshforge.controller.db_managed`): data under ``root``, loopback +
+    unix socket only, generated passwords. The default of a packaged install."""
+    EXTERNAL = "external"
+    """Connect to a PostgreSQL someone else runs, with ``[database]`` (the dev
+    Compose setup, power users). The default of a developer checkout."""
+
+
+def _default_db_mode() -> DbMode:
+    """Managed in a packaged (system) install, external otherwise (D390). The
+    install mode is the unit's explicit ``MESHFORGE_INSTALL_MODE`` (Q11)."""
+    if install_mode() is InstallMode.SYSTEM:
+        return DbMode.MANAGED
+    return DbMode.EXTERNAL
+
+
+DEFAULT_MANAGED_DB_PORT = 47150
+"""Q22: the managed PostgreSQL's loopback port - never 5432, so a system
+PostgreSQL (or the dev Compose one) on the same machine never clashes."""
+
+
+class DbSettings(SectionModel):
+    """``[controller.db]`` - where the controller's database comes from (D390).
+
+    In ``managed`` mode ``[database]`` keeps only its pool and timeout settings;
+    the connection itself (host, port, users, passwords) is the managed
+    cluster's, and setting ``[database] url`` or ``password`` there is refused
+    (it would silently be ignored).
+    """
+
+    mode: DbMode = Field(
+        default_factory=_default_db_mode,
+        description=(
+            "managed: run the bundled PostgreSQL (packaged default); external: "
+            "connect with [database] (developer default)."
+        ),
+    )
+    port: int = Field(
+        default=DEFAULT_MANAGED_DB_PORT,
+        ge=1,
+        le=65535,
+        description="Managed mode: the PostgreSQL TCP port on 127.0.0.1.",
+    )
+    root: Path | None = Field(
+        default=None,
+        description=(
+            "Managed mode: the cluster's folder (data, passwords, logs, backups). "
+            "Default <data_dir>/db (/var/lib/meshforge/db for the package)."
+        ),
+    )
+    socket_dir: Path | None = Field(
+        default=None,
+        description=(
+            "Managed mode: the unix socket folder (0700). Default <root>/run; the "
+            "socket path must stay under 107 bytes."
+        ),
+    )
+    bin_dir: Path | None = Field(
+        default=None,
+        description=(
+            "Managed mode: PostgreSQL's bin folder. Default: pgsql/bin of the "
+            "controller bundle this process runs from (a developer checkout must "
+            "set it, e.g. to a tree made by scripts/build_bundle.py)."
+        ),
+    )
+    start_timeout_s: float = Field(
+        default=60.0,
+        gt=0,
+        le=3600,
+        description="Managed mode: how long PostgreSQL may take to accept connections.",
+    )
+    backups_keep: int = Field(
+        default=3,
+        ge=1,
+        le=100,
+        description=(
+            "Managed mode (D393): pre-upgrade backups kept in <root>/backups "
+            "(pre-<version>.dump); older ones are deleted."
+        ),
+    )
+    health_timeout_s: float = Field(
+        default=60.0,
+        gt=0,
+        le=3600,
+        description=(
+            "Managed mode (D393): after an upgrade's migrations, the controller "
+            "must be serving within this, else the pre-upgrade backup is "
+            "restored and it exits non-zero."
+        ),
+    )
+
+    @field_validator("root", "socket_dir", "bin_dir", mode="before")
+    @classmethod
+    def _dir_not_empty(cls, value: object) -> object:
+        return _non_empty_path(value)
+
+    @field_validator("socket_dir", "bin_dir", "root")
+    @classmethod
+    def _absolute(cls, value: Path | None) -> Path | None:
+        if value is not None and not value.is_absolute():
+            raise ValueError(f"must be an absolute path, got {value}")
+        return value
+
+
 class ControllerSection(SectionModel):
     """``[controller]`` section."""
 
@@ -2070,6 +2192,7 @@ class ControllerSection(SectionModel):
     telemetry: TelemetrySettings = Field(default_factory=TelemetrySettings)
     bench: BenchSettings = Field(default_factory=BenchSettings)
     split: SplitSettings = Field(default_factory=SplitSettings)
+    db: DbSettings = Field(default_factory=DbSettings)
 
     @field_validator("grpc_bind", "http_bind")
     @classmethod
@@ -2141,6 +2264,10 @@ class ControllerSection(SectionModel):
         return lo <= version <= hi
 
 
+_CONNECTION_FIELDS: Final = frozenset({"url", "host", "port", "name", "user", "password"})
+"""``[database]`` fields that managed mode replaces (V0.17 G2)."""
+
+
 class ControllerSettings(MeshForgeSettings):
     """Everything the controller process needs (``[controller]`` + ``[database]``)."""
 
@@ -2186,11 +2313,41 @@ class ControllerSettings(MeshForgeSettings):
                 )
         return self
 
+    @model_validator(mode="after")
+    def _managed_db_owns_the_connection(self) -> ControllerSettings:
+        """V0.17 G2: in managed mode the connection is the managed cluster's, so
+        a configured ``[database]`` connection would be silently ignored -
+        refused instead (pool and timeout settings stay usable)."""
+        if self.controller.db.mode is not DbMode.MANAGED:
+            return self
+        given = sorted(_CONNECTION_FIELDS & self.database.model_fields_set)
+        if given:
+            raise ValueError(
+                "[controller.db] mode = 'managed' runs its own PostgreSQL, so "
+                f"[database] {', '.join(given)} would be ignored; remove them "
+                "(or MESHFORGE_DATABASE__...), or use mode = 'external'"
+            )
+        return self
+
+    @property
+    def managed_db(self) -> bool:
+        """True when the controller runs its own PostgreSQL (D390)."""
+        return self.controller.db.mode is DbMode.MANAGED
+
+    @property
+    def db_root(self) -> Path:
+        """The managed cluster's root (``[controller.db] root`` or
+        ``<data_dir>/db``)."""
+        return self.controller.db.root or (self.data_dir / DB_DIR_NAME)
+
     def check_database_password(self) -> None:
         """D145 (d): a controller outside ``insecure-dev`` refuses to start with
         the published development database password (anyone who has read the
         repository knows it). Called at start-up, not as a validator, so tools
-        and tests that only *read* settings are unaffected."""
+        and tests that only *read* settings are unaffected. Managed mode
+        (V0.17 G2) generates its passwords: nothing to check."""
+        if self.managed_db:
+            return
         if self.security.insecure or not self.database.uses_dev_password():
             return
         raise ConfigError(
