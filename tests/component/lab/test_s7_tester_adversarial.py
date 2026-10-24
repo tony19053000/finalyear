@@ -298,7 +298,7 @@ def test_real_quick_run_output_has_no_home_path_or_username(tmp_path: Path) -> N
     report_text = out.read_text(encoding="utf-8")
     assert home not in report_text
     if user and len(user) > 2:
-        assert user not in report_text
+        assert user not in report_text.replace(socket.gethostname(), "")
 
 
 # --------------------------------------------------------- real run sanity

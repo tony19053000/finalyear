@@ -19,6 +19,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -603,6 +604,8 @@ def _node_digest(fe: Path) -> str:
 def test_t5_node_and_python_digests_agree_for_odd_names(
     tmp_path: Path, name: str
 ) -> None:
+    if sys.platform == "win32" and any(c in name for c in "\\\n\t"):
+        pytest.skip("NTFS cannot hold this file name")
     fe = _mini_frontend(tmp_path)
     (fe / "src" / name).write_text("x", "utf-8")
     (fe / "src" / "zz.ts").write_text("y", "utf-8")
@@ -619,6 +622,7 @@ def test_t5_node_and_python_digests_agree_for_nested_odd_dirs(tmp_path: Path) ->
 
 
 @needs_node
+@pytest.mark.skipif(sys.platform == "win32", reason="Linux-only file names")
 def test_t5b_a_non_utf8_file_name_fails_loudly_in_node_never_a_silent_mismatch(
     tmp_path: Path,
 ) -> None:

@@ -24,17 +24,27 @@ import pytest_asyncio
 
 pytest.importorskip("sqlalchemy", reason="needs the controller extra")
 
+from mf_agent_harness import make_controller_settings
+from mf_controller_harness import tolerant_liveness
 from mf_exec_harness import ExecAgent
 from mf_fabric import ca_file
 from mf_jobs_harness import token_of
 
 from meshforge.controller.server import ControllerRuntime
+from meshforge.controller.settings import ControllerSettings
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.timeout(240)]
 
 ROOT = Path(__file__).resolve().parents[3]
 SCRIPT = ROOT / "lab" / "sched_check.py"
 LEDGER = Path("/tmp/mf-lab/v06-ledger")
+
+
+@pytest.fixture
+def settings(pg_settings: Any) -> ControllerSettings:
+    # Not a liveness test: a loaded runner must not lose a node mid-run (seen
+    # on CI: one attempt `lost`, then counted as a duplicate under kills).
+    return make_controller_settings(pg_settings, **tolerant_liveness())
 
 
 @pytest.fixture

@@ -60,6 +60,9 @@ controller = [
     # Byte-identical exports (D222) hold for one pyarrow version: the file names
     # its writer (created_by), so a lock bump is a dataset-format change.
     "pyarrow>=26",
+    # pyarrow resolves timestamp time zones through zoneinfo, which has no
+    # system database on Windows (D399: every Parquet export failed there).
+    "tzdata>=2025.2; sys_platform == 'win32'",
 ]
 agent = [
     "psutil>=7.2",

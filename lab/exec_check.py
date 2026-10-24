@@ -94,6 +94,11 @@ def latency(args: argparse.Namespace) -> int:
                 frame = json.loads(raw)
                 if frame.get("end"):
                     break
+                if frame.get("retry"):
+                    pending = b""  # the job was retried: the next attempt's frames
+                    continue
+                if "data" not in frame:
+                    continue
                 pending += base64.b64decode(frame["data"])
                 *lines, pending = pending.split(b"\n")
                 for line in lines:

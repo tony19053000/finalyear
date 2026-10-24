@@ -16,6 +16,7 @@ Fake ``tc`` only (real ``tc`` is lab step C1-C3).
 from __future__ import annotations
 
 import asyncio
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -179,6 +180,7 @@ async def test_a_cancelled_apply_is_awaited_by_finish_and_never_verified(
 
 
 @pytest.mark.asyncio
+@pytest.mark.skipif(sys.platform == "win32", reason="a /bin/sh script (tc is Linux)")
 async def test_real_tc_runner_kills_its_process_when_cancelled(tmp_path: Path) -> None:
     """``TcRunner.run`` cancelled: the child is gone before the error leaves."""
     script = tmp_path / "slow_tc.sh"

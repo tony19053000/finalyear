@@ -1003,9 +1003,19 @@ class Executor(CombineSteps):
                     attempt.upload_deadline = self._clock() + budget
                 deadline = attempt.upload_deadline
             self._check_upload_deadline(deadline, budget, last)
-            if attempt.upload_token == used:
+            if attempt.upload_token == used and refused:
+                # Until a new grant or the deadline (a loop: an event-loop timer
+                # may fire one clock tick early - 15.6 ms on Windows).
+                while (
+                    attempt.upload_token == used and not attempt.grant_changed.is_set()
+                ):
+                    remaining = deadline - self._clock()
+                    if remaining <= 0:
+                        break
+                    await self._step(attempt, self._grant_wait(attempt, remaining))
+            elif attempt.upload_token == used:
                 remaining = max(0.0, deadline - self._clock())
-                wait = remaining if refused else min(delay, remaining)
+                wait = min(delay, remaining)
                 delay = min(delay * 2, _STAGE_RETRY_CAP_S)
                 await self._step(attempt, self._grant_wait(attempt, wait))
             # Checked before EVERY retry, one with a refreshed grant included.
@@ -1468,9 +1478,20 @@ class Executor(CombineSteps):
             # reachable for a while; the controller re-mints after Reconcile.
             # Only the CONTROLLER's refusal waits for that refresh: a peer's
             # 401/403 never reaches here (the fetcher drops the peer, V0.5 G4).
-            if attempt.fetch_token == used:
+            if attempt.fetch_token == used and _controller_refused(last):
+                # Until a refresh or the deadline: a loop, because an event-loop
+                # timer may fire up to one clock tick early (15.6 ms on Windows)
+                # and the refused token must not be retried just before it.
+                while (
+                    attempt.fetch_token == used and not attempt.token_changed.is_set()
+                ):
+                    remaining = deadline - self._clock()
+                    if remaining <= 0:
+                        break
+                    await self._step(attempt, self._token_wait(attempt, remaining))
+            elif attempt.fetch_token == used:
                 remaining = deadline - self._clock()
-                wait = remaining if _controller_refused(last) else min(delay, remaining)
+                wait = min(delay, remaining)
                 delay = min(delay * 2, _STAGE_RETRY_CAP_S)
                 await self._step(attempt, self._token_wait(attempt, wait))
             # Checked before EVERY retry, a refreshed token included.

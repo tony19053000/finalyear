@@ -205,8 +205,10 @@ async def test_a_duplicate_start_while_running_runs_once(tmp_path: Path) -> None
     msg = _start(digest)
     executor.handle(msg)
     resent = _start(digest, attempt_id=msg.start_attempt.attempt_id)
-    for _ in range(100):
-        if runtime.calls:
+    # Running AND reported so: the first lifecycle's own reports must not be
+    # counted as a second one (they can trail runtime.calls on a slow runner).
+    for _ in range(500):
+        if runtime.calls and "running" in reports.states():
             break
         await asyncio.sleep(0.01)
     before = len(reports.sent)
