@@ -38,7 +38,7 @@ from meshforge.controller.db_managed.binaries import BUNDLED_MAJOR
 from meshforge.controller.db_managed.cluster import ManagedCluster
 from meshforge.controller.db_managed.errors import ManagedDbError, ManagedDbReason
 from meshforge.controller.db_managed.pidfile import read_cluster_major
-from meshforge.controller.db_managed.runtime import cluster_for
+from meshforge.controller.db_managed.runtime import cluster_for, cluster_running
 
 if TYPE_CHECKING:
     from meshforge.controller.settings import ControllerSettings
@@ -121,12 +121,6 @@ async def _restore_started(cluster: ManagedCluster, dump: Path) -> float:
         await cluster.stop()
 
 
-def _running(cluster: ManagedCluster) -> bool:
-    if not cluster.layout.data_dir.exists():
-        return False
-    return not cluster.lock_free()
-
-
 def status(settings: ControllerSettings) -> dict[str, Any]:
     """Read-only facts about the controller's database."""
     db = settings.controller.db
@@ -156,7 +150,7 @@ def status(settings: ControllerSettings) -> dict[str, Any]:
         if layout.data_dir.exists()
         else None,
         "bundled_major": BUNDLED_MAJOR,
-        "running": _running(cluster),
+        "running": cluster_running(settings),
         "last_good_start": None
         if marker is None
         else {"version": marker.version, "revision": marker.revision, "at": marker.at},

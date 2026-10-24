@@ -822,6 +822,36 @@ def user_reset_password(
     typer.echo(f"password of {name} reset ({revoked} API token(s) revoked)")
 
 
+# ----------------------------------------------------------------- doctor
+
+
+@app.command("doctor")
+def doctor(
+    config: ConfigOption = None,
+    json_out: Annotated[
+        bool, typer.Option("--json", help="Machine-readable output.")
+    ] = False,
+) -> None:
+    """Check that this controller can run: bundled PostgreSQL, glibc, ports,
+    password files, database files, disk, fabric CA, dashboard. Exits 1 when
+    any check fails (warnings do not count)."""
+    import json
+
+    from meshforge.common.logging import configure_logging
+    from meshforge.controller.doctor import run_checks
+
+    settings = _load_settings(config)
+    configure_logging("WARNING", fmt=settings.log.format, component="controller")
+    report = run_checks(settings)
+    if json_out:
+        typer.echo(json.dumps(report.as_dict(), indent=2, sort_keys=True))
+    else:
+        for line in report.lines():
+            typer.echo(line)
+    if not report.ok:
+        raise typer.Exit(ExitCode.FAILURE)
+
+
 # --------------------------------------------------------------------- db
 
 

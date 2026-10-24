@@ -475,3 +475,26 @@ async def test_db_cli_backup_restore_status(
         assert runtime.users is not None
         names = sorted(u.name for u in await runtime.users.list_users())
         assert names == ["asha"]  # ravi came after the backup
+
+
+async def test_doctor_with_the_real_bundle_before_and_while_running(
+    tmp_path: Path, pg_bin: Path, db_dirs: tuple[Path, Path]
+) -> None:
+    from meshforge.controller.doctor import CheckStatus, run_checks
+
+    root, sock = db_dirs
+    settings = _managed_settings(tmp_path, pg_bin, root, sock, free_port())
+    seed_ca_dir(settings.ca_dir)
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    (dist / "index.html").write_text("<html></html>")
+    before = await asyncio.to_thread(run_checks, settings, dist=dist)
+    status = {c.name: c.status for c in before.checks}
+    assert status["postgresql binaries"] is CheckStatus.OK
+    assert status["database port"] is CheckStatus.OK
+    assert status["database files"] is CheckStatus.WARN  # not initialised yet
+    assert before.ok
+    async with ControllerRuntime.start(settings):
+        during = await asyncio.to_thread(run_checks, settings, dist=dist)
+    status = {c.name: c.status for c in during.checks}
+    assert all(s is CheckStatus.OK for s in status.values()), during.lines()

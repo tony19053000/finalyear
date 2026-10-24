@@ -21,11 +21,13 @@ postmaster that dies under it as fatal.
 
 from __future__ import annotations
 
+import contextlib
 from pathlib import Path
 from typing import TYPE_CHECKING, Final
 
 from meshforge.common.buildinfo import bundle_root
 from meshforge.common.errors import ConfigError
+from meshforge.common.filelock import try_lock, unlock
 from meshforge.controller.db_managed.binaries import PgBinaries
 from meshforge.controller.db_managed.cluster import (
     APP_ROLE,
@@ -44,6 +46,7 @@ if TYPE_CHECKING:
 __all__ = [
     "PGSQL_DIR_NAME",
     "cluster_for",
+    "cluster_running",
     "layout_for",
     "pg_bin_dir",
     "tool_database_settings",
@@ -78,6 +81,24 @@ def layout_for(settings: ControllerSettings) -> ManagedLayout:
     return ManagedLayout(
         settings.db_root, socket_dir_override=settings.controller.db.socket_dir
     )
+
+
+def cluster_running(settings: ControllerSettings) -> bool:
+    """True while a process (the controller) holds the managed cluster's lock.
+
+    Read-only: never creates the root or the lock file.
+    """
+    lock_file = layout_for(settings).lock_file
+    try:
+        fh = open(lock_file, "rb")  # noqa: SIM115 - closed below
+    except FileNotFoundError:
+        return False
+    with fh:
+        if not try_lock(fh):
+            return True
+        with contextlib.suppress(OSError):
+            unlock(fh)
+        return False
 
 
 def cluster_for(
