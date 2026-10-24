@@ -8,7 +8,7 @@
 >
 > ```
 Read docs/SESSION_HANDOFF.md §1, then docs/STATUS.md, then V0.17 in docs/DEVELOPMENT_ROADMAP.md and docs/briefs/V0.17-productization.md (APPROVED; D384–D399; G1/G2/G3 implementer briefs §5a–§5c APPROVED with Q11–Q27 as recommended; ADR-0022 Proposed).
-Done: V0.15 agent-side complete. V0.17 G0 (0.17.0 [~]): SP2 managed PostgreSQL MERGED; SP3 bundle MERGED 24141d69 (PASS, reproducible + relocatable; agent 67 MB / controller 90 MB compressed; findings F1–F5 are G1 items). Repo PUBLIC tony19053000/finalyear, main pushed up to 4c388cb4 (later main commits local only — push when asked).
+Done: V0.15 agent-side complete. V0.17 G0 (0.17.0 [~]): SP2 managed PostgreSQL MERGED; SP3 bundle MERGED 24141d69 (PASS, reproducible + relocatable; agent 67 MB / controller 90 MB compressed; findings F1–F5 are G1 items). Repo PUBLIC tony19053000/finalyear, origin/main = c97ddcc2 (later main commits are local only — push when asked).
 STOPPED by user 2026-10-24, wip committed in 3 worktrees, no agents running:
  (1) G1 implementer — worktree agent-a7ea2e49788d6721b @5f8ad807: stopped at step G (Linux packaging: unit + maintainer scripts). Resume from docs/briefs/progress/V0.17-G1.md → gates → tester → reviewer → merge. Then G2 ∥ G3 implementers (briefs §5b/§5c).
  (2) SP1 Windows service — worktree agent-ae3f985ac81466970, branch spike/sp1-windows-service @c7e33e6a (pushed): workflow GREEN twice (14/14). Remaining: record 2nd run in lab/spikes/SP1.md, verdict pywin32 vs WinSW, local suite, merge → closes G0 with CI.
