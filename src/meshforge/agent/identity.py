@@ -74,7 +74,10 @@ from meshforge.common.errors import IdentityError, InvalidIdError
 from meshforge.common.filelock import locked
 from meshforge.common.ids import NodeId, new_node_id, validate_node_id
 from meshforge.common.logging import get_logger
-from meshforge.common.private_files import WINDOWS_TOOL_TIMEOUT_S
+from meshforge.common.private_files import (
+    WINDOWS_TOOL_TIMEOUT_S,
+    owner_only_icacls_argv,
+)
 
 __all__ = [
     "CA_CERT_FILE_NAME",
@@ -762,19 +765,17 @@ def _protect(path: Path) -> None:
 
 def _protect_windows(path: Path) -> None:
     sid = _current_user_sid()
-    # Argument list, no shell; icacls resolves via PATH (system32).
-    argv = [
-        "icacls",
-        str(path),
-        "/inheritance:r",
-        "/grant:r",
-        f"*{sid}:(F)",
-    ]
+    # Argument list, no shell; icacls resolves via PATH (system32). Also removes
+    # the explicit ACEs CPython's mkdir(mode=0o700) adds on Windows.
+    argv = owner_only_icacls_argv(path, sid)
     try:
         result = subprocess.run(  # noqa: S603 - fixed argv, values are a path and a SID
             argv,
             capture_output=True,
             text=True,
+            # icacls/whoami print in the OEM code page, not UTF-8: a non-ASCII
+            # path in their output must not kill the reader thread.
+            errors="replace",
             check=False,
             timeout=WINDOWS_TOOL_TIMEOUT_S,
         )
@@ -803,6 +804,9 @@ def _current_user_sid() -> str:
             ["whoami", "/user", "/fo", "csv"],  # noqa: S607 - Windows built-in
             capture_output=True,
             text=True,
+            # icacls/whoami print in the OEM code page, not UTF-8: a non-ASCII
+            # path in their output must not kill the reader thread.
+            errors="replace",
             check=False,
             timeout=WINDOWS_TOOL_TIMEOUT_S,
         )

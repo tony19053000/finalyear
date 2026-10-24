@@ -221,6 +221,16 @@ def chunkings(rnd: random.Random, n: int) -> list[list[int]]:
     return cuts
 
 
+#: Windows has no interval timers (SIGALRM/setitimer): there a stalled feed is
+#: not reported as a STALL but bounded by pytest-timeout instead.
+_HAS_ITIMER = hasattr(signal, "setitimer")
+
+
+def _arm(seconds: float) -> None:
+    if _HAS_ITIMER:
+        signal.setitimer(signal.ITIMER_REAL, seconds)
+
+
 def run_stream(matcher: SecretMatcher, data: bytes, cuts: list[int], *, preserve: bool):
     r = StreamRedactor(matcher, length_preserving=preserve)
     out = b""
@@ -228,18 +238,18 @@ def run_stream(matcher: SecretMatcher, data: bytes, cuts: list[int], *, preserve
     worst = 0.0
     for c in [*cuts, len(data)]:
         t = time.perf_counter()
-        signal.setitimer(signal.ITIMER_REAL, FEED_LIMIT_S)
+        _arm(FEED_LIMIT_S)
         try:
             out += r.feed(data[prev:c])
         finally:
-            signal.setitimer(signal.ITIMER_REAL, 0)
+            _arm(0)
         worst = max(worst, time.perf_counter() - t)
         prev = c
-    signal.setitimer(signal.ITIMER_REAL, FEED_LIMIT_S)
+    _arm(FEED_LIMIT_S)
     try:
         out += r.flush()
     finally:
-        signal.setitimer(signal.ITIMER_REAL, 0)
+        _arm(0)
     return out, r.failed, worst
 
 
@@ -292,7 +302,8 @@ def one_case(rnd: random.Random, st: Stats, *, long: bool = False) -> None:
 
 
 def soak(seed: int, seconds: float, *, long: bool = False) -> Stats:
-    signal.signal(signal.SIGALRM, _alarm)
+    if _HAS_ITIMER:
+        signal.signal(signal.SIGALRM, _alarm)
     rnd = random.Random(seed)
     st = Stats()
     end = time.time() + seconds

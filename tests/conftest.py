@@ -191,6 +191,24 @@ def pytest_collection_modifyitems(
     _apply_shard(config, items)
 
 
+#: Longest str/bytes parameter value pytest may spell out in a test id. Longer
+#: ones get a short stable id: the id ends up in the ``PYTEST_CURRENT_TEST``
+#: environment variable, and Windows refuses variables over 32 767 characters
+#: (a 100 kB fuzz value made setup itself fail there).
+MAX_PARAM_ID_CHARS: Final = 64
+
+
+def pytest_make_parametrize_id(
+    config: pytest.Config, val: object, argname: str
+) -> str | None:
+    if not isinstance(val, str | bytes) or len(val) <= MAX_PARAM_ID_CHARS:
+        return None
+    import hashlib
+
+    raw = val if isinstance(val, bytes) else val.encode("utf-8", "surrogatepass")
+    return f"{argname}-len{len(val)}-{hashlib.sha256(raw).hexdigest()[:12]}"
+
+
 def parse_shard(value: str) -> tuple[int, int]:
     """``"K/N"`` -> ``(K, N)`` with ``1 <= K <= N``; :class:`pytest.UsageError` else."""
     k_text, sep, n_text = value.partition("/")

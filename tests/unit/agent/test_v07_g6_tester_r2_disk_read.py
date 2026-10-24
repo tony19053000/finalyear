@@ -58,6 +58,7 @@ def _clean_counter() -> Any:
 
 
 @pytest.mark.asyncio
+@pytest.mark.skipif(sys.platform == "win32", reason="os.mkfifo is POSIX-only")
 async def test_a_fifo_read_that_never_returns_stops_the_attempt_disk_unknown(
     tmp_path: Path,
 ) -> None:
@@ -192,6 +193,7 @@ async def test_many_healthy_watchers_do_not_fail_each_other(tmp_path: Path) -> N
     assert worst < 5
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="os.mkfifo is POSIX-only")
 def test_the_process_exits_cleanly_with_a_read_stuck_in_a_syscall(
     tmp_path: Path,
 ) -> None:

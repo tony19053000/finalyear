@@ -251,8 +251,16 @@ def ensure_wheel(
                 "than the lock pins, or uv.lock is wrong"
             )
         os.chmod(partial, 0o644)  # mkstemp makes it 0600; a lab cache is shared
-        os.replace(partial, target)
-        moved = True
+        try:
+            os.replace(partial, target)
+        except PermissionError:
+            # Windows: a concurrent caller holds the target open (hashing it), so
+            # it cannot be replaced. That caller placed the good wheel already,
+            # so this call has nothing to add; anything else is a real error.
+            if not _verified(target, wheel):
+                raise
+        else:
+            moved = True
     finally:
         if not moved:  # once moved the name is free and may be another call's
             with contextlib.suppress(OSError):

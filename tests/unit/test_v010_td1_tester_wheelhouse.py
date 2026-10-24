@@ -234,6 +234,7 @@ def test_cache_root_override_beats_xdg_and_expands_user(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))  # expanduser on Windows
     monkeypatch.setenv("MESHFORGE_TEST_WHEELHOUSE", "~/wh")
     monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "xdg"))
     assert cache_root() == tmp_path / "wh"

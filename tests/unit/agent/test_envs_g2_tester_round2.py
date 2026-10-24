@@ -244,6 +244,10 @@ def test_summary_cost_on_a_large_env_stays_small(tmp_path: Path) -> None:
     assert tree_summary(root) == s  # deterministic
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="file names Windows cannot store (newline, ?, *, trailing space)",
+)
 def test_summary_handles_unicode_and_odd_names(tmp_path: Path) -> None:
     root = tmp_path / "u"
     root.mkdir()

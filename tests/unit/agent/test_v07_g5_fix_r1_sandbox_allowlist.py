@@ -208,7 +208,7 @@ def test_the_runtime_asserts_against_the_plan_not_its_own_kwargs() -> None:
         attempt_id=str(new_attempt_id()),
         image="img",
         argv=("python", "-c", "1"),
-        workdir=Path(WORK),
+        workdir=Path(WORK).absolute(),  # Windows: gains the current drive
         env={},
         limits=RunLimits(timeout_s=10, memory_bytes=MEM, pids=64),
     )

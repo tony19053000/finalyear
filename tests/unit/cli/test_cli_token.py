@@ -14,6 +14,7 @@ from meshforge.cli import app as cli_app
 from meshforge.cli import client as client_module
 from meshforge.cli.client import ControllerClient, ControllerError
 from meshforge.cli.settings import CliSettings, resolve_token
+from meshforge.common.config import default_data_dir
 from meshforge.common.errors import ConfigError, ExitCode, FailureType
 
 TOKEN = "T" * 43
@@ -48,7 +49,8 @@ def test_precedence(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     flag_file.write_text(OTHER + "\n")
     cfg_file = tmp_path / "cfg.token"
     cfg_file.write_text("C" * 43)
-    local = tmp_path / "xdg-data" / "meshforge" / "controller" / "fabric.token"
+    # XDG data dir on Linux, %LOCALAPPDATA%\\MeshForge on Windows (cli conftest)
+    local = default_data_dir() / "controller" / "fabric.token"
     local.parent.mkdir(parents=True)
     local.write_text("L" * 43)
 

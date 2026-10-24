@@ -39,6 +39,7 @@ from meshforge.cli.credentials import (
 from meshforge.cli.settings import CliSettings, resolve_ca, resolve_token
 from meshforge.common import pki
 from meshforge.common.api_token import new_api_token
+from meshforge.common.config import default_data_dir
 from meshforge.common.errors import ConfigError, ExitCode
 from meshforge.common.ids import new_fabric_id
 from meshforge.common.tls_pin import pinned_ca
@@ -130,7 +131,8 @@ def test_stored_token_sits_between_explicit_config_and_the_local_fabric_token(
 ) -> None:
     _save(creds)
     stored = load_login(creds)
-    local = tmp_path / "xdg-data" / "meshforge" / "controller" / "fabric.token"
+    # XDG data dir on Linux, %LOCALAPPDATA%\\MeshForge on Windows (cli conftest)
+    local = default_data_dir() / "controller" / "fabric.token"
     local.parent.mkdir(parents=True)
     local.write_text("L" * 43)
     plain = CliSettings.load()

@@ -41,6 +41,7 @@ __all__ = [
     "WINDOWS_TOOL_TIMEOUT_S",
     "PrivateFileError",
     "PrivateFileReason",
+    "owner_only_icacls_argv",
     "private_problem",
     "protect_private",
     "read_bounded",
@@ -200,14 +201,37 @@ def read_private(path: Path, *, limit: int, what: str) -> bytes:
     return data
 
 
+#: Well-known SIDs that CPython (3.12.4+) writes as *explicit* ACEs on a
+#: directory made with ``os.mkdir(mode=0o700)`` on Windows: SYSTEM,
+#: BUILTIN\Administrators and OWNER RIGHTS. ``/inheritance:r`` only drops
+#: inherited ACEs, so these are removed by name (seen on the first Windows CI
+#: run: the identity directory still granted all three).
+MKDIR_700_SIDS: Final = ("S-1-5-18", "S-1-5-32-544", "S-1-3-4")
+
+
+def owner_only_icacls_argv(path: Path, sid: str) -> list[str]:
+    """``icacls`` argv leaving ``path`` with exactly one ACE: full control for ``sid``.
+
+    Drops inherited ACEs, replaces any grant for ``sid``, and removes the
+    explicit ACEs of :data:`MKDIR_700_SIDS` (never ``sid`` itself - an agent
+    running as SYSTEM keeps its own grant).
+    """
+    others = [f"*{other}" for other in MKDIR_700_SIDS if other != sid]
+    argv = ["icacls", str(path), "/inheritance:r", "/grant:r", f"*{sid}:(F)"]
+    return [*argv, "/remove:g", *others] if others else argv
+
+
 def _protect_windows(path: Path) -> None:  # pragma: no cover - Windows only
     sid = _current_user_sid()
-    argv = ["icacls", str(path), "/inheritance:r", "/grant:r", f"*{sid}:(F)"]
+    argv = owner_only_icacls_argv(path, sid)
     try:
         result = subprocess.run(  # noqa: S603 - fixed argv: a path and a SID
             argv,
             capture_output=True,
             text=True,
+            # icacls/whoami print in the OEM code page, not UTF-8: a non-ASCII
+            # path in their output must not kill the reader thread.
+            errors="replace",
             check=False,
             timeout=WINDOWS_TOOL_TIMEOUT_S,
         )
@@ -235,6 +259,9 @@ def _current_user_sid() -> str:  # pragma: no cover - Windows only
             ["whoami", "/user", "/fo", "csv"],  # noqa: S607 - Windows built-in
             capture_output=True,
             text=True,
+            # icacls/whoami print in the OEM code page, not UTF-8: a non-ASCII
+            # path in their output must not kill the reader thread.
+            errors="replace",
             check=False,
             timeout=WINDOWS_TOOL_TIMEOUT_S,
         )

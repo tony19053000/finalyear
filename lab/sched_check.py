@@ -225,7 +225,9 @@ def cmd_check(args: argparse.Namespace) -> int:
         for j in jobs
     ]
     lines: list[str] = []
-    files = sorted(Path(args.ledger).glob("*.txt"))
+    # Exactly "*.txt" on every OS (glob is case-insensitive on Windows, so a
+    # stray "l2.TXT" would count there and not on Linux).
+    files = sorted(p for p in Path(args.ledger).glob("*") if p.name.endswith(".txt"))
     if not files:
         print(f"no ledger files (*.txt) in {args.ledger}")
         return 2

@@ -390,6 +390,7 @@ def _env(home: Path) -> dict[str, str]:
     env = {k: v for k, v in os.environ.items() if not k.startswith("MESHFORGE_")}
     env.update(
         HOME=str(home),
+        USERPROFILE=str(home),  # Path.home() on Windows
         SHELL="/bin/bash",
         _TYPER_COMPLETE_TEST_DISABLE_SHELL_DETECTION="1",
     )

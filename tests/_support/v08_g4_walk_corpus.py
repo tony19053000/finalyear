@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import random
+import sys
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -132,6 +133,40 @@ def make(rng: random.Random) -> dict[str, Any]:
             continue
         keep[p] = files[p]
     return {"files": keep}
+
+
+_WINDOWS_BAD_CHARS = frozenset('<>:"\\|?*') | {chr(c) for c in range(32)}
+_WINDOWS_RESERVED = frozenset(
+    {"CON", "PRN", "AUX", "NUL"}
+    | {f"COM{i}" for i in range(1, 10)}
+    | {f"LPT{i}" for i in range(1, 10)}
+)
+
+
+def windows_storable(rel: str) -> bool:
+    """Can NTFS hold the POSIX relative path ``rel`` under the same name?
+
+    No ``<>:"\\|?*`` or control characters, no component ending in a space or
+    a dot, no reserved device name. Cases with other names cannot be
+    materialised on Windows, so the corpus checks skip them there.
+    """
+    for part in rel.split("/"):
+        if not part or part in (".", ".."):
+            continue
+        if _WINDOWS_BAD_CHARS & set(part) or part[-1] in " .":
+            return False
+        if part.split(".")[0].upper() in _WINDOWS_RESERVED:
+            return False
+    return True
+
+
+def case_runs_here(case: dict[str, Any]) -> bool:
+    """Every file name of ``case`` can exist on this OS (see :func:`windows_storable`)."""
+    if sys.platform != "win32":
+        return True
+    names = list(case["files"]) + list(case.get("dirs", []))
+    folded = {n.casefold() for n in names}
+    return len(folded) == len(names) and all(windows_storable(n) for n in names)
 
 
 def verdict(case: dict[str, Any]) -> dict[str, Any]:

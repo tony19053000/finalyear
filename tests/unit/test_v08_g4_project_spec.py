@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import v08_g4_walk_corpus as walk_corpus
 import yaml
 
 from meshforge.cli.transfer import HAVE_BATCH
@@ -89,6 +90,8 @@ def _portable(vector: dict[str, Any]) -> bool:
 def test_walk_vectors(vector: dict[str, Any], tmp_path: Path) -> None:
     if WINDOWS and not _portable(vector):
         pytest.skip("exec bits are POSIX-only")
+    if not walk_corpus.case_runs_here(vector):
+        pytest.skip("file names Windows cannot store (e.g. a trailing space)")
     root = tmp_path / "project"
     root.mkdir()
     _materialise(root, vector)

@@ -84,7 +84,10 @@ _WIN_HOME_RE: Final = re.compile(r"^[A-Za-z]:[\\/]")
 
 def _home_pattern(home: str) -> re.Pattern[str] | None:
     """Regex for the home directory at path boundaries, either separator."""
-    windows = bool(_WIN_HOME_RE.match(home)) or "\\" in home
+    # A Windows home has a drive ("C:\\") or is a UNC path. A backslash alone
+    # does not make it one: on Windows, str(Path("/home/alice")) is
+    # "\\home\\alice" - still a POSIX home (e.g. a WSL path being sanitised).
+    windows = bool(_WIN_HOME_RE.match(home)) or home.startswith("\\\\")
     parts = [p for p in re.split(r"[\\/]+", home) if p]
     if not parts:
         return None

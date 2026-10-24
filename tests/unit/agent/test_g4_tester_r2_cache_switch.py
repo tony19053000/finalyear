@@ -32,7 +32,7 @@ def test_only_the_resource_replay_scenario_disables_cache_reports() -> None:
         text = path.read_text("utf-8", errors="replace")
         hits = [i + 1 for i, ln in enumerate(text.splitlines()) if pat.search(ln)]
         if hits:
-            offenders[str(path.relative_to(ROOT))] = hits
+            offenders[path.relative_to(ROOT).as_posix()] = hits
     # test_cache_inventory proves the switch itself; test_fabric_resource_replay
     # uses it for test_f ONLY (cache_reports=False at exactly one call site).
     assert set(offenders) == {

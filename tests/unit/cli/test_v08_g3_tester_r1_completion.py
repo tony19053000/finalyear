@@ -19,6 +19,7 @@ KW = {"prog_name": "compute", "complete_var": "_COMPUTE_COMPLETE", "shell": "bas
 @pytest.fixture
 def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))  # Path.home() on Windows
     return tmp_path
 
 
@@ -67,6 +68,7 @@ def test_a_home_with_a_single_quote_is_quoted_and_still_idempotent(
     odd = tmp_path / "o'brien $HOME `x`"
     odd.mkdir()
     monkeypatch.setenv("HOME", str(odd))
+    monkeypatch.setenv("USERPROFILE", str(odd))  # Path.home() on Windows
     completion.install_bash(**KW)
     first = (odd / ".bashrc").read_bytes()
     completion.install_bash(**KW)
