@@ -69,7 +69,7 @@ agent = [
     # kernels need a BLAS; numpy bundles OpenBLAS on every OS we use. Imported only
     # by the benchmark *child* process (agent/benchmarks/child.py), never by the
     # agent itself. torch, when present, is preferred by the child.
-    "numpy>=2.3",
+    "numpy<3,>=2.3",
     # V0.4 Docker runtime (ADR-0004, brief D51): blocking SDK calls run via
     # asyncio.to_thread; nodes without Docker fall back to the subprocess runtime.
     "docker>=7.1",
@@ -91,7 +91,7 @@ agent = [
 # plain one there (no NCCL on macOS). Upper bounds: a major version can change
 # model output, and byte-identical reports (D352) hold per library version.
 ml = [
-    "numpy>=2.3,<3",
+    "numpy<3,>=2.3,<3",
     "scikit-learn>=1.9,<2",
     "lightgbm>=4.7,<5",
     # caps BLAS threads during a comparison (D352); scikit-learn needs it anyway
