@@ -5,7 +5,8 @@ report -> ``compute planner eval`` / ``reports`` / ``explain``.
 A controller and three agents (cluster harness, subprocess runtime; split
 lanes in the job's own ``numpy`` environment from the local wheelhouse).
 Everything the operator does goes through the real ``compute`` CLI, except
-the two ``POST /v1/planner/eval-reports`` the determinism check needs.
+the two ``POST /v1/planner/eval-reports`` the determinism check needs
+(start-then-poll since V0.15 G6b, D378).
 
 **Campaigns (D325).**
 
@@ -90,6 +91,7 @@ IMAGE_COUNTS: Final = [2000, 2500, 3000]
 PRIMES_RUNS: Final = 10 * 3 * 3
 IMAGE_RUNS: Final = 3 * 4 * 3
 CAMPAIGNS_WITHIN_S: Final = 2400.0
+EVAL_WITHIN_S: Final = 600.0
 
 
 def _primes_spec(origin: str) -> str:
@@ -123,14 +125,26 @@ def _images_spec(origin: str) -> str:
 
 
 def _post_eval(fabric: Fabric, campaign_ids: list[str]) -> dict[str, Any]:
+    """Start an evaluation and poll it until done (V0.15 G6b, D378:
+    ``202 {report_id, status: running}``, then ``GET .../{report_id}``)."""
     resp = fabric.call(
         "POST",
         "/v1/planner/eval-reports",
-        json={"campaign_ids": campaign_ids},
-        timeout=600.0,
+        json={"campaign_ids": campaign_ids, "background": True},
+        timeout=60.0,
     )
-    assert resp.status_code == 201, resp.text
-    return dict(resp.json())
+    assert resp.status_code == 202, resp.text
+    report_id = int(resp.json()["report_id"])
+    deadline = time.monotonic() + EVAL_WITHIN_S
+    while True:
+        got = fabric.call("GET", f"/v1/planner/eval-reports/{report_id}")
+        assert got.status_code == 200, got.text
+        record = dict(got.json())
+        if record["status"] != "running":
+            assert record["status"] == "done", record
+            return record
+        assert time.monotonic() < deadline, f"report {report_id} still running"
+        time.sleep(0.5)
 
 
 def _canonical(report: Any) -> str:
