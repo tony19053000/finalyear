@@ -7,10 +7,9 @@ campaign's labels, run records and ``plan_decision`` replays; the pure core
 
 from __future__ import annotations
 
-import threading
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any, Final, Literal
+from typing import Any, Final, Literal, Protocol
 
 from meshforge.bench.stats import BOOTSTRAP_LEVEL, BOOTSTRAP_RESAMPLES
 from meshforge.common.manifest import OBJECTIVES, POLICIES
@@ -58,7 +57,14 @@ class EvalCancelledError(Exception):
     replay thread at the next group / family boundary (G6b reviewer N1)."""
 
 
-def check_cancel(cancel: threading.Event | None) -> None:
+class CancelFlag(Protocol):
+    """What a stop request looks like to the pure replay (a
+    ``threading.Event`` in the service; no thread import here)."""
+
+    def is_set(self) -> bool: ...
+
+
+def check_cancel(cancel: CancelFlag | None) -> None:
     """Raise :class:`EvalCancelledError` when ``cancel`` is set."""
     if cancel is not None and cancel.is_set():
         raise EvalCancelledError("the evaluation was stopped")

@@ -99,7 +99,6 @@ from __future__ import annotations
 import dataclasses
 import datetime as dt
 import math
-import threading
 from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -139,6 +138,7 @@ from meshforge.controller.planner_eval.model import (
     ORACLE,
     RULE_POLICIES,
     UNMEASURED,
+    CancelFlag,
     ConfigRef,
     EvalConfig,
     EvalGroup,
@@ -978,7 +978,7 @@ def evaluate(
     leaked: bool = False,
     latency: Sequence[LatencySample] = (),
     ml: EvalMl | None = None,
-    cancel: threading.Event | None = None,
+    cancel: CancelFlag | None = None,
 ) -> dict[str, Any]:
     """The evaluation report (module docstring) as a JSON-ready dict.
     ``calibrations`` = family -> the calibration its calibrated rows use

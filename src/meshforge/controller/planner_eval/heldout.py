@@ -20,7 +20,6 @@ A refit with no factor at all plans uncalibrated (``source = "none"``).
 from __future__ import annotations
 
 import hashlib
-import threading
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Literal
@@ -33,7 +32,7 @@ from meshforge.controller.planner.calibration import (
     canonical,
     fit,
 )
-from meshforge.controller.planner_eval.model import check_cancel
+from meshforge.controller.planner_eval.model import CancelFlag, check_cancel
 
 __all__ = [
     "CalibrationChoice",
@@ -83,7 +82,7 @@ def refit_choices(
     families: Mapping[str, frozenset[str]],
     config: CalibrationConfig,
     *,
-    cancel: threading.Event | None = None,
+    cancel: CancelFlag | None = None,
 ) -> dict[str, CalibrationChoice]:
     """One leave-one-family-out refit per family (``family -> the
     fingerprints of its evaluated records``); ``cancel`` set -> stop before
