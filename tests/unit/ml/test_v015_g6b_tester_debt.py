@@ -134,14 +134,7 @@ def test_ml_value_is_finite_at_the_largest_analytical_term() -> None:
 @pytest.mark.parametrize(
     "y_hat",
     [
-        pytest.param(
-            math.nan,
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason="defect T4 (minor): ml_explain._factor(nan) = nan, "
-                "while predictions._point treats NaN as no value",
-            ),
-        ),
+        math.nan,
         math.inf,
         -math.inf,
     ],
