@@ -5,12 +5,14 @@ Slow (minutes on a cold cache: downloads python-build-standalone and the locked
 wheels into ``~/.cache/meshforge-bundle``), Linux only for now (the Windows layout
 is untested until SP1's runner). Checks:
 
-* two builds into different folders -> byte-identical ``MANIFEST.json``;
+* two builds into different folders -> byte-identical ``MANIFEST.sha256`` and
+  ``.tar.xz`` (V0.17 G1), the download within the agent budget;
 * the moved bundle: ``meshforge-agent --version``, ``hardware show``,
   ``compute --help``, the bundle ``uv``, and the interpreter's own report - with
   ``PATH=/usr/bin:/bin`` and with a toolbox ``PATH`` that holds only
   ``realpath``/``dirname``; a launcher reached through a symlink;
-* a real offline env build through the agent's EnvBuilder with the bundle's uv;
+* a real offline env build through the agent's EnvBuilder with the bundle's uv,
+  with NO Python on ``PATH``: the venv is built on the bundled interpreter (G1 F1);
 * running all of that leaves the bundle byte-identical to its manifest.
 """
 
@@ -47,12 +49,14 @@ def _build(out: Path) -> Path:
     # the build downloads from the internet and needs the system trust store.
     env = {k: v for k, v in os.environ.items() if k != "SSL_CERT_FILE"}
     subprocess.run(
-        [sys.executable, str(BUILD), "--role", "agent", "--out", str(out)],
+        [sys.executable, str(BUILD), "--role", "agent", "--out", str(out), "--force"],
         check=True,
         timeout=1100,
         env=env,
     )
-    (bundle,) = [p for p in out.iterdir() if p.name.startswith("meshforge-")]
+    (bundle,) = [
+        p for p in out.iterdir() if p.name.startswith("meshforge-") and p.is_dir()
+    ]
     return bundle
 
 
@@ -67,9 +71,16 @@ def test_agent_bundle_is_reproducible_relocatable_and_builds_envs(
 ) -> None:
     first = _build(tmp_path / "build one")
     second = _build(tmp_path / "build-two")
-    assert (first / "MANIFEST.json").read_bytes() == (
-        second / "MANIFEST.json"
+    assert (first / "MANIFEST.sha256").read_bytes() == (
+        second / "MANIFEST.sha256"
     ).read_bytes()
+    archive = first.with_name(first.name + ".tar.xz")
+    assert (
+        archive.read_bytes() == (second.with_name(second.name + ".tar.xz")).read_bytes()
+    )
+    assert archive.stat().st_size < 100_000_000  # Q17 agent download budget
+    info = json.loads((first / "BUILDINFO.json").read_text(encoding="utf-8"))
+    assert info["role"] == "agent" and info["python"]["version"] == "3.12.14"
 
     moved_root = tmp_path / "moved here" / "deeper"
     moved_root.mkdir(parents=True)
@@ -85,8 +96,9 @@ def test_agent_bundle_is_reproducible_relocatable_and_builds_envs(
         for result in results.values():
             assert result.ok, (kind, result)
         assert (
-            results["meshforge-agent --version"].stdout.strip()
-            == f"meshforge-agent {_version()}"
+            results["meshforge-agent --version"]
+            .stdout.strip()
+            .startswith(f"meshforge-agent {_version()} (git ")
         )
         assert "cpu:" in results["meshforge-agent hardware show"].stdout
         assert "Usage: compute" in results["compute --help"].stdout
@@ -99,15 +111,12 @@ def test_agent_bundle_is_reproducible_relocatable_and_builds_envs(
     via_link = checks.symlinked_launcher(bundle, tmp_path / "on-path", home, "toolbox")
     assert via_link.ok, via_link
 
-    # (d) a real env build with the bundle's own uv. ensure_target installs for
-    # the bundled interpreter itself; ensure_venv needs `uv python find` to see a
-    # Python 3.12, so it gets the bundle's python/bin first on PATH. (With no
-    # Python on PATH at all it fails python_not_found today - SP3 finding, a G1
-    # fix in the env builder.)
+    # (d) a real env build with the bundle's own uv and NO Python on PATH (the
+    # toolbox holds only realpath/dirname): ensure_target installs for the
+    # bundled interpreter itself, and since G1 (SP3 F1) ensure_venv builds on
+    # it too instead of failing python_not_found.
     python_bin = bundle / "python" / "bin"
-    probe = checks.env_probe(
-        bundle, tmp_path / "probe", f"{python_bin}:{toolbox}", "bundle-python-first"
-    )
+    probe = checks.env_probe(bundle, tmp_path / "probe", toolbox, "toolbox")
     assert probe["exit"] == 0, probe
     assert probe["uv_argv"] == [str(python_bin / "uv")]
     assert probe["venv_interpreter"] == str(python_bin / "python3.12")

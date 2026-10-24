@@ -262,30 +262,35 @@ def test_manifest_json_is_canonical(tmp_path: Path) -> None:
     assert doc["total_bytes"] == len("#!/bin/sh\n") + len("hello\n")
 
 
-def test_diff_manifests_names_every_difference(tmp_path: Path) -> None:
+def test_diff_entries_names_every_difference(tmp_path: Path) -> None:
     _tree(tmp_path)
-    a = json.loads(lib.Manifest(meta={"v": 1}, files=lib.scan_tree(tmp_path)).to_json())
-    assert lib.diff_manifests(a, a) == []
+    a = lib.scan_tree(tmp_path)
+    assert lib.diff_entries(a, a) == []
     (tmp_path / "data.txt").write_text("changed\n")
     (tmp_path / "bin" / "tool").unlink()
     (tmp_path / "new.txt").write_text("x")
-    b = json.loads(lib.Manifest(meta={"v": 2}, files=lib.scan_tree(tmp_path)).to_json())
-    assert lib.diff_manifests(a, b) == [
-        "meta v: 1 != 2",
+    b = lib.scan_tree(tmp_path)
+    assert lib.diff_entries(a, b) == [
         "only in second: bin",  # now an empty directory: listed as such
         "only in first: bin/tool",
-        "differs: data.txt (sha256, size)",
+        "differs: data.txt (sha256)",
         "only in second: new.txt",
     ]
+    assert lib.diff_meta({"v": 1}, {"v": 2}) == ["meta v: 1 != 2"]
 
 
+@posix_only
 def test_verify_bundle(tmp_path: Path) -> None:
     _tree(tmp_path)
-    manifest = lib.Manifest(meta={"name": "x"}, files=lib.scan_tree(tmp_path))
-    (tmp_path / lib.MANIFEST_NAME).write_text(manifest.to_json())
+    (tmp_path / lib.MANIFEST_NAME).write_text(
+        lib.manifest_text(lib.scan_tree(tmp_path))
+    )
     assert lib.verify_bundle(tmp_path) == []
     (tmp_path / "data.txt").write_text("tampered\n")
-    assert lib.verify_bundle(tmp_path) == ["differs: data.txt (sha256, size)"]
+    assert lib.verify_bundle(tmp_path) == ["differs: data.txt (sha256)"]
+    (tmp_path / "data.txt").write_text("hello\n")
+    (tmp_path / "data.txt").chmod(0o755)
+    assert lib.verify_bundle(tmp_path) == ["differs: data.txt (mode)"]
 
 
 def test_verify_without_manifest_is_a_typed_error(tmp_path: Path) -> None:
@@ -322,11 +327,11 @@ def test_every_role_has_launchers_and_extras() -> None:
 
 def test_cli_diff_exit_codes(tmp_path: Path) -> None:
     _tree(tmp_path / "t")
-    a = tmp_path / "a.json"
-    b = tmp_path / "b.json"
-    text = lib.Manifest(meta={}, files=lib.scan_tree(tmp_path / "t")).to_json()
+    a = tmp_path / "a.sha256"
+    b = tmp_path / "b.sha256"
+    text = lib.manifest_text(lib.scan_tree(tmp_path / "t"))
     a.write_text(text)
     b.write_text(text)
     assert build_bundle.main(["--diff", str(a), str(b)]) == 0
-    b.write_text(text.replace('"size": 6', '"size": 7'))
+    b.write_text(text.replace("  data.txt", "  other.txt"))
     assert build_bundle.main(["--diff", str(a), str(b)]) == 1

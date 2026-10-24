@@ -141,9 +141,12 @@ def test_build_uv_is_the_lock_pin() -> None:
     assert version == bb.locked_version(lock, "uv")
 
 
-# ------------------------------------------------------------ copy_python
-def _fake_prefix(prefix: Path) -> None:
-    """A python-build-standalone-like prefix after uv patched ``/install``."""
+# --------------------------------------------------------- install_python
+def _fake_pbs_archive(path: Path, *, top: str = "python") -> Path:
+    """A python-build-standalone ``install_only`` archive in miniature."""
+    import io
+    import tarfile
+
     files = {
         "bin/python3.12": b"\x7fELF fake interpreter",
         "bin/pip3": b"#!/bin/sh\n",
@@ -155,26 +158,30 @@ def _fake_prefix(prefix: Path) -> None:
         "lib/python3.12/ensurepip/__init__.py": b"",
         "lib/python3.12/site-packages/pip/__init__.py": b"",
         "lib/python3.12/_sysconfigdata__linux_x86_64-linux-gnu.py": (
-            f"build_time_vars = {{'prefix': '{prefix}', 'LIBDIR': '{prefix}/lib'}}\n"
-        ).encode(),
+            b"build_time_vars = {'prefix': '/install'}\n"
+        ),
         "lib/tcl8.6/init.tcl": b"",
         "share/man/man1/python3.1": b"",
         "EXTERNALLY-MANAGED": b"[externally-managed]\n",
     }
-    for rel, data in files.items():
-        path = prefix / rel
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(data)
-    (prefix / "bin/python3").symlink_to("python3.12")
+    with tarfile.open(path, "w:gz") as tar:
+        for rel, data in files.items():
+            info = tarfile.TarInfo(f"{top}/{rel}")
+            info.size = len(data)
+            info.mode = 0o755 if rel.startswith("bin/") else 0o644
+            tar.addfile(info, io.BytesIO(data))
+        link = tarfile.TarInfo(f"{top}/bin/python3")
+        link.type = tarfile.SYMTYPE
+        link.linkname = "python3.12"
+        tar.addfile(link)
+    return path
 
 
-def test_copy_python_strips_and_restores_the_placeholder(tmp_path: Path) -> None:
-    prefix = tmp_path / "cache dir" / "cpython-3.12.14"
-    _fake_prefix(prefix)
-    source = bb.PythonSource(prefix=prefix, version="3.12.14", url="", pbs_release="")
-    dest = tmp_path / "bundle" / "python"
-    bb.copy_python(source, dest, LINUX)
-
+def test_install_python_unpacks_and_strips(tmp_path: Path) -> None:
+    archive = _fake_pbs_archive(tmp_path / "pbs.tar.gz")
+    root = tmp_path / "bundle"
+    bb.install_python(archive, root, LINUX)
+    dest = root / "python"
     assert (dest / "bin/python3.12").exists()
     assert (dest / "bin/python3").is_symlink()
     assert os.readlink(dest / "bin/python3") == "python3.12"
@@ -191,12 +198,19 @@ def test_copy_python_strips_and_restores_the_placeholder(tmp_path: Path) -> None
         "share/man",
     ):
         assert not (dest / gone).exists(), gone
+    # the archive's own /install placeholder stays (no uv rewrite to undo)
     sysconfig = (
         dest / "lib/python3.12/_sysconfigdata__linux_x86_64-linux-gnu.py"
     ).read_text()
-    assert str(prefix) not in sysconfig
-    assert f"'{lib.PLACEHOLDER}/lib'" in sysconfig
+    assert f"'{lib.PLACEHOLDER}'" in sysconfig
     assert lib.find_leaks(dest, lib.leak_needles([tmp_path])) == []
+
+
+def test_install_python_refuses_a_foreign_archive(tmp_path: Path) -> None:
+    archive = _fake_pbs_archive(tmp_path / "x.tar.gz", top="other")
+    with pytest.raises(lib.BundleError) as info:
+        bb.install_python(archive, tmp_path / "bundle", LINUX)
+    assert info.value.reason == "bad_python"
 
 
 # ------------------------------------------------------------------ wheel
@@ -437,8 +451,7 @@ def test_cli_verify_exit_codes(
     root = tmp_path / "bundle"
     root.mkdir()
     (root / "a.txt").write_text("hello")
-    manifest = lib.Manifest(meta={}, files=lib.scan_tree(root))
-    (root / lib.MANIFEST_NAME).write_text(manifest.to_json())
+    (root / lib.MANIFEST_NAME).write_text(lib.manifest_text(lib.scan_tree(root)))
     assert bb.main(["--verify", str(root)]) == 0
     assert capsys.readouterr().out.strip().endswith("intact")
     (root / "a.txt").write_text("changed")
