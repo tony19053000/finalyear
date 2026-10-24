@@ -39,6 +39,9 @@ const PAGE_LOADERS = {
   planner: () => import("../pages/planner/PlannerPage"),
 };
 
+// V0.17 G2: the one-time "create fabric" page (outside the session shell).
+const SetupPage = lazy(() => import("../pages/setup/SetupPage").then((m) => ({ default: m.SetupPage })));
+
 const OverviewPage = lazy(() => PAGE_LOADERS.overview().then((m) => ({ default: m.OverviewPage })));
 const NodesPage = lazy(() => PAGE_LOADERS.nodes().then((m) => ({ default: m.NodesPage })));
 const NodeDetailPage = lazy(() => PAGE_LOADERS.nodeDetail().then((m) => ({ default: m.NodeDetailPage })));
@@ -130,6 +133,7 @@ export function AppRoutes({ socketFactory }: AppShellProps) {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/setup" element={<Page><SetupPage /></Page>} />
       <Route
         element={
           <RequireSession>
