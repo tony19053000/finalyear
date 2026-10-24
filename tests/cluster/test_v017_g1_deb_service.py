@@ -178,7 +178,8 @@ def test_packaged_agent_joins_and_runs_a_venv_job(
     assert cert["public_key_fingerprint_sha256"] == identity["key_fingerprint_sha256"]
 
     # 3. CPU shares enforced by the service's delegated cgroup
-    not_enforced = view.get("not_enforced") or ()
+    not_enforced = view.get("not_enforced")
+    assert isinstance(not_enforced, list), view
     assert "max_cpu_percent:unsandboxed_linux" not in not_enforced, view
 
     # 4. a requirements job through the venv runtime, from the service

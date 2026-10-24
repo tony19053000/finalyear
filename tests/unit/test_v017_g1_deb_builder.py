@@ -24,6 +24,7 @@ import sys
 import tarfile
 from pathlib import Path
 from types import ModuleType
+from typing import Literal
 
 import pytest
 
@@ -229,7 +230,11 @@ def test_stage_refuses_crlf_and_missing_files(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------- inspection
-def _tar(entries: list[tarfile.TarInfo], payload: dict[str, bytes], mode: str) -> bytes:
+def _tar(
+    entries: list[tarfile.TarInfo],
+    payload: dict[str, bytes],
+    mode: Literal["w:gz", "w:xz"],
+) -> bytes:
     buffer = io.BytesIO()
     with tarfile.open(fileobj=buffer, mode=mode) as tar:
         for info in entries:
@@ -431,8 +436,8 @@ def test_maintainer_scripts_are_strict_posix_sh(name: str) -> None:
     assert "\nexit 0\n" in text
     sh = shutil.which("sh")
     if sh is not None:
-        done = subprocess.run([sh, "-n", str(path)], capture_output=True, check=False)
-        assert done.returncode == 0, done.stderr
+        syntax = subprocess.run([sh, "-n", str(path)], capture_output=True, check=False)
+        assert syntax.returncode == 0, syntax.stderr
     checker = shutil.which("shellcheck")
     if checker is not None:
         done = subprocess.run(
