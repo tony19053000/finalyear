@@ -434,6 +434,32 @@ class ControllerClient:
             self._decode(response, path)  # raises the typed error
         return response.text
 
+    # V0.15 G6a (D364): re-plan one stored decision (admin)
+    def planner_decision_replay(self, decision_id: int) -> Mapping[str, Any]:
+        """``GET /v1/planner/decisions/{id}/replay``: the decision re-planned
+        with its calibration and model set, compared field for field."""
+        return self._request(
+            "GET",
+            f"/v1/planner/decisions/{decision_id}/replay",
+            timeout=_TRANSFER_TIMEOUT_S,
+        )
+
+    # V0.15 G6a (D375): the 0.15.10 classifier experiment (admin)
+    def planner_ml_classifier_examples(
+        self, *, campaign_ids: list[str], timeout_s: float = 1800.0
+    ) -> Mapping[str, Any]:
+        """``POST /v1/planner/ml/classifier-examples``: the campaigns'
+        labelled groups as classifier examples (the controller re-plans every
+        record once - minutes on a lab-sized campaign, never a training).
+        ``timeout_s`` bounds this wait; the controller stops its own build at
+        ``[controller.planner] ml_classifier_timeout_s`` (900 by default)."""
+        return self._request(
+            "POST",
+            "/v1/planner/ml/classifier-examples",
+            json_body={"campaign_ids": campaign_ids},
+            timeout=timeout_s,
+        )
+
     # V0.15 G1 (D333): the ML training dataset (admin)
     # V0.15 G3 (D339, D358-D361): the ML model registry
     def planner_ml_models(self, *, limit: int = 20) -> Mapping[str, Any]:

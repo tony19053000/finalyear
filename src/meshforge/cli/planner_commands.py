@@ -31,7 +31,7 @@ calibration (V0.14 G2, D293/D301/D306).
   names the same digest (the dataset did not change in between).
 
 * ``ml compare --dataset FILE [--terms a,b] [--algorithms a,b] [--with-family]
-  [--ablations]
+  [--ablations] [--classify-examples FILE]
   [--min-rows N] [--min-families N] [--min-effect X] [--out DIR] [--timeout S]``
   (V0.15 G2, D353; ``--timeout`` V0.15 G3, default 3600 s -> exit 1): offline,
   no controller needed - per term, does any learned model predict the
@@ -874,6 +874,16 @@ def ml_compare(
             "--timeout).",
         ),
     ] = False,
+    classify_examples: Annotated[
+        Path | None,
+        typer.Option(
+            "--classify-examples",
+            help="V0.15 (0.15.10): add the classifier experiment's section "
+            "from this examples document (`compute planner ml classify "
+            "--save-examples FILE`).",
+            dir_okay=False,
+        ),
+    ] = None,
     min_rows: Annotated[
         int | None,
         typer.Option("--min-rows", min=1, help="Data floor per term (default 200)."),
@@ -917,6 +927,8 @@ def ml_compare(
     controller): held-out families, conformal intervals, OOD."""
     if not dataset.is_file():
         cli._die(f"{dataset}: no such dataset file", CliExit.USAGE_ERROR)
+    if classify_examples is not None and not classify_examples.is_file():
+        cli._die(f"{classify_examples}: no such examples file", CliExit.USAGE_ERROR)
     missing = ml_missing_libraries()
     if missing:
         cli._die(
@@ -948,6 +960,8 @@ def ml_compare(
             argv.append("--with-family")
         if ablations:
             argv.append("--ablations")
+        if classify_examples is not None:
+            argv += ["--classify-examples", str(classify_examples)]
         try:
             # subprocess.run kills the child when the timeout expires
             result = subprocess.run(  # noqa: S603 - this interpreter, our own module
@@ -980,6 +994,13 @@ def ml_compare(
     render.show(ml_compare_table(doc))
     if isinstance(doc.get("ablations"), Mapping):
         render.show(ml_ablation_table(doc))
+    classifier = doc.get("classifier")
+    if isinstance(classifier, Mapping):  # V0.15 G6a (D375): report section
+        render.line(
+            f"classifier experiment: {render.echo(classifier.get('status'))} "
+            "(section 'Classifier vs cost regression' in report.md / --json; "
+            "compute planner ml classify prints it as a table)"
+        )
     render.line(f"compared in {render.echo(timings.get('total_s'))} s")
     if out is not None:
         render.line(f"wrote {out / 'report.json'} and {out / 'report.md'}")

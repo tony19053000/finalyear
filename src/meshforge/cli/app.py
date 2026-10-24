@@ -343,4 +343,10 @@ app.add_typer(planner_app)
 
 # V0.15 G3: `compute planner ml train|models|pin|unpin` (registered on the
 # planner's `ml` group by importing the module).
-from meshforge.cli import ml_model_commands  # noqa: E402, F401
+# V0.15 G6a: `compute planner replay ID` (D364) and `compute planner ml
+# classify` (D375), registered the same way.
+from meshforge.cli import (  # noqa: E402, F401
+    ml_classify_commands,
+    ml_model_commands,
+    replay_commands,
+)

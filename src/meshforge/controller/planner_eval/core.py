@@ -151,10 +151,12 @@ __all__ = [
     "SKIP_REASONS",
     "GroupPick",
     "PlannedInputs",
+    "best_median",
     "evaluate",
     "group_pick",
     "group_regret",
     "ml_fallback",
+    "oracle_pick",
     "planned_inputs",
     "vote",
 ]
@@ -314,7 +316,9 @@ def _finite(value: float | None) -> float | None:
     return value if value is not None and math.isfinite(value) else None
 
 
-def _best_median(configs: Sequence[ConfigRef]) -> float | None:
+def best_median(configs: Sequence[ConfigRef]) -> float | None:
+    """The lowest median of the measured configurations (regret's
+    reference, D315); None = none measured."""
     medians = [
         c.median_ms
         for c in configs
@@ -323,7 +327,9 @@ def _best_median(configs: Sequence[ConfigRef]) -> float | None:
     return min(medians) if medians else None
 
 
-def _oracle_pick(group: EvalGroup) -> str | None:
+def oracle_pick(group: EvalGroup) -> str | None:
+    """The oracle's configuration (D298): the labelled best, or the tie's
+    lowest median (ties by ``config_id``)."""
     if group.label == "best":
         return group.best_config_id
     measured = [
@@ -409,7 +415,7 @@ def _evaluate_group(
     if odd:  # G4 fix round 1 (T3): never planned, never written as NaN
         skipped["non_finite_configs"] += len(odd)
         return result("excluded", "non-finite median: " + ", ".join(odd[:5]))
-    best_ms = _best_median(group.configs)
+    best_ms = best_median(group.configs)
     if best_ms is None or not math.isfinite(best_ms) or best_ms <= 0.0:
         return result("excluded", "no positive median to compare with")
     by_id = {c.config_id: c for c in group.configs}
@@ -438,7 +444,7 @@ def _evaluate_group(
             votes[key][config_id] += 1
     if used == 0:
         return result("no_replay", None, best_ms)
-    oracle = _oracle_pick(group)
+    oracle = oracle_pick(group)
     picks: list[GroupPick] = []
     for spec in policies:
         tally: Mapping[str, int] = votes[spec.key]

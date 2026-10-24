@@ -1867,6 +1867,235 @@
         "title": "ChunkTryOut",
         "type": "object"
       },
+      "ClassOutcomeOut": {
+        "additionalProperties": false,
+        "properties": {
+          "config_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Config Id"
+          },
+          "regret_pct": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Regret Pct"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "votes": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Votes",
+            "type": "object"
+          }
+        },
+        "required": [
+          "config_id",
+          "status",
+          "regret_pct",
+          "votes"
+        ],
+        "title": "ClassOutcomeOut",
+        "type": "object"
+      },
+      "ClassifierCalibrationOut": {
+        "additionalProperties": false,
+        "properties": {
+          "excluded_runs": {
+            "title": "Excluded Runs",
+            "type": "integer"
+          },
+          "fitted_runs": {
+            "title": "Fitted Runs",
+            "type": "integer"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "fitted_runs",
+          "excluded_runs"
+        ],
+        "title": "ClassifierCalibrationOut",
+        "type": "object"
+      },
+      "ClassifierExampleOut": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign_id": {
+            "title": "Campaign Id",
+            "type": "string"
+          },
+          "classes": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ClassOutcomeOut"
+            },
+            "title": "Classes",
+            "type": "object"
+          },
+          "cost_model": {
+            "$ref": "#/components/schemas/ClassOutcomeOut"
+          },
+          "family": {
+            "title": "Family",
+            "type": "string"
+          },
+          "features": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Features",
+            "type": "array"
+          },
+          "fingerprint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fingerprint"
+          },
+          "group_id": {
+            "title": "Group Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "oracle_class": {
+            "title": "Oracle Class",
+            "type": "string"
+          },
+          "records_used": {
+            "title": "Records Used",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "campaign_id",
+          "group_id",
+          "family",
+          "fingerprint",
+          "label",
+          "oracle_class",
+          "records_used",
+          "features",
+          "classes",
+          "cost_model"
+        ],
+        "title": "ClassifierExampleOut",
+        "type": "object"
+      },
+      "ClassifierExamplesIn": {
+        "additionalProperties": false,
+        "properties": {
+          "campaign_ids": {
+            "description": "The benchmark campaigns whose labelled groups become examples.",
+            "items": {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 20,
+            "minItems": 1,
+            "title": "Campaign Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "campaign_ids"
+        ],
+        "title": "ClassifierExamplesIn",
+        "type": "object"
+      },
+      "ClassifierExamplesOut": {
+        "additionalProperties": false,
+        "properties": {
+          "calibrations": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ClassifierCalibrationOut"
+            },
+            "title": "Calibrations",
+            "type": "object"
+          },
+          "campaign_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Campaign Ids",
+            "type": "array"
+          },
+          "counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Counts",
+            "type": "object"
+          },
+          "examples": {
+            "items": {
+              "$ref": "#/components/schemas/ClassifierExampleOut"
+            },
+            "title": "Examples",
+            "type": "array"
+          },
+          "examples_version": {
+            "title": "Examples Version",
+            "type": "integer"
+          },
+          "feature_names": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Feature Names",
+            "type": "array"
+          },
+          "policy": {
+            "title": "Policy",
+            "type": "string"
+          }
+        },
+        "required": [
+          "examples_version",
+          "campaign_ids",
+          "policy",
+          "feature_names",
+          "counts",
+          "calibrations",
+          "examples"
+        ],
+        "title": "ClassifierExamplesOut",
+        "type": "object"
+      },
       "ConfigLabelOut": {
         "additionalProperties": false,
         "properties": {
@@ -2347,6 +2576,100 @@
           "candidates"
         ],
         "title": "DecisionOut",
+        "type": "object"
+      },
+      "DecisionReplayOut": {
+        "additionalProperties": false,
+        "properties": {
+          "decision_id": {
+            "title": "Decision Id",
+            "type": "integer"
+          },
+          "differences": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Differences",
+            "type": "array"
+          },
+          "differences_total": {
+            "title": "Differences Total",
+            "type": "integer"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          },
+          "ml_model_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ml Model Version"
+          },
+          "outcome": {
+            "title": "Outcome",
+            "type": "string"
+          },
+          "policy": {
+            "title": "Policy",
+            "type": "string"
+          },
+          "replayed_chosen_node_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Replayed Chosen Node Id"
+          },
+          "snapshot_digest_match": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Snapshot Digest Match"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ReplayStatus"
+          },
+          "stored_chosen_node_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stored Chosen Node Id"
+          }
+        },
+        "required": [
+          "decision_id",
+          "job_id",
+          "outcome",
+          "policy",
+          "status",
+          "ml_model_version",
+          "stored_chosen_node_id",
+          "replayed_chosen_node_id",
+          "snapshot_digest_match",
+          "differences",
+          "differences_total"
+        ],
+        "title": "DecisionReplayOut",
         "type": "object"
       },
       "DiskUsage": {
@@ -7826,6 +8149,16 @@
         ],
         "title": "QualitySummaryOut",
         "type": "object"
+      },
+      "ReplayStatus": {
+        "enum": [
+          "reproduced",
+          "differs",
+          "ml_model_unavailable",
+          "no_replay",
+          "replay_unreadable"
+        ],
+        "type": "string"
       },
       "ResourceSample": {
         "additionalProperties": false,
@@ -16530,6 +16863,120 @@
         ]
       }
     },
+    "/v1/planner/decisions/{decision_id}/replay": {
+      "get": {
+        "operationId": "get_decision_replay_v1_planner_decisions__decision_id__replay_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "decision_id",
+            "required": true,
+            "schema": {
+              "maximum": 9223372036854775807,
+              "minimum": 1,
+              "title": "Decision Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DecisionReplayOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid input (`invalid_input`)"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No, or no longer a valid, credential (`unauthorized`)"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not allowed: admin only, CSRF, foreign origin (`unauthorized`)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found - also another user's object (`not_found`)"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict (`conflict`, `no_feasible_plan`)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid parameters (`invalid_input`)"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Rate limited; see Retry-After (`resource_busy`)"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "A dependency (the database) is unavailable; retry (`network_error`)"
+          }
+        },
+        "summary": "Re-plan a stored decision and compare it - admin only",
+        "tags": [
+          "planner"
+        ]
+      }
+    },
     "/v1/planner/eval-reports": {
       "get": {
         "operationId": "list_eval_reports_v1_planner_eval_reports_get",
@@ -16881,6 +17328,117 @@
           }
         },
         "summary": "One planner evaluation report (JSON or Markdown)",
+        "tags": [
+          "planner"
+        ]
+      }
+    },
+    "/v1/planner/ml/classifier-examples": {
+      "post": {
+        "operationId": "post_classifier_examples_v1_planner_ml_classifier_examples_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClassifierExamplesIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClassifierExamplesOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid input (`invalid_input`)"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No, or no longer a valid, credential (`unauthorized`)"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not allowed: admin only, CSRF, foreign origin (`unauthorized`)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found - also another user's object (`not_found`)"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict (`conflict`, `no_feasible_plan`)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid parameters (`invalid_input`)"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Rate limited; see Retry-After (`resource_busy`)"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "A dependency (the database) is unavailable; retry (`network_error`)"
+          }
+        },
+        "summary": "The classifier experiment's examples (labelled groups) - admin only",
         "tags": [
           "planner"
         ]
