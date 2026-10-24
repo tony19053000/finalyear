@@ -35,8 +35,10 @@ running - its controller stopped, or the final write failed - is
 ``running``) and **stored** ``failed`` (``controller_restart``) by the
 start-up sweep (:meth:`~.store.EvalReportStore.sweep_running`). The
 controller's stop cancels the task (its fold child is killed) and writes
-``controller_restart`` best-effort. Single-controller assumption, as the
-session sweep's (``controller.startup_sweep``).
+``controller_restart`` best-effort. A row read as ``running`` just before
+this process stored its final state (the request raced the end of the task)
+is answered ``running``: the next poll reads the stored state. Single-controller
+assumption, as the session sweep's (``controller.startup_sweep``).
 """
 
 from __future__ import annotations
@@ -108,7 +110,8 @@ _LOST_DETAIL: Final = (
 _FAIL_WRITE_S: Final = 5.0
 """How long the stop's best-effort ``controller_restart`` write may take."""
 _MAX_UNWRITTEN: Final = 64
-"""Outcomes whose final write failed, remembered for :meth:`EvalService.status_of`."""
+"""Outcomes whose final write failed, remembered for :meth:`EvalService.status_of`;
+also the bound of the reports whose final state this process stored."""
 
 
 class EvalNotFoundError(MeshForgeError):
@@ -171,6 +174,7 @@ class EvalService:
         self._starting = False
         self._running: _Running | None = None
         self._unwritten: OrderedDict[int, tuple[str, str | None]] = OrderedDict()
+        self._written: OrderedDict[int, None] = OrderedDict()
 
     async def report(
         self,
@@ -343,6 +347,7 @@ class EvalService:
                     campaign_ids, holdout=holdout, allow_leak=allow_leak
                 )
                 row = await self.reports.finish(report_id, report)
+            self._stored(report_id)
         except asyncio.CancelledError:
             await self._fail_on_stop(report_id)
             raise
@@ -382,6 +387,7 @@ class EvalService:
         )
         try:
             await self.reports.fail(report_id, reason, detail)
+            self._stored(report_id)
         except EvalStoreError:
             # the row stays running in the database: status_of answers this
             # outcome; the next start-up sweep stores controller_restart
@@ -402,6 +408,14 @@ class EvalService:
                 ),
                 _FAIL_WRITE_S,
             )
+            self._stored(report_id)
+
+    def _stored(self, report_id: int) -> None:
+        """This process stored ``report_id``'s final state (a read that still
+        says ``running`` is older than that write)."""
+        self._written[report_id] = None
+        while len(self._written) > _MAX_UNWRITTEN:
+            self._written.popitem(last=False)
 
     def status_of(self, row: EvalReportRow) -> tuple[str, str | None, str | None]:
         """``(status, reason, detail)`` to answer for ``row``: a running row
@@ -414,6 +428,10 @@ class EvalService:
         unwritten = self._unwritten.get(row.id)
         if unwritten is not None:
             return STATUS_FAILED, unwritten[0], unwritten[1]
+        if row.id in self._written:
+            # read before this process stored the final state: still running
+            # for this answer, the next poll reads the stored state
+            return STATUS_RUNNING, None, None
         return STATUS_FAILED, CONTROLLER_RESTART, _LOST_DETAIL
 
     async def wait(self) -> None:

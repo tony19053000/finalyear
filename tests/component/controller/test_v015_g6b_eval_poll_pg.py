@@ -328,6 +328,61 @@ async def test_a_lost_final_write_is_answered_from_memory(engine: Any) -> None:
     assert (other["status"], other["reason"]) == ("failed", "controller_restart")
 
 
+async def test_a_read_racing_the_final_write_is_never_answered_failed(
+    engine: Any,
+) -> None:
+    """Found by the component run under load: a GET read the row while it was
+    still ``running``, the task then stored its final state and ended, and the
+    stale row was answered ``failed`` / ``controller_restart`` - a poller gave
+    up on a report that was ``done``. Now that read answers ``running`` and the
+    next poll the stored state."""
+    campaign_id = await _campaign(engine)
+    holder: dict[str, EvalService] = {}
+    race = {"on": True}
+    read = asyncio.Event()
+
+    class _StaleStore(EvalReportStore):
+        async def finish(self, *a: Any, **kw: Any) -> Any:
+            await read.wait()  # the final write only after the GET's read
+            return await super().finish(*a, **kw)
+
+        async def get(self, report_id: int) -> Any:
+            row = await super().get(report_id)
+            if race["on"]:
+                race["on"] = False
+                assert row is not None and row.status == "running"
+                read.set()
+                await holder["service"].wait()  # the final write happens here
+            return row
+
+    service = _service(engine, reports=_StaleStore(engine))
+    holder["service"] = service
+    app = _app(service)
+    started = await _call(
+        app, "POST", EVAL_PATH, json=bg({"campaign_ids": [campaign_id]})
+    )
+    rid = started.json()["report_id"]
+    stale = (await _call(app, "GET", f"{EVAL_PATH}/{rid}")).json()
+    assert (stale["status"], stale["reason"]) == ("running", None)
+    assert "run_state" not in await _stored(engine, rid)  # stored done
+    got = (await wait_for_report(_getter(app), rid)).json()
+    assert got["status"] == "done" and got["report"] is not None
+    # a process that never ran it still answers a running row failed
+    other = _service(engine)
+    row = await EvalReportStore(engine).get(rid)
+    assert row is not None
+    stale_row = type(row)(
+        id=row.id,
+        created_at=row.created_at,
+        campaign_ids=row.campaign_ids,
+        holdout=row.holdout,
+        leaked=row.leaked,
+        report={"run_state": {"status": "running"}},
+    )
+    assert other.status_of(stale_row)[:2] == ("failed", "controller_restart")
+    assert service.status_of(stale_row)[:2] == ("running", None)
+
+
 # ------------------------------------------------------------------- restart
 
 
