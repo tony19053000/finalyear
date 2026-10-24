@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
+import os
 import sys
+import tempfile
 import tomllib
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from pathlib import Path
 
 from meshforge.agent.identity import (
     JSON_FILE_NAME,
     MIGRATION_PENDING_FILE_NAME,
+    NodeIdentity,
     read_identity,
 )
 from meshforge.agent.migration.model import (
@@ -23,18 +27,31 @@ from meshforge.agent.migration.model import (
     MigrationPlan,
     Paths,
 )
+from meshforge.agent.migration.safe_source import (
+    ReadFile,
+    UnsafeSourceError,
+    expected_uid,
+    opened_dir,
+    read_file,
+    read_files,
+)
 from meshforge.common.errors import IdentityError, MeshForgeError
 
 
 def _has_identity_files(directory: Path) -> bool:
-    return any((directory / name).exists() for name in IDENTITY_FILES)
+    # lexists: a symlinked file still makes a candidate - one that is then
+    # refused with the reason, rather than silently skipped.
+    return any(os.path.lexists(directory / name) for name in IDENTITY_FILES)
 
 
-def _peek_node_id(directory: Path) -> str | None:
-    """``node_id`` from ``node.json`` for a message, never trusted for more."""
+def _peek_node_id(directory: Path, home_root: Path) -> str | None:
+    """``node_id`` from ``node.json`` for a message, never trusted for more
+    (read like every source: ``safe_source``)."""
     try:
-        data = json.loads((directory / JSON_FILE_NAME).read_bytes())
-    except (OSError, ValueError):
+        with opened_dir(directory, expected_uid(directory, home_root)) as held:
+            found = read_file(held, JSON_FILE_NAME)
+        data = json.loads(found.data) if found is not None else None
+    except (UnsafeSourceError, OSError, ValueError):
         return None
     value = data.get("node_id") if isinstance(data, dict) else None
     return value if isinstance(value, str) else None
@@ -60,6 +77,37 @@ def _user_of(path: Path) -> str | None:
         return pwd.getpwuid(path.stat().st_uid).pw_name
     except (KeyError, OSError):
         return None
+
+
+def identity_from(files: Mapping[str, ReadFile], source: Path) -> NodeIdentity:
+    """Validate identity files already read from ``source`` (through checked fds)
+    with the agent's own loader, on a private copy; errors name ``source``."""
+    with tempfile.TemporaryDirectory(prefix="meshforge-migrate-") as tmp:
+        scratch = Path(tmp)
+        scratch.chmod(0o700)
+        for name, found in files.items():
+            fd = os.open(scratch / name, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            try:
+                os.write(fd, found.data)
+                os.fchmod(fd, found.mode)  # the loader checks the source's modes
+            finally:
+                os.close(fd)
+        try:
+            identity = read_identity(scratch)
+        except IdentityError as exc:
+            where = source / exc.path.name if exc.path.parent == scratch else source
+            raise IdentityError(
+                exc.problem.replace(tmp, str(source)),
+                where,
+                exc.remedy.replace(tmp, str(source)),
+            ) from None
+    return dataclasses.replace(identity, path=source)
+
+
+def read_source_identity(source: Path, uid: int) -> NodeIdentity:
+    with opened_dir(source, uid) as held:
+        files = read_files(held, IDENTITY_FILES)
+    return identity_from(files, source)
 
 
 def find_candidates(
@@ -105,11 +153,20 @@ def check_config(path: Path) -> str | None:
     so are values naming a home directory (the service cannot read ``/home``:
     ``ProtectHome=yes``) and ``data_dir`` (the service's state lives in
     ``/var/lib/meshforge``)."""
+    try:
+        raw = path.read_bytes()
+    except OSError as exc:
+        return f"cannot read {path} as TOML: {exc}"
+    return check_config_bytes(raw, path)
+
+
+def check_config_bytes(raw: bytes, path: Path) -> str | None:
+    """:func:`check_config` on content already read (``path`` names it)."""
     from meshforge.agent.settings import AgentSettings
 
     try:
-        data = tomllib.loads(path.read_bytes().removeprefix(b"\xef\xbb\xbf").decode())
-    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError) as exc:
+        data = tomllib.loads(raw.removeprefix(b"\xef\xbb\xbf").decode())
+    except (UnicodeDecodeError, tomllib.TOMLDecodeError) as exc:
         return f"cannot read {path} as TOML: {exc}"
     known = set(AgentSettings.model_fields)
     unknown = sorted(set(data) - known)
@@ -129,10 +186,14 @@ def check_config(path: Path) -> str | None:
             f"{path} names paths in a home directory ({', '.join(homes)}), "
             "which the service cannot use; change or remove them, then re-run"
         )
-    try:
-        AgentSettings.load(path, agent={"discovery": {"enabled": True}})
-    except MeshForgeError as exc:
-        return f"{path} is not a valid agent configuration: {exc.message}"
+    with tempfile.TemporaryDirectory(prefix="meshforge-migrate-") as tmp:
+        scratch = Path(tmp) / path.name
+        scratch.write_bytes(raw)
+        try:
+            AgentSettings.load(scratch, agent={"discovery": {"enabled": True}})
+        except MeshForgeError as exc:
+            message = exc.message.replace(str(scratch), str(path))
+            return f"{path} is not a valid agent configuration: {message}"
     return None
 
 
@@ -153,15 +214,16 @@ def plan(
     pending = (target / MIGRATION_PENDING_FILE_NAME).exists()
     if _has_identity_files(target) and not pending:
         result = MigrationPlan(MigrationOutcome.TARGET_PRESENT, paths)
-        result.target_node_id = _peek_node_id(target)
+        result.target_node_id = _peek_node_id(target, paths.home_root)
         same = [
             c
             for c in candidates
             if result.target_node_id is not None
-            and _peek_node_id(c) == result.target_node_id
+            and _peek_node_id(c, paths.home_root) == result.target_node_id
         ]
         if same:
             result.leftover_source = same[0]
+            result.source_uid = expected_uid(same[0], paths.home_root)
             result.notes.append(
                 f"{same[0]} is the same node and was not renamed by an earlier "
                 "run; renaming it now"
@@ -169,8 +231,9 @@ def plan(
         others = [c for c in candidates if c not in same]
         for other in others:
             result.notes.append(
-                f"{other} holds another identity ({_peek_node_id(other) or 'unreadable'}"
-                ") and was left as is; the service keeps the one it has"
+                f"{other} holds another identity "
+                f"({_peek_node_id(other, paths.home_root) or 'unreadable'}) and "
+                "was left as is; the service keeps the one it has"
             )
         result.config = _plan_config(paths, config_from, None, sudo_user, home_of)
         _note_refused_config(result)
@@ -189,7 +252,8 @@ def plan(
         return result
     if len(candidates) > 1:
         listed = [
-            f"{c} (node_id {_peek_node_id(c) or 'unreadable'})" for c in candidates
+            f"{c} (node_id {_peek_node_id(c, paths.home_root) or 'unreadable'})"
+            for c in candidates
         ]
         return _blocked(
             paths,
@@ -201,7 +265,17 @@ def plan(
         )
     source = candidates[0]
     try:
-        identity = read_identity(source)
+        uid = expected_uid(source, paths.home_root)
+        identity = read_source_identity(source, uid)
+    except UnsafeSourceError as exc:
+        return _blocked(
+            paths,
+            [f"the identity in {source} is not safe to migrate: {exc}"],
+            f"make {source} a plain folder (no symbolic links) of the user it "
+            "belongs to, with plain files of that user and no group/other write "
+            "access - or move it aside if this laptop should start as a NEW node - "
+            "then re-run `sudo meshforge-agent migrate-identity`",
+        )
     except IdentityError as exc:
         return _blocked(
             paths,
@@ -210,6 +284,7 @@ def plan(
             "NEW node, then re-run `sudo meshforge-agent migrate-identity`",
         )
     result = MigrationPlan(MigrationOutcome.MIGRATED, paths, source, identity)
+    result.source_uid = uid
     result.user = sudo_user if explicit is None and sudo_user else user_of(source)
     result.config = _plan_config(paths, config_from, source, sudo_user, home_of)
     if result.config.action == "refused":
@@ -264,7 +339,7 @@ def _plan_config(
     if source is None and sudo_user and sudo_user != "root":
         sudo_home = home_of(sudo_user)
         source = sudo_home / _USER_CONFIG if sudo_home is not None else None
-    if source is None or not source.is_file():
+    if source is None or not os.path.lexists(source):
         if config_from is not None:
             return ConfigPlan(
                 config_from, "refused", f"--config-from {config_from}: no such file"
@@ -272,10 +347,24 @@ def _plan_config(
         return ConfigPlan()
     if paths.target_config.exists():
         return ConfigPlan(source, "kept")
-    problem = check_config(source)
+    try:
+        uid = expected_uid(source, paths.home_root)
+        raw = read_source_config(source, uid).data
+    except UnsafeSourceError as exc:
+        return ConfigPlan(source, "refused", str(exc))
+    problem = check_config_bytes(raw, source)
     if problem is not None:
         return ConfigPlan(source, "refused", problem)
-    return ConfigPlan(source, "copy")
+    return ConfigPlan(source, "copy", uid=uid)
+
+
+def read_source_config(source: Path, uid: int) -> ReadFile:
+    """``source`` read through its checked parent folder (``safe_source``)."""
+    with opened_dir(source.parent, uid) as held:
+        found = read_file(held, source.name)
+    if found is None:
+        raise UnsafeSourceError(source, f"{source} does not exist")
+    return found
 
 
 # ------------------------------------------------------------------ execute

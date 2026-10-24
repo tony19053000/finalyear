@@ -35,6 +35,14 @@ the next run clears the half copy and starts again (converges). The config file
 moves the same way to ``/etc/meshforge/config.toml`` (``0640 root:meshforge``),
 its source renamed ``config.toml.migrated-<date>``.
 
+**Sources are not trusted** (fix round 1): root reads them through
+:mod:`~meshforge.agent.migration.safe_source` - no symlink anywhere on the path,
+folders and files owned by the user, nothing writable by others, ``fstat`` on the
+opened fd, renames inside the held parent fd and verified by inode. ``execute``
+re-reads everything that way before its first write; a violation (in the plan or
+since it) is ``blocked`` with the reason, and a failed verify removes the copied
+files (the marker stays).
+
 The peer/env/blob caches are **not** migrated (Q14: they are caches). Nothing
 here logs or prints key material; paths and ``node_id`` only.
 """

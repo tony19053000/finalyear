@@ -74,6 +74,8 @@ class ConfigPlan:
     action: str = "none"
     """``none`` (no source), ``kept`` (target exists), ``copy``, ``refused``."""
     problem: str | None = None
+    uid: int | None = None
+    """``copy``: the user the file must belong to (``safe_source``)."""
 
 
 @dataclass(slots=True)
@@ -86,6 +88,8 @@ class MigrationPlan:
     leftover_source: Path | None = None
     """``target_present``: a source of the same node an interrupted run left."""
     user: str | None = None
+    source_uid: int | None = None
+    """The uid ``source`` / ``leftover_source`` must belong to (``safe_source``)."""
     config: ConfigPlan = field(default_factory=ConfigPlan)
     problems: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
