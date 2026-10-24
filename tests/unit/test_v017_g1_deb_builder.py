@@ -472,6 +472,7 @@ LDD = """\
 \t/lib64/ld-linux-x86-64.so.2 (0x00007f01)
 /b/python/lib/x.so:
 \tlibgfortran-1.so.5 => /b/python/lib/../libs/libgfortran-1.so.5 (0x1)
+\tlibquadmath-2.so.0 => /b/python/lib/a dir with spaces/libquadmath-2.so.0 (0x7f3e)
 \tlibz.so.1 => /lib/x86_64-linux-gnu/libz.so.1 (0x2)
 \tlibfoo.so.3 => /usr/lib/libfoo.so.3 (0x3)
 \tlibbar.so.1 => not found

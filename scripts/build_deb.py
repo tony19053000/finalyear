@@ -351,6 +351,7 @@ SYSTEM_LIBS: Final[Mapping[str, str]] = {
 inside the bundle (wheels vendor theirs): a new one fails the build, so a
 dependency bump cannot silently need a package the .deb does not declare."""
 _ELF_MAGIC: Final = b"\x7fELF"
+_LDD_ADDRESS: Final = re.compile(r" \(0x[0-9a-f]+\)$")
 
 
 def elf_files(bundle: Path) -> list[Path]:
@@ -383,8 +384,10 @@ def classify_ldd(output: str, bundle: Path) -> tuple[set[str], list[str]]:
                 packages.add(SYSTEM_LIBS[name])
             continue
         name, _, rest = line.partition("=>")
-        name, target = name.strip(), rest.strip().split(" ", 1)[0]
-        if target == "not":  # "not found"
+        name = name.strip()
+        # "<path with spaces> (0x...)" or "not found"
+        target = _LDD_ADDRESS.sub("", rest.strip())
+        if target == "not found":
             problems.append(f"{current}: {name} not found")
         elif os.path.realpath(target).startswith(root + os.sep):
             continue
