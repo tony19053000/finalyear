@@ -37,6 +37,7 @@ ever logs or prints the code or the token.
 from __future__ import annotations
 
 import contextlib
+import dataclasses
 import os
 import secrets
 import ssl
@@ -593,15 +594,24 @@ def join(
     *,
     force: bool = False,
     timeout_s: float = DEFAULT_TIMEOUT_S,
+    host: str | None = None,
 ) -> JoinResult:
     """The whole flow of the module docstring. Blocking (run it in a thread
-    from async code)."""
+    from async code).
+
+    ``host`` (V0.17 G3, the console's "pick a controller found on this
+    network"): connect to this address instead of the code's - for a
+    controller whose LAN address changed since the code was made. The code's
+    port, token and **CA pin** are unchanged, so a wrong pick is
+    ``pin_mismatch`` before anything secret is sent."""
     try:
         code = join_code.decode(code_text)
     except join_code.JoinCodeError as exc:
         raise JoinError(
             JoinReason.BAD_CODE, exc.message, failure_type=FailureType.INVALID_INPUT
         ) from None
+    if host is not None and host.strip():
+        code = dataclasses.replace(code, host=host.strip().strip("[]").lower())
     if is_enrolled(identity.path) and not force:
         raise JoinError(
             JoinReason.ALREADY_ENROLLED,

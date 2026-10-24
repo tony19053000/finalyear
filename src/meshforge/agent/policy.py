@@ -62,8 +62,11 @@ __all__ = [
     "LIVE_KEYS",
     "MAX_OVERLAY_BYTES",
     "POLICY_FILE_NAME",
+    "RESTART_KEYS",
     "LivePolicy",
+    "PolicyChange",
     "PolicyState",
+    "apply_changes",
     "format_overlay",
     "not_enforced_caps",
     "parse_assignments",
@@ -497,3 +500,64 @@ def clear_overlay(path: Path) -> bool:
         path.unlink()
         return True
     return False
+
+
+RESTART_KEYS: Final = {
+    "accept_jobs": "runtime",
+    "allow_unsandboxed": "subprocess/venv runtime",
+}
+"""Keys whose turning on needs a restart of an agent started with them off
+(module docstring)."""
+
+
+@dataclass(frozen=True, slots=True)
+class PolicyChange:
+    """What :func:`apply_changes` wrote."""
+
+    path: Path
+    effective: PolicySettings
+    restart_keys: tuple[str, ...]
+    """Keys turned on now that were off before: an agent started with them off
+    needs one restart to get the runtimes (:data:`RESTART_KEYS`)."""
+
+
+def apply_changes(
+    settings: AgentSettings, changes: Mapping[str, Any], *, replace: bool = False
+) -> PolicyChange:
+    """Merge ``changes`` into the live file (or, ``replace``, make them the whole
+    file), validate the **effective** policy first, then write it atomically.
+
+    The one implementation behind ``meshforge-agent policy set`` and the
+    console's Settings page (V0.17 G3). Raises :class:`ConfigError` for an
+    invalid result (nothing written) and :class:`OSError` when the file cannot
+    be written."""
+    unknown = sorted(set(changes) - set(LIVE_KEYS))
+    if unknown:
+        raise ConfigError(
+            f"unknown policy keys: {', '.join(unknown)}",
+            details={"reason": "unknown_key"},
+        )
+    path = policy_path(settings)
+    current = {} if replace else (read_overlay(path) or {})
+    try:
+        before: PolicySettings | None = effective_settings(
+            settings.agent.policy, read_overlay(path) if replace else current
+        )
+    except ConfigError:  # the old file was invalid: count every key as new
+        before = None
+    merged = {**current, **changes}
+    effective = effective_settings(settings.agent.policy, merged)
+    slots = effective.max_cpu_jobs + (effective.max_gpu_jobs or 0)
+    if slots > settings.agent.execution.max_concurrent_attempts:
+        raise ConfigError(
+            "max_cpu_jobs + max_gpu_jobs must be <= [agent.execution] "
+            "max_concurrent_attempts",
+            details={"reason": "too_many_slots"},
+        )
+    write_overlay(path, merged)
+    restart = tuple(
+        key
+        for key in RESTART_KEYS
+        if getattr(effective, key) and (before is None or not getattr(before, key))
+    )
+    return PolicyChange(path=path, effective=effective, restart_keys=restart)
