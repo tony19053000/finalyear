@@ -296,6 +296,52 @@ def test_a_class_the_planner_did_not_enumerate_is_not_counted() -> None:
     assert cl.outcome_of(example, "local")["status"] == "counted"
 
 
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf")])
+def test_a_non_finite_counted_regret_is_unmeasured(bad: float) -> None:
+    # fix r1 D1: a "counted" outcome whose regret is not a finite number is
+    # scored like any unmeasured one (the same count as the hand-computed row)
+    examples = _doc()["examples"]
+    examples[5]["classes"]["local"] = _outcome("cfg-local", bad)
+    examples[7]["cost_model"] = _outcome("cfg-cost", bad)
+    section = cl.classify(_doc(examples))
+    majority = _row(section, "majority")
+    assert majority["counted_groups"] == 11
+    assert majority["unmeasured_groups"] == 1
+    assert majority["mean_regret_pct"] == pytest.approx(
+        (sum(range(12)) - 5) / 11, abs=1e-5
+    )
+    assert majority["vs_cost_model"]["common_groups"] == 10
+    assert section["cost_model"]["unmeasured_groups"] == 1
+    assert "NaN" not in canonical_json(section)
+
+
+def test_zero_feature_width_falls_back_to_the_majority() -> None:
+    # fix r1 D2: no features -> the feature models predict what `majority` does
+    doc = _doc()
+    doc["feature_names"] = []
+    for e in doc["examples"]:
+        e["features"] = []
+    section = cl.classify(doc)
+    assert section["status"] == "evaluated"
+    want = _row(section, "majority")["predicted_classes"]
+    for model in ("logistic", "lightgbm"):
+        assert _row(section, model)["predicted_classes"] == want
+
+
+def test_non_finite_and_huge_features_read_as_missing() -> None:
+    # fix r1 D3: like the controller's builder, a non-finite feature is NaN;
+    # one too large to standardise too; ordinary large values are kept
+    doc = _doc()
+    doc["examples"][0]["features"] = [float("inf"), 1e200, 1e30]
+    doc["examples"][1]["features"] = [float("-inf"), -1e151, -1e150]
+    parsed = {e.group_id: e for e in cl.parse_examples(doc)[1]}
+    first, second = parsed["fam.a-0"].features, parsed["fam.a-1"].features
+    assert [v != v for v in first] == [True, True, False]
+    assert [v != v for v in second] == [True, True, False]
+    assert first[2] == 1e30 and second[2] == -1e150
+    assert cl.classify(doc)["status"] == "evaluated"
+
+
 def test_the_models_learn_a_separable_rule() -> None:
     section = cl.classify(_doc())
     for model in ("logistic", "lightgbm"):

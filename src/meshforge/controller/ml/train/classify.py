@@ -20,13 +20,19 @@ metric**, next to the planner's cost regression on the same groups:
    regression on the shared imputed + standardised features, D349) and
    ``lightgbm`` (a small multiclass booster on the raw features, NaN
    native). Fixed seeds, one thread (D352). A training fold with one class
-   predicts it.
+   predicts it; so does a document with no features at all (zero width):
+   ``logistic`` and ``lightgbm`` then fall back to the training folds'
+   majority, like ``majority``. A non-finite feature (``Infinity`` /
+   ``NaN`` literals) reads as missing (NaN), as the controller's builder
+   writes it; so does one too large to standardise (``|x| > 1e150``, its
+   square would overflow the shared D349 prep) - no real feature is near.
 4. **Regret** - a predicted class scores the regret of **the planner's
    best-ranked candidate of that class** for the group (precomputed by the
    controller), never the label's own configuration; a class the planner did
    not enumerate, or whose candidate maps to no measured configuration, is
    ``unmeasured`` - counted and reported, never as 0 (the evaluator's D297
-   rule).
+   rule). So is an outcome marked counted whose regret is not a finite
+   number.
 5. **Comparison** - per model: counted / unmeasured groups, mean regret, the
    share within ``regret_threshold_pct``, accuracy (next to regret, never
    instead of it), per family, and the **paired** difference to the cost
@@ -77,6 +83,8 @@ EXAMPLES_VERSIONS: Final = frozenset({1})
 MODELS: Final = ("majority", "logistic", "lightgbm")
 COST_MODEL: Final = "cost_model"
 _ROUND: Final = 6
+_MAX_FEATURE_ABS: Final = 1e150
+"""Larger feature magnitudes read as missing (module docstring, item 3)."""
 
 
 class ExamplesError(ValueError):
@@ -129,7 +137,10 @@ def _number(value: Any) -> float:
         return math.nan
     if isinstance(value, bool) or not isinstance(value, int | float):
         raise ExamplesError("a feature must be a number or null")
-    return float(value)
+    number = float(value)
+    if not math.isfinite(number) or abs(number) > _MAX_FEATURE_ABS:
+        return math.nan
+    return number
 
 
 def parse_examples(doc: Any) -> tuple[list[str], list[Example]]:
@@ -206,7 +217,7 @@ def _fit_predict(
     labels = [e.label for e in train]
     majority = _majority(labels)
     classes = sorted(set(labels))
-    if model == "majority" or len(classes) == 1:
+    if model == "majority" or len(classes) == 1 or width == 0:
         return [majority] * len(test)
     X_train, X_test = _matrix(train, width), _matrix(test, width)
     index = {name: i for i, name in enumerate(classes)}
@@ -270,7 +281,10 @@ def _counted_regret(outcome: Mapping[str, Any]) -> float | None:
     regret = outcome.get("regret_pct")
     if outcome.get("status") != "counted" or isinstance(regret, bool):
         return None
-    return float(regret) if isinstance(regret, int | float) else None
+    if not isinstance(regret, int | float):
+        return None
+    number = float(regret)
+    return number if math.isfinite(number) else None
 
 
 def _cost_outcome(example: Example) -> dict[str, Any]:

@@ -231,9 +231,6 @@ def test_within_threshold_is_inclusive_at_15() -> None:
     assert maj["within_threshold_pct"] == pytest.approx(50.0)
 
 
-@pytest.mark.xfail(
-    strict=True, reason="TESTER-D1: non-finite counted regret crashes bootstrap"
-)
 @pytest.mark.parametrize("bad", [math.nan, math.inf, -math.inf])
 def test_non_finite_regret_does_not_poison_or_crash(bad: float) -> None:
     exs = _many(12, 3, local=3.0)
@@ -298,9 +295,6 @@ def test_single_class_everywhere_and_all_null_features() -> None:
         assert _row(s, m)["predicted_classes"] == {"local": 12}
 
 
-@pytest.mark.xfail(
-    strict=True, reason="TESTER-D2: zero feature width crashes LogisticRegression"
-)
 def test_zero_width_features() -> None:
     exs = [
         _ex(f"fam{k % 3}", k, ["local", "mode1"][k % 2], feats=[]) for k in range(12)
@@ -309,7 +303,6 @@ def test_zero_width_features() -> None:
     assert s["status"] == "evaluated"
 
 
-@pytest.mark.xfail(strict=True, reason="TESTER-D3: inf feature literal crashes")
 def test_infinite_feature_values_do_not_crash() -> None:
     # json.loads accepts Infinity/NaN literals; the child must still answer
     exs = _many(12, 3)
