@@ -293,12 +293,6 @@ async def test_request_stop_with_a_dead_database_does_not_raise() -> None:
     assert isinstance(results[0], asyncio.CancelledError)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="defect T1: while ANY start is in flight (_starting), status_of "
-    "answers every orphaned running row 'running' (a row left by a dead "
-    "controller is briefly 'running' again)",
-)
 async def test_an_orphan_row_is_never_answered_running_during_another_start() -> None:
     store = FakeStore()
     store.start_gate = asyncio.Event()

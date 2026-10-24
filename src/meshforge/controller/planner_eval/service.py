@@ -423,8 +423,11 @@ class EvalService:
         status = row.status
         if status != STATUS_RUNNING:
             return status, row.reason, row.detail
-        if self._starting or self.running_id == row.id:
+        if self.running_id == row.id:
             return STATUS_RUNNING, None, None
+        # a start in flight does not make other running rows "running" (an
+        # orphan of a dead controller stays failed - G6b tester T1); only the
+        # commit-to-return instant of the row being created is not known here
         unwritten = self._unwritten.get(row.id)
         if unwritten is not None:
             return STATUS_FAILED, unwritten[0], unwritten[1]
