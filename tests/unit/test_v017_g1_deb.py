@@ -462,3 +462,52 @@ def test_maintainer_scripts_keep_data_on_remove_and_never_add_docker() -> None:
     upgrade = prerm[prerm.index("upgrade | failed-upgrade)") :]
     assert "systemctl" not in upgrade[: upgrade.index(";;")]
     assert "migrate-identity" in scripts["postinst"]
+
+
+# ------------------------------------------------------- system libraries
+LDD = """\
+/b/python/bin/python3.12:
+\tlinux-vdso.so.1 (0x00007ffd)
+\tlibc.so.6 => /lib/x86_64-linux-gnu/libc.so.6 (0x00007f00)
+\t/lib64/ld-linux-x86-64.so.2 (0x00007f01)
+/b/python/lib/x.so:
+\tlibgfortran-1.so.5 => /b/python/lib/../libs/libgfortran-1.so.5 (0x1)
+\tlibz.so.1 => /lib/x86_64-linux-gnu/libz.so.1 (0x2)
+\tlibfoo.so.3 => /usr/lib/libfoo.so.3 (0x3)
+\tlibbar.so.1 => not found
+/b/python/bin/uv:
+\tstatically linked
+"""
+
+
+def test_classify_ldd(tmp_path: Path) -> None:
+    packages, problems = bd.classify_ldd(LDD, Path("/b"))
+    assert packages == {"libc6", "zlib1g"}
+    assert problems == [
+        "/b/python/lib/x.so: needs libfoo.so.3 from the system (/usr/lib/libfoo.so.3)",
+        "/b/python/lib/x.so: libbar.so.1 not found",
+    ]
+
+
+def test_every_known_system_library_is_declared() -> None:
+    depends = bd.nfpm_depends((PACKAGING / "nfpm.yaml").read_text("utf-8"))
+    names = {d.split(" ", 1)[0] for d in depends}
+    assert set(bd.SYSTEM_LIBS.values()) <= names
+    assert "passwd" in names
+
+
+@pytest.mark.skipif(
+    sys.platform != "linux" or shutil.which("ldd") is None, reason="ldd"
+)
+def test_check_shared_libs_on_a_real_elf(tmp_path: Path) -> None:
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    real = Path(sys.executable).resolve()
+    shutil.copy2(real, bundle / "python")
+    assert bd.elf_files(bundle) == [bundle / "python"]
+    assert (
+        bd.check_shared_libs(bundle, ["libc6", *sorted(set(bd.SYSTEM_LIBS.values()))])
+        == []
+    )
+    problems = bd.check_shared_libs(bundle, [])
+    assert problems and all("nfpm.yaml does not depend" in p for p in problems)

@@ -25,11 +25,17 @@ description: |-
    within the limits the owner sets. Runs as the system service
    meshforge-agent under its own user, with a bundled Python runtime.
 license: Proprietary (no license chosen yet)
-# python-build-standalone is self-contained (static libpython; it and the
-# manylinux_2_28 wheels need glibc >= 2.28). passwd: useradd/groupadd in the
-# maintainer scripts. CI checks with ldd that nothing else is missing.
+# The bundle's system libraries, checked with ldd on every build
+# (scripts/build_deb.py SYSTEM_LIBS: a new one fails the build until it is
+# declared here). python-build-standalone links most of its libraries
+# statically; it and the manylinux_2_28 wheels need glibc >= 2.28 and the GCC
+# runtime. passwd: useradd/groupadd in the maintainer scripts.
 depends:
   - libc6 (>= 2.28)
+  - libcrypt1
+  - libgcc-s1
+  - libstdc++6
+  - zlib1g
   - passwd
 recommends:
   - sudo

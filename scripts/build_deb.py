@@ -8,7 +8,9 @@ Steps:
 
 1. **Bundle facts** from ``BUILDINFO.json``: role ``agent``, ``linux``/``x86_64``,
    its version and ``source_date_epoch``. A bundle that differs from its manifest
-   is refused (``bundle_modified``).
+   is refused (``bundle_modified``). Then ``ldd`` on every ELF file: each library
+   comes from the bundle or is a known system one whose package ``nfpm.yaml``
+   depends on (``system_libs``) - the ``Depends:`` line is checked, not guessed.
 2. **Debian version** from the PEP 440 version (:func:`debian_version`), so dpkg
    orders versions the way Python does: ``0.1.0.dev0`` -> ``0.1.0~~dev0-1``.
 3. **nfpm** - the pinned release in ``packaging/pins.toml [nfpm]`` (URL + sha256,
@@ -45,6 +47,8 @@ import io
 import json
 import os
 import re
+import shutil
+import subprocess
 import sys
 import tarfile
 import tempfile
@@ -328,6 +332,111 @@ def check_contents(contents: DebContents, version: str, deb_version: str) -> lis
     return problems
 
 
+# ------------------------------------------------------- shared libraries
+SYSTEM_LIBS: Final[Mapping[str, str]] = {
+    # soname -> the Ubuntu package that ships it (must be in nfpm.yaml depends)
+    "libc.so.6": "libc6",
+    "libm.so.6": "libc6",
+    "libpthread.so.0": "libc6",
+    "libdl.so.2": "libc6",
+    "librt.so.1": "libc6",
+    "libutil.so.1": "libc6",
+    "linux-vdso.so.1": "libc6",
+    "libcrypt.so.1": "libcrypt1",
+    "libgcc_s.so.1": "libgcc-s1",
+    "libstdc++.so.6": "libstdc++6",
+    "libz.so.1": "zlib1g",
+}
+"""Every library the bundle may take from the system. Anything else must be
+inside the bundle (wheels vendor theirs): a new one fails the build, so a
+dependency bump cannot silently need a package the .deb does not declare."""
+_ELF_MAGIC: Final = b"\x7fELF"
+
+
+def elf_files(bundle: Path) -> list[Path]:
+    found: list[Path] = []
+    for path in sorted(bundle.rglob("*")):
+        if path.is_symlink() or not path.is_file():
+            continue
+        with path.open("rb") as handle:
+            if handle.read(4) == _ELF_MAGIC:
+                found.append(path)
+    return found
+
+
+def classify_ldd(output: str, bundle: Path) -> tuple[set[str], list[str]]:
+    """``ldd`` output for bundle files -> (system packages needed, problems).
+    Pure: a library inside ``bundle`` is fine, a known system soname adds its
+    package, an unknown one or ``not found`` is a problem."""
+    packages: set[str] = set()
+    problems: list[str] = []
+    current = ""
+    root = os.path.realpath(bundle)
+    for raw in output.splitlines():
+        line = raw.strip()
+        if raw and not raw.startswith(("\t", " ")) and line.endswith(":"):
+            current = line[:-1]
+            continue
+        if "=>" not in line:
+            name = line.split(" ", 1)[0]
+            if name in SYSTEM_LIBS:
+                packages.add(SYSTEM_LIBS[name])
+            continue
+        name, _, rest = line.partition("=>")
+        name, target = name.strip(), rest.strip().split(" ", 1)[0]
+        if target == "not":  # "not found"
+            problems.append(f"{current}: {name} not found")
+        elif os.path.realpath(target).startswith(root + os.sep):
+            continue
+        elif name in SYSTEM_LIBS:
+            packages.add(SYSTEM_LIBS[name])
+        else:
+            problems.append(f"{current}: needs {name} from the system ({target})")
+    return packages, problems
+
+
+def check_shared_libs(bundle: Path, depends: Sequence[str]) -> list[str]:
+    """``ldd`` every ELF file of the bundle; problems (empty = only declared
+    system libraries are used). No ``ldd`` -> one problem saying so."""
+    ldd = shutil.which("ldd")
+    if ldd is None:
+        return ["ldd is not installed: cannot check the bundle's system libraries"]
+    output: list[str] = []
+    files = [str(p) for p in elf_files(bundle)]
+    for start in range(0, len(files), 200):
+        chunk = files[start : start + 200]
+        done = subprocess.run(
+            [ldd, *chunk], capture_output=True, text=True, check=False, timeout=300
+        )
+        text = done.stdout
+        if len(chunk) == 1:  # ldd names the file only when given several
+            text = f"{chunk[0]}:\n{text}"
+        output.append(text)
+    packages, problems = classify_ldd("\n".join(output), bundle)
+    declared = {d.split(" ", 1)[0] for d in depends}
+    problems += [
+        f"the bundle needs {pkg} but nfpm.yaml does not depend on it"
+        for pkg in sorted(packages - declared)
+    ]
+    return problems
+
+
+def nfpm_depends(template: str) -> list[str]:
+    """The ``depends:`` list of ``nfpm.yaml`` (a plain list of ``- item`` lines)."""
+    items: list[str] = []
+    inside = False
+    for line in template.splitlines():
+        if line.startswith("depends:"):
+            inside = True
+            continue
+        if inside:
+            if line.startswith("  - "):
+                items.append(line[4:].strip())
+            elif line.strip() and not line.lstrip().startswith("#"):
+                break
+    return items
+
+
 # ----------------------------------------------------------------- nfpm
 def nfpm_binary(pins: Mapping[str, object], cache: Path) -> Path:
     """The pinned nfpm, unpacked once into ``cache/tools/nfpm-<version>/``."""
@@ -367,6 +476,7 @@ class DebOptions:
     revision: int = 1
     force: bool = False
     size_budget: bool = True
+    check_libs: bool = True
     pins: Path = PINS
     packaging: Path = PACKAGING
 
@@ -418,6 +528,15 @@ def build_deb(options: DebOptions) -> Path:
     target = out / f"{PACKAGE}_{deb_version}_{DEB_ARCH}.deb"
     if target.exists() and not options.force:
         raise BundleError(f"{target} exists (use --force)", reason="exists")
+    template = (options.packaging / "nfpm.yaml").read_text(encoding="utf-8")
+    if options.check_libs:
+        problems = check_shared_libs(bundle, nfpm_depends(template))
+        if problems:
+            raise BundleError(
+                "the bundle's shared libraries do not match the package's Depends:\n"
+                + "\n".join(f"  {p}" for p in problems[:30]),
+                reason="system_libs",
+            )
     pins = load_pins(options.pins)
     budget_table = pins.get("size_budget_mb")
     budget = budget_table.get("agent") if isinstance(budget_table, dict) else None
@@ -433,7 +552,6 @@ def build_deb(options: DebOptions) -> Path:
             changelog_gz(deb_version, version, str(info["git_sha"]), epoch),
             epoch,
         )
-        template = (options.packaging / "nfpm.yaml").read_text(encoding="utf-8")
         config = Path(tmp) / "nfpm.yaml"
         config.write_text(
             render_config(
