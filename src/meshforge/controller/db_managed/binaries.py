@@ -98,7 +98,7 @@ class PgBinaries:
         suffix = ".exe" if os.name == "nt" else ""
         return self.bin_dir / f"{name}{suffix}"
 
-    def check(self, *, expected_major: str = BUNDLED_MAJOR) -> str:
+    def check(self, *, required_major: str = BUNDLED_MAJOR) -> str:
         """Verify the bundle; return the full server version (``"16.15"``).
 
         Raises :class:`ManagedDbError` (``binaries_missing`` / ``binaries_unusable``).
@@ -138,10 +138,10 @@ class PgBinaries:
             major, full = parse_server_version(done.stdout)
         except ValueError as exc:
             raise _unusable(self.bin_dir, str(exc)) from exc
-        if major != expected_major:
+        if major != required_major:
             raise _unusable(
                 self.bin_dir,
-                f"bundle is PostgreSQL {full}, expected major {expected_major}",
+                f"bundle is PostgreSQL {full}, expected major {required_major}",
             )
         return full
 
