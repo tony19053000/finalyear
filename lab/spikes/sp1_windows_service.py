@@ -52,6 +52,9 @@ from typing import Any, Final
 
 import psutil
 import pywintypes
+import win32api
+import win32con
+import win32file
 import win32security
 import win32service
 import win32serviceutil
@@ -274,13 +277,56 @@ def _write_config(text: str) -> None:
     Path(LAYOUT.config_file).write_text(text, encoding="utf-8")
 
 
-def _aces(path: Path) -> dict[str, Any]:
-    sd = win32security.GetNamedSecurityInfo(
-        str(path),
-        win32security.SE_FILE_OBJECT,
-        win32security.DACL_SECURITY_INFORMATION
-        | win32security.OWNER_SECURITY_INFORMATION,
+_INFO: Final = (
+    win32security.DACL_SECURITY_INFORMATION | win32security.OWNER_SECURITY_INFORMATION
+)
+
+
+def _backup_privilege() -> None:
+    """Enable SeBackupPrivilege: node.key's DACL grants only the service SID, so
+    even an elevated admin gets ERROR_ACCESS_DENIED for READ_CONTROL without it
+    (SP1 run 40097330471 - which is the point of an owner-only key)."""
+    token = win32security.OpenProcessToken(
+        win32api.GetCurrentProcess(),
+        win32security.TOKEN_ADJUST_PRIVILEGES | win32security.TOKEN_QUERY,
     )
+    luid = win32security.LookupPrivilegeValue(None, win32security.SE_BACKUP_NAME)
+    win32security.AdjustTokenPrivileges(
+        token, False, [(luid, win32security.SE_PRIVILEGE_ENABLED)]
+    )
+
+
+def _security_descriptor(path: Path) -> tuple[Any, bool]:
+    """(descriptor, needed_backup_privilege)."""
+    try:
+        return win32security.GetNamedSecurityInfo(
+            str(path), win32security.SE_FILE_OBJECT, _INFO
+        ), False
+    except pywintypes.error as exc:
+        if exc.winerror != 5:  # ERROR_ACCESS_DENIED
+            raise
+    _backup_privilege()
+    handle = win32file.CreateFile(
+        str(path),
+        win32con.READ_CONTROL,
+        win32file.FILE_SHARE_READ
+        | win32file.FILE_SHARE_WRITE
+        | win32file.FILE_SHARE_DELETE,
+        None,
+        win32file.OPEN_EXISTING,
+        win32file.FILE_FLAG_BACKUP_SEMANTICS,
+        None,
+    )
+    try:
+        return win32security.GetSecurityInfo(
+            handle, win32security.SE_FILE_OBJECT, _INFO
+        ), True
+    finally:
+        handle.Close()
+
+
+def _aces(path: Path) -> dict[str, Any]:
+    sd, via_backup = _security_descriptor(path)
     dacl = sd.GetSecurityDescriptorDacl()
     aces = []
     for i in range(dacl.GetAceCount()):
@@ -291,7 +337,7 @@ def _aces(path: Path) -> dict[str, Any]:
             "inherited": bool(flags & _INHERITED_ACE),
         })  # fmt: skip
     owner = win32security.ConvertSidToStringSid(sd.GetSecurityDescriptorOwner())
-    return {"owner": owner, "aces": aces}
+    return {"owner": owner, "aces": aces, "admin_denied_without_backup": via_backup}
 
 
 def _firewall_mentions() -> dict[str, Any]:
@@ -611,7 +657,7 @@ def _probe_phases() -> None:
                 p, {"probe_ready": ok, "tree_has_grandchildren": len(set(pids)) >= 5}
             )
         with phase("probe_identity_session0") as p:
-            who = (report.get("whoami") or {}).get("out", "")
+            who = (report.get("whoami") or {}).get("stdout", "")
             p.evidence.update({"whoami": who, "session_id": report.get("session_id"),
                                "env": report.get("env")})  # fmt: skip
             _decide(p, {

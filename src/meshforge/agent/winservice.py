@@ -56,7 +56,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import PureWindowsPath
-from typing import BinaryIO, Final, Literal
+from typing import Final, Literal, Protocol
 
 from meshforge.common.exit_codes import ExitCode
 
@@ -83,6 +83,7 @@ __all__ = [
     "FirewallRule",
     "Grant",
     "MachineLayout",
+    "RawReader",
     "ServiceSpec",
     "StopKind",
     "acl_plan",
@@ -428,8 +429,14 @@ def stop_signal() -> signal.Signals:
     return sig
 
 
+class RawReader(Protocol):
+    """An *unbuffered* byte source (``sys.stdin.buffer.raw``)."""
+
+    def read(self, size: int = -1, /) -> bytes | None: ...
+
+
 def watch_for_stop(
-    stream: BinaryIO,
+    stream: RawReader,
     *,
     signum: signal.Signals,
     interval_s: float = 1.0,
@@ -437,6 +444,13 @@ def watch_for_stop(
 ) -> None:
     """Block until ``stream`` (the child's stdin) reaches EOF, then deliver
     ``signum`` to the main thread every ``interval_s`` until the process exits.
+
+    ``stream`` must be **unbuffered**: a daemon thread blocked in a
+    ``BufferedReader.read`` holds the reader's lock, and when the agent exits on
+    its own (exit 4 on a bad config) the interpreter's shutdown flush of stdin
+    cannot take that lock -> ``Fatal Python error: _enter_buffered_busy`` and a
+    crash exit code instead of 4 (seen in SP1 run 40097330471). A raw read holds
+    no Python-level lock.
 
     Repeated on purpose: :func:`_thread.interrupt_main` does nothing while the
     signal still has its default handler, i.e. before the agent installed its stop
@@ -455,7 +469,7 @@ def watch_for_stop(
         time.sleep(interval_s)
 
 
-def start_stop_watcher(stream: BinaryIO) -> threading.Thread:
+def start_stop_watcher(stream: RawReader) -> threading.Thread:
     thread = threading.Thread(
         target=watch_for_stop,
         args=(stream,),
@@ -468,7 +482,8 @@ def start_stop_watcher(stream: BinaryIO) -> threading.Thread:
 
 
 def _child_main(agent_args: Sequence[str]) -> int:
-    start_stop_watcher(sys.stdin.buffer)
+    # Unbuffered fd 0 (see watch_for_stop), not sys.stdin.buffer.
+    start_stop_watcher(open(0, "rb", buffering=0, closefd=False))  # noqa: SIM115
     from meshforge.agent.main import PROG_NAME, app
 
     try:

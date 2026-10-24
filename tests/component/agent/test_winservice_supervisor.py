@@ -100,7 +100,7 @@ def test_stop_closes_stdin_and_the_child_exits_gracefully(tmp_path: Path) -> Non
         from meshforge.agent.winservice import start_stop_watcher, stop_signal
         stopped = []
         signal.signal(stop_signal(), lambda *_: stopped.append(1))
-        start_stop_watcher(sys.stdin.buffer)
+        start_stop_watcher(sys.stdin.buffer.raw)
         print("ready", flush=True)
         while not stopped:
             time.sleep(0.05)
@@ -218,3 +218,35 @@ def test_the_real_agent_stops_gracefully_behind_the_child_wrapper(
     assert '"exit_code": 0' in text, text[-3000:]
     assert "grace_expired" not in text
     assert getattr(result[0], "kind", None) is StopKind.STOPPED
+
+
+def test_the_real_agent_refusing_its_config_exits_4_not_a_shutdown_crash(
+    tmp_path: Path,
+) -> None:
+    # SP1 run 40097330471: with the stop watcher blocked in a *buffered* stdin read,
+    # the agent's own exit 4 died at interpreter shutdown ("_enter_buffered_busy")
+    # with a crash code, so the SCM restarted it. Must be a clean 4 -> STOPPED.
+    config = tmp_path / "config.toml"
+    config.write_text(
+        textwrap.dedent(
+            f"""
+            data_dir = {(tmp_path / "data").as_posix()!r}
+            [security]
+            mode = "insecure-dev"
+            [agent]
+            controller_address = "10.255.255.1:47100"
+            """
+        ),
+        encoding="utf-8",
+    )
+    log = tmp_path / "agent.log"
+    argv = [
+        sys.executable, "-I", "-m", "meshforge.agent.winservice", "child",
+        "--", "run", "--config", str(config),
+    ]  # fmt: skip
+    decision = Supervisor(argv, log_path=log, grace_s=10, cwd=tmp_path).run()
+    text = log.read_text(encoding="utf-8", errors="replace")
+    assert "Fatal Python error" not in text, text[-3000:]
+    assert (decision.kind, decision.service_exit_code) == (StopKind.STOPPED, 4), text[
+        -3000:
+    ]
