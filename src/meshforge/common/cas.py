@@ -1089,15 +1089,40 @@ class ResumablePart:
                 # the inode comparison is only extra defence.
                 if not self.store.is_current(self.key, self.generation):
                     raise self._gone()
+                # Our locks are per process: another process sharing this CAS
+                # directory may sweep the part and open a fresh one at the same
+                # path at any moment (D399). So first move whatever is at the
+                # path to a private one-shot name (swept at prepare if we crash
+                # here), check THAT is the inode we hashed, and install from it:
+                # a stat-then-rename by path could install an unhashed file.
+                private = self.store.tmp / f"{secrets.token_hex(12)}.part"
                 try:
-                    now = self.part.stat()
+                    os.rename(self.part, private)
                 except FileNotFoundError:
                     raise self._gone() from None
-                if (now.st_dev, now.st_ino) != identity:
-                    raise self._gone()  # a different file is at the path now
-                try:
-                    created = self.store._install(self.part, self.digest, self.size)
                 except OSError as exc:
+                    raise _os_error(exc, self.digest) from None
+                try:
+                    now = os.stat(private)
+                except OSError as exc:
+                    raise _os_error(exc, self.digest) from None
+                if (now.st_dev, now.st_ino) != identity:
+                    # Another process's newer part: not the file we hashed. It
+                    # is dropped like a sweep would (its owner gets a typed
+                    # "start over"); ours is already gone.
+                    with contextlib.suppress(OSError):
+                        private.unlink()
+                    raise self._gone()
+                try:
+                    created = self.store._install(private, self.digest, self.size)
+                except OSError as exc:
+                    # Put the verified part back for a retry (a link never
+                    # replaces a part someone opened meanwhile); else it is
+                    # dropped and the transfer starts over.
+                    with contextlib.suppress(OSError):
+                        os.link(private, self.part)
+                    with contextlib.suppress(OSError):
+                        private.unlink()
                     raise _os_error(exc, self.digest) from None
                 with contextlib.suppress(OSError):
                     self.sidecar.unlink()
