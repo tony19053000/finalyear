@@ -222,7 +222,7 @@ Reviewer non-blocking follow-ups (carry into G2/G3): (1) `mint` should carry `pe
 - 🧑 GitHub push + CI proof (V0.1 criteria 1–2), steps below (the exit-139 bug is fixed — see Known Bugs)
 
 ## Blockers
-- 🧑 Private GitHub repo + first push not done → V0.1 criteria 1 (Windows) and 2 (CI green, bad commit rejected) cannot be proven until then
+- ✅ 2026-10-24: main pushed to the **public** repo tony19053000/finalyear (team choice); first CI run pending → V0.1 0.1.4/0.1.10 evidence follows from it
 - Hardware of laptops 2–4 unknown; AI-agent access to Windows laptops undecided; Ethernet switch not purchased
 
 ## Known Bugs
