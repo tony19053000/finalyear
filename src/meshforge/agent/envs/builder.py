@@ -35,6 +35,15 @@ exactly what was built.
 Docker environments (images ``meshforge-env:<hash>``) are built by the Docker
 runtime with this builder's lock, floor and size cap (:meth:`lock`,
 :meth:`check_free_disk`, :attr:`EnvsConfig.max_env_bytes`).
+
+**Installed agents (V0.17 G1, SP3 F1/F2).** An agent running from a D384 bundle
+builds venvs for its own Python version on **the bundled interpreter**, never on
+whatever ``uv python find`` meets first (a system Python, or nothing on a fresh
+Windows laptop). The path given to ``uv venv`` is the version-independent one
+(``/opt/meshforge/current/python/bin/python3.12``, :func:`bundled_interpreter`),
+so a venv's ``pyvenv.cfg`` survives an upgrade that deletes the old version's
+folder; and a venv whose interpreter link dangles anyway is ``damaged`` (rebuilt),
+never ``ready``.
 """
 
 from __future__ import annotations
@@ -78,6 +87,7 @@ from meshforge.agent.execution.failure_evidence import (
 from meshforge.agent.gc.leases import lease_env
 from meshforge.agent.threads import uninterrupted
 from meshforge.common.atomic import atomic_write_bytes
+from meshforge.common.buildinfo import bundle_root, stable_root
 from meshforge.common.errors import FailureType
 from meshforge.common.logging import get_logger
 
@@ -90,6 +100,7 @@ __all__ = [
     "EnvBuilder",
     "EnvsConfig",
     "Interpreter",
+    "bundled_interpreter",
     "default_uv_argv",
 ]
 
@@ -120,6 +131,17 @@ def default_uv_argv() -> tuple[str, ...]:
         return (uv.find_uv_bin(),)
     except FileNotFoundError:
         return ()
+
+
+def bundled_interpreter(executable: str | None = None) -> Path | None:
+    """This agent's interpreter by its upgrade-stable path when it runs from a
+    D384 bundle (``<bundle>/python/...`` with ``<bundle>`` replaced by the
+    ``current`` pointer when there is one), else ``None`` (a dev venv)."""
+    exe = Path(executable if executable is not None else sys.executable)
+    root = bundle_root(exe)
+    if root is None:
+        return None
+    return stable_root(root) / exe.relative_to(root)
 
 
 ONLY_BINARY_OPTIONS: Final = ("--only-binary", ":all:")
@@ -262,9 +284,15 @@ class EnvBuilder:
         clock: Callable[[], float] = time.monotonic,
         disk_free: Callable[[Path], int] | None = None,
         wall: Callable[[], float] = time.time,
+        bundled_python: Path | Literal["auto"] | None = "auto",
     ) -> None:
         self.config = config
         self.uv_argv = tuple(uv_argv) if uv_argv is not None else default_uv_argv()
+        self.bundled_python = (
+            bundled_interpreter() if bundled_python == "auto" else bundled_python
+        )
+        """The bundle's interpreter (SP3 F1), used for venvs of this agent's
+        own Python version instead of ``uv python find``; ``None`` in a dev venv."""
         self._clock = clock
         self._wall = wall
         self._disk_free = disk_free or _disk_free
@@ -382,7 +410,14 @@ class EnvBuilder:
         except OSError:
             return "damaged"
         recorded = data.get("summary")
-        return "ready" if recorded == summary.as_dict() else "damaged"
+        if recorded != summary.as_dict():
+            return "damaged"
+        python = venv_python(final)
+        if kind == "venv" and python.is_symlink() and not python.exists():
+            # SP3 F2: the venv links an interpreter that is gone (an upgrade
+            # removed the bundle folder it was built from). Same files, unusable.
+            return "damaged"
+        return "ready"
 
     def is_ready(self, kind: str, digest: str) -> bool:
         """:meth:`env_state` is ``ready``."""
@@ -585,14 +620,52 @@ class EnvBuilder:
             raise
 
     async def find_interpreter(self, request: str | None) -> Interpreter:
-        """The interpreter for ``env.python`` (default: this agent's major.minor)."""
-        wanted = request or f"{sys.version_info[0]}.{sys.version_info[1]}"
+        """The interpreter for ``env.python`` (default: this agent's major.minor).
+
+        From a bundle, this agent's own version (``3.12`` or ``3.12.14``) is the
+        bundled interpreter (module docstring, SP3 F1); anything else, and every
+        request in a dev venv, is looked up with ``uv python find``."""
+        own_minor = f"{sys.version_info[0]}.{sys.version_info[1]}"
+        own_full = ".".join(str(part) for part in sys.version_info[:3])
+        wanted = request or own_minor
         found = self._interpreters.get(wanted)
         if found is not None:
             return found
         uv = self._uv()
         await _to_thread(self._prepare_root)
         env = self._uv_env()
+        if self.bundled_python is not None and wanted in (own_minor, own_full):
+            path = self.bundled_python
+            source = "bundle"
+        else:
+            path = await self._find_with_uv(uv, wanted, env)
+            source = "uv_find"
+        code, probe = await self._query([str(path), "-I", "-c", _PROBE_SCRIPT], env)
+        try:
+            impl, version, platform = json.loads(probe)
+            interpreter = Interpreter(path, str(impl), str(version), str(platform))
+        except (ValueError, TypeError):
+            raise EnvError(
+                f"the Python {wanted} interpreter did not describe itself",
+                reason="python_not_found",
+            ) from None
+        if code != 0:
+            raise EnvError(
+                f"Python {wanted} failed to start", reason="python_not_found"
+            )
+        log.info(
+            "agent.envs.interpreter",
+            requested=wanted,
+            source=source,
+            python=interpreter.base,
+            interpreter=str(interpreter.path),
+        )
+        self._interpreters[wanted] = interpreter
+        return interpreter
+
+    async def _find_with_uv(
+        self, uv: tuple[str, ...], wanted: str, env: dict[str, str]
+    ) -> Path:
         find = [*uv, "python", "find", "--no-config", "--system", wanted]
         code, out = await self._query(find, env)
         if code != 0 and self.config.allow_python_downloads:
@@ -608,22 +681,7 @@ class EnvBuilder:
                 ),
                 reason="python_not_found",
             )
-        path = Path(out.decode("utf-8", "replace").strip().splitlines()[-1])
-        code, probe = await self._query([str(path), "-I", "-c", _PROBE_SCRIPT], env)
-        try:
-            impl, version, platform = json.loads(probe)
-            interpreter = Interpreter(path, str(impl), str(version), str(platform))
-        except (ValueError, TypeError):
-            raise EnvError(
-                f"the Python {wanted} interpreter did not describe itself",
-                reason="python_not_found",
-            ) from None
-        if code != 0:
-            raise EnvError(
-                f"Python {wanted} failed to start", reason="python_not_found"
-            )
-        self._interpreters[wanted] = interpreter
-        return interpreter
+        return Path(out.decode("utf-8", "replace").strip().splitlines()[-1])
 
     async def _query(self, argv: list[str], env: dict[str, str]) -> tuple[int, bytes]:
         # cwd = the envs root: uv must not discover a project's .venv from the
