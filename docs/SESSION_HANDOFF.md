@@ -9,7 +9,7 @@
 > ```
 Read docs/SESSION_HANDOFF.md §1, then docs/STATUS.md, then V0.15 in docs/DEVELOPMENT_ROADMAP.md.
 Done: V0.15 agent-side COMPLETE — G1–G6 merged, 0.15.1–0.15.10 [x] (G6a 08895552, G6b b90ebfd7, D375–D383 in brief §5h). Main gates green 2026-10-24: unit 24989 passed, frontend 928, ruff/mypy src/lint-imports clean.
-Open: 🧑 0.15.11 lab run (lab/checklists/V0.15-ml-planner.md) → then Lead decides TD1 per D380 (node_failures ≥ 50 → G7 task, else [x] deferred-by-evidence). NEXT agent work: ask team — V0.17 brief, or V0.11 (Mode 2) if margin. Known bugs in STATUS (alembic head test expects 0033, 2x network_pg, cpu_sampler load flake). 2 stale postgres containers + many merged worktrees left (ask before removing). Normal mode. Parallel agents OK. Don't delete anything without asking.
+Open: 🧑 0.15.11 lab run (lab/checklists/V0.15-ml-planner.md) → then Lead decides TD1 per D380 (node_failures ≥ 50 → G7 task, else [x] deferred-by-evidence). V0.17 brief DRAFTED docs/briefs/V0.17-productization.md (D384–D397) — waiting for team answers Q1–Q10; then write ADR-0022 + G0 spikes (SP2 ∥ SP3 agent-runnable; SP1 needs Windows CI/🧑). Known bugs in STATUS (alembic head test expects 0033, 2x network_pg, cpu_sampler load flake). 2 stale postgres containers + many merged worktrees left (ask before removing). Normal mode. Parallel agents OK. Don't delete anything without asking.
 ```
 >
 > Order of truth: `PROJECT_BRIEF → ARCHITECTURE → ROADMAP → STATUS → this file`. If this file

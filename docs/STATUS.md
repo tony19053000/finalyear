@@ -45,6 +45,8 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 
 ## Current Task
 
+- **2026-10-24 (latest):** V0.17 brief drafted, awaiting team answers Q1–Q10.
+
 - **2026-10-24 (latest):** **V0.15 G6a + G6b MERGED** (`08895552`, `b90ebfd7`) → **0.15.10 `[x]`**. G6b tester r2 PASS (25 new tests, mutations caught), reviewer APPROVE. D381–D383 recorded (brief §5h). Main gates green: unit 24989 passed, frontend 928, ruff/mypy/lint-imports clean. Remaining in V0.15: 🧑 0.15.11 lab run, then TD1 per D380.
 
 - **2026-10-23 (latest):** **V0.15 G5a + G5b MERGED** → **0.15.8, 0.15.9 `[x]`**. G5a: reviewer REQUEST_CHANGES (B1 shared training-child guard, B2 total fold budget `ml_eval_timeout_s`) → fix r1 `90c852e7` → tester r2 PASS (behavioural guard + budget break tests), reviewer delta APPROVE. G5b: tester r1 PASS (113 adversarial tests; D1 scatter spread overflow fixed by Lead `52116bbd`), reviewer APPROVE. Merge conflicts (schema.d.ts regenerated via `npm run gen:api`, docstring, purity list union). Main gates: ruff/format/mypy src (517) clean, frontend lint/typecheck/vitest 901/build/check:api green, full unit **24801 passed, 78 skipped, 7 xfailed, exit 0** (extra skips = main venv lacks the `ml` extra; ML suites ran full in the worktrees: G5a 25134, G5b 25049).
@@ -274,7 +276,9 @@ Reviewer non-blocking follow-ups (carry into G2/G3): (1) `mint` should carry `pe
 - Windows: not yet run (first real CI run will cover unit + fresh-clone on windows-latest)
 
 ## Next Recommended Task
-🧑 **0.15.11 lab run** (`lab/checklists/V0.15-ml-planner.md`), then Lead closes/keeps TD1 per D380. Agent-side V0.15 is complete; next agent work = V0.17 brief (or V0.11 if margin). Merged worktrees kept (removal optional, ask first).
+**V0.17 brief DRAFTED** (`docs/briefs/V0.17-productization.md`, D384–D397) — team to answer **Q1–Q10** (§7); Q1 (GitHub repo + Windows CI) is a hard prerequisite. Then G0 spikes SP1–SP3.
+
+_Older:_ 🧑 **0.15.11 lab run** (`lab/checklists/V0.15-ml-planner.md`), then Lead closes/keeps TD1 per D380. Agent-side V0.15 is complete; next agent work = V0.17 brief (or V0.11 if margin). Merged worktrees kept (removal optional, ask first).
 
 _Older:_ **V0.15 G6 brief** (brief §5, the remaining V0.15 tasks after 0.15.9) — Lead drafts, team approves. 🧑 0.14.8 lab still open. Merged worktrees kept (removal optional, ask first).
 
