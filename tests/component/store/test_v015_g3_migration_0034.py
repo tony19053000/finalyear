@@ -189,6 +189,8 @@ def test_0034_up_checks_indexes_down_up_and_alembic_check(
     _run(_q(pg_settings, "DELETE FROM ml_model_set WHERE set_version = 'sha256:a1'"))
     assert _run(_q(pg_settings, "SELECT count(*) FROM ml_model"))[0][0] == 0
 
+    # alembic check compares with the models, which are at head (V0.17 G3: 0035)
+    command.upgrade(cfg, "head")
     command.check(cfg)
     command.downgrade(cfg, "0033")
     assert _tables(pg_settings) == set()
