@@ -45,6 +45,7 @@ def test_walk_corpus_matches_the_cli_build_tree() -> None:
     stale = [
         c["files"]
         for c in committed
-        if walk_corpus.verdict({"files": c["files"]}) != c["expect"]
+        if walk_corpus.case_runs_here(c)
+        and walk_corpus.verdict({"files": c["files"]}) != c["expect"]
     ]
     assert stale[:3] == []

@@ -43,6 +43,7 @@ import os
 import re
 import shutil
 import signal
+import sys
 import time
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass
@@ -81,6 +82,8 @@ from meshforge.controller.db_managed.pidfile import (
     read_postmaster_pid,
 )
 from meshforge.controller.db_managed.procs import (
+    SIG_IMMEDIATE,
+    SIG_KILL,
     data_dir_holders,
     is_postgres_of,
     pid_alive,
@@ -526,9 +529,7 @@ class ManagedCluster:
     async def _stop_strays(self) -> list[int]:
         holders = await asyncio.to_thread(data_dir_holders, self.layout.data_dir)
         for pid in holders:
-            await stop_foreign(
-                pid, steps=((signal.SIGQUIT, 5.0), (signal.SIGKILL, 5.0))
-            )
+            await stop_foreign(pid, steps=((SIG_IMMEDIATE, 5.0), (SIG_KILL, 5.0)))
         if holders:
             log.warning("controller.db.managed.strays_stopped", pids=holders)
         return holders
@@ -717,7 +718,7 @@ class ManagedCluster:
         steps: Sequence[tuple[str, signal.Signals, float]] = (
             ("smart", signal.SIGTERM, timeouts.smart_s),
             ("fast", signal.SIGINT, timeouts.fast_s),
-            ("immediate", signal.SIGQUIT, timeouts.immediate_s),
+            ("immediate", SIG_IMMEDIATE, timeouts.immediate_s),
         )
         for mode, signum, timeout_s in steps:
             if timeout_s <= 0:
@@ -735,7 +736,10 @@ class ManagedCluster:
                 )
         # Last resort: the whole group (postmaster is its leader; backends too).
         with contextlib.suppress(ProcessLookupError, PermissionError):
-            os.killpg(proc.pid, signal.SIGKILL)
+            if sys.platform == "win32":  # no process groups to signal
+                proc.kill()
+            else:
+                os.killpg(proc.pid, SIG_KILL)
         try:
             code = await asyncio.wait_for(proc.wait(), timeouts.kill_s)
         except TimeoutError:

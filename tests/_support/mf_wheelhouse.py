@@ -43,7 +43,9 @@ import contextlib
 import hashlib
 import os
 import stat
+import sys
 import tempfile
+import time
 import tomllib
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
@@ -160,6 +162,18 @@ def _verified(path: Path, wheel: LockedWheel) -> bool:
         return False
 
 
+def _settled_verified(path: Path, wheel: LockedWheel, within_s: float = 5.0) -> bool:
+    """:func:`_verified`, retried for up to ``within_s`` on Windows, where a
+    file another thread is replacing cannot be opened until that finishes."""
+    deadline = time.monotonic() + within_s
+    while True:
+        if _verified(path, wheel):
+            return True
+        if sys.platform != "win32" or time.monotonic() > deadline:
+            return False
+        time.sleep(0.01)
+
+
 def _download(url: str, dest: Path) -> None:
     """``url`` -> ``dest`` over HTTPS with the **public** CA roots (the test
     process's ``SSL_CERT_FILE`` names the test fabric's CA)."""
@@ -205,7 +219,25 @@ def _only_the_wheel(folder: Path, wheel: LockedWheel) -> None:
                 f"the wheelhouse folder {folder} must hold only {wheel.filename} "
                 f"but also holds the directory {entry.name!r}; remove it"
             )
+        _unlink_shared(entry)
+
+
+def _unlink_shared(entry: Path) -> None:
+    """``unlink`` that tolerates a concurrent caller deleting the same entry.
+
+    Windows refuses a delete (``PermissionError``) while another caller's
+    delete of that file is still pending; the file is gone a moment later.
+    """
+    try:
         entry.unlink(missing_ok=True)
+    except PermissionError:
+        if sys.platform != "win32":
+            raise
+        deadline = time.monotonic() + 5.0
+        while os.path.lexists(entry):
+            if time.monotonic() > deadline:
+                raise
+            time.sleep(0.01)
 
 
 def ensure_wheel(
@@ -251,8 +283,19 @@ def ensure_wheel(
                 "than the lock pins, or uv.lock is wrong"
             )
         os.chmod(partial, 0o644)  # mkstemp makes it 0600; a lab cache is shared
-        os.replace(partial, target)
-        moved = True
+        try:
+            os.replace(partial, target)
+        except PermissionError:
+            # Windows: a concurrent caller holds the target open (hashing it), or
+            # is replacing it right now, so it cannot be replaced. Then that
+            # caller placed the good wheel already and this call has nothing to
+            # add - but while its replace is still pending the target cannot be
+            # opened either (``Access is denied``, D399 Windows CI), so give it
+            # a moment to settle. Still not the good wheel = a real error.
+            if not _settled_verified(target, wheel):
+                raise
+        else:
+            moved = True
     finally:
         if not moved:  # once moved the name is free and may be another call's
             with contextlib.suppress(OSError):

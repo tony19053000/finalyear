@@ -453,7 +453,8 @@ async def test_sweep_survives_corrupted_marker_shapes(
 
     import psutil
 
-    assert psutil.Process(1).is_running()
+    if psutil.pid_exists(1):  # Windows has no pid 1
+        assert psutil.Process(1).is_running()
     assert psutil.Process(os.getpid()).is_running()
 
 

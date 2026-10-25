@@ -633,7 +633,10 @@ def _no_home(text: str) -> None:
     assert home not in text
     user = Path.home().name
     if len(user) >= 4:
-        assert user not in text.lower(), user
+        # The hostname is kept on purpose and may contain the user name
+        # (CI: user `runner`, host `runnervm...`): blank it out first.
+        text = text.lower().replace(socket.gethostname().lower(), "")
+        assert user not in text, user
 
 
 def test_cli_serve_client_report_end_to_end(tmp_path: Path) -> None:

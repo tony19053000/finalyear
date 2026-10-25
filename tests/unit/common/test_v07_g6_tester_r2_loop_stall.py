@@ -56,6 +56,7 @@ SCRIPT = textwrap.dedent(
 )
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="the probe uses `resource`")
 def test_the_loop_keeps_ticking_while_the_largest_matcher_builds() -> None:
     pytest.importorskip("sqlalchemy", reason="needs the controller extra")
     done = subprocess.run(

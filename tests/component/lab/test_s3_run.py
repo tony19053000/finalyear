@@ -16,6 +16,7 @@ import contextlib
 import json
 import os
 import signal
+import socket
 import subprocess
 import sys
 import threading
@@ -106,7 +107,10 @@ def _no_home(text: str) -> None:
     assert home not in text
     user = Path.home().name
     if len(user) >= 4:  # a short user name could legitimately occur in words
-        assert user not in text.lower(), user
+        # The hostname is kept on purpose and may contain the user name
+        # (CI: user `runner`, host `runnervm...`): blank it out first.
+        text = text.lower().replace(socket.gethostname().lower(), "")
+        assert user not in text, user
 
 
 # ------------------------------------------------------------- end to end

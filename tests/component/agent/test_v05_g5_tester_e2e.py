@@ -27,7 +27,8 @@ import pytest_asyncio
 pytest.importorskip("sqlalchemy", reason="needs the controller extra")
 
 from mf_agent_harness import make_controller_settings
-from mf_exec_harness import ExecAgent, wait_job
+from mf_controller_harness import tolerant_liveness
+from mf_exec_harness import ExecAgent, in_client_thread, wait_job
 from mf_jobs_harness import token_of
 from pydantic import SecretStr
 
@@ -53,6 +54,8 @@ def settings(pg_settings: Any) -> ControllerSettings:
         jobs={"dispatch_interval_s": 0.1, "backstop_grace_s": 1.0},
         blobs={"max_blob_bytes": 64 * 1024 * 1024},
         gc={"interval_s": 3600},
+        # not a liveness test: a loaded runner must not turn it into node_lost
+        **tolerant_liveness(),
     )
 
 
@@ -80,7 +83,7 @@ async def _upload(runtime: ControllerRuntime, built: BuiltTree) -> None:
         token=SecretStr(token_of(runtime)),
     )
     try:
-        await asyncio.to_thread(upload_tree, client, built)
+        await in_client_thread(upload_tree, client, built)
     finally:
         client.close()
 

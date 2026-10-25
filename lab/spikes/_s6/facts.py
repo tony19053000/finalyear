@@ -27,8 +27,15 @@ FIX_NO_GPU: Final = (
 
 
 def memory_total_bytes() -> int | None:
-    """Total RAM via the inventory probe (psutil, /proc/meminfo, or CIM)."""
-    memory = probes.probe_memory()
+    """Total RAM via the inventory probe (psutil, /proc/meminfo, or CIM).
+
+    ``None`` when no source answers: the Windows CIM path raises when
+    PowerShell is missing or fails, and a host fact must never end the run.
+    """
+    try:
+        memory = probes.probe_memory()
+    except (OSError, RuntimeError):
+        return None  # the fact is unknown; the envelope records None
     if not memory.get("ok"):
         return None
     value = memory.get("value") or {}

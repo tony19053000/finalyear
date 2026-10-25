@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import csv
 import os
+import re
 import stat
 import subprocess
 import sys
@@ -41,6 +42,8 @@ __all__ = [
     "WINDOWS_TOOL_TIMEOUT_S",
     "PrivateFileError",
     "PrivateFileReason",
+    "current_logon_sid",
+    "owner_only_icacls_argvs",
     "private_problem",
     "protect_private",
     "read_bounded",
@@ -200,14 +203,92 @@ def read_private(path: Path, *, limit: int, what: str) -> bytes:
     return data
 
 
+#: Well-known SIDs that CPython (3.12.4+) writes as *explicit* ACEs on a
+#: directory made with ``os.mkdir(mode=0o700)`` on Windows: SYSTEM,
+#: BUILTIN\Administrators and OWNER RIGHTS. ``/inheritance:r`` only drops
+#: inherited ACEs, so these are removed by name (seen on the first Windows CI
+#: run: the identity directory still granted all three).
+MKDIR_700_SIDS: Final = ("S-1-5-18", "S-1-5-32-544", "S-1-3-4")
+
+
+#: A logon-session SID (``S-1-5-5-X-Y``), as ``whoami /logonid`` prints it.
+_LOGON_SID = re.compile(r"S-1-5-5-\d+-\d+")
+
+
+def owner_only_icacls_argvs(
+    path: Path, sid: str, logon_sid: str | None = None, *, directory: bool = False
+) -> list[list[str]]:
+    """``icacls`` runs leaving ``path`` with exactly one ACE: full control for ``sid``.
+
+    Two runs, in order: the first only grants ``sid`` full control (explicitly,
+    replacing any earlier grant for it); the second drops inherited ACEs and
+    removes the explicit ACEs of :data:`MKDIR_700_SIDS` and of ``logon_sid``
+    (never ``sid`` itself - an agent running as SYSTEM keeps its own grant).
+    Granting first means the owner never passes through an ACL that denies it:
+    a concurrent thread of this process opening the file in between sees no
+    ``PermissionError`` (D399, Windows CI). ``logon_sid`` is the process's
+    logon session: a token's default DACL (a service or batch logon, e.g. a CI
+    runner) grants it read+execute on every new file.
+
+    ``directory``: the owner's grant is **inheritable** (``(OI)(CI)``), so
+    the owner-only ACE is what every file made in the folder later inherits,
+    and what a file made there *meanwhile* keeps when ``/inheritance:r``
+    re-propagates the folder's ACL. With a plain grant the folder had no
+    inheritable ACE left: a lock file created concurrently lost every ACE
+    (``PermissionError`` for the owner too), and later files got the token's
+    default DACL (the logon-session ACE) instead (D399, Windows CI).
+    """
+    removed = (*MKDIR_700_SIDS, logon_sid) if logon_sid else MKDIR_700_SIDS
+    others = [f"*{other}" for other in removed if other != sid]
+    rights = "(OI)(CI)(F)" if directory else "(F)"
+    grant = ["icacls", str(path), "/grant:r", f"*{sid}:{rights}"]
+    strip = ["icacls", str(path), "/inheritance:r"]
+    return [grant, [*strip, "/remove:g", *others] if others else strip]
+
+
+def current_logon_sid() -> str | None:  # pragma: no cover - Windows only
+    """The logon-session SID of this process (``whoami /logonid``), or ``None``.
+
+    Best effort: only some logon types put it in new files' ACLs, so a failed
+    lookup leaves those files as they are rather than failing the caller.
+    ``/logonid`` takes no ``/fo`` (``whoami [/upn | /fqdn | /logonid]`` is its
+    own syntax line): with ``/fo csv`` whoami exits non-zero, so the lookup
+    always gave ``None`` and the ACE stayed (D399, Windows CI). It prints the
+    bare SID, found by :data:`_LOGON_SID`.
+    """
+    try:
+        result = subprocess.run(
+            ["whoami", "/logonid"],  # noqa: S607 - Windows built-in
+            capture_output=True,
+            text=True,
+            errors="replace",
+            check=False,
+            timeout=WINDOWS_TOOL_TIMEOUT_S,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return None
+    found = _LOGON_SID.search(result.stdout) if result.returncode == 0 else None
+    return found.group(0) if found else None
+
+
 def _protect_windows(path: Path) -> None:  # pragma: no cover - Windows only
     sid = _current_user_sid()
-    argv = ["icacls", str(path), "/inheritance:r", "/grant:r", f"*{sid}:(F)"]
+    argvs = owner_only_icacls_argvs(
+        path, sid, current_logon_sid(), directory=path.is_dir()
+    )
+    for argv in argvs:
+        _run_icacls(argv, path)
+
+
+def _run_icacls(argv: list[str], path: Path) -> None:  # pragma: no cover - Windows
     try:
         result = subprocess.run(  # noqa: S603 - fixed argv: a path and a SID
             argv,
             capture_output=True,
             text=True,
+            # icacls/whoami print in the OEM code page, not UTF-8: a non-ASCII
+            # path in their output must not kill the reader thread.
+            errors="replace",
             check=False,
             timeout=WINDOWS_TOOL_TIMEOUT_S,
         )
@@ -235,6 +316,9 @@ def _current_user_sid() -> str:  # pragma: no cover - Windows only
             ["whoami", "/user", "/fo", "csv"],  # noqa: S607 - Windows built-in
             capture_output=True,
             text=True,
+            # icacls/whoami print in the OEM code page, not UTF-8: a non-ASCII
+            # path in their output must not kill the reader thread.
+            errors="replace",
             check=False,
             timeout=WINDOWS_TOOL_TIMEOUT_S,
         )

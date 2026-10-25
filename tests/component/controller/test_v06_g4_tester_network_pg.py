@@ -157,10 +157,13 @@ async def _crossover(
     return local, remote, out
 
 
-# Local 2 s; remote = 4 MB / bw + 0.5 s scaled compute -> crossover at 2.667 MB/s
+# Local 2 s; remote = 4 MB / bw + 0.5 s scaled compute. With the risk term
+# (p_fail 0.05 of each total, plus the local retry's re-fetch) the totals are
+# local 2.1 + 0.2/bw and remote 1.05 * (4/bw + 0.5) (bw in MB/s): they cross at
+# 4.0 / 1.575 = 2.540 MB/s (without risk: 2.667 MB/s).
 @pytest.mark.parametrize(
     ("bw", "goes_remote"),
-    [(2_600_000, False), (2_700_000, True), (2_000_000, False), (50_000_000, True)],
+    [(2_500_000, False), (2_600_000, True), (2_000_000, False), (50_000_000, True)],
 )
 async def test_criterion_4_flips_exactly_at_the_crossover(
     pg_settings: DatabaseSettings,
@@ -195,6 +198,12 @@ async def test_a_vanishing_probed_bandwidth_does_not_break_the_dispatch_tick(
     )
     again = await _dispatch(store, _planner(Manager([local, remote])))
     assert again["node"] == local
+    (cand,) = [c for c in again["decision"].candidates if c["node_id"] == remote]
+    if cand["estimate"] is None:
+        # A link below min_useful_bw_bytes_s rejects the node outright (no
+        # estimate to overflow) - the stronger outcome.
+        assert cand["reject_code"] == "link_infeasible", cand
+        return
     rt = _terms(again["decision"], remote)["transfer"]
     assert rt["seconds"] < 1e12 or rt["source"] != "measured", rt
 

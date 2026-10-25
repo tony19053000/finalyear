@@ -1,6 +1,6 @@
 # CI for MeshForge (roadmap 0.1.10).
 #
-# Jobs:  lint · types · unit (Linux + Windows) · component (Linux) ·
+# Jobs:  lint · types · unit (Linux + Windows) · component (Linux, 8 shards) ·
 #        cluster (Linux) · fresh-clone (Linux + Windows) · package-linux · ci-ok
 # Branch protection on `main` should require ONLY the `ci-ok` check: it passes
 # iff every other job passed, so adding/renaming jobs never needs a settings change.
@@ -34,7 +34,10 @@ env:
   # Never let uv silently pick a system interpreter other than the pinned one.
   UV_PYTHON_PREFERENCE: only-managed
   PYTHONUTF8: "1"
-  FORCE_COLOR: "1"
+  # Coloured pytest output only. Not FORCE_COLOR: rich (the `compute` CLI's
+  # renderer) honours it, so CLI tests would see ANSI codes and an 80-column
+  # "terminal" instead of plain piped output.
+  PY_COLORS: "1"
 
 jobs:
   lint:
@@ -95,15 +98,28 @@ jobs:
           python-version: ${{ env.UV_PYTHON }}
           enable-cache: true
           cache-dependency-glob: uv.lock
-      # controller/agent extras make SQLAlchemy, Alembic, psutil, ... importable
-      # for type checking; `gpu` (torch) is deliberately not installed.
-      - run: uv sync --locked --extra controller --extra agent
+      # The extras make SQLAlchemy, Alembic, psutil, scikit-learn, ... importable
+      # for type checking; `gpu` (torch, a multi-GB CUDA wheel on Linux) is
+      # deliberately not installed (D399).
+      - run: uv sync --locked --extra controller --extra agent --extra ml
       - run: uv run mypy
+      # Each lab workload is a standalone container entrypoint named main.py, so
+      # they cannot share one mypy run (duplicate module `main`); one run each.
+      - name: mypy lab workloads (one run per entrypoint)
+        shell: bash
+        run: |
+          for f in lab/workloads/*/main.py; do
+            echo "mypy $f"
+            uv run mypy "$f"
+          done
 
   unit:
     name: unit (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+    # ~25 000 unit tests: ~22 min on an ubuntu runner (measured 2026-10-24),
+    # Windows is slower; the budget leaves room without hiding a hang (each
+    # test also has pytest-timeout's 300 s).
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -118,9 +134,12 @@ jobs:
           python-version: ${{ env.UV_PYTHON }}
           enable-cache: true
           cache-dependency-glob: uv.lock
-      # Plain `uv sync` (no extras) on purpose: V0.1 success criterion 1 is
-      # "fresh clone -> uv sync -> pytest -m unit passes on Linux and Windows".
-      - run: uv sync --locked
+      # D399: the main jobs install every extra except `gpu` (torch is a
+      # multi-GB CUDA wheel on Linux; the few torch-only test modules skip with
+      # the reason). The no-extras install is covered by the fresh-clone job.
+      - run: uv sync --locked --extra controller --extra agent --extra ml
+      # `-o junit_family=xunit1` (all pytest steps): record_property, used by
+      # the bench component tests, is incompatible with the xunit2 default.
       # Explicit (not via pytest markers) so proto generation determinism is
       # checked on Windows too (V0.1 criterion 4: identical output across OSes).
       - name: generated protos up to date
@@ -129,7 +148,7 @@ jobs:
         if: ${{ !cancelled() }}
         # Through the exit guard: a green summary with a non-zero exit (e.g. a
         # segfault at interpreter shutdown) is named as such in the log.
-        run: uv run python scripts/pytest_exit_guard.py -m unit --junitxml=reports/junit-unit-${{ matrix.os }}.xml
+        run: uv run python scripts/pytest_exit_guard.py -m unit -o junit_family=xunit1 --junitxml=reports/junit-unit-${{ matrix.os }}.xml
       - name: upload junit report
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -139,14 +158,28 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+  # ~3 300 component tests take ~3 h serially on a runner (2026-10-24), so
+  # the tier is split into shards by test file (`--shard K/N`, tests/conftest.py;
+  # files are dealt round-robin, so module/session fixtures stay in one shard).
   component:
-    name: component (ubuntu-latest, Docker)
+    name: component (shard ${{ matrix.shard }}/8, Docker)
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # The agent's env builder looks for a *system* Python 3.12 (`uv python
+      # find --system`, with UV_* stripped from its environment), so the
+      # setup-uv managed interpreter is invisible to it; ubuntu-latest's own
+      # python3 is not 3.12.
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ env.UV_PYTHON }}
       - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           version: ${{ env.UV_VERSION }}
@@ -154,18 +187,18 @@ jobs:
           enable-cache: true
           cache-dependency-glob: uv.lock
       # No `gpu` extra: component tests never need torch.
-      - run: uv sync --locked --extra controller --extra agent
+      - run: uv sync --locked --extra controller --extra agent --extra ml
       - name: docker info
         run: docker info --format '{{.ServerVersion}} {{.OperatingSystem}}'
       # Postgres comes from testcontainers; Ryuk (enabled by default) reaps
       # containers even if the test process dies.
-      - name: pytest -m component
-        run: uv run python scripts/pytest_exit_guard.py -m component --junitxml=reports/junit-component.xml
+      - name: pytest -m component (one shard)
+        run: uv run python scripts/pytest_exit_guard.py -m component --shard ${{ matrix.shard }}/8 -o junit_family=xunit1 --junitxml=reports/junit-component-${{ matrix.shard }}.xml
       - name: upload junit report
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: junit-component
+          name: junit-component-${{ matrix.shard }}
           path: reports/
           if-no-files-found: ignore
           retention-days: 14
@@ -180,11 +213,18 @@ jobs:
   cluster:
     name: cluster (ubuntu-latest, Docker, processes)
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # The agent's env builder looks for a *system* Python 3.12 (`uv python
+      # find --system`, with UV_* stripped from its environment), so the
+      # setup-uv managed interpreter is invisible to it; ubuntu-latest's own
+      # python3 is not 3.12.
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ env.UV_PYTHON }}
       - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           version: ${{ env.UV_VERSION }}
@@ -192,11 +232,17 @@ jobs:
           enable-cache: true
           cache-dependency-glob: uv.lock
       # The controller and agent run as subprocesses: both extras are needed.
-      - run: uv sync --locked --extra controller --extra agent
+      - run: uv sync --locked --extra controller --extra agent --extra ml
       - name: docker info
         run: docker info --format '{{.ServerVersion}} {{.OperatingSystem}}'
+      # D399: the disk-full scenarios run an agent in its own user + mount
+      # namespace on a tiny tmpfs. The runner's AppArmor restricts unprivileged
+      # user namespaces (unshare works, then /proc/self/setgroups is EPERM);
+      # lift that on this throw-away VM so the scenarios run instead of skip.
+      - name: allow unprivileged user namespaces
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
       - name: pytest -m cluster
-        run: uv run python scripts/pytest_exit_guard.py -m cluster --junitxml=reports/junit-cluster.xml
+        run: uv run python scripts/pytest_exit_guard.py -m cluster -o junit_family=xunit1 --junitxml=reports/junit-cluster.xml
       - name: upload junit report
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -206,15 +252,15 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
-  # V0.1 success criterion 1, literally: copy the checkout to a temp dir, run a
-  # plain `uv sync` (no extras, own uv cache) there, then `pytest -m unit` and a
-  # Docker-unreachable bare `pytest -q` inside that clone. The test itself does
-  # the plain sync; this job only needs the dev env to run pytest. Opt-in
-  # (`slow`) locally, so it gets its own job here.
+  # V0.1 success criterion 1 + D399: a fresh checkout with a *plain*
+  # `uv sync` (default dependency group, no extras) must still start every CLI
+  # and pass the unit tests that need no extra. Test modules whose import needs
+  # an extra are skipped at collection with the reason (tests/conftest.py,
+  # `_ExtrasAwareModule`); any other collection error still fails the job.
   fresh-clone:
     name: fresh-clone (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -230,11 +276,14 @@ jobs:
           enable-cache: true
           cache-dependency-glob: uv.lock
       - run: uv sync --locked
-      - name: pytest fresh-clone criterion (--run-slow)
-        run: >-
-          uv run pytest -m component --run-slow
-          tests/component/test_fresh_clone_unit_criterion.py
-          --junitxml=reports/junit-fresh-clone-${{ matrix.os }}.xml
+      - name: CLIs start without extras (--help)
+        run: |
+          uv run --no-sync compute --help
+          uv run --no-sync meshforge-controller --help
+          uv run --no-sync meshforge-agent --help
+      - name: pytest -m unit (no extras)
+        if: ${{ !cancelled() }}
+        run: uv run --no-sync python scripts/pytest_exit_guard.py -m unit -o junit_family=xunit1 --junitxml=reports/junit-fresh-clone-${{ matrix.os }}.xml
       - name: upload junit report
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

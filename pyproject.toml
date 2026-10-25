@@ -65,6 +65,9 @@ controller = [
     # came in through the agent extra in a developer checkout, so the packaged
     # controller (controller extra only) could not start without it.
     "numpy>=2.3,<3",
+    # pyarrow resolves timestamp time zones through zoneinfo, which has no
+    # system database on Windows (D399: every Parquet export failed there).
+    "tzdata>=2025.2; sys_platform == 'win32'",
 ]
 agent = [
     "psutil>=7.2",
@@ -177,6 +180,7 @@ markers = [
     "slow: capability - takes minutes (network, cold caches, e.g. fresh-clone uv sync); skipped unless --run-slow",
     "perf: capability - UI performance thresholds (V0.8 G7, scripts/ui_perf/); skipped unless -m perf or --run-perf",
     "security: capability - proves a docs/THREAT_MODEL.md row (D166); `-m security` = the security suite across tiers",
+    "extras(*names): capability - needs these optional extras (subprocess/CLI/whole-repo checks); skipped with a reason when one is missing (D399)",
 ]
 # Every warning is an error (unknown marks, deprecations, unclosed resources);
 # add targeted `ignore:` entries here with a reason when a dependency forces one.
@@ -470,7 +474,10 @@ mark-parentheses = false
 # ---------------------------------------------------------------------------
 [tool.mypy]
 python_version = "3.12"
-files = ["src", "tests", "scripts", "lab"]
+# tests/ is not in `files` yet: it carries ~1300 pre-existing strict errors
+# (found when CI first ran the whole tree, D399). Type-check it with
+# `uv run mypy tests` while paying that debt down; then add it back here.
+files = ["src", "scripts", "lab"]
 # tests/ has no __init__.py (pytest prepend import mode); explicit bases give each
 # conftest.py a distinct module name. tests/unit is a base because the unit tests
 # import `_import_guard` as a top-level module; tests/_support likewise for the shared
@@ -486,7 +493,9 @@ warn_unreachable = true
 # redundant-expr is deliberately not enabled: it flags defensive runtime type checks
 # at trust boundaries (e.g. isinstance on values that arrive from untyped callers).
 enable_error_code = ["ignore-without-code", "truthy-bool"]
-exclude = ['^src/meshforge/common/proto/']
+# lab/workloads/*/main.py are standalone container entrypoints that all share the
+# module name `main`; CI type-checks each one in its own mypy run (types job).
+exclude = ['^src/meshforge/common/proto/', '^lab/workloads/']
 
 [tool.pydantic-mypy]
 init_forbid_extra = true

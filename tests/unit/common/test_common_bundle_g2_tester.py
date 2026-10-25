@@ -110,6 +110,10 @@ def test_truncated_valid_zstd_frame_is_a_typed_error_not_a_crash(
 # --------------------------------------------- case-insensitive-filesystem risk
 
 
+@pytest.mark.skipif(
+    sys.platform in ("win32", "darwin"),
+    reason="needs a case-sensitive file system (NTFS/APFS fold case)",
+)
 def test_two_files_differing_only_by_case_pack_and_unpack_as_distinct_files(
     tmp_path: Path,
 ) -> None:

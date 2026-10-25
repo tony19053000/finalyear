@@ -122,7 +122,10 @@ def test_the_created_file_is_a_regular_file_with_sane_permissions(
     assert out.read_bytes() == BODY
 
 
-@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores directory permissions")
+@pytest.mark.skipif(
+    sys.platform == "win32" or os.geteuid() == 0,
+    reason="needs POSIX permission bits, non-root (root ignores directory permissions)",
+)
 def test_a_read_only_directory_is_one_line_exit_1(
     runner: CliRunner, controller: TransportFactory, tmp_path: Path
 ) -> None:

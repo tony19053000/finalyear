@@ -31,6 +31,8 @@ from typing import Final
 __all__ = [
     "FOREIGN_STOP_STEPS",
     "PROC_SCAN_SUPPORTED",
+    "SIG_IMMEDIATE",
+    "SIG_KILL",
     "ForeignStop",
     "data_dir_holders",
     "is_postgres_of",
@@ -41,10 +43,22 @@ __all__ = [
 PROC_SCAN_SUPPORTED: Final = sys.platform.startswith("linux")
 _PROC: Final = Path("/proc")
 
+# PostgreSQL's "immediate shutdown" and the last-resort kill. Windows has neither
+# SIGQUIT nor SIGKILL; there os.kill()/send_signal() with SIGTERM is
+# TerminateProcess, the nearest equivalent. Defined per platform so this module
+# (and everything importing it) loads on Windows too; the managed cluster itself
+# is Linux-first (D398).
+if sys.platform == "win32":
+    SIG_IMMEDIATE: Final = signal.SIGTERM
+    SIG_KILL: Final = signal.SIGTERM
+else:
+    SIG_IMMEDIATE: Final = signal.SIGQUIT
+    SIG_KILL: Final = signal.SIGKILL
+
 FOREIGN_STOP_STEPS: Final[tuple[tuple[signal.Signals, float], ...]] = (
     (signal.SIGINT, 30.0),  # fast shutdown: its clients died with the controller
-    (signal.SIGQUIT, 10.0),  # immediate: crash recovery on the next start
-    (signal.SIGKILL, 5.0),  # last resort; backends exit on postmaster death
+    (SIG_IMMEDIATE, 10.0),  # immediate: crash recovery on the next start
+    (SIG_KILL, 5.0),  # last resort; backends exit on postmaster death
 )
 
 

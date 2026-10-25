@@ -12,6 +12,7 @@ import hashlib
 import json
 import os
 import random
+import sys
 import time
 import tracemalloc
 import unicodedata
@@ -228,6 +229,10 @@ def test_parts_is_refused_in_a_split_entrypoint_but_out_is_allowed_in_combine() 
 # ------------------------------------------------------------ ordering (glob)
 
 
+@pytest.mark.skipif(
+    sys.platform in ("win32", "darwin"),
+    reason="needs a case-sensitive file system (NTFS/APFS fold case)",
+)
 def test_glob_order_is_bytewise_not_locale_nfc_nfd_and_astral(tmp_path: Path) -> None:
     nfc = unicodedata.normalize("NFC", "é.txt")
     nfd = unicodedata.normalize("NFD", "é.txt")
@@ -273,6 +278,10 @@ def test_glob_is_stable_across_trees_built_in_different_creation_orders(
     assert len(digests) == 1
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="file names Windows cannot store (newline, ?, *, trailing space)",
+)
 def test_glob_literal_metacharacters_in_filenames(tmp_path: Path) -> None:
     files = {"a[1].txt": b"1", "a1.txt": b"2", "we ird\nname.txt": b"3", "q?.txt": b"4"}
     built = _tree(tmp_path / "p", files)

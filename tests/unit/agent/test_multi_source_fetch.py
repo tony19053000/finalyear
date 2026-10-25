@@ -3,7 +3,7 @@
 One fake HTTP surface answers for several hosts (``ctl`` = the controller,
 ``pa`` / ``pb`` = peers), each with its own per-request delay and failure mode;
 everything is real except the network: real CAS, real resumable parts, real
-verification. Delays are a few milliseconds (no sleep > 50 ms).
+verification. Delays are milliseconds (no sleep > 300 ms).
 """
 
 from __future__ import annotations
@@ -127,7 +127,9 @@ async def _fetch(
 
 
 async def test_fast_source_takes_more_chunks(tmp_path: Path) -> None:
-    hosts = {"ctl": Host(delay_s=0.02), "pa": Host(delay_s=0.001)}
+    # 100 ms vs ~1 ms: Windows timers round sleeps up to ~15 ms, so a 20x
+    # margin is needed for "faster" to be unambiguous on a shared runner.
+    hosts = {"ctl": Host(delay_s=0.1), "pa": Host(delay_s=0.001)}
     fetcher, cas, data, _ = await _fetch(tmp_path, hosts, [CTL, PA])
     assert cas.store.path_for(sha256_bytes(data)).read_bytes() == data
     stats = fetcher.stats.sources
@@ -200,7 +202,7 @@ async def test_slow_peer_is_dropped(tmp_path: Path) -> None:
     hosts = {
         "ctl": Host(delay_s=0.001),
         "pa": Host(delay_s=0.001),
-        "pb": Host(delay_s=0.045),
+        "pb": Host(delay_s=0.2),  # >> a Windows ~15 ms timer tick
     }
     # Factor 2 (not 4): on a loaded machine the fast sources' CPU-bound time
     # shrinks the measured ratio; pb is still >= 10x slower when idle.
@@ -238,8 +240,9 @@ async def test_slow_controller_is_never_dropped(tmp_path: Path) -> None:
 async def test_endgame_duplicates_the_last_chunk_held_by_a_slow_source(
     tmp_path: Path,
 ) -> None:
-    # The controller holds a chunk for 40 ms; the fast peer re-asks it after 5 ms.
-    hosts = {"ctl": Host(delay_s=0.04), "pa": Host()}
+    # The controller holds a chunk for 300 ms; the fast peer re-asks it after
+    # 5 ms (300 ms leaves room for a slow CI runner's CPU-bound chunk work).
+    hosts = {"ctl": Host(delay_s=0.3), "pa": Host()}
     fetcher, cas, data, _ = await _fetch(
         tmp_path,
         hosts,

@@ -18,6 +18,7 @@ import pytest_asyncio
 pytest.importorskip("sqlalchemy", reason="needs the controller extra")
 
 from mf_agent_harness import make_controller_settings
+from mf_controller_harness import tolerant_liveness
 from mf_exec_harness import ExecAgent, submit, wait_job
 from mf_jobs_harness import token_of
 
@@ -31,7 +32,10 @@ REPO = Path(__file__).resolve().parents[3]
 
 @pytest.fixture
 def settings(pg_settings: Any) -> ControllerSettings:
-    return make_controller_settings(pg_settings, jobs={"dispatch_interval_s": 0.1})
+    # not a liveness test: a loaded runner must not turn it into node_lost
+    return make_controller_settings(
+        pg_settings, jobs={"dispatch_interval_s": 0.1}, **tolerant_liveness()
+    )
 
 
 @pytest_asyncio.fixture

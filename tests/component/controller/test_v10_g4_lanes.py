@@ -440,10 +440,16 @@ async def test_fencing_expiry_and_a_late_result_commit_once(
                     )
                 )
 
-            async def reply(fake: FakeAgent, after: int) -> agent_pb2.ControllerMessage:
+            async def reply(
+                fake: FakeAgent,
+                after: int,
+                kinds: tuple[str, ...] = ("chunk_grant", "no_work"),
+            ) -> agent_pb2.ControllerMessage:
+                # `kinds`: a late NoWork for an earlier (fenced) request can
+                # land after `after`; a grant wait must not take it.
                 for _ in range(400):
                     for msg in fake.received[after:]:
-                        if msg.WhichOneof("payload") in ("chunk_grant", "no_work"):
+                        if msg.WhichOneof("payload") in kinds:
                             return msg
                     await asyncio.sleep(0.01)
                 raise AssertionError("no reply")
@@ -474,7 +480,7 @@ async def test_fencing_expiry_and_a_late_result_commit_once(
             # a takes chunk 0 and goes quiet past the 5 s visibility timeout
             seen = len(a.received)
             await send(a, chunk_request=request(sa))
-            grant = (await reply(a, seen)).chunk_grant.chunks[0]
+            grant = (await reply(a, seen, ("chunk_grant",))).chunk_grant.chunks[0]
             assert grant.chunk_index == 0
             for _ in range(200):
                 rows = await _sql(
@@ -493,7 +499,7 @@ async def test_fencing_expiry_and_a_late_result_commit_once(
             ) as up_b:
                 seen = len(b.received)
                 await send(b, chunk_request=request(sb))
-                got = (await reply(b, seen)).chunk_grant.chunks[0]
+                got = (await reply(b, seen, ("chunk_grant",))).chunk_grant.chunks[0]
                 assert got.chunk_index == 0 and got.lease_seq == grant.lease_seq + 1
                 data = default_output([0])
                 digest = sha256_bytes(data)

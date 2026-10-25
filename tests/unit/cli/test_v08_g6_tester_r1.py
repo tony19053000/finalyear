@@ -976,7 +976,7 @@ def _cenv(home: Path) -> dict[str, str]:
     env = {k: v for k, v in os.environ.items() if not k.startswith("MESHFORGE_")}
     env["_TYPER_COMPLETE_TEST_DISABLE_SHELL_DETECTION"] = "1"
     env["PATH"] = f"{COMPUTE.parent}{os.pathsep}{env.get('PATH', '')}"
-    env["HOME"] = str(home)
+    env["HOME"] = env["USERPROFILE"] = str(home)  # Path.home() on Windows
     env.pop("NO_COLOR", None)
     return env
 

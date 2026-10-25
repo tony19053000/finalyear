@@ -295,6 +295,7 @@ def test_check_pinned_accepts_the_default_bases() -> None:
 
 # ------------------------------------------------------- agent start-up wiring
 @pytest.mark.asyncio
+@pytest.mark.extras("agent")
 async def test_build_execution_gives_every_runtime_one_shared_builder(
     tmp_path: Path,
 ) -> None:

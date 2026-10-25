@@ -124,6 +124,7 @@ def test_no_arguments_prints_help() -> None:
 # ------------------------------------------------------- hardware show (G5, D13)
 
 
+@pytest.mark.extras("agent")
 def test_hardware_show_renders_the_probe_table(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -141,6 +142,7 @@ def test_hardware_show_renders_the_probe_table(
     assert "degraded:" in result.stdout
 
 
+@pytest.mark.extras("agent")
 def test_hardware_show_json_is_one_parseable_object(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -157,6 +159,7 @@ def test_hardware_show_json_is_one_parseable_object(
     assert payload["degraded"] == ["gpu: unavailable: not present"]
 
 
+@pytest.mark.extras("agent")
 def test_hardware_show_reports_a_wedged_probe_instead_of_hanging(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

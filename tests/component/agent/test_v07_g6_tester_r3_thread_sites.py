@@ -9,6 +9,7 @@ shielded remove, and the Docker `container.start`.
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
 import threading
 import time
@@ -25,6 +26,10 @@ from meshforge.agent.envs.errors import EnvError
 from meshforge.agent.execution import executor as executor_module
 from meshforge.agent.execution.docker_runtime import DockerConfig, DockerRuntime
 from meshforge.agent.execution.subprocess_runtime import SubprocessRuntime
+
+# The agent's own uid:gid: a non-root agent refuses any other run_as
+# (prepare_workdir), and CI runners are not uid 1000.
+_MY_UID_GID = "1000:1000" if sys.platform == "win32" else f"{os.getuid()}:{os.getgid()}"
 
 pytestmark = [
     pytest.mark.component,
@@ -104,7 +109,7 @@ async def test_docker_staging_created_then_cancelled_leaves_nothing(
 ) -> None:
     builder = EnvBuilder(EnvsConfig(root=tmp_path / "envs"), uv_argv=("uv",))
     runtime = DockerRuntime(
-        DockerConfig(agent_label="node_x", run_as="1000:1000"), envs=builder
+        DockerConfig(agent_label="node_x", run_as=_MY_UID_GID), envs=builder
     )
     hold = Hold()
     real = DockerRuntime._stage_requirements

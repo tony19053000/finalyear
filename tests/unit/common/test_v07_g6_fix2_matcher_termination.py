@@ -49,6 +49,11 @@ def _cpu_limit(seconds: float = FEED_CPU_SECONDS) -> Iterator[None]:
     def fire(*_args: object) -> None:
         raise _SpinError
 
+    if not hasattr(signal, "setitimer"):
+        # Windows: no interval timers. The checks still run; a spin is then
+        # bounded by pytest-timeout instead of raising _SpinError.
+        yield
+        return
     old = signal.signal(signal.SIGVTALRM, fire)
     signal.setitimer(signal.ITIMER_VIRTUAL, seconds)
     try:

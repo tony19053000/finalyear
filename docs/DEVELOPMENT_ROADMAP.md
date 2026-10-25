@@ -737,9 +737,9 @@ A version is **complete** only when all apply:
 **Brief:** `docs/briefs/V0.17-productization.md` (APPROVED 2026-10-24, D384–D397, ADR-0022). Groups G0 (repo+CI, spikes SP1–SP3) → G1 → G2 ∥ G3 → G4 → G5 → 🧑.
 
 **Tasks**
-- [~] **0.17.0** G0 prerequisites: private GitHub repo + Linux/Windows CI; spikes SP1 (Windows service), SP2 (managed PostgreSQL), SP3 (bundle)
+- [~] **0.17.0** G0 prerequisites: private GitHub repo + Linux/Windows CI; spikes SP1 (Windows service), SP2 (managed PostgreSQL), SP3 (bundle) — agent-side DONE: CI green run 40137479333 (all jobs + ci-ok), merged to main (reviewer APPROVE, D399/D400), post-merge unit 25380 passed; SP2 merged; SP3 merged 24141d69 (PASS); SP1 merged, verdict pywin32 service (D386). Open 🧑: SP1 lab (Win11 NVIDIA+Docker, SP1.md §4), SP3 lab (bundle on NVIDIA laptop + one real job). Repo is public, not private (team decision)
 - [ ] **0.17.1** Windows installer: bundled Python runtime, agent as Windows service, firewall rules, NVIDIA/Docker checks
-- [ ] **0.17.2** Linux packages (.deb and/or AppImage) + systemd service
+- [~] **0.17.2** Linux packages (.deb and/or AppImage) + systemd service — agent-side DONE: G1 merged b1d34a23 (tester r2 PASS 47/47 container tests on 22.04+24.04, reviewer APPROVE, post-merge unit agent+common 5226 green); open: 🧑 .deb on a real joined laptop (`identity show` before/after) and controller package (G2)
 - [ ] **0.17.3** Controller install incl. managed PostgreSQL
 - [ ] **0.17.4** First-run wizard (create fabric / join fabric with code or QR)
 - [ ] **0.17.5** Settings UI: resource caps, GPU sharing, node name

@@ -30,6 +30,7 @@ def _run(*args: str, cwd: Path) -> subprocess.CompletedProcess[str]:
     )
 
 
+@pytest.mark.extras("controller")
 def test_two_processes_produce_identical_bytes_with_no_database(tmp_path: Path) -> None:
     a = _run(cwd=tmp_path)
     b = _run(cwd=tmp_path)
@@ -41,6 +42,7 @@ def test_two_processes_produce_identical_bytes_with_no_database(tmp_path: Path) 
     assert json.dumps(doc, indent=2, sort_keys=True) + "\n" == a.stdout
 
 
+@pytest.mark.extras("controller")
 def test_out_then_check_passes_and_any_edit_fails_check(tmp_path: Path) -> None:
     target = tmp_path / "openapi.json"
     assert _run("--out", str(target), cwd=tmp_path).returncode == 0
@@ -57,6 +59,7 @@ def test_out_then_check_passes_and_any_edit_fails_check(tmp_path: Path) -> None:
     assert _run("--check", str(target), cwd=tmp_path).returncode == 1
 
 
+@pytest.mark.extras("controller")
 def test_the_document_has_no_secret_or_host_specific_content(tmp_path: Path) -> None:
     out = _run(cwd=tmp_path).stdout
     for needle in (
