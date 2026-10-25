@@ -265,5 +265,7 @@ def test_first_command_skips_options_and_their_values() -> None:
     opts = frozenset({"--config"})
     assert first_command(["--config", "user", "db"], opts) == "db"
     assert first_command(["--json", "doctor"], opts) == "doctor"
-    assert first_command(["--", "db"], opts) is None
+    # V0.17 G4 fix round 1 (G4-T1): after `--` the next argument is the command
+    assert first_command(["--", "db"], opts) == "db"
+    assert first_command(["--"], opts) is None
     assert first_command([], opts) is None

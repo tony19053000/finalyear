@@ -228,14 +228,17 @@ def current_user() -> str | None:
 
 def first_command(args: Sequence[str], value_options: frozenset[str]) -> str | None:
     """The first positional argument (the sub-command), skipping options and
-    the value of an option in ``value_options`` (``--config FILE``)."""
+    the value of an option in ``value_options`` (``--config FILE``). After
+    ``--`` the next argument is positional whatever it looks like - the CLI
+    (Click) runs it as the sub-command, so ``meshforge-agent -- run`` is ``run``
+    (V0.17 G4 fix round 1, G4-T1: it used to bypass the Windows refusal)."""
     skip = False
-    for arg in args:
+    for i, arg in enumerate(args):
         if skip:
             skip = False
             continue
         if arg == "--":
-            return None
+            return args[i + 1] if i + 1 < len(args) else None
         if arg.startswith("-"):
             skip = arg in value_options
             continue

@@ -630,3 +630,21 @@ def test_a_migration_that_raises_is_treated_as_blocked() -> None:  # N3
     assert "start_service" not in ops.names()
     assert "RuntimeError: disk on fire" in result.lines[0]
     assert "left STOPPED" in result.lines[-1]
+
+
+@pytest.mark.parametrize("error", [RuntimeError("bug"), wsu.OpsError("icacls failed")])
+def test_a_migration_error_during_an_upgrade_says_neither_version_runs(
+    error: Exception,
+) -> None:
+    class Exploding(FakeOps):
+        def migrate(self) -> tuple[str, list[str]]:
+            raise error
+
+    ops = Exploding(exists=True, state="running", python=OLD_PY, is_enrolled=True)
+    result = wsu.setup(ops, NEW)
+    assert result.outcome in (wsu.SetupOutcome.NEEDS_ATTENTION, wsu.SetupOutcome.FAILED)
+    assert "start_service" not in ops.names()
+    assert result.service_state == "stopped"
+    last = result.lines[-1]
+    assert "this was an upgrade" in last and "does NOT run either" in last
+    assert f'update-path --python-exe "{OLD_PY}"' in last

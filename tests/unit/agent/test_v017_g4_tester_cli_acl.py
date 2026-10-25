@@ -168,11 +168,6 @@ def test_run_is_always_refused_even_elevated(elevated: bool) -> None:
     assert _decide(["-v", "run"], elevated=elevated) == "refuse"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="DEFECT G4-T1: `meshforge-agent -- run` bypasses the always-refuse rule "
-    "(first_command() returns None after `--`, but the CLI still runs `run`)",
-)
 def test_run_after_double_dash_is_not_a_bypass() -> None:
     assert _decide(["--", "run"], elevated=True) == "refuse"
 

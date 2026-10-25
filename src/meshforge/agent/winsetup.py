@@ -294,7 +294,23 @@ def setup(
             result.service_state = ops.service_status().state
         except OpsError:
             result.service_state = "unknown"
+        _note_upgrade_left_stopped(result)
         return result
+
+
+def _note_upgrade_left_stopped(result: SetupResult) -> None:
+    """An upgrade that stopped the previous version and then could not finish:
+    say plainly that neither version runs (G5 restores the previous one
+    automatically; G4 only says how)."""
+    if result.previous_python is None or result.service_state == "running":
+        return
+    result.lines.append(
+        f"this was an upgrade: the previous version ({result.previous_python}) was "
+        f"stopped and does NOT run either; to go back to it, run its installer "
+        f'again, or (administrator) `"{result.previous_python}" -I -m '
+        f'meshforge.agent.winservice update-path --python-exe "{result.previous_python}"` '
+        f"then sc.exe start {SERVICE_NAME}"
+    )
 
 
 def _setup(
@@ -344,6 +360,7 @@ def _setup(
             "question above is resolved; then start it: "
             f"sc.exe start {SERVICE_NAME} (as administrator)"
         )
+        _note_upgrade_left_stopped(result)
         return result
     health = _start_and_check(ops, health_timeout_s)
     if health.ok:
