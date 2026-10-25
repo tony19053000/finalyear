@@ -61,7 +61,7 @@ from meshforge.agent.winservice import (
     firewall_delete_argv,
     peer_firewall_rule,
 )
-from meshforge.agent.winsetup import OpsError, ServiceStatus
+from meshforge.agent.winsetup import OpsError, ServiceStatus, log_has_agent_started
 from meshforge.common.atomic import atomic_write_bytes
 from meshforge.common.windows_service import (
     INSTALL_MODE_ENV_VAR,
@@ -397,7 +397,7 @@ class RealOps:
             with self._agent_log().open("rb") as fh:
                 size = fh.seek(0, os.SEEK_END)
                 fh.seek(offset if offset <= size else 0)
-                return b'"agent.started"' in fh.read()
+                return log_has_agent_started(fh.read())
         except OSError:
             return False
 

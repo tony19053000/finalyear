@@ -568,3 +568,18 @@ def test_teardown_without_a_service_says_so() -> None:
     assert result.ok
     assert "no MeshForgeAgent service was installed" in result.lines
     assert result.as_dict()["ok"] is True
+
+
+@pytest.mark.parametrize(
+    ("line", "found"),
+    [
+        (b'{"event": "agent.started", "node_id": "n1"}\n', True),
+        (b"2026-10-25T10:00:00Z [info     ] agent.started   node_id=n1\n", True),
+        (b'{"event": "agent.starting"}\n', False),
+        (b'{"event": "agent.started_late"}\n', False),
+        (b'{"event": "x.agent.started"}\n', False),
+        (b"", False),
+    ],
+)
+def test_agent_started_is_found_in_either_log_format(line: bytes, found: bool) -> None:
+    assert wsu.log_has_agent_started(line) is found

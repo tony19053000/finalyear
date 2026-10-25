@@ -357,7 +357,8 @@ def test_windows_installed_needs_both_marker_files(tmp_path: Path) -> None:
 
     env = {"PROGRAMDATA": str(tmp_path / "pd"), "PROGRAMFILES": str(tmp_path / "pf")}
     assert not windows_installed(env)
-    (tmp_path / "pd" / "MeshForge" / "config").mkdir(parents=True)
+    # only the data root: its inside is not visible to a normal user
+    (tmp_path / "pd" / "MeshForge").mkdir(parents=True)
     assert not windows_installed(env)
     (tmp_path / "pf" / "MeshForge").mkdir(parents=True)
     (tmp_path / "pf" / "MeshForge" / "current.txt").write_text("0.17.0-1\r\n")

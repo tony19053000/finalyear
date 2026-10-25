@@ -26,7 +26,7 @@ their own state on a machine that also has the package).
 
 **Windows (V0.17 G4, Q32).** The service runs as the virtual account
 ``NT SERVICE\MeshForgeAgent``, which no one can ``sudo`` into. With the
-installer's files present (``%ProgramData%\MeshForge\config`` **and**
+installer's files present (``%ProgramData%\MeshForge`` **and**
 ``%ProgramFiles%\MeshForge\current.txt``), :func:`decide_windows`:
 
 * an **elevated** packaged CLI acts on the service's state *in this process*
@@ -132,9 +132,16 @@ def windows_system_dirs(
 
 
 def windows_installed(environ: Mapping[str, str] | None = None) -> bool:
-    """The Windows installer's files are present (module docstring)."""
+    """The Windows installer's files are present (module docstring).
+
+    Only what **any** local user can see: ``current.txt`` (Program Files is
+    readable by Users) and the data root itself (its parent ``ProgramData`` is
+    listable, which is what lets a user read a folder's attributes). Never a
+    folder *inside* the data root - those are SYSTEM/Administrators/service
+    only, so a normal user's console launcher would think nothing is installed
+    and look for a token in its own profile."""
     data, program = windows_system_dirs(os.environ if environ is None else environ)
-    return (data / "config").is_dir() and (program / "current.txt").is_file()
+    return data.is_dir() and (program / "current.txt").is_file()
 
 
 def windows_elevated() -> bool:  # pragma: no cover - Windows only

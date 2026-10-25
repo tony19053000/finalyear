@@ -37,6 +37,7 @@ lines name paths and fixes, never a token or a key.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -55,6 +56,7 @@ __all__ = [
     "ServiceStatus",
     "SetupOutcome",
     "SetupResult",
+    "log_has_agent_started",
     "setup",
     "teardown",
     "wait_healthy",
@@ -177,6 +179,16 @@ class SetupResult:
 
 
 # ------------------------------------------------------------------ health
+_AGENT_STARTED: Final = re.compile(rb"(?<![\w.])agent\.started(?![\w.])")
+
+
+def log_has_agent_started(data: bytes) -> bool:
+    """The agent logged ``agent.started`` in ``data`` (a slice of ``agent.log``),
+    in either log format: JSON (``"event": "agent.started"``, the default) or
+    the console renderer a migrated developer config may still choose."""
+    return _AGENT_STARTED.search(data) is not None
+
+
 @dataclass(frozen=True, slots=True)
 class Health:
     ok: bool
