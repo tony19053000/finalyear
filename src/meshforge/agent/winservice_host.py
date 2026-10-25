@@ -46,6 +46,7 @@ from meshforge.agent.winservice import (
     acl_plan,
     agent_child_argv,
     build_service_spec,
+    child_env,
     firewall_add_argv,
     firewall_delete_argv,
     icacls_argv,
@@ -95,6 +96,7 @@ class HostOptions:
     log_path: Path
     cwd: Path
     grace_s: float
+    env: dict[str, str] | None = None
 
 
 class MeshForgeAgentService(win32serviceutil.ServiceFramework):
@@ -114,6 +116,7 @@ class MeshForgeAgentService(win32serviceutil.ServiceFramework):
             opts.argv,
             log_path=opts.log_path,
             grace_s=opts.grace_s,
+            env=opts.env,
             cwd=opts.cwd,
             on_progress=self._stop_progress,
         )
@@ -187,12 +190,16 @@ def run_host(
     # A service has no console: anything printed must land in the log, not vanish.
     sys.stdout = sys.stderr = stream
     configure_logging("INFO", fmt="json", component="agent-service", stream=stream)
-    argv = tuple(child_argv) or tuple(agent_child_argv(sys.executable, config))
+    # The config file only when it exists (a fresh install runs on defaults).
+    argv = tuple(child_argv) or tuple(
+        agent_child_argv(sys.executable, config if Path(config).is_file() else None)
+    )
     MeshForgeAgentService.options = HostOptions(
         argv=argv,
         log_path=logs / AGENT_LOG_NAME,
         cwd=logs.parent,
         grace_s=grace_s,
+        env=child_env(os.environ),
     )
     log.info(
         "agent.service.host_starting",
@@ -330,13 +337,7 @@ def install(
 ) -> None:
     """Create (or re-configure) the service, the state folders and their ACLs, and -
     only with peer serving on - the named firewall rule. Idempotent."""
-    for folder in (
-        layout.root,
-        layout.config_dir,
-        layout.identity_dir,
-        layout.cache_dir,
-        layout.logs_dir,
-    ):
+    for folder in layout.folders:
         Path(folder).mkdir(parents=True, exist_ok=True)
     try:
         _create_or_update(spec)

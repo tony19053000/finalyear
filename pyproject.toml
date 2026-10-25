@@ -149,6 +149,9 @@ dev = [
     "types-grpcio>=1.83",
     "types-PyYAML>=6.0",
     "types-docker>=7.1",
+    # V0.17 G4: the Windows-only service modules are type-checked with
+    # `mypy --platform win32` on Linux too (CI types job).
+    "types-pywin32>=311",
     "import-linter>=2.15",
     "pytest-timeout>=2.4",
     "pytest-playwright>=0.7",

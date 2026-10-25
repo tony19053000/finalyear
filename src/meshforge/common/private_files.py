@@ -9,6 +9,9 @@ keeps a secret on disk (the controller's ``fabric.token``, D44) without importin
   group/other bits are set.
 * **Windows** - no mode bits; ``icacls`` removes inherited ACEs and grants only the
   current user's SID (looked up with ``whoami /user /fo csv``, locale-independent).
+  On the installed system (``MESHFORGE_INSTALL_MODE=system``, V0.17 G4) the grant
+  is the agent service's SID + SYSTEM + Administrators instead, whoever writes
+  (:func:`meshforge.common.windows_service.windows_private_sids`).
 
 **Reading a secret file** (V0.7 D149a - one implementation for every secret file:
 ``ca.key``, ``server.key``, ``peer_signing.key``, ``fabric.token``, the agent's
@@ -37,6 +40,7 @@ from pathlib import Path
 from typing import Final
 
 from meshforge.common.errors import ExitCode, FailureType, MeshForgeError
+from meshforge.common.windows_service import system_mode, windows_private_sids
 
 __all__ = [
     "WINDOWS_TOOL_TIMEOUT_S",
@@ -44,6 +48,7 @@ __all__ = [
     "PrivateFileReason",
     "current_logon_sid",
     "owner_only_icacls_argvs",
+    "private_icacls_argvs",
     "private_problem",
     "protect_private",
     "read_bounded",
@@ -238,10 +243,29 @@ def owner_only_icacls_argvs(
     (``PermissionError`` for the owner too), and later files got the token's
     default DACL (the logon-session ACE) instead (D399, Windows CI).
     """
+    return private_icacls_argvs(path, (sid,), logon_sid, directory=directory)
+
+
+def private_icacls_argvs(
+    path: Path,
+    sids: tuple[str, ...],
+    logon_sid: str | None = None,
+    *,
+    directory: bool = False,
+) -> list[list[str]]:
+    """:func:`owner_only_icacls_argvs` for several SIDs: ``path`` ends with
+    exactly one full-control ACE per SID in ``sids`` (V0.17 G4, the system-mode
+    rule of :func:`~meshforge.common.windows_service.windows_private_sids`).
+    Grants first, then the strip, for the same reason; the removed explicit
+    ACEs never include one of ``sids``."""
+    if not sids:
+        raise ValueError("a private file needs at least one SID")
     removed = (*MKDIR_700_SIDS, logon_sid) if logon_sid else MKDIR_700_SIDS
-    others = [f"*{other}" for other in removed if other != sid]
+    others = [f"*{other}" for other in removed if other not in sids]
     rights = "(OI)(CI)(F)" if directory else "(F)"
-    grant = ["icacls", str(path), "/grant:r", f"*{sid}:{rights}"]
+    grant = ["icacls", str(path)]
+    for sid in sids:
+        grant += ["/grant:r", f"*{sid}:{rights}"]
     strip = ["icacls", str(path), "/inheritance:r"]
     return [grant, [*strip, "/remove:g", *others] if others else strip]
 
@@ -272,9 +296,9 @@ def current_logon_sid() -> str | None:  # pragma: no cover - Windows only
 
 
 def _protect_windows(path: Path) -> None:  # pragma: no cover - Windows only
-    sid = _current_user_sid()
-    argvs = owner_only_icacls_argvs(
-        path, sid, current_logon_sid(), directory=path.is_dir()
+    sids = windows_private_sids(_current_user_sid(), system=system_mode())
+    argvs = private_icacls_argvs(
+        path, sids, current_logon_sid(), directory=path.is_dir()
     )
     for argv in argvs:
         _run_icacls(argv, path)
