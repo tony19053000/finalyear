@@ -46,6 +46,16 @@ normalised, and every file is scanned for the build machine's paths - including
 the trust-store paths of its environment (``SSL_CERT_FILE``... SP3 F3) - a hit
 fails the build.
 
+Windows (V0.17 G4): the same steps on the ``windows-latest`` runner with
+``--os windows`` (layout ``python/python.exe``, ``python/Lib/site-packages``,
+``bin/*.cmd`` launchers); the wheels' ``Scripts/*.exe`` console-script
+trampolines (they name the build interpreter) and the ``.py`` scripts whose
+``#!`` names it are dropped; pywin32 needs no post-install (its ``.pth`` file
+and ``pywin32_system32`` DLL folder work with ``-I``; the build imports
+``win32service`` + ``servicemanager`` with ``-I`` to prove it). The installer
+(``packaging/windows/``, ``scripts/build_windows_installer.py``) wraps the
+folder.
+
 Usage (from the repo, in the project venv with the agent extra)::
 
     uv run python scripts/build_bundle.py --role agent --out dist/
@@ -57,7 +67,8 @@ Exit codes: 0 ok; 1 build/verify failed or bundles differ; 2 usage error.
 The pure parts (layouts, launcher text, ``#!``/RECORD rewrites, leak scan,
 manifest, pins, the archive) are in ``scripts/bundle_lib.py``. Windows: the
 OS-specific parts are :class:`bundle_lib.Layout`, ``launcher_windows`` and the
-``layout.posix`` branches here; they are untested until G4 (``--os windows``).
+``layout.posix`` branches here, built and installed by the ``package-windows``
+CI job (V0.17 G4).
 """
 
 from __future__ import annotations
@@ -113,6 +124,7 @@ from bundle_lib import (  # noqa: E402
     read_manifest,
     rewrite_shebang,
     scan_tree,
+    script_names,
     sha256_file,
     update_record,
     verify_bundle,
@@ -321,6 +333,22 @@ STRIP_POSIX: Final[tuple[tuple[str, str], ...]] = (
     # SP3 (d) builds job venvs from the bundle without it. 32 MB.
     ("lib/libpython3*.so*", "embedding only; the interpreter is static"),
 )
+STRIP_WINDOWS: Final[tuple[tuple[str, str], ...]] = (
+    # V0.17 G4: (glob relative to python/, why) - the same choices as POSIX.
+    ("Scripts/pip*", "uv installs; pip's launchers name the build interpreter"),
+    ("Lib/site-packages/pip", "uv installs"),
+    ("Lib/site-packages/pip-*.dist-info", "uv installs"),
+    ("Lib/ensurepip", "bundles a pip wheel; uv venv does not need it"),
+    ("Lib/idlelib", "IDE"),
+    ("Lib/lib2to3", "Python 2 migration tool (deprecated)"),
+    ("Lib/turtledemo", "demo"),
+    ("Lib/tkinter", "GUI toolkit: nothing in MeshForge uses Tk"),
+    ("Lib/test", "CPython's own test suite"),
+    ("DLLs/_tkinter.pyd", "GUI toolkit"),
+    ("DLLs/tcl*.dll", "GUI toolkit"),
+    ("DLLs/tk*.dll", "GUI toolkit"),
+    ("tcl", "GUI toolkit"),
+)
 
 
 def install_python(archive: Path, root: Path, layout: Layout) -> None:
@@ -340,13 +368,12 @@ def install_python(archive: Path, root: Path, layout: Layout) -> None:
     python = root / "python"
     for cache in sorted(python.rglob("__pycache__")):
         shutil.rmtree(cache)
-    if layout.posix:
-        for pattern, _why in STRIP_POSIX:
-            for path in sorted(python.glob(pattern)):
-                if path.is_dir() and not path.is_symlink():
-                    shutil.rmtree(path)
-                else:
-                    path.unlink()
+    for pattern, _why in STRIP_POSIX if layout.posix else STRIP_WINDOWS:
+        for path in sorted(python.glob(pattern)):
+            if path.is_dir() and not path.is_symlink():
+                shutil.rmtree(path)
+            else:
+                path.unlink()
 
 
 def check_python_version(root: Path, layout: Layout, version: str) -> None:
@@ -507,14 +534,48 @@ def relocate_installed(root: Path, layout: Layout) -> list[str]:
             if new is not None:
                 path.write_bytes(new)
                 changed[path] = new
-    # Windows (untested, G4): uv's console-script .exe trampolines embed the
-    # absolute interpreter path - delete or regenerate them there.
+    else:
+        # V0.17 G4: uv's console-script .exe trampolines (and any .py script
+        # whose #! it rewrote) name the absolute build interpreter: dropped. The
+        # bundle's own launchers are bin/*.cmd; binaries a wheel ships as data
+        # (uv.exe) are kept.
+        for path in windows_scripts_to_drop(root, layout):
+            path.unlink()
+            changed[path] = None
     for record in sorted(site.glob("*.dist-info/RECORD")):
         text = record.read_text(encoding="utf-8")
         new_text = update_record(text, site, changed)
         if new_text != text:
             record.write_text(new_text, encoding="utf-8")
     return sorted(p.relative_to(root).as_posix() for p in changed)
+
+
+def windows_scripts_to_drop(root: Path, layout: Layout) -> list[Path]:
+    """``Scripts/<name>.exe`` / ``<name>-script.py`` of every installed entry
+    point, and text files there whose ``#!`` line names the build interpreter."""
+    scripts = root / layout.scripts_dir
+    if not scripts.is_dir():
+        return []
+    site = layout.site_packages_path(root)
+    names: set[str] = set()
+    for entry_points in sorted(site.glob("*.dist-info/entry_points.txt")):
+        names |= script_names(entry_points.read_text(encoding="utf-8"))
+    python_abs = str(root / layout.python_exe).encode()
+    drop: list[Path] = []
+    for path in sorted(scripts.iterdir()):
+        if not path.is_file():
+            continue
+        stem = path.name.lower()
+        if any(
+            stem in (f"{n.lower()}.exe", f"{n.lower()}-script.py", f"{n.lower()}.pyw")
+            for n in names
+        ):
+            drop.append(path)
+            continue
+        head = path.read_bytes()[:4096]
+        if head.startswith(b"#!") and python_abs.lower() in head.lower():
+            drop.append(path)
+    return drop
 
 
 STRIP_SITE: Final[Mapping[str, tuple[tuple[str, str], ...]]] = {
@@ -615,6 +676,27 @@ def _root_relative(root: Path, path: str) -> str:
         return Path(path).relative_to(root).as_posix()
     except ValueError:
         return Path(path).name
+
+
+WINDOWS_IMPORT_CHECK: Final = (
+    "import win32api, win32security, win32service, win32serviceutil, "
+    "servicemanager, win32ts, win32event, win32process; "
+    "from win32com.shell import shell; print('pywin32 ok')"
+)
+"""V0.17 G4: what the service host and the installer helper import, run with
+``-I`` from the finished bundle (no post-install, no registry)."""
+
+
+def check_windows_imports(root: Path, layout: Layout, env: Mapping[str, str]) -> None:
+    if layout.posix:
+        return
+    run(
+        # -B: -I ignores PYTHONDONTWRITEBYTECODE, and an import-time pyc
+        # (mtime-stamped) would break the bundle's reproducibility.
+        [root / layout.python_exe, "-I", "-B", "-c", WINDOWS_IMPORT_CHECK],
+        env=env,
+        what="pywin32 import check (python -I)",
+    )
 
 
 def write_launchers(
@@ -784,6 +866,8 @@ def build(options: BuildOptions) -> Path:
         for path in bad:
             log(f"warning: does not compile (shipped as source only): {path}")
         write_launchers(root, layout, entries, options.role)
+        if options.role == "agent":
+            check_windows_imports(root, layout, env)
         if options.role == "controller":
             # V0.17 G2 (D390): the managed PostgreSQL, trimmed, at <bundle>/pgsql.
             pg_pin_ = pg_bundle.pg_pin(pins, f"{layout.os_name}-{arch}")
