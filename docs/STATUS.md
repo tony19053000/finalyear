@@ -279,7 +279,7 @@ Reviewer non-blocking follow-ups (carry into G2/G3): (1) `mint` should carry `pe
 - Windows: not yet run (first real CI run will cover unit + fresh-clone on windows-latest)
 
 ## Next Recommended Task
-**V0.17 G4 brief DRAFTED** (§5d) — team to answer **Q28–Q34**, then implementer. (Windows service + Inno Setup installer + firewall + Docker/GPU checks, 0.17.1; reuses G1/G3; SP1 verdict pywin32 D386) — Lead drafts, team approves. 🧑 labs: G1, G2 (Q19 mirror upload, Q21 pg_dump import), G3, SP1, SP3, icacls (D400).
+**V0.17 G4 APPROVED** (§5d, Q28–Q34 as recommended) — implementer running. (Windows service + Inno Setup installer + firewall + Docker/GPU checks, 0.17.1; reuses G1/G3; SP1 verdict pywin32 D386) — Lead drafts, team approves. 🧑 labs: G1, G2 (Q19 mirror upload, Q21 pg_dump import), G3, SP1, SP3, icacls (D400).
 
 _Older:_ **V0.17 brief DRAFTED** (`docs/briefs/V0.17-productization.md`, D384–D397) — team to answer **Q1–Q10** (§7); Q1 (GitHub repo + Windows CI) is a hard prerequisite. Then G0 spikes SP1–SP3.
 
