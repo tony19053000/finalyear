@@ -429,6 +429,13 @@ jobs:
           key: meshforge-bundle-windows-${{ hashFiles('packaging/pins.toml', 'uv.lock') }}
       - name: build the agent bundle
         run: uv run python scripts/build_bundle.py --role agent --os windows --out dist/ --cache "$env:LOCALAPPDATA\meshforge-bundle"
+      - name: the bundle is reproducible (second build, manifests compared)
+        run: |
+          $bundle = (Get-ChildItem dist -Directory -Filter 'meshforge-*-windows-x86_64').FullName
+          uv run python scripts/build_bundle.py --role agent --os windows --out dist/again/ --no-archive --cache "$env:LOCALAPPDATA\meshforge-bundle"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $again = (Get-ChildItem dist\again -Directory -Filter 'meshforge-*-windows-x86_64').FullName
+          uv run python scripts/build_bundle.py --diff "$bundle\MANIFEST.sha256" "$again\MANIFEST.sha256"
       - name: build the installer (revision 1, and 2 for the upgrade test)
         run: |
           $bundle = (Get-ChildItem dist -Directory -Filter 'meshforge-*-windows-x86_64').FullName
