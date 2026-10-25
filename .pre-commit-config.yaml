@@ -17,9 +17,13 @@ repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
     hooks:
+      # Captured command output (lab/inventory parser fixtures) is kept
+      # byte-exact, trailing blank lines included.
       - id: trailing-whitespace
         args: [--markdown-linebreak-ext=md]
+        exclude: ^tests/.*/fixtures/
       - id: end-of-file-fixer
+        exclude: ^tests/.*/fixtures/
       - id: mixed-line-ending
         args: [--fix=lf]
         # Windows-native scripts are CRLF by design (.gitattributes).
@@ -30,6 +34,16 @@ repos:
       - id: check-added-large-files
         args: [--maxkb=1024]
       - id: detect-private-key
+        # These tests contain fake PEM headers on purpose (redaction / malformed
+        # key handling); none holds real key material. Listed one by one so a
+        # real key added anywhere else is still caught.
+        exclude: |
+          (?x)^tests/(
+            unit/agent/test_identity\.py|
+            unit/controller/test_v07_g3_tester_forged_certs\.py|
+            component/controller/test_v07_g1_tester_cli\.py|
+            unit/test_v08_g7_fix_r1_leaks\.py
+          )$
 
   - repo: local
     hooks:

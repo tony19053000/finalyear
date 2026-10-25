@@ -944,11 +944,25 @@ async def test_counts_consistency_under_randomised_concurrent_workload(db: Db) -
     q = await mk(db, 300, policy=QueuePolicy(5, 50, None, speculative_max_frac=0.2))
     clock = {"t": 0.0}
     stop = asyncio.Event()
+    deadlocks = {"n": 0}
+
+    async def lease_retrying(name: str, k: int, now: Any) -> list[store.Grant]:
+        # PostgreSQL may abort a KEY SHARE puller that follows the queue row's
+        # update chain while expire_due waits for FOR UPDATE (40P01, seen once
+        # on a CI runner). A rare abort is retried, as a caller would; a
+        # systematic lock-order bug still fails the bound below.
+        while True:
+            try:
+                return await lease(db, q, name, k=k, now=now, site=name)
+            except DBAPIError as exc:
+                if getattr(exc.orig, "sqlstate", None) != "40P01":
+                    raise
+                deadlocks["n"] += 1
 
     async def worker(name: str) -> None:
         while not stop.is_set():
             now = at(clock["t"])
-            gs = await lease(db, q, name, k=rng.randint(1, 4), now=now, site=name)
+            gs = await lease_retrying(name, rng.randint(1, 4), now)
             if not gs:
                 await asyncio.sleep(0.01)
                 continue
@@ -1015,6 +1029,7 @@ async def test_counts_consistency_under_randomised_concurrent_workload(db: Db) -
         ),
         240,
     )
+    assert deadlocks["n"] <= 3, deadlocks
     info = await qinfo(db, q)
     if info.state is QueueState.DONE:
         assert (await cnt(db, q)).done == 300

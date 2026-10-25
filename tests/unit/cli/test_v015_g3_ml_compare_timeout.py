@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -31,6 +32,16 @@ time.sleep(120)
 
 
 def _alive(pid: int) -> bool:
+    if sys.platform == "win32":
+        # os.kill(pid, 0) would *terminate* the process on Windows; ask tasklist.
+        out = subprocess.run(
+            ["tasklist", "/FI", f"PID eq {pid}", "/NH"],
+            capture_output=True,
+            text=True,
+            errors="replace",
+            check=False,
+        ).stdout
+        return f" {pid} " in out
     try:
         os.kill(pid, 0)
     except ProcessLookupError:

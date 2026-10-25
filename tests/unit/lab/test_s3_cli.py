@@ -7,6 +7,7 @@ plan built from a :class:`ClientConfig`, the hello-port resolution and the
 from __future__ import annotations
 
 import argparse
+import os
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -226,7 +227,7 @@ def _synthetic_envelope(name: str = "cliA", **extra: Any) -> dict[str, Any]:
 
 def test_synthetic_envelope_validates_and_sanitises(tmp_path: Path) -> None:
     doc = _synthetic_envelope(home=str(Path.home() / "secret"))
-    assert doc["extra"]["home"] == "~/secret"
+    assert doc["extra"]["home"] == f"~{os.sep}secret"  # native separator
     path = tmp_path / "cliA__to-srvB_wifi.json"
     write_envelope(doc, path)
     loaded = load_envelope(path)

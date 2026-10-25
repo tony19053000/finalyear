@@ -201,7 +201,13 @@ async def test_alembic_has_one_head_0023(pg_settings: DatabaseSettings) -> None:
     from alembic.script import ScriptDirectory
 
     script = ScriptDirectory.from_config(alembic_config(pg_settings))
-    assert script.get_heads() == ["0033"]  # V0.14 G6: migration 0033
+    # One linear head that descends from 0023 (not a pinned number: every new
+    # migration would otherwise break this V0.9 test).
+    heads = script.get_heads()
+    assert len(heads) == 1
+    assert "0023" in {
+        rev.revision for rev in script.iterate_revisions(heads[0], "base")
+    }
 
 
 async def test_recorder_run_resweeps_with_an_injected_clock_without_real_waits(

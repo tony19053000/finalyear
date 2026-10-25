@@ -16,6 +16,7 @@ import pytest
 from meshforge.common.ids import new_node_id, new_session_id
 from meshforge.common.proto.meshforge.v1 import agent_pb2
 from meshforge.controller.liveness import LeaseTracker, LivenessConfig, NodeState
+from meshforge.controller.session import heartbeats as heartbeats_module
 from meshforge.controller.session.clocks import (
     ALERT_BOUND_MS,
     MIN_EXCHANGES,
@@ -30,6 +31,13 @@ from meshforge.controller.session.writer import WriteChain
 pytestmark = pytest.mark.unit
 
 WALL0 = 1_792_238_400.0  # 2026-10-17 12:00 UTC, epoch s
+
+
+@pytest.fixture(autouse=True)
+def _fine_local_clock(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The fake clocks are exact; the host's wall-clock tick (15.6 ms on
+    Windows) must not widen the bounds these tests compute by hand."""
+    monkeypatch.setattr(heartbeats_module, "_LOCAL_RESOLUTION_MS", 0.0)
 
 
 class _Registry:

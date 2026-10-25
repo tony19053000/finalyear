@@ -20,7 +20,8 @@ import asyncio
 import contextlib
 import dataclasses
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -63,7 +64,30 @@ from meshforge.agent.session.state import AgentState
 from meshforge.common.bench_conditions import capability_tag
 from meshforge.common.bundle import pack_to_file
 
-__all__ = ["TERMINAL", "ExecAgent", "no_docker", "submit", "wait_job"]
+__all__ = [
+    "TERMINAL",
+    "ExecAgent",
+    "in_client_thread",
+    "no_docker",
+    "submit",
+    "wait_job",
+]
+
+_CLIENT_THREADS = ThreadPoolExecutor(max_workers=32, thread_name_prefix="test-client")
+"""Threads for the test's *blocking* clients (``upload_tree`` ...). Never the
+loop's default executor: the in-process controller and agent need that one
+(``getaddrinfo`` for a DB connection, ``to_thread`` file work), and its size is
+``min(32, cpu_count + 4)`` - 8 on a 4-vCPU CI runner. Ten blocking uploads
+there, each waiting for the controller, starve the controller of the very
+thread it needs to answer them: a deadlock (D399, CI run 40114206219)."""
+
+
+async def in_client_thread[T](fn: Callable[..., T], /, *args: object) -> T:
+    """Run a blocking client call on :data:`_CLIENT_THREADS` (see there)."""
+    return await asyncio.get_running_loop().run_in_executor(
+        _CLIENT_THREADS, lambda: fn(*args)
+    )
+
 
 TERMINAL = frozenset({"succeeded", "failed", "cancelled"})
 

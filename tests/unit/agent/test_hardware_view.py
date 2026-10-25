@@ -101,7 +101,9 @@ def test_a_real_subprocess_failure_does_not_leak_the_interpreters_path() -> None
     assert outcome.status is ProbeStatus.ERROR
     assert "CalledProcessError" in outcome.reason
     assert "non-zero exit status 3" in outcome.reason
-    for part in Path(sys.executable).parts[1:]:
+    # Parts of one or two characters (the runner's "D:\\a\\...") are not
+    # identifying and occur in any message.
+    for part in [p for p in Path(sys.executable).parts[1:] if len(p) > 2]:
         assert part not in outcome.reason
 
 

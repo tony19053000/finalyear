@@ -1042,13 +1042,22 @@ class ResumablePart:
     def complete(self) -> PutResult:
         """Hash the whole part; install it as the blob (checklist 15).
 
-        Hash and install are one step per digest (G4 fix round 2): under the
-        digest lock (no chunk is written meanwhile) the file that was hashed -
-        checked by inode, never re-resolved - is the one renamed into place,
-        under ``resume_lock`` together with the sidecar removal and the count.
-        A part replaced or removed meanwhile is a typed :class:`CasError`. A
-        mismatch deletes this part and its sidecar and raises
-        :class:`CasIntegrityError`.
+        **The hashed file is the installed file (D399).** Our locks are per
+        process, and inode numbers are reused after an unlink, so neither a
+        generation nor an inode check can tell whether the file at
+        ``self.part`` is still ours when another process shares this CAS
+        directory (it may sweep the part and open a fresh one at the same path
+        at any moment). So, under the digest lock (no chunk of ours is written
+        meanwhile) and ``resume_lock`` (generation check), the part is first
+        *moved* to a private one-shot name (``tmp/<random>.part``, swept at
+        :meth:`CasStore.prepare` if we crash). Only that private file is then
+        hashed, fsync'ed and installed: whatever was moved, the bytes under the
+        digest are the bytes that hashed to it.
+
+        A part removed meanwhile is a typed :class:`CasError` (start over). A
+        mismatch deletes the moved file and the sidecar and raises
+        :class:`CasIntegrityError`. A failed install puts the verified part
+        back for a retry.
         """
         if self.missing():
             raise CasError(
@@ -1056,53 +1065,87 @@ class ResumablePart:
                 details={"digest": str(self.digest)},
             )
         with self.store.digest_lock(self.digest.hex):
-            self._check_current()  # (1) before hashing
+            try:
+                self.store._check_disk(self.digest, 0)
+            except OSError as exc:
+                raise _os_error(exc, self.digest) from None
+            private = self.store.tmp / f"{secrets.token_hex(12)}.part"
+            with self.store.resume_lock:
+                if not self.store.is_current(self.key, self.generation):
+                    raise self._gone()
+                try:
+                    os.rename(self.part, private)
+                except FileNotFoundError:
+                    # Swept (TTL) or discarded meanwhile: typed, starts over.
+                    raise self._gone() from None
+                except OSError as exc:
+                    raise _os_error(exc, self.digest) from None
             hasher = hashlib.sha256()
             try:
-                with self.part.open("rb+") as fh:
+                with private.open("rb+") as fh:
                     info = os.fstat(fh.fileno())
-                    identity = (info.st_dev, info.st_ino)
-                    if identity != self._identity:
+                    if (info.st_dev, info.st_ino) != self._identity:
+                        # Certainly not ours (a different inode): another
+                        # process's newer part. Hand it back untouched. (A
+                        # matching inode proves nothing - numbers are reused -
+                        # so then the hash below decides.)
+                        fh.close()
+                        self._restore(private)
                         raise self._gone()
                     while data := fh.read(_READ):
                         hasher.update(data)
                     os.fsync(fh.fileno())
             except FileNotFoundError:
-                # Swept (TTL) or discarded meanwhile: typed, starts over.
-                raise self._gone() from None
+                raise self._gone() from None  # swept by prepare() meanwhile
             except OSError as exc:
-                raise _os_error(exc, self.digest) from None
-            if not hmac.compare_digest(hasher.hexdigest(), self.digest.hex):
-                self._discard_locked()
-                raise CasIntegrityError(
-                    "the assembled blob does not match its digest; the transfer "
-                    "starts over",
-                    details={"digest": str(self.digest)},
-                )
-            try:
-                self.store._check_disk(self.digest, 0)
-            except OSError as exc:
+                self._restore(private)
                 raise _os_error(exc, self.digest) from None
             with self.store.resume_lock:
-                # (2) at the rename, in the same lock hold: the generation is
-                # the primary guard (inode numbers are reused after an unlink);
-                # the inode comparison is only extra defence.
-                if not self.store.is_current(self.key, self.generation):
-                    raise self._gone()
+                if not hmac.compare_digest(hasher.hexdigest(), self.digest.hex):
+                    for path in (private, self.sidecar):
+                        with contextlib.suppress(OSError):
+                            path.unlink()
+                    if self.store.is_current(self.key, self.generation):
+                        self.store.resume_forgotten(self.key)
+                    raise CasIntegrityError(
+                        "the assembled blob does not match its digest; the "
+                        "transfer starts over",
+                        details={"digest": str(self.digest)},
+                    )
+                # Verified bytes are installed even if a sweep forgot this
+                # transfer while we hashed (nobody else can reopen it: we hold
+                # the digest lock).
                 try:
-                    now = self.part.stat()
+                    created = self.store._install(private, self.digest, self.size)
                 except FileNotFoundError:
+                    # The private name was swept (prepare) meanwhile.
+                    with contextlib.suppress(OSError):
+                        self.sidecar.unlink()
+                    self.store.resume_forgotten(self.key)
                     raise self._gone() from None
-                if (now.st_dev, now.st_ino) != identity:
-                    raise self._gone()  # a different file is at the path now
-                try:
-                    created = self.store._install(self.part, self.digest, self.size)
                 except OSError as exc:
+                    self._restore(private)
                     raise _os_error(exc, self.digest) from None
                 with contextlib.suppress(OSError):
                     self.sidecar.unlink()
                 self.store.resume_forgotten(self.key)
         return PutResult(digest=self.digest, size=self.size, created=created)
+
+    def _restore(self, private: Path) -> None:
+        """Move a part taken by :meth:`complete` back to its path for a retry.
+        A link never replaces a part someone opened there meanwhile; if it
+        cannot be restored it is dropped and the transfer starts over."""
+        try:
+            os.link(private, self.part)
+        except OSError as exc:
+            log.warning(
+                "cas.resume_restore_failed",
+                digest=str(self.digest),
+                error_type=type(exc).__name__,
+                errno=exc.errno,
+            )
+        with contextlib.suppress(OSError):
+            private.unlink()
 
     def discard(self) -> None:
         """Delete this transfer's part and sidecar (if they are still this

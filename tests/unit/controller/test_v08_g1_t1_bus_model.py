@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import asyncio
 import random
-import resource as _resource
 import sys
 
 import pytest
@@ -169,6 +168,8 @@ async def test_subscriber_cap_is_enforced_and_unsubscribe_frees_a_slot() -> None
 
 @pytest.mark.skipif(sys.platform == "win32", reason="resource module")
 async def test_ring_of_100k_big_publishes_does_not_grow_without_bound() -> None:
+    import resource as _resource  # POSIX only: imported here, not at collection
+
     bus = EventBus(ring_size=1000, queue_size=10)
     rss0 = _resource.getrusage(_resource.RUSAGE_SELF).ru_maxrss
     for i in range(100_000):

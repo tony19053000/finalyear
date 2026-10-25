@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import time
 from pathlib import Path
 from typing import IO, Any
@@ -88,6 +89,10 @@ def _refused(built: BuiltTree, over: Any, **kw: Any) -> tuple[str, str]:
 # ------------------------------------------------------------------- glob
 
 
+@pytest.mark.skipif(
+    sys.platform in ("win32", "darwin"),
+    reason="needs a case-sensitive file system (NTFS/APFS fold case)",
+)
 def test_glob_items_are_files_sorted_bytewise(tmp_path: Path) -> None:
     names = ["b.jpg", "B.jpg", "a.jpg", "é.jpg", "z.jpg", "Z.jpg", "10.jpg", "9.jpg"]
     built = _tree(

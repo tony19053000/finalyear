@@ -18,6 +18,7 @@ pytest.importorskip("sqlalchemy", reason="needs the controller extra")
 pytest.importorskip("uv", reason="needs the agent extra (the uv wheel)")
 
 from mf_agent_harness import make_controller_settings
+from mf_controller_harness import tolerant_liveness
 from mf_envs_support import make_wheel
 from mf_exec_harness import ExecAgent, submit, wait_job
 from mf_jobs_harness import token_of
@@ -39,7 +40,10 @@ print("VERSION", mfvenvdemo.VERSION, "PREFIX", sys.prefix, flush=True)
 @pytest.fixture
 def settings(pg_settings: Any) -> ControllerSettings:
     return make_controller_settings(
-        pg_settings, jobs={"dispatch_interval_s": 0.1, "backstop_grace_s": 1.0}
+        pg_settings,
+        jobs={"dispatch_interval_s": 0.1, "backstop_grace_s": 1.0},
+        # not a liveness test: in-loop agent, a loaded runner expires a 0.6 s lease (D399)
+        **tolerant_liveness(),
     )
 
 

@@ -164,7 +164,7 @@ def test_unicode_env_var_value_round_trips(monkeypatch: pytest.MonkeyPatch) -> N
     unicode_path = "/tmp/héllo/wörld/目录"
     monkeypatch.setenv("MESHFORGE_DATA_DIR", unicode_path)
     s = MeshForgeSettings.load()
-    assert str(s.data_dir) == unicode_path
+    assert s.data_dir == Path(unicode_path)
 
 
 # ------------------------------------------------------------------ TOML file quirks
@@ -179,7 +179,7 @@ def test_toml_file_with_utf8_bom_is_readable(tmp_path: Path) -> None:
     toml_file = tmp_path / "config.toml"
     toml_file.write_bytes(codecs.BOM_UTF8 + b'data_dir = "/tmp/from-toml"\n')
     s = MeshForgeSettings.load(config_file=toml_file)
-    assert str(s.data_dir) == "/tmp/from-toml"
+    assert s.data_dir == Path("/tmp/from-toml")
 
 
 def test_toml_windows_path_with_naive_single_backslashes_needs_documentation(
@@ -206,7 +206,7 @@ def test_windows_style_forward_slash_path_in_toml_works(tmp_path: Path) -> None:
     toml_file = tmp_path / "config.toml"
     toml_file.write_text('data_dir = "C:/Users/foo/meshforge"\n', encoding="utf-8")
     s = MeshForgeSettings.load(config_file=toml_file)
-    assert str(s.data_dir) == "C:/Users/foo/meshforge"
+    assert s.data_dir.as_posix() == "C:/Users/foo/meshforge"
 
 
 def test_explicit_missing_config_file_raises(tmp_path: Path) -> None:

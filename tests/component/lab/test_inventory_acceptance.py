@@ -88,7 +88,10 @@ def test_out_path_that_is_an_existing_directory_exits_1(tmp_path: Path) -> None:
 
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX permission bits")
-@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores permission bits")
+@pytest.mark.skipif(
+    sys.platform == "win32" or os.geteuid() == 0,
+    reason="needs POSIX permission bits, non-root (root ignores permission bits)",
+)
 def test_readonly_parent_directory_exits_1(tmp_path: Path) -> None:
     """A parent directory that cannot be written to (no write permission, e.g. a
     misconfigured lab share) must fail cleanly with exit 1, not crash."""
@@ -432,6 +435,11 @@ def test_no_real_username_anywhere_in_the_document(
 
     user = getpass.getuser()
     text = json.dumps(real_machine_json)
+    # The (legitimately kept) hostname may contain the user name (CI: user
+    # `runner`, host `runnervm...`): blank it out, as the SSID check does.
+    hostname = str(real_machine_json.get("hostname") or "")
+    if hostname:
+        text = text.replace(hostname, "")
     assert user not in text, f"real username {user!r} leaked into inventory output"
     assert user not in text.lower()
 

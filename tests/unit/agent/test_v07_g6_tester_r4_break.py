@@ -202,14 +202,20 @@ def _tree_000(root: Path) -> Path:
     return t
 
 
-@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores modes")
+@pytest.mark.skipif(
+    sys.platform == "win32" or os.geteuid() == 0,
+    reason="needs POSIX permission bits, non-root (root ignores modes)",
+)
 def test_t20_nested_mode_000_tree_is_removed(tmp_path: Path) -> None:
     t = _tree_000(tmp_path)
     remove_tree(t)
     assert not t.exists()
 
 
-@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores modes")
+@pytest.mark.skipif(
+    sys.platform == "win32" or os.geteuid() == 0,
+    reason="needs POSIX permission bits, non-root (root ignores modes)",
+)
 def test_t20_mode_000_directly_under_a_read_only_parent(tmp_path: Path) -> None:
     t = tmp_path / "t"
     (t / "d").mkdir(parents=True)
@@ -220,7 +226,10 @@ def test_t20_mode_000_directly_under_a_read_only_parent(tmp_path: Path) -> None:
     assert not t.exists()
 
 
-@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores modes")
+@pytest.mark.skipif(
+    sys.platform == "win32" or os.geteuid() == 0,
+    reason="needs POSIX permission bits, non-root (root ignores modes)",
+)
 def test_t20_symlink_to_unreadable_dir_inside_tree_not_followed(tmp_path: Path) -> None:
     outside = tmp_path / "outside"
     outside.mkdir()

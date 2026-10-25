@@ -19,6 +19,7 @@ controller runtime with its real TLS enrolment listener, the real agent join cod
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import os
 import stat
 import sys
@@ -494,9 +495,13 @@ async def test_sixteen_laptops_race_one_code(
             return exc.controller_reason or exc.reason.value
         return "enrolled"
 
-    results = await asyncio.gather(
-        *(asyncio.to_thread(attempt, laptop) for laptop in laptops)
-    )
+    # Own pool of 16: asyncio.to_thread's default pool has cpu+4 workers, so
+    # on a 4-core runner the barrier could never fill.
+    loop = asyncio.get_running_loop()
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(laptops)) as pool:
+        results = await asyncio.gather(
+            *(loop.run_in_executor(pool, attempt, laptop) for laptop in laptops)
+        )
     assert sorted(results).count("enrolled") == 1, results
     assert set(results) == {"enrolled", "token_used"}, results
     winners = [lap for lap, r in zip(laptops, results, strict=True) if r == "enrolled"]

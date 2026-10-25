@@ -37,7 +37,7 @@ def _env(home: Path | None = None) -> dict[str, str]:
     env["_TYPER_COMPLETE_TEST_DISABLE_SHELL_DETECTION"] = "1"
     env["PATH"] = f"{COMPUTE.parent}{os.pathsep}{env.get('PATH', '')}"
     if home is not None:
-        env["HOME"] = str(home)
+        env["HOME"] = env["USERPROFILE"] = str(home)  # Path.home() on Windows
     return env
 
 
@@ -63,7 +63,11 @@ def test_show_completion_prints_a_script_for_every_shell(shell: str) -> None:
         assert "Register-ArgumentCompleter" in script
 
 
-needs_bash = pytest.mark.skipif(shutil.which("bash") is None, reason="no bash")
+needs_bash = pytest.mark.skipif(
+    shutil.which("bash") is None or sys.platform == "win32",
+    # Windows' bash.exe is usually the WSL launcher, not a shell for this host.
+    reason="needs a POSIX bash",
+)
 needs_compute = pytest.mark.skipif(
     not COMPUTE.is_file(), reason="the compute console script is not installed"
 )
@@ -271,6 +275,7 @@ def test_powershell_printing_no_profile_path_exits_4(
 
 def _install_bash_into(home: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))  # Path.home() on Windows
     monkeypatch.setenv("USERPROFILE", str(home))
     return completion.install_bash(  # noqa: S604 - a shell name, not shell=True
         prog_name="compute", complete_var="_COMPUTE_COMPLETE", shell="bash"

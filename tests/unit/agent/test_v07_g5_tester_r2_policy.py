@@ -97,7 +97,10 @@ BROKEN = [
 ]
 
 
-@pytest.mark.skipif(os.geteuid() == 0, reason="root reads mode 000 files")
+@pytest.mark.skipif(
+    sys.platform == "win32" or os.geteuid() == 0,
+    reason="needs POSIX permission bits, non-root (root reads mode 000 files)",
+)
 @pytest.mark.parametrize("how", [*BROKEN, "unreadable"])
 @pytest.mark.asyncio
 async def test_a_broken_policy_file_at_start_never_widens_and_denies_all_jobs(

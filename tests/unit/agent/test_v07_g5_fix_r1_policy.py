@@ -97,6 +97,7 @@ def test_a_broken_live_file_at_start_probes_from_the_configuration(
 
 
 @pytest.mark.asyncio
+@pytest.mark.extras("agent")
 async def test_a_restart_after_policy_set_probes_what_the_live_file_enables(
     tmp_path: Path,
 ) -> None:

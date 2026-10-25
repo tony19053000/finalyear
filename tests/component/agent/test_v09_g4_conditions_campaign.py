@@ -374,6 +374,13 @@ async def test_unavailable_pauses_the_origin_during_a_mode1_run(
         user = tmp_path / "user"
         user.mkdir()
         (user / "main.py").write_text("print('user')\n")
+        # A pinned submit refuses a SUSPECT node; on a loaded runner a long
+        # event-loop stall can leave A briefly suspect - wait until it is back.
+        for _ in range(100):
+            node = (await http.get(f"/v1/nodes/{a.node_id}")).json()
+            if node["state"] == "online":
+                break
+            await asyncio.sleep(0.1)
         user_id = await submit(
             http, user, a.node_id, {"name": "user", "entrypoint": ["python", "main.py"]}
         )

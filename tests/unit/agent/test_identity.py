@@ -406,10 +406,12 @@ def test_protect_dispatches_by_platform(
     id_dir.mkdir()
     monkeypatch.setattr(sys, "platform", "win32")
     monkeypatch.setattr(ident, "_current_user_sid", lambda: "S-1-5-21-1-2-3-1001")
+    monkeypatch.setattr(ident, "current_logon_sid", lambda: "S-1-5-5-0-7")
 
     def fake_run(argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
         assert argv[:1] == ["icacls"]
-        assert argv[-1] == "*S-1-5-21-1-2-3-1001:(F)"
+        # the one grant (+ removals); a folder's is inheritable (D399)
+        assert "*S-1-5-21-1-2-3-1001:(OI)(CI)(F)" in argv
         return subprocess.CompletedProcess(
             argv, 5, stdout="", stderr="Access is denied."
         )

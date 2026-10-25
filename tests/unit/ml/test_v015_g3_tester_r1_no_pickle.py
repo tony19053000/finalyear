@@ -133,6 +133,7 @@ def _run(code: str) -> subprocess.CompletedProcess[str]:
     )
 
 
+@pytest.mark.extras("controller", "ml")
 def test_importing_the_controller_pulls_in_no_ml_library() -> None:
     done = _run(
         """
@@ -150,6 +151,7 @@ def test_importing_the_controller_pulls_in_no_ml_library() -> None:
     assert done.stdout.strip().endswith("BAD []"), done.stdout
 
 
+@pytest.mark.extras("controller", "ml")
 def test_serving_imports_neither_training_nor_scikit_learn_nor_boosters() -> None:
     done = _run(
         """

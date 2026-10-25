@@ -80,7 +80,11 @@ from meshforge.common.errors import IdentityError, InvalidIdError
 from meshforge.common.filelock import locked
 from meshforge.common.ids import NodeId, new_node_id, validate_node_id
 from meshforge.common.logging import get_logger
-from meshforge.common.private_files import WINDOWS_TOOL_TIMEOUT_S
+from meshforge.common.private_files import (
+    WINDOWS_TOOL_TIMEOUT_S,
+    current_logon_sid,
+    owner_only_icacls_argvs,
+)
 
 __all__ = [
     "CA_CERT_FILE_NAME",
@@ -807,19 +811,25 @@ def _protect(path: Path) -> None:
 
 def _protect_windows(path: Path) -> None:
     sid = _current_user_sid()
-    # Argument list, no shell; icacls resolves via PATH (system32).
-    argv = [
-        "icacls",
-        str(path),
-        "/inheritance:r",
-        "/grant:r",
-        f"*{sid}:(F)",
-    ]
+    # Argument list, no shell; icacls resolves via PATH (system32). Also removes
+    # the explicit ACEs CPython's mkdir(mode=0o700) and the logon session's
+    # default DACL add on Windows.
+    argvs = owner_only_icacls_argvs(
+        path, sid, current_logon_sid(), directory=path.is_dir()
+    )
+    for argv in argvs:
+        _run_icacls(argv, path)
+
+
+def _run_icacls(argv: list[str], path: Path) -> None:
     try:
         result = subprocess.run(  # noqa: S603 - fixed argv, values are a path and a SID
             argv,
             capture_output=True,
             text=True,
+            # icacls/whoami print in the OEM code page, not UTF-8: a non-ASCII
+            # path in their output must not kill the reader thread.
+            errors="replace",
             check=False,
             timeout=WINDOWS_TOOL_TIMEOUT_S,
         )
@@ -848,6 +858,9 @@ def _current_user_sid() -> str:
             ["whoami", "/user", "/fo", "csv"],  # noqa: S607 - Windows built-in
             capture_output=True,
             text=True,
+            # icacls/whoami print in the OEM code page, not UTF-8: a non-ASCII
+            # path in their output must not kill the reader thread.
+            errors="replace",
             check=False,
             timeout=WINDOWS_TOOL_TIMEOUT_S,
         )

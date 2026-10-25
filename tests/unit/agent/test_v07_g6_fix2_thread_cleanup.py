@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import asyncio
 import functools
+import os
+import sys
 import threading
 from pathlib import Path
 from types import SimpleNamespace
@@ -23,6 +25,10 @@ from meshforge.agent.execution import executor as executor_module
 from meshforge.agent.execution.docker_runtime import DockerConfig, DockerRuntime
 from meshforge.agent.execution.subprocess_runtime import SubprocessRuntime
 from meshforge.agent.threads import settled, uninterrupted
+
+# The agent's own uid:gid: a non-root agent refuses any other run_as
+# (prepare_workdir), and CI runners are not uid 1000.
+_MY_UID_GID = "1000:1000" if sys.platform == "win32" else f"{os.getuid()}:{os.getgid()}"
 
 pytestmark = [pytest.mark.unit, pytest.mark.asyncio]
 
@@ -141,7 +147,7 @@ async def test_a_cancel_during_the_docker_requirements_staging_removes_the_folde
 ) -> None:
     builder = EnvBuilder(EnvsConfig(root=tmp_path / "envs"), uv_argv=("uv",))
     runtime = DockerRuntime(
-        DockerConfig(agent_label="node_x", run_as="1000:1000"), envs=builder
+        DockerConfig(agent_label="node_x", run_as=_MY_UID_GID), envs=builder
     )
     gate = _Gate()
     real = DockerRuntime._stage_requirements

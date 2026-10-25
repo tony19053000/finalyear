@@ -58,6 +58,7 @@ import signal
 import ssl
 import subprocess
 import sys
+import tempfile
 import time
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from pathlib import Path
@@ -151,17 +152,32 @@ def tmpfs_unsupported_reason() -> str | None:
     """None if an agent can run on a namespaced tmpfs workdir here."""
     if not _IS_LINUX or not hasattr(os, "unshare"):
         return "needs Linux and Python 3.12+ (os.unshare)"
-    probe = subprocess.run(
-        [
-            sys.executable,
-            "-c",
-            "import os; os.unshare(os.CLONE_NEWUSER | os.CLONE_NEWNS)",
-        ],
-        capture_output=True,
-        check=False,
-    )
+    # The whole boot, not only unshare(): with AppArmor's
+    # kernel.apparmor_restrict_unprivileged_userns=1 (Ubuntu 24.04+, the GitHub
+    # runner) unshare() succeeds but the new namespace has no capabilities, so
+    # writing /proc/self/setgroups fails (D399, CI run 40114206219).
+    with tempfile.TemporaryDirectory() as tmp:
+        probe = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                _TMPFS_BOOT,
+                str(Path(tmp) / "probe"),
+                "1m",
+                "-c",
+                "pass",
+            ],
+            capture_output=True,
+            check=False,
+            timeout=60,
+        )
     if probe.returncode != 0:
-        return "unprivileged user namespaces are not available here"
+        tail = probe.stderr.decode(errors="replace").strip().splitlines()[-1:]
+        return (
+            "unprivileged user namespaces with mount rights are not available "
+            f"here ({tail[0] if tail else probe.returncode}); on Ubuntu 24.04+ "
+            "run `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0`"
+        )
     return None
 
 
@@ -783,6 +799,13 @@ class Fabric:
             ),
             **{f"agent.{name}": table for name, table in self._agent_extra.items()},
         }
+        # D399 (CI): the owner-activity CPU rule counts every process outside
+        # this agent's own tree - here the other agents, pytest and Postgres on
+        # the same host - as "the owner is using the laptop" and pre-empts /
+        # defers benchmark jobs (seen on the 4-core CI runner: owner_active:cpu).
+        # Off by default; a scenario that tests the activity rule turns it on
+        # (agent_extra={"bench": {"activity": True, ...}}).
+        tables["agent.bench"] = {"activity": False, **tables.get("agent.bench", {})}
         peer_link = self._peer_links.get(index)
         if peer_link is not None:
             tables["agent.peer"] = {

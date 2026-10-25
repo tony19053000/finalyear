@@ -10,6 +10,7 @@ reimplementation of it.
 
 from __future__ import annotations
 
+import sys
 import tomllib
 from pathlib import Path
 
@@ -68,6 +69,12 @@ def test_hanging_test_is_killed_by_the_configured_timeout(
         "import time\n\n@pytest.mark.timeout(2)\ndef test_a():\n    time.sleep(120)\n",
     )
     result = suite.runpytest_subprocess(timeout=30)
+    if sys.platform == "win32":
+        # No SIGALRM: pytest-timeout's thread method dumps the stacks and ends
+        # the whole process (no summary line), which still fails the run.
+        assert result.ret != 0
+        assert "Timeout" in result.stdout.str() + result.stderr.str()
+        return
     result.assert_outcomes(failed=1)
     result.stdout.fnmatch_lines(["*Timeout*>2.0s*"])
 

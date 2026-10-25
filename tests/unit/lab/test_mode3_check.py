@@ -139,6 +139,7 @@ def test_a_missing_single_run_is_inconclusive_never_a_pass() -> None:
     assert nothing.problems
 
 
+@pytest.mark.extras("agent")
 def test_build_then_verify_a_real_output(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

@@ -43,6 +43,11 @@ def _guard(seconds: float = 3.0) -> Iterator[None]:
     def fire(*_a: object) -> None:
         raise RedactorHang
 
+    if not hasattr(signal, "setitimer"):
+        # Windows: no interval timers. The checks still run; a spin is then
+        # bounded by pytest-timeout instead of raising RedactorHang.
+        yield
+        return
     old = signal.signal(signal.SIGALRM, fire)
     signal.setitimer(signal.ITIMER_REAL, seconds)
     try:

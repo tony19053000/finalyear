@@ -33,6 +33,7 @@ pytest.importorskip("sqlalchemy", reason="needs the controller extra")
 from mf_cluster import Fabric, Timing
 
 from meshforge.common.bundle import pack_to_file
+from meshforge.common.states import AttemptPhase
 
 pytestmark = [pytest.mark.cluster, pytest.mark.timeout(240)]
 
@@ -200,7 +201,7 @@ def test_criterion_3_cancel_and_timeout_measured(
     assert overshoot <= 2.0
 
 
-def test_criterion_6_every_attempt_has_five_phase_rows(
+def test_criterion_6_every_attempt_has_a_row_per_phase(
     make_fabric: Callable[..., Fabric], tmp_path: Path, pg_settings: Any
 ) -> None:
     fabric = _fabric(make_fabric)
@@ -219,7 +220,9 @@ def test_criterion_6_every_attempt_has_five_phase_rows(
     rows = asyncio.run(_phase_counts(pg_settings))
     attempts = {a["attempt_id"] for j in ids for a in _job(fabric, j)["attempts"]}
     assert attempts and set(rows) == attempts
-    assert all(count == 5 for count in rows.values()), rows
+    # One row per AttemptPhase: the V0.4 five + V0.9 G1's ``compute`` (D213;
+    # written skipped when the workload reports no kernel time).
+    assert all(count == len(AttemptPhase) for count in rows.values()), rows
 
 
 async def _phase_counts(pg_settings: Any) -> dict[str, int]:

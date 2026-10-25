@@ -61,6 +61,13 @@ from meshforge.controller.db_managed.secret import (
 
 posix_only = pytest.mark.skipif(os.name != "posix", reason="POSIX file modes")
 
+#: These assert POSIX paths (unix socket dir, /opt/... binaries). The managed
+#: PostgreSQL cluster is Linux-first (D398); on Windows the same inputs are
+#: rightly refused as "not an absolute path".
+POSIX_LAYOUT = pytest.mark.skipif(
+    sys.platform == "win32", reason="POSIX socket/binary paths (D398: Linux-first)"
+)
+
 READY_PIDFILE = (
     "12345\n/var/lib/meshforge/db/data\n1792838491\n5433\n/run/meshforge/db\n"
     "127.0.0.1\n  5433001         7\nready   \n"
@@ -194,10 +201,12 @@ def test_binaries_check_reports_missing_programs(tmp_path: Path) -> None:
 
 
 # ----------------------------------------------------------------- socket dir
+@POSIX_LAYOUT
 def test_socket_path_shape() -> None:
     assert socket_path(Path("/run/x"), 5433) == "/run/x/.s.PGSQL.5433"
 
 
+@POSIX_LAYOUT
 def test_socket_dir_length_boundary() -> None:
     suffix = len("/.s.PGSQL.5433")
     fits = Path("/" + "a" * (MAX_SOCKET_PATH_BYTES - suffix - 1))
@@ -216,6 +225,7 @@ def test_socket_dir_rejects_unusable_paths(bad: str) -> None:
     assert info.value.reason is ManagedDbReason.PATH_INVALID
 
 
+@POSIX_LAYOUT
 def test_socket_dir_allows_spaces() -> None:
     check_socket_dir(Path("/home/u/FINAL YEAR/run"), 5432)
 
@@ -225,6 +235,7 @@ BINS = PgBinaries(Path("/opt/meshforge/pg/bin"))
 LAYOUT = ManagedLayout(Path("/var/lib/meshforge/db"))
 
 
+@POSIX_LAYOUT
 def test_initdb_argv_scram_everywhere_and_password_from_file() -> None:
     argv = initdb_argv(
         BINS,
@@ -242,6 +253,7 @@ def test_initdb_argv_scram_everywhere_and_password_from_file() -> None:
     assert argv[argv.index("--pgdata") + 1] == str(LAYOUT.initdb_tmp_dir)
 
 
+@POSIX_LAYOUT
 def test_postgres_argv_is_loopback_only_and_private_socket() -> None:
     argv = postgres_argv(BINS, LAYOUT, port=5433)
     assert argv[:3] == ["/opt/meshforge/pg/bin/postgres", "-D", str(LAYOUT.data_dir)]
@@ -256,6 +268,7 @@ def test_postgres_argv_is_loopback_only_and_private_socket() -> None:
     assert settings == server_settings(LAYOUT, port=5433)
 
 
+@POSIX_LAYOUT
 def test_socket_dir_override() -> None:
     layout = ManagedLayout(Path("/var/lib/x"), socket_dir_override=Path("/run/mf"))
     assert layout.socket_dir == Path("/run/mf")
@@ -279,6 +292,7 @@ def test_death_signal_wrapper_elsewhere_is_identity() -> None:
     assert with_death_signal(argv, parent_pid=1, platform="darwin") == argv
 
 
+@POSIX_LAYOUT
 def test_child_env_inherits_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("PGHOST", "evil")
     monkeypatch.setenv("PGPASSWORD", "leak")
@@ -291,6 +305,7 @@ def test_child_env_inherits_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "PGPASSWORD" not in env
 
 
+@POSIX_LAYOUT
 def test_dump_and_restore_argv() -> None:
     dump = dump_argv(
         BINS,

@@ -10,6 +10,7 @@ behaviour (a busy loop held to its share) is
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import pytest
@@ -83,6 +84,10 @@ def test_not_linux_and_no_v2(tmp_path: Path) -> None:
     )
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="POSIX permission bits (chmod cannot make a Windows folder read-only)",
+)
 def test_a_read_only_parent_is_not_writable(tmp_path: Path) -> None:
     root, self_file = _tree(tmp_path)
     parent = root / "user.slice" / "u.service"

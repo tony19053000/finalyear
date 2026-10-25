@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import datetime as dt
 import subprocess
+import sys
 import time
 from collections.abc import Sequence
 from pathlib import Path
@@ -164,6 +165,7 @@ def test_second_evaluation_starved_by_first_exhausts_its_own_budget() -> None:
     assert b.folds[0]["reason"].startswith("eval_budget_exhausted: stopped")
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="uses sleep, pgrep and ps")
 def test_real_child_killed_and_reaped_when_budget_expires_mid_fold() -> None:
     pids: list[int] = []
 

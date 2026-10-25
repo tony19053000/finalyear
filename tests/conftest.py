@@ -36,6 +36,13 @@ Remote GPU test can be ``component`` + ``gpu`` and a Mode 4 test ``cluster`` + `
   ``scripts/ui_perf/``): minutes of seeding (4 nodes x 100 jobs, 10 000
   jobs). Skipped unless ``--run-perf`` is given or the ``-m`` expression
   selects it (``pytest -m perf``) - a bare run never pays for it.
+* ``extras("controller", ...)`` — the test needs those optional extras
+  (pyproject ``[project.optional-dependencies]``) in a way an import cannot
+  show: a subprocess or CLI run, or a whole-repo check. Skipped with the
+  reason when any package of a named extra is missing (D399; a plain
+  ``uv sync`` installs none). Plain imports need no marker: a test module or
+  test whose own import of an extras package fails is skipped automatically
+  (``_ExtrasAwareModule``, ``pytest_runtest_call``).
 * ``security`` — never skipped by itself: it says the test **proves a row of
   ``docs/THREAT_MODEL.md``** (V0.7 G7, D166). It is a marker, not a tier: a
   security test lives in its tier's directory like every other test, and
@@ -86,7 +93,7 @@ if _SUPPORT_DIR not in sys.path:
 TIERS: Final = ("unit", "component", "cluster", "lab", "e2e", "soak", "chaos")
 
 #: Capability markers: what a test needs, combined with exactly one tier.
-CAPABILITY_MARKERS: Final = ("docker", "gpu", "slow", "perf", "security")
+CAPABILITY_MARKERS: Final = ("docker", "gpu", "slow", "perf", "security", "extras")
 
 #: Tiers/markers that only run when explicitly requested with ``--run-<name>``
 #: (hardware, humans, or long runtimes). ``gpu``/``slow`` are capabilities, not tiers.
@@ -121,6 +128,14 @@ _DOCKER_PING_TIMEOUT_S: Final = 5
 
 def pytest_addoption(parser: pytest.Parser) -> None:
     group = parser.getgroup("meshforge", "MeshForge test tiers and capabilities")
+    group.addoption(
+        "--shard",
+        default=None,
+        metavar="K/N",
+        help="run only shard K of N (1-based): test files in sorted order are "
+        "dealt round-robin, so module/session fixtures stay within one shard "
+        "(CI splits the component tier this way)",
+    )
     for name, why in OPT_IN.items():
         group.addoption(
             f"--run-{name}",
@@ -173,6 +188,57 @@ def pytest_collection_modifyitems(
             "test tier policy violated (see tests/conftest.py):\n  "
             + "\n  ".join(problems)
         )
+    _apply_shard(config, items)
+
+
+#: Longest str/bytes parameter value pytest may spell out in a test id. Longer
+#: ones get a short stable id: the id ends up in the ``PYTEST_CURRENT_TEST``
+#: environment variable, and Windows refuses variables over 32 767 characters
+#: (a 100 kB fuzz value made setup itself fail there).
+MAX_PARAM_ID_CHARS: Final = 64
+
+
+def pytest_make_parametrize_id(
+    config: pytest.Config, val: object, argname: str
+) -> str | None:
+    if not isinstance(val, str | bytes) or len(val) <= MAX_PARAM_ID_CHARS:
+        return None
+    import hashlib
+
+    raw = val if isinstance(val, bytes) else val.encode("utf-8", "surrogatepass")
+    return f"{argname}-len{len(val)}-{hashlib.sha256(raw).hexdigest()[:12]}"
+
+
+def parse_shard(value: str) -> tuple[int, int]:
+    """``"K/N"`` -> ``(K, N)`` with ``1 <= K <= N``; :class:`pytest.UsageError` else."""
+    k_text, sep, n_text = value.partition("/")
+    try:
+        k, n = int(k_text), int(n_text)
+    except ValueError:
+        k = n = 0
+    if not sep or not 1 <= k <= n:
+        raise pytest.UsageError(f"--shard expects K/N with 1 <= K <= N, got {value!r}")
+    return k, n
+
+
+def shard_of_files(paths: list[str], k: int, n: int) -> set[str]:
+    """The files of shard ``k`` of ``n``: sorted, then dealt round-robin."""
+    return {path for i, path in enumerate(sorted(set(paths))) if i % n == k - 1}
+
+
+def _apply_shard(config: pytest.Config, items: list[pytest.Item]) -> None:
+    """``--shard K/N``: deselect every test outside shard K's files."""
+    value = config.getoption("--shard")
+    if not value:
+        return
+    k, n = parse_shard(str(value))
+    files = [str(Path(item.path).relative_to(config.rootpath)) for item in items]
+    keep_files = shard_of_files(files, k, n)
+    keep = [i for i, f in zip(items, files, strict=True) if f in keep_files]
+    dropped = [i for i, f in zip(items, files, strict=True) if f not in keep_files]
+    if dropped:
+        config.hook.pytest_deselected(items=dropped)
+        items[:] = keep
 
 
 def _probe_docker() -> str | None:
@@ -237,6 +303,169 @@ def pytest_runtest_setup(item: pytest.Item) -> None:
         reason = docker_unavailable_reason(config)
         if reason:
             pytest.skip(reason)
+    for marker in item.iter_markers("extras"):
+        reason = extras_missing_reason(marker.args)
+        if reason:
+            pytest.skip(reason)
+
+
+#: Top-level import names that only an optional extra installs (pyproject.toml
+#: ``[project.optional-dependencies]``), with the extra(s) that bring them (D399).
+#: A plain ``uv sync`` has none of them; ``tests/unit/test_ci_extras_skip.py``
+#: checks that every extras requirement is covered here.
+EXTRA_IMPORTS: Final[Mapping[str, str]] = {
+    # controller
+    "fastapi": "controller",
+    "starlette": "controller",
+    "uvicorn": "controller",
+    "sqlalchemy": "controller",
+    "asyncpg": "controller",
+    "alembic": "controller",
+    "pyarrow": "controller",
+    "tzdata": "controller",
+    "zeroconf": "controller/agent",
+    # agent (`docker` also comes with the dev group via testcontainers)
+    "psutil": "agent",
+    "pynvml": "agent",
+    "docker": "agent",
+    "uv": "agent",
+    "numpy": "agent/ml",
+    # ml
+    "sklearn": "ml",
+    "lightgbm": "ml",
+    "xgboost": "ml",
+    "threadpoolctl": "ml",
+    # gpu
+    "torch": "gpu",
+}
+
+#: Packages of this repository: pure Python, so their modules left behind by an
+#: import that failed on a missing extra can be dropped and re-imported safely.
+FIRST_PARTY: Final = frozenset({"meshforge"})
+
+
+def missing_extra(exc: BaseException | None) -> tuple[str, str] | None:
+    """``(module, extra)`` if ``exc`` is "an optional extra is not installed".
+
+    Only a :class:`ModuleNotFoundError` for the *top-level* name of a known
+    extras package counts. A missing submodule of an installed package
+    (``sqlalchemy.nope``), a missing first-party module, or any other import
+    error is a real bug and stays a collection error.
+    """
+    if not isinstance(exc, ModuleNotFoundError) or not exc.name:
+        return None
+    extra = EXTRA_IMPORTS.get(exc.name)
+    return None if extra is None else (exc.name, extra)
+
+
+def first_party_orphans(new: set[str], modules: Mapping[str, object]) -> list[str]:
+    """First-party modules in ``new`` whose parent package is not loaded.
+
+    What a failed import leaves behind: Python drops the module that raised
+    (and every package whose ``__init__`` was mid-import) but keeps the
+    submodules they had already finished importing.
+    """
+    orphans = []
+    for name in new:
+        if name.partition(".")[0] not in FIRST_PARTY or name not in modules:
+            continue
+        parent = name.rpartition(".")[0]
+        while parent:
+            if modules.get(parent) is None:
+                orphans.append(name)
+                break
+            parent = parent.rpartition(".")[0]
+    return sorted(orphans)
+
+
+class _ExtrasAwareModule(pytest.Module):
+    """A test module that *skips* (not errors) when an optional extra is missing.
+
+    D399: a plain ``uv sync`` (no extras) must still collect the whole suite and
+    pass the subset of unit tests that does not need an extra. Rather than
+    ``importorskip`` in hundreds of files, a module whose import fails on a
+    missing extras package (:data:`EXTRA_IMPORTS`) becomes one skipped
+    collection report with the reason ``needs extra <name>``.
+
+    The skip is *clean*: first-party modules the failed import left orphaned are
+    removed again, so :func:`pytest_sessionfinish`'s half-import check still
+    means "a test swallowed a broken import" (third-party orphans are never
+    removed - those are what that check is for).
+    """
+
+    def _getobj(self) -> object:
+        before = set(sys.modules)
+        try:
+            return super()._getobj()  # type: ignore[no-untyped-call]
+        except self.CollectError as exc:
+            found = missing_extra(exc.__cause__)
+            if found is None:
+                raise
+            for name in first_party_orphans(set(sys.modules) - before, sys.modules):
+                del sys.modules[name]
+            module, extra = found
+            pytest.skip(
+                f"needs extra {extra} (`{module}` is not installed: "
+                f"uv sync --extra {extra.split('/')[0]})",
+                allow_module_level=True,
+            )
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_pycollect_makemodule(
+    module_path: Path, parent: pytest.Collector
+) -> pytest.Module:
+    return _ExtrasAwareModule.from_parent(parent, path=module_path)
+
+
+def extra_packages(extra: str) -> list[str]:
+    """Import names :data:`EXTRA_IMPORTS` lists for ``extra``."""
+    found = [m for m, e in EXTRA_IMPORTS.items() if extra in e.split("/")]
+    if not found:
+        raise pytest.UsageError(f"@pytest.mark.extras: unknown extra {extra!r}")
+    return found
+
+
+def extras_missing_reason(extras: tuple[object, ...]) -> str | None:
+    """Why a test marked ``extras(*extras)`` cannot run here, or ``None``.
+
+    Checked with :func:`importlib.util.find_spec` (nothing is imported).
+    """
+    import importlib.util
+
+    for extra in extras:
+        for module in extra_packages(str(extra)):
+            if importlib.util.find_spec(module) is None:
+                return (
+                    f"needs extra {extra} (`{module}` is not installed: "
+                    f"uv sync --extra {extra})"
+                )
+    return None
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_call(item: pytest.Item) -> Iterator[None]:
+    """A test whose *own* import of a missing extras package fails is skipped.
+
+    The run-time half of :class:`_ExtrasAwareModule` (D399), for imports made
+    inside a test body. Only a :class:`ModuleNotFoundError` reaching pytest for
+    the top-level name of an extras package counts (:func:`missing_extra`);
+    first-party modules the failed import left orphaned are dropped again.
+    """
+    before = set(sys.modules)
+    try:
+        return (yield)
+    except ModuleNotFoundError as exc:
+        found = missing_extra(exc)
+        if found is None:
+            raise
+        for name in first_party_orphans(set(sys.modules) - before, sys.modules):
+            del sys.modules[name]
+        module, extra = found
+        pytest.skip(
+            f"needs extra {extra} (`{module}` is not installed: "
+            f"uv sync --extra {extra.split('/')[0]})"
+        )
 
 
 @pytest.fixture(scope="session")
@@ -284,7 +513,7 @@ def _secret_bases_cleaned() -> Iterator[None]:
         created.add(base)
         return base
 
-    SecretVault._ensure_base = recording  # type: ignore[method-assign]
+    SecretVault._ensure_base = recording  # type: ignore[method-assign,assignment]
     try:
         yield
     finally:

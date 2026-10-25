@@ -158,7 +158,10 @@ def require_torch(device: str) -> ModuleType:
             raise Unavailable("no CUDA device is available on this node")
     elif device != "cpu":
         raise KernelParamsError(f"device: expected 'cpu' or 'cuda', got {device!r}")
-    return torch
+    # Annotated binding: `torch` is Any when it is not installed (CI types job),
+    # a module otherwise; either way the function returns a ModuleType.
+    module: ModuleType = torch
+    return module
 
 
 def synchronize(torch: ModuleType, device: str) -> None:

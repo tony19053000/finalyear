@@ -396,4 +396,3 @@ uv run python scripts/threat_model_check.py
 test or a test that is missing or unmarked, or an `accepted` row has no reason or is not named in §7. When you add a
 row: name its tests by full path (`tests/<tier>/.../test_x.py::test_name`; `::test_other` repeats the previous file),
 mark them `@pytest.mark.security`, and run the check.
-
