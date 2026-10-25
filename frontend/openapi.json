@@ -7125,7 +7125,7 @@
           },
           "display_name": {
             "default": "",
-            "description": "The name the laptop's owner gave it in the agent's local console (V0.17 G3); empty = none, show the hostname.",
+            "description": "V0.17 G3: the name the laptop's owner gave it in the agent's local console; empty = none, show the hostname.",
             "title": "Display Name",
             "type": "string"
           },
@@ -7581,7 +7581,7 @@
           },
           "display_name": {
             "default": "",
-            "description": "The name the laptop's owner gave it in the agent's local console (V0.17 G3); empty = none, show the hostname.",
+            "description": "V0.17 G3: the name the laptop's owner gave it in the agent's local console; empty = none, show the hostname.",
             "title": "Display Name",
             "type": "string"
           },

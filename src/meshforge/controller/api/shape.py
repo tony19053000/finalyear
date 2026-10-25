@@ -115,7 +115,6 @@ class _SummaryFields(TypedDict):
 
     node_id: str
     hostname: str
-    display_name: str
     os: str
     platform: str
     state: NodeState
@@ -131,6 +130,7 @@ class _SummaryFields(TypedDict):
     scores: NodeScores
     certificate: NodeCertificate | None
     not_enforced: tuple[str, ...] | None
+    display_name: str
 
 
 def _certificate(node: NodeRecord) -> NodeCertificate | None:
@@ -159,7 +159,6 @@ def _summary_fields(
     return {
         "node_id": node.node_id,
         "hostname": node.hostname,
-        "display_name": node.display_name,
         "os": node.os,
         "platform": node.platform,
         "state": node.state,
@@ -181,6 +180,7 @@ def _summary_fields(
             if live is not None and live.policy is not None
             else None
         ),
+        "display_name": node.display_name,
     }
 
 

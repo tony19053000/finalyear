@@ -165,13 +165,6 @@ class NodeSummary(ApiModel):
 
     node_id: str
     hostname: str
-    display_name: str = Field(
-        default="",
-        description=(
-            "The name the laptop's owner gave it in the agent's local console "
-            "(V0.17 G3); empty = none, show the hostname."
-        ),
-    )
     os: str
     platform: str
     state: NodeState
@@ -202,6 +195,13 @@ class NodeSummary(ApiModel):
             "V0.7 G6: the owner caps no runtime limit enforces on this node "
             "(``<field>:<why>``, from its live session's owner policy); null = "
             "offline or an agent from before V0.7 G5."
+        ),
+    )
+    display_name: str = Field(
+        default="",
+        description=(
+            "V0.17 G3: the name the laptop's owner gave it in the agent's local "
+            "console; empty = none, show the hostname."
         ),
     )
 
