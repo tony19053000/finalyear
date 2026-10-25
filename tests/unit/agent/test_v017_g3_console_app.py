@@ -256,6 +256,40 @@ async def test_origin_is_checked_before_the_session(
     assert r.status_code == 403
 
 
+async def test_origin_and_session_are_checked_before_the_body(
+    http: httpx.AsyncClient, ctx: ConsoleContext
+) -> None:
+    """G3-R2-D1: a malformed body never turns a 403/401 into a 422."""
+    writes = console_app._session_writes(create_app(ctx))
+    assert {
+        ("POST", "/console/v1/join"),
+        ("PUT", "/console/v1/policy"),
+        ("PUT", "/console/v1/node-name"),
+        ("POST", "/console/v1/leave"),
+        ("POST", "/console/v1/restart"),
+        ("POST", "/console/v1/setup-complete"),
+        ("DELETE", "/console/v1/session"),
+    } <= writes
+    # the sign-in and the launcher's route have their own rule
+    assert ("POST", "/console/v1/session") not in writes
+    assert ("POST", "/console/v1/launch-code") not in writes
+    bad = b"{not json"
+    for method, path in sorted(writes):
+        r = await http.request(
+            method, path, headers={"origin": "http://evil.example"}, content=bad
+        )
+        assert r.status_code == 403, (method, path)
+        assert r.json()["error"]["code"] == "bad_origin"
+        r = await http.request(method, path, headers=ORIGIN, content=bad)
+        assert r.status_code == 401, (method, path)
+        assert r.json()["error"]["code"] == "signed_out"
+    # signed in, the body is validated as before
+    await _sign_in(http, ctx)
+    r = await http.post("/console/v1/leave", headers=ORIGIN, content=bad)
+    assert r.status_code == 422
+    assert r.json()["error"]["code"] == "invalid"
+
+
 # ---------------------------------------------------------------- endpoints
 
 

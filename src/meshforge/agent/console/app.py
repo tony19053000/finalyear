@@ -7,9 +7,13 @@ Every request passes :class:`GuardMiddleware` first:
 * every response gets the dashboard's security headers
   (:mod:`meshforge.common.web_security`) and API answers ``no-store``.
 
-Then, per route (:func:`_session`): the ``mf_console`` cookie must name a live
-session (``401``), and a write must carry ``Origin: http://127.0.0.1:<port>``
-(``403``, CSRF). Two routes have their own rule: ``POST /console/v1/session``
+Then, for a signed-in route (:func:`_session`): a write must carry
+``Origin: http://127.0.0.1:<port>`` (``403``, CSRF) and the ``mf_console`` cookie
+must name a live session (``401``) - in that order. For writes this is decided
+by :class:`WriteGuardMiddleware` *before the body is read or parsed*, so a
+cross-site or signed-out write never learns anything from a ``422``
+(G3-R2-D1); the dependency repeats the check for every route. Two routes
+have their own rule: ``POST /console/v1/session``
 (trade the launcher's one-time code or the token for the cookie; Origin
 required, throttled) and ``POST /console/v1/launch-code`` (``Authorization:
 Bearer <token>``, for the launcher; a browser ``Origin`` is refused).
@@ -190,6 +194,41 @@ class GuardMiddleware:
         await self.app(scope, receive, with_headers)
 
 
+class WriteGuardMiddleware:
+    """Origin, then session, for the signed-in *writes* - before the body.
+
+    FastAPI reads and validates a route's body model before its dependencies
+    run, so :func:`_session` alone would answer a malformed cross-site write
+    with ``422``. ``protected`` holds the ``(method, path)`` pairs of the routes
+    that depend on :func:`_session`; it is filled once the routes exist."""
+
+    def __init__(
+        self,
+        app: ASGIApp,
+        *,
+        auth: Callable[[], ConsoleAuth],
+        protected: set[tuple[str, str]],
+    ) -> None:
+        self.app = app
+        self.auth = auth
+        self.protected = protected
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "http":
+            method = str(scope.get("method", "")).upper()
+            if (
+                method in _UNSAFE
+                and (method, str(scope.get("path", ""))) in self.protected
+            ):
+                problem = _write_problem(Request(scope), self.auth())
+                if problem is not None:
+                    await _error(
+                        problem.status, problem.code, problem.message, problem.fix
+                    )(scope, receive, send)
+                    return
+        await self.app(scope, receive, send)
+
+
 # ----------------------------------------------------------- dependencies
 
 
@@ -198,23 +237,32 @@ def _ctx(request: Request) -> ConsoleContext:
     return ctx
 
 
-def _session(request: Request) -> ConsoleContext:
+def _write_problem(request: Request, auth: ConsoleAuth) -> ConsoleHTTPError | None:
     """Origin first (a cross-site write learns nothing about the session, not
-    even whether the cookie is valid), then the session."""
-    ctx = _ctx(request)
+    even whether the cookie is valid), then the session. Reads headers only."""
     if request.method in _UNSAFE and not origin_ok(
-        request.headers.get("origin"), ctx.auth.port
+        request.headers.get("origin"), auth.port
     ):
-        raise ConsoleHTTPError(
+        return ConsoleHTTPError(
             403, "bad_origin", "This request did not come from the console page."
         )
-    if not ctx.auth.session_ok(request.cookies.get(COOKIE_NAME)):
-        raise ConsoleHTTPError(
+    if not auth.session_ok(request.cookies.get(COOKIE_NAME)):
+        return ConsoleHTTPError(
             401,
             "signed_out",
             "You are not signed in to this console.",
             "Open MeshForge from the app menu.",
         )
+    return None
+
+
+def _session(request: Request) -> ConsoleContext:
+    """:func:`_write_problem` for every signed-in route (writes were already
+    checked by :class:`WriteGuardMiddleware`; this is the per-route rule)."""
+    ctx = _ctx(request)
+    problem = _write_problem(request, ctx.auth)
+    if problem is not None:
+        raise problem
     return ctx
 
 
@@ -356,6 +404,9 @@ def create_app(ctx: ConsoleContext) -> FastAPI:
         openapi_url=None,
     )
     app.state.console = ctx
+    protected: set[tuple[str, str]] = set()
+    # Inner first: Host check (outermost) -> write guard -> routes.
+    app.add_middleware(WriteGuardMiddleware, auth=lambda: ctx.auth, protected=protected)
     app.add_middleware(GuardMiddleware, port=lambda: ctx.auth.port)
 
     @app.exception_handler(ConsoleHTTPError)
@@ -661,7 +712,23 @@ def create_app(ctx: ConsoleContext) -> FastAPI:
     async def ui(path: str) -> Response:
         return _serve_ui(ctx.dist, path)
 
+    protected.update(_session_writes(app))
     return app
+
+
+def _session_writes(app: FastAPI) -> set[tuple[str, str]]:
+    """``(method, path)`` of every unsafe-method route that depends on
+    :func:`_session` (so a new write route is guarded without a list to edit)."""
+    from fastapi.routing import APIRoute
+
+    out: set[tuple[str, str]] = set()
+    for route in app.routes:
+        if not isinstance(route, APIRoute):
+            continue
+        if not any(dep.call is _session for dep in route.dependant.dependencies):
+            continue
+        out.update((m, route.path) for m in route.methods or () if m in _UNSAFE)
+    return out
 
 
 def _serve_ui(dist: Path, path: str) -> Response:

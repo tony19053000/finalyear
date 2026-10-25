@@ -234,12 +234,6 @@ WRITES = [
 ]
 
 
-_BODY_ROUTES = {
-    "/console/v1/join",
-    "/console/v1/policy",
-    "/console/v1/node-name",
-    "/console/v1/leave",
-}
 _VALID_BODY = {
     "/console/v1/join": {"code": "x"},
     "/console/v1/policy": {"set": {}},
@@ -247,11 +241,6 @@ _VALID_BODY = {
     "/console/v1/leave": {},
     "/console/v1/session": {"code": "x"},
 }
-_XFAIL_D1 = pytest.mark.xfail(
-    strict=True,
-    reason="G3-R2-D1: routes with a body model parse/validate the body (422) "
-    "before the Origin/session dependency runs",
-)
 
 
 def _body(path: str, kind: str, method: str) -> bytes:
@@ -263,16 +252,11 @@ def _body(path: str, kind: str, method: str) -> bytes:
 
 
 def _cases() -> list[object]:
-    out: list[object] = []
-    for method, path in WRITES:
-        for kind in ("valid", "malformed"):
-            marks = [_XFAIL_D1] if kind == "malformed" and path in _BODY_ROUTES else []
-            out.append(
-                pytest.param(
-                    method, path, kind, marks=marks, id=f"{method}-{path}-{kind}"
-                )
-            )
-    return out
+    return [
+        pytest.param(method, path, kind, id=f"{method}-{path}-{kind}")
+        for method, path in WRITES
+        for kind in ("valid", "malformed")
+    ]
 
 
 @pytest.mark.parametrize(("method", "path", "kind"), _cases())
