@@ -800,8 +800,10 @@ class ManagedCluster:
         return time.monotonic() - started
 
     async def create_database(self, name: str) -> None:
-        """``CREATE DATABASE`` (for a restore target)."""
-        await self._admin_sql(name, 'CREATE DATABASE "{name}"')
+        """``CREATE DATABASE`` owned by the application role (a restore target:
+        :meth:`restore` runs as that role, Q18, so it must own ``public``)."""
+        app = self.app_user  # a validated identifier
+        await self._admin_sql(name, f'CREATE DATABASE "{{name}}" OWNER "{app}"')
 
     async def drop_database(self, name: str) -> None:
         """``DROP DATABASE IF EXISTS ... WITH (FORCE)``."""

@@ -97,8 +97,9 @@ Implemented as decided (D390, D392, D393 controller half, D398; Q18-Q22), detail
   start without it).
 - **Package:** `meshforge-controller` .deb (`build_deb.py --role controller`), program under
   `/opt/meshforge/controller/` so it coexists with the agent package; `/etc/meshforge/controller.toml` written
-  once; ufw profile allowed only when ufw is active, deleted on remove (D389). The .deb is 151.6 MB against
-  the 150 MB budget (nfpm's xz; the `.tar.xz` is 120.9 MB) — open question for the Lead.
+  once; ufw profile allowed only when ufw is active, deleted on remove (D389). The .deb is 145.4 MB, inside
+  the 150 MB budget with the size check on, after the controller bundle drops the numpy/pyarrow/greenlet test
+  suites and C/C++ headers/sources (Lead decision; `build_bundle.py STRIP_SITE`; nfpm's xz alone gave 151.6 MB).
 - **Upgrade (D393):** pre-upgrade `pg_dump` + health check + restore-and-exit-4 in the controller; pointer
   switch-back stays G5's.
 - **Setup page (D392/Q20):** loopback-only plain HTTP setup mode gated by the one-time token; create fabric =

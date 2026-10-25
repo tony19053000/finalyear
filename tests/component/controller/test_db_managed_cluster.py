@@ -214,9 +214,9 @@ async def test_password_never_logged_or_on_a_command_line(
     assert password not in json.dumps(logs, default=str)
     for path in (root / "log").iterdir():
         assert password not in path.read_text(errors="replace"), path
-    mode = stat.S_IMODE((root / "password").stat().st_mode)
-    assert mode == 0o600
-    assert os.stat(root / "password").st_uid == os.geteuid()
+    for name in ("admin.password", "app.password"):  # Q18 role split (V0.17 G2)
+        assert stat.S_IMODE((root / name).stat().st_mode) == 0o600, name
+        assert os.stat(root / name).st_uid == os.geteuid(), name
 
 
 def _read(path: Path) -> bytes:
