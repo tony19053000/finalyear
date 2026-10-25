@@ -66,6 +66,7 @@ AGENT_PROGRAM: Final = SystemProgram(
     prog="meshforge-agent",
     program_dir=SYSTEM_PROGRAM_DIR,
     anyone=frozenset({"migrate-identity"}),  # runs as root by design
+    windows=True,
     windows_refused={
         # V0.17 G4: a second agent with the service's identity would replace the
         # service at the controller (which then stops it with exit 5).

@@ -472,7 +472,7 @@ def migrate_identity(
     import sys
 
     from meshforge.agent.migration import Paths, migrate
-    from meshforge.common.config import CONFIG_FILE_NAME
+    from meshforge.common.config import CONFIG_FILE_NAME, INSTALL_MODE_ENV_VAR
     from meshforge.common.errors import MeshForgeError
     from meshforge.common.logging import configure_logging
 
@@ -494,6 +494,10 @@ def migrate_identity(
                 err=True,
             )
             raise typer.Exit(ExitCode.FAILURE)
+        # It writes the service's files: any private file it makes must stay
+        # the service's (common.windows_service.windows_private_sids), as when
+        # the installer (RealOps) runs it.
+        os.environ[INSTALL_MODE_ENV_VAR] = "system"
     elif not dry_run and service_user and os.geteuid() != 0:
         typer.echo(
             f"{PROG_NAME}: migrate-identity changes machine-wide files: run it with "

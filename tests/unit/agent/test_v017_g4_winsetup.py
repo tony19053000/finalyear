@@ -568,4 +568,3 @@ def test_teardown_without_a_service_says_so() -> None:
     assert result.ok
     assert "no MeshForgeAgent service was installed" in result.lines
     assert result.as_dict()["ok"] is True
-

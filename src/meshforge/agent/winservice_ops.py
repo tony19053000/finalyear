@@ -137,6 +137,22 @@ def current_user_sid() -> str:
     return _sid_string(user)
 
 
+def session_user_name() -> str | None:
+    """The name of the user signed in to this process's session (see
+    :func:`session_user_sid`); ``None`` in session 0 or when unknown."""
+    try:
+        to_session: Callable[[int], int] = win32ts.ProcessIdToSessionId
+        session = to_session(os.getpid())
+        if session == 0:
+            return None
+        user = win32ts.WTSQuerySessionInformation(
+            win32ts.WTS_CURRENT_SERVER_HANDLE, session, win32ts.WTSUserName
+        )
+    except pywintypes.error:
+        return None
+    return str(user) or None
+
+
 def session_user_sid() -> str | None:
     """The user signed in to *this process's* Windows session - the person at the
     keyboard who started the installer, also when an administrator's password
@@ -281,7 +297,9 @@ class RealOps:
                 config_from=None,
                 dry_run=False,
                 service_user=None,
-                sudo_user=os.environ.get("USERNAME"),
+                # The person at the keyboard (also when an administrator's
+                # password elevated the installer): their profile first.
+                sudo_user=session_user_name() or os.environ.get("USERNAME"),
             )
         except MeshForgeError as exc:
             return "blocked", [f"identity migration failed: {exc.message}"]

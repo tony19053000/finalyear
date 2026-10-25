@@ -99,6 +99,10 @@ class SystemProgram:
     argument; a value after an option in ``value_options`` is skipped). None:
     every command except the ``anyone`` ones (the agent)."""
     value_options: frozenset[str] = frozenset({"--config"})
+    windows: bool = False
+    """The program has a Windows install to act on (V0.17 G4: the agent; the
+    controller is Linux-only, Q4, so a Windows controller command never looks
+    at the agent installer's files)."""
     windows_refused: Mapping[str, str] = field(default_factory=dict)
     """Windows: sub-command -> why it is refused on the installed system, and
     what to do instead (V0.17 G4)."""
@@ -308,7 +312,8 @@ def apply(
     re-execution is needed but ``sudo`` is missing."""
     say = stderr or (lambda text: sys.stderr.write(text + "\n"))
     if sys.platform == "win32":
-        _apply_windows(args, program=program, bundled=bundled, say=say)
+        if program.windows:
+            _apply_windows(args, program=program, bundled=bundled, say=say)
         return
     if sys.platform != "linux" or not installed():
         return  # the common case, decided with two stat calls

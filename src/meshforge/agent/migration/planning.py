@@ -32,6 +32,7 @@ from meshforge.agent.migration.model import (
     example_identity_dir,
     rerun_hint,
     start_hint,
+    windows_profiles_root,
 )
 from meshforge.agent.migration.safe_source import (
     ReadFile,
@@ -70,15 +71,29 @@ def _peek_node_id(directory: Path, home_root: Path) -> str | None:
     return value if isinstance(value, str) else None
 
 
+def windows_home_of(
+    user: str, environ: Mapping[str, str], profiles_root: Path
+) -> Path | None:
+    """A Windows user's profile folder (V0.17 G4). The installer's own user (the
+    common case: it runs elevated as the user who started it) is
+    ``%USERPROFILE%``; the user signed in to the session when an administrator's
+    password elevated it is ``<profiles root>\\<name>`` when that folder exists
+    (the usual profile path; otherwise the profiles are searched one by one)."""
+    if not user:
+        return None
+    if user.lower() == environ.get("USERNAME", "").lower():
+        profile = environ.get("USERPROFILE", "").strip()
+        if profile:
+            return Path(profile)
+    if any(sep in user for sep in ("\\", "/")) or user in (".", ".."):
+        return None
+    candidate = profiles_root / user
+    return candidate if candidate.is_dir() else None
+
+
 def _home_of(user: str) -> Path | None:
     if sys.platform == "win32":  # pragma: no cover - Windows (V0.17 G4)
-        # The installer runs elevated as the user who started it (the common
-        # case): that user's profile is %USERPROFILE%. Any other name: unknown
-        # here, the profiles are then searched one by one.
-        if user and user.lower() == os.environ.get("USERNAME", "").lower():
-            profile = os.environ.get("USERPROFILE", "").strip()
-            return Path(profile) if profile else None
-        return None
+        return windows_home_of(user, os.environ, windows_profiles_root())
     import pwd
 
     try:
