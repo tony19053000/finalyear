@@ -1,0 +1,79 @@
+# nfpm config for the meshforge-controller .deb (V0.17 G2, D390/D394/D398). Do not
+# run nfpm on it directly: scripts/build_deb.py --role controller fills the
+# ${MF_*} placeholders (as for the agent package, packaging/linux/nfpm.yaml),
+# stages these files with fixed modes and mtimes, runs the pinned nfpm and checks
+# the result (paths, control fields, system libraries, download-size budget).
+#
+# Can be installed next to meshforge-agent (one machine that is controller and
+# worker): different program folder (/opt/meshforge/controller), unit, config
+# file and state sub-folders; the same service user.
+name: meshforge-controller
+arch: amd64
+platform: linux
+version: ${MF_DEB_VERSION}
+version_schema: none
+mtime: ${MF_MTIME}
+section: net
+priority: optional
+maintainer: MeshForge team <meshforge@example.org>
+description: |-
+  MeshForge controller (compute fabric for personal devices)
+   The control plane of a MeshForge fabric: accepts laptops into the fabric,
+   plans and dispatches work to them, and serves the dashboard and REST API.
+   Runs as the system service meshforge-controller with its own bundled
+   PostgreSQL 16 database and Python runtime - no Docker, no system database.
+   After installing, open the setup link it prints to create the fabric.
+license: Proprietary (no license chosen yet)
+# D398: the bundled PostgreSQL needs glibc >= 2.36 (Ubuntu 24.04+); agents keep
+# 22.04. The other libraries are checked with ldd on every build
+# (scripts/build_deb.py SYSTEM_LIBS). passwd: useradd/groupadd.
+depends:
+  - libc6 (>= 2.36)
+  - libcrypt1
+  - libgcc-s1
+  - libstdc++6
+  - zlib1g
+  - passwd
+recommends:
+  - sudo
+
+contents:
+  - src: ${MF_BUNDLE}
+    dst: /opt/meshforge/controller/${MF_VERSION}
+    type: tree
+  - src: ${MF_VERSION}
+    dst: /opt/meshforge/controller/current
+    type: symlink
+  - src: /opt/meshforge/controller/current/bin/meshforge-controller
+    dst: /usr/bin/meshforge-controller
+    type: symlink
+  - src: ${MF_STAGE}/meshforge-controller.service
+    dst: /usr/lib/systemd/system/meshforge-controller.service
+    file_info:
+      mode: 0644
+  - src: ${MF_STAGE}/meshforge-controller.ufw
+    dst: /etc/ufw/applications.d/meshforge-controller
+    type: config
+    file_info:
+      mode: 0644
+  - src: ${MF_STAGE}/lintian-overrides
+    dst: /usr/share/lintian/overrides/meshforge-controller
+    file_info:
+      mode: 0644
+  - src: ${MF_STAGE}/copyright
+    dst: /usr/share/doc/meshforge-controller/copyright
+    file_info:
+      mode: 0644
+  - src: ${MF_STAGE}/changelog.Debian.gz
+    dst: /usr/share/doc/meshforge-controller/changelog.Debian.gz
+    file_info:
+      mode: 0644
+
+scripts:
+  preinstall: ${MF_STAGE}/scripts/preinst
+  postinstall: ${MF_STAGE}/scripts/postinst
+  preremove: ${MF_STAGE}/scripts/prerm
+  postremove: ${MF_STAGE}/scripts/postrm
+
+deb:
+  compression: xz

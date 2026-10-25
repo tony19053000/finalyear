@@ -882,6 +882,37 @@ def setup_url(
     )
 
 
+@setup_app.command("init-config")
+def setup_init_config(
+    path: Annotated[
+        Path,
+        typer.Option("--path", help="Settings file to write (only if missing)."),
+    ] = Path("/etc/meshforge/controller.toml"),
+    address: Annotated[
+        str | None,
+        typer.Option(
+            "--address", help="LAN IPv4 address to listen on (default: detected)."
+        ),
+    ] = None,
+) -> None:
+    """Write the packaged controller's first settings file (the package's
+    postinst runs this once). Never overwrites an existing file."""
+    from meshforge.controller.setup.config_file import LOOPBACK, write_default_config
+
+    written, chosen = write_default_config(path, address)
+    if not written:
+        typer.echo(f"{path} exists; left unchanged", err=True)
+        return
+    typer.echo(f"wrote {path} (listening on {chosen})", err=True)
+    if chosen == LOOPBACK:
+        typer.echo(
+            "no LAN address found: the controller listens on this computer only. Put "
+            f"its LAN address in {path}, then: sudo systemctl restart "
+            "meshforge-controller",
+            err=True,
+        )
+
+
 # ----------------------------------------------------------------- doctor
 
 

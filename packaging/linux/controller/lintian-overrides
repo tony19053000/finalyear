@@ -1,0 +1,51 @@
+# meshforge-controller lintian overrides (V0.17 G2; the same reasons as the agent package). Every entry says why.
+#
+# D385: the bundled runtime lives in a versioned, read-only /opt/meshforge/controller/<ver>
+# with a `current` pointer, so an upgrade is a pointer swap and a rollback is
+# possible; this is a self-contained third-party package, the case /opt exists for.
+meshforge-controller: dir-or-file-in-opt [*]
+
+# Everything below is about /opt/meshforge/controller/<ver>/python: the D384 runtime bundle,
+# a python-build-standalone CPython plus the hash-pinned wheels from uv.lock,
+# shipped exactly as published (scripts/build_bundle.py). It is not a Debian
+# Python package and must not become one: the agent runs the interpreter it was
+# tested with, and every file is checked against MANIFEST.sha256.
+#
+# Pre-compiled, reproducible bytecode (unchecked-hash .pyc) is part of the
+# bundle: /opt is read-only for the service (ProtectSystem=strict), so Python
+# could never cache it at run time and every start would compile from source.
+meshforge-controller: package-installs-python-pycache-dir [opt/meshforge/controller/*/python/*]
+# Upstream binaries as published: the wheels' sha256 are pinned in uv.lock and
+# checked on install; stripping or re-moding them would break that chain.
+meshforge-controller: unstripped-binary-or-object [opt/meshforge/controller/*/python/*]
+meshforge-controller: shared-library-is-executable * [opt/meshforge/controller/*/python/*]
+meshforge-controller: library-not-linked-against-libc [opt/meshforge/controller/*/python/*]
+meshforge-controller: shared-library-lacks-prerequisites [opt/meshforge/controller/*/python/*]
+meshforge-controller: hardening-no-pie [opt/meshforge/controller/*/python/*]
+meshforge-controller: executable-not-elf-or-script [opt/meshforge/controller/*/python/*]
+# D384: a self-contained runtime that does not depend on the distribution's
+# libraries (python-build-standalone links them statically; wheels vendor them).
+meshforge-controller: embedded-library * [opt/meshforge/controller/*/python/*]
+# Standard-library and wheel modules that carry a #! line; the bundle brings its
+# own interpreter, so no python3 dependency is wanted (none of them is run by
+# their #! line).
+meshforge-controller: python3-script-but-no-python3-dep * [opt/meshforge/controller/*/python/*]
+meshforge-controller: unusual-interpreter * [opt/meshforge/controller/*/python/*]
+meshforge-controller: script-not-executable [opt/meshforge/controller/*/python/*]
+# The console scripts are python-build-standalone's sh/Python polyglot launcher
+# ("exec" of the bundled interpreter on the second line, Python after it); sh
+# never reaches the Python part, which a whole-file `sh -n` cannot know. Same for
+# stdlib modules whose #! names /usr/local/bin/python.
+meshforge-controller: shell-script-fails-syntax-check [opt/meshforge/controller/*/python/*]
+# The bundled PostgreSQL (/opt/meshforge/controller/<ver>/pgsql): the sha256-
+# pinned upstream relocatable build, trimmed but otherwise as published
+# (scripts/pg_bundle.py). Its libraries (OpenSSL, ICU...) are bundled on purpose
+# ($ORIGIN RUNPATHs): the controller runs the PostgreSQL it was tested with,
+# not whatever the distribution has.
+meshforge-controller: embedded-library * [opt/meshforge/controller/*/pgsql/*]
+meshforge-controller: unstripped-binary-or-object [opt/meshforge/controller/*/pgsql/*]
+meshforge-controller: shared-library-lacks-prerequisites [opt/meshforge/controller/*/pgsql/*]
+meshforge-controller: custom-library-search-path * [opt/meshforge/controller/*/pgsql/*]
+meshforge-controller: hardening-no-fortify-functions [opt/meshforge/controller/*/pgsql/*]
+meshforge-controller: package-contains-documentation-outside-usr-share-doc [opt/meshforge/controller/*/pgsql/*]
+meshforge-controller: extra-license-file [opt/meshforge/controller/*/pgsql/*]

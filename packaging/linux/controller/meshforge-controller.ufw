@@ -1,0 +1,4 @@
+[MeshForge Controller]
+title=MeshForge controller
+description=MeshForge controller: agent connections (47100), laptop enrolment (47101), dashboard and REST API (47110). Installed by the meshforge-controller package (V0.17 G2, D389).
+ports=47100,47101,47110/tcp

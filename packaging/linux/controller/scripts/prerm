@@ -1,0 +1,28 @@
+#!/bin/sh
+# meshforge-controller prerm (V0.17 G2): stop and disable the service on remove;
+# on upgrade it keeps running until postinst restarts it on the new version.
+set -eu
+
+UNIT=meshforge-controller.service
+STATE=/var/lib/meshforge/controller
+
+case "${1:-}" in
+remove | deconfigure)
+	# The state stays on remove (Q9); postinst sees this mark on a re-install.
+	if [ -d "$STATE" ]; then
+		: >"$STATE/.package-removed"
+	fi
+	if [ -d /run/systemd/system ]; then
+		systemctl stop "$UNIT" || true
+	fi
+	systemctl disable "$UNIT" >/dev/null 2>&1 || true
+	# D389: the firewall rule goes with the service (by its profile name).
+	if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q 'MeshForge Controller'; then
+		ufw delete allow 'MeshForge Controller' >/dev/null 2>&1 || true
+	fi
+	;;
+upgrade | failed-upgrade) ;;
+*) ;;
+esac
+
+exit 0

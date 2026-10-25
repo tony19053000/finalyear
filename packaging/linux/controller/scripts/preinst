@@ -1,0 +1,21 @@
+#!/bin/sh
+# meshforge-controller preinst (V0.17 G2): the service account, shared with the
+# meshforge-agent package (one machine may run both). Idempotent.
+set -eu
+
+case "${1:-}" in
+install | upgrade)
+	if ! getent group meshforge >/dev/null; then
+		groupadd --system meshforge
+	fi
+	if ! getent passwd meshforge >/dev/null; then
+		useradd --system --gid meshforge --home-dir /var/lib/meshforge \
+			--no-create-home --shell /usr/sbin/nologin \
+			--comment "MeshForge services" meshforge
+	fi
+	;;
+abort-upgrade) ;;
+*) ;;
+esac
+
+exit 0

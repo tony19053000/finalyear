@@ -1,0 +1,43 @@
+#!/bin/sh
+# meshforge-controller postrm (V0.17 G2, D393/Q9): `apt remove` keeps the fabric
+# (CA, database, settings); `apt purge` removes the controller's state. The
+# shared service user and folders go only when the agent package is not on this
+# machine (its own purge removes them otherwise). Idempotent.
+set -eu
+
+UNIT=meshforge-controller.service
+
+agent_known() {
+	status=$(dpkg-query -W -f='${db:Status-Status}' meshforge-agent 2>/dev/null || true)
+	[ -n "$status" ] && [ "$status" != not-installed ]
+}
+
+case "${1:-}" in
+purge)
+	rm -rf /var/lib/meshforge/controller /var/lib/meshforge/db
+	rm -f /etc/meshforge/controller.toml
+	if ! agent_known; then
+		rmdir /var/lib/meshforge /etc/meshforge 2>/dev/null || true
+		if getent passwd meshforge >/dev/null; then
+			userdel meshforge || true
+		fi
+		if getent group meshforge >/dev/null; then
+			groupdel meshforge || true
+		fi
+	fi
+	if [ -d /run/systemd/system ]; then
+		systemctl daemon-reload || true
+		systemctl reset-failed "$UNIT" >/dev/null 2>&1 || true
+	fi
+	;;
+remove)
+	if [ -d /run/systemd/system ]; then
+		systemctl daemon-reload || true
+		systemctl reset-failed "$UNIT" >/dev/null 2>&1 || true
+	fi
+	;;
+upgrade | failed-upgrade | abort-install | abort-upgrade | disappear) ;;
+*) ;;
+esac
+
+exit 0
