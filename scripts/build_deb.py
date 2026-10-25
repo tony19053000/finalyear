@@ -1,4 +1,5 @@
-"""Build the ``meshforge-agent`` .deb from an agent bundle (V0.17 G1, D394).
+"""Build the ``meshforge-agent`` / ``meshforge-controller`` .deb from a bundle
+(V0.17 G1 agent, G2 controller ``--role controller``; D394).
 
 Input: a built **agent** bundle (``scripts/build_bundle.py --role agent``), checked
 against its own ``MANIFEST.sha256`` first. Output:
@@ -75,36 +76,92 @@ from bundle_lib import (  # noqa: E402
 REPO: Final = Path(__file__).resolve().parent.parent
 PACKAGING: Final = REPO / "packaging" / "linux"
 PINS: Final = REPO / "packaging" / "pins.toml"
-PACKAGE: Final = "meshforge-agent"
 DEB_ARCH: Final = "amd64"
 MAINTAINER: Final = "MeshForge team <meshforge@example.org>"
 
-STAGED: Final[Mapping[str, int]] = {
-    # file in packaging/linux -> mode in the stage (and so in the package)
-    "meshforge-agent.service": 0o644,
-    "meshforge-agent.path": 0o644,
-    "lintian-overrides": 0o644,
-    "copyright": 0o644,
-    "scripts/preinst": 0o755,
-    "scripts/postinst": 0o755,
-    "scripts/prerm": 0o755,
-    "scripts/postrm": 0o755,
-}
-REQUIRED_PATHS: Final = (
-    # (path in the data tree, kind); {v} = the bundle version
-    ("./opt/meshforge/{v}/bin/meshforge-agent", "file"),
-    ("./opt/meshforge/{v}/bin/compute", "file"),
-    ("./opt/meshforge/{v}/python/bin/python3.12", "file"),
-    ("./opt/meshforge/{v}/BUILDINFO.json", "file"),
-    ("./opt/meshforge/{v}/MANIFEST.sha256", "file"),
-    ("./opt/meshforge/current", "symlink"),
-    ("./usr/bin/meshforge-agent", "symlink"),
-    ("./usr/bin/compute", "symlink"),
-    ("./usr/lib/systemd/system/meshforge-agent.service", "file"),
-    ("./usr/lib/systemd/system/meshforge-agent.path", "file"),
-    ("./usr/share/doc/meshforge-agent/copyright", "file"),
-    ("./usr/share/doc/meshforge-agent/changelog.Debian.gz", "file"),
+
+@dataclass(frozen=True, slots=True)
+class PackageSpec:
+    """One .deb built from one bundle role (V0.17 G1 agent, G2 controller)."""
+
+    package: str
+    role: str
+    packaging: Path
+    staged: Mapping[str, int]
+    """file in ``packaging`` -> mode in the stage (and so in the package)"""
+    required_paths: tuple[tuple[str, str], ...]
+    """(path in the data tree, kind); ``{v}`` = the bundle version"""
+    current_link: str
+
+
+AGENT: Final = PackageSpec(
+    package="meshforge-agent",
+    role="agent",
+    packaging=PACKAGING,
+    staged={
+        "meshforge-agent.service": 0o644,
+        "meshforge-agent.path": 0o644,
+        "lintian-overrides": 0o644,
+        "copyright": 0o644,
+        "scripts/preinst": 0o755,
+        "scripts/postinst": 0o755,
+        "scripts/prerm": 0o755,
+        "scripts/postrm": 0o755,
+    },
+    required_paths=(
+        ("./opt/meshforge/{v}/bin/meshforge-agent", "file"),
+        ("./opt/meshforge/{v}/bin/compute", "file"),
+        ("./opt/meshforge/{v}/python/bin/python3.12", "file"),
+        ("./opt/meshforge/{v}/BUILDINFO.json", "file"),
+        ("./opt/meshforge/{v}/MANIFEST.sha256", "file"),
+        ("./opt/meshforge/current", "symlink"),
+        ("./usr/bin/meshforge-agent", "symlink"),
+        ("./usr/bin/compute", "symlink"),
+        ("./usr/lib/systemd/system/meshforge-agent.service", "file"),
+        ("./usr/lib/systemd/system/meshforge-agent.path", "file"),
+        ("./usr/share/doc/meshforge-agent/copyright", "file"),
+        ("./usr/share/doc/meshforge-agent/changelog.Debian.gz", "file"),
+    ),
+    current_link="./opt/meshforge/current",
 )
+
+CONTROLLER: Final = PackageSpec(
+    package="meshforge-controller",
+    role="controller",
+    packaging=PACKAGING / "controller",
+    staged={
+        "meshforge-controller.service": 0o644,
+        "meshforge-controller.ufw": 0o644,
+        "lintian-overrides": 0o644,
+        "copyright": 0o644,
+        "scripts/preinst": 0o755,
+        "scripts/postinst": 0o755,
+        "scripts/prerm": 0o755,
+        "scripts/postrm": 0o755,
+    },
+    required_paths=(
+        ("./opt/meshforge/controller/{v}/bin/meshforge-controller", "file"),
+        ("./opt/meshforge/controller/{v}/python/bin/python3.12", "file"),
+        ("./opt/meshforge/controller/{v}/pgsql/bin/postgres", "file"),
+        ("./opt/meshforge/controller/{v}/pgsql/bin/pg_dump", "file"),
+        ("./opt/meshforge/controller/{v}/pgsql/LICENSE", "file"),
+        ("./opt/meshforge/controller/{v}/BUILDINFO.json", "file"),
+        ("./opt/meshforge/controller/{v}/MANIFEST.sha256", "file"),
+        ("./opt/meshforge/controller/current", "symlink"),
+        ("./usr/bin/meshforge-controller", "symlink"),
+        ("./usr/lib/systemd/system/meshforge-controller.service", "file"),
+        ("./etc/ufw/applications.d/meshforge-controller", "file"),
+        ("./usr/share/doc/meshforge-controller/copyright", "file"),
+        ("./usr/share/doc/meshforge-controller/changelog.Debian.gz", "file"),
+    ),
+    current_link="./opt/meshforge/controller/current",
+)
+SPECS: Final[Mapping[str, PackageSpec]] = {"agent": AGENT, "controller": CONTROLLER}
+
+# The agent package's names, as G1 published them (tests and callers use them).
+PACKAGE: Final = AGENT.package
+STAGED: Final[Mapping[str, int]] = AGENT.staged
+REQUIRED_PATHS: Final = AGENT.required_paths
 REQUIRED_CONTROL: Final = ("control", "preinst", "postinst", "prerm", "postrm")
 
 
@@ -144,11 +201,17 @@ def debian_version(version: str, revision: int = 1) -> str:
 
 
 # --------------------------------------------------------------- staging
-def changelog_gz(deb_version: str, version: str, git_sha: str, epoch: int) -> bytes:
+def changelog_gz(
+    deb_version: str,
+    version: str,
+    git_sha: str,
+    epoch: int,
+    package: str = PACKAGE,
+) -> bytes:
     """A one-entry ``changelog.Debian.gz``, reproducible (gzip mtime 0, no name)."""
     date = time.strftime("%a, %d %b %Y %H:%M:%S +0000", time.gmtime(epoch))
     text = (
-        f"{PACKAGE} ({deb_version}) unstable; urgency=medium\n\n"
+        f"{package} ({deb_version}) unstable; urgency=medium\n\n"
         f"  * MeshForge {version} (git {git_sha[:12]}).\n\n"
         f" -- {MAINTAINER}  {date}\n"
     )
@@ -160,9 +223,15 @@ def changelog_gz(deb_version: str, version: str, git_sha: str, epoch: int) -> by
     return buffer.getvalue()
 
 
-def stage(stage_dir: Path, packaging: Path, changelog: bytes, epoch: int) -> None:
+def stage(
+    stage_dir: Path,
+    packaging: Path,
+    changelog: bytes,
+    epoch: int,
+    staged: Mapping[str, int] = STAGED,
+) -> None:
     """Copy the packaging files into ``stage_dir`` with fixed modes + mtimes."""
-    for rel, mode in STAGED.items():
+    for rel, mode in staged.items():
         source = packaging / rel
         if not source.is_file():
             raise BundleError(f"missing packaging file {source}", reason="no_packaging")
@@ -299,11 +368,16 @@ def inspect_deb(path: Path) -> DebContents:
     return DebContents(order, control, frozenset(control_files), data)
 
 
-def check_contents(contents: DebContents, version: str, deb_version: str) -> list[str]:
+def check_contents(
+    contents: DebContents,
+    version: str,
+    deb_version: str,
+    spec: PackageSpec = AGENT,
+) -> list[str]:
     """What is wrong with the built package (empty = fine)."""
     problems: list[str] = []
     for field_name, want in (
-        ("Package", PACKAGE),
+        ("Package", spec.package),
         ("Version", deb_version),
         ("Architecture", DEB_ARCH),
     ):
@@ -317,7 +391,7 @@ def check_contents(contents: DebContents, version: str, deb_version: str) -> lis
         for name in REQUIRED_CONTROL
         if name not in contents.control_files
     )
-    for template, kind in REQUIRED_PATHS:
+    for template, kind in spec.required_paths:
         path = template.format(v=version)
         found = contents.data.get(path)
         if found is None:
@@ -326,9 +400,9 @@ def check_contents(contents: DebContents, version: str, deb_version: str) -> lis
             problems.append(f"{path} is {found}, want a symlink")
         elif kind == "file" and found != "file":
             problems.append(f"{path} is {found}, want a file")
-    current = contents.data.get("./opt/meshforge/current", "")
+    current = contents.data.get(spec.current_link, "")
     if current not in ("", f"symlink:{version}"):
-        problems.append(f"/opt/meshforge/current -> {current[8:]} (want {version})")
+        problems.append(f"{spec.current_link[1:]} -> {current[8:]} (want {version})")
     return problems
 
 
@@ -341,6 +415,7 @@ SYSTEM_LIBS: Final[Mapping[str, str]] = {
     "libdl.so.2": "libc6",
     "librt.so.1": "libc6",
     "libutil.so.1": "libc6",
+    "libresolv.so.2": "libc6",  # V0.17 G2: the bundled PostgreSQL (Kerberos, libpq)
     "linux-vdso.so.1": "libc6",
     "libcrypt.so.1": "libcrypt1",
     "libgcc_s.so.1": "libgcc-s1",
@@ -481,14 +556,16 @@ class DebOptions:
     size_budget: bool = True
     check_libs: bool = True
     pins: Path = PINS
-    packaging: Path = PACKAGING
+    packaging: Path | None = None
+    """None = the role's folder (``PackageSpec.packaging``)."""
+    role: str = "agent"
 
 
 def log(message: str) -> None:
     print(f"build_deb: {message}", file=sys.stderr)
 
 
-def bundle_facts(bundle: Path) -> dict[str, object]:
+def bundle_facts(bundle: Path, role: str = "agent") -> dict[str, object]:
     try:
         info = json.loads((bundle / BUILDINFO_NAME).read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:
@@ -500,12 +577,12 @@ def bundle_facts(bundle: Path) -> dict[str, object]:
         raise BundleError(
             f"{bundle}/{BUILDINFO_NAME} is not an object", reason="no_bundle"
         )
-    want = {"role": "agent", "os": "linux", "arch": "x86_64"}
+    want = {"role": role, "os": "linux", "arch": "x86_64"}
     wrong = {k: info.get(k) for k, v in want.items() if info.get(k) != v}
     if wrong:
         raise BundleError(
-            f"{bundle} is not a linux x86_64 agent bundle ({wrong}); build one with "
-            "scripts/build_bundle.py --role agent",
+            f"{bundle} is not a linux x86_64 {role} bundle ({wrong}); build one "
+            f"with scripts/build_bundle.py --role {role}",
             reason="wrong_bundle",
         )
     for key in ("version", "source_date_epoch", "git_sha"):
@@ -515,8 +592,10 @@ def bundle_facts(bundle: Path) -> dict[str, object]:
 
 
 def build_deb(options: DebOptions) -> Path:
+    spec = SPECS[options.role]
+    packaging = options.packaging or spec.packaging
     bundle = options.bundle.resolve()
-    info = bundle_facts(bundle)
+    info = bundle_facts(bundle, spec.role)
     differences = verify_bundle(bundle)
     if differences:
         shown = "\n".join(f"  {d}" for d in differences[:20])
@@ -528,10 +607,10 @@ def build_deb(options: DebOptions) -> Path:
     epoch = int(str(info["source_date_epoch"]))
     deb_version = debian_version(version, options.revision)
     out = options.out.resolve()
-    target = out / f"{PACKAGE}_{deb_version}_{DEB_ARCH}.deb"
+    target = out / f"{spec.package}_{deb_version}_{DEB_ARCH}.deb"
     if target.exists() and not options.force:
         raise BundleError(f"{target} exists (use --force)", reason="exists")
-    template = (options.packaging / "nfpm.yaml").read_text(encoding="utf-8")
+    template = (packaging / "nfpm.yaml").read_text(encoding="utf-8")
     if options.check_libs:
         problems = check_shared_libs(bundle, nfpm_depends(template))
         if problems:
@@ -542,7 +621,7 @@ def build_deb(options: DebOptions) -> Path:
             )
     pins = load_pins(options.pins)
     budget_table = pins.get("size_budget_mb")
-    budget = budget_table.get("agent") if isinstance(budget_table, dict) else None
+    budget = budget_table.get(spec.role) if isinstance(budget_table, dict) else None
     nfpm = nfpm_binary(pins, options.cache)
     out.mkdir(parents=True, exist_ok=True)
 
@@ -551,9 +630,12 @@ def build_deb(options: DebOptions) -> Path:
         stage_dir.mkdir()
         stage(
             stage_dir,
-            options.packaging,
-            changelog_gz(deb_version, version, str(info["git_sha"]), epoch),
+            packaging,
+            changelog_gz(
+                deb_version, version, str(info["git_sha"]), epoch, spec.package
+            ),
             epoch,
+            spec.staged,
         )
         config = Path(tmp) / "nfpm.yaml"
         config.write_text(
@@ -588,7 +670,7 @@ def build_deb(options: DebOptions) -> Path:
             what="nfpm package",
             cwd=Path(tmp),
         )
-        problems = check_contents(inspect_deb(built), version, deb_version)
+        problems = check_contents(inspect_deb(built), version, deb_version, spec)
         if problems:
             raise BundleError(
                 "the built package is incomplete:\n"
@@ -611,11 +693,17 @@ def build_deb(options: DebOptions) -> Path:
 def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
     source = parser.add_mutually_exclusive_group(required=True)
-    source.add_argument("--bundle", type=Path, help="a built agent bundle folder")
+    source.add_argument("--bundle", type=Path, help="a built bundle folder")
     source.add_argument(
         "--build-bundle",
         action="store_true",
-        help="build the agent bundle into --out first (build_bundle.py --role agent)",
+        help="build the role's bundle into --out first (build_bundle.py --role ...)",
+    )
+    parser.add_argument(
+        "--role",
+        choices=sorted(SPECS),
+        default="agent",
+        help="which package: meshforge-agent (default) or meshforge-controller",
     )
     parser.add_argument("--out", type=Path, required=True, help="output directory")
     parser.add_argument(
@@ -653,7 +741,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
             bundle = build_bundle.build(
                 build_bundle.BuildOptions(
-                    role="agent",
+                    role=args.role,
                     out=args.out,
                     cache=args.cache,
                     force=args.force,
@@ -669,6 +757,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 force=args.force,
                 size_budget=not args.no_size_budget,
                 pins=args.pins,
+                role=args.role,
             )
         )
     except BundleError as exc:

@@ -84,6 +84,56 @@ def built_debs(work: Path) -> Debs:
     return Debs(first, second, version)
 
 
+CONTROLLER_DEB_DIR_ENV: Final = "MESHFORGE_TEST_CONTROLLER_DEB_DIR"
+CONTROLLER_UNIT: Final = "meshforge-controller.service"
+
+
+def _pick_controller(folder: Path, revision: int) -> Path | None:
+    found = sorted(folder.glob(f"meshforge-controller_*-{revision}_amd64.deb"))
+    return found[-1] if found else None
+
+
+def built_controller_debs(work: Path) -> Debs:
+    """The meshforge-controller package in revisions 1 and 2 (V0.17 G2): from
+    ``$MESHFORGE_TEST_CONTROLLER_DEB_DIR`` when set (CI), else built here
+    (controller bundle with the dashboard and PostgreSQL, then two .debs).
+    Built without the .deb size gate: see the G2 progress note (nfpm's xz)."""
+    preset = os.environ.get(CONTROLLER_DEB_DIR_ENV)
+    if preset:
+        folder = Path(preset)
+    else:
+        env = {k: v for k, v in os.environ.items() if k != "SSL_CERT_FILE"}
+        scripts = REPO / "scripts"
+        subprocess.run(
+            [sys.executable, str(scripts / "build_bundle.py"), "--role", "controller",
+             "--out", str(work), "--force", "--no-archive"],
+            check=True, timeout=2400, env=env,
+        )  # fmt: skip
+        (bundle,) = [
+            p for p in work.iterdir() if p.is_dir() and p.name.startswith("meshforge-")
+        ]
+        for revision in (1, 2):
+            subprocess.run(
+                [sys.executable, str(scripts / "build_deb.py"), "--role", "controller",
+                 "--bundle", str(bundle), "--out", str(work), "--revision",
+                 str(revision), "--force", "--no-size-budget"],
+                check=True, timeout=900, env=env,
+            )  # fmt: skip
+        folder = work
+    first, second = _pick_controller(folder, 1), _pick_controller(folder, 2)
+    if first is None or second is None:
+        raise RuntimeError(f"{folder} needs a meshforge-controller -1 and -2 .deb")
+    scripts = str(REPO / "scripts")
+    if scripts not in sys.path:
+        sys.path.insert(0, scripts)
+    import build_deb
+
+    link = build_deb.inspect_deb(first).data.get(
+        "./opt/meshforge/controller/current", ""
+    )
+    return Debs(first, second, link.removeprefix("symlink:"))
+
+
 def package_bundle_version(deb: Path) -> str:
     """The bundle version inside ``deb`` (``/opt/meshforge/current`` -> it),
     read with ``scripts/build_deb.py``'s own inspector (no dpkg needed)."""

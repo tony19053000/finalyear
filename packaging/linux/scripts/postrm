@@ -1,22 +1,46 @@
 #!/bin/sh
 # meshforge-agent postrm (V0.17 G1, D393/Q9): `apt remove` keeps the laptop's
 # identity, config and caches (re-installing brings the same node back);
-# `apt purge` removes them and the service account. Idempotent.
+# `apt purge` removes them and the service account (the account and the shared
+# folders stay while meshforge-controller is on the machine). Idempotent.
 set -eu
 
 UNITS="meshforge-agent.service meshforge-agent.path"
 
+# V0.17 G2: meshforge-controller may be on this machine too (same service
+# user); its state (controller/, db/, controller.toml) is never ours to delete.
+controller_known() {
+	status=$(dpkg-query -W -f='${db:Status-Status}' meshforge-controller 2>/dev/null || true)
+	[ -n "$status" ] && [ "$status" != not-installed ]
+}
+
 case "${1:-}" in
 purge)
-	rm -rf /var/lib/meshforge /etc/meshforge
-	if getent passwd meshforge >/dev/null; then
-		userdel meshforge || true
-	fi
-	for group in meshforge meshforge-admin; do
-		if getent group "$group" >/dev/null; then
-			groupdel "$group" || true
+	if controller_known; then
+		for entry in /var/lib/meshforge/* /var/lib/meshforge/.[!.]*; do
+			case "${entry##*/}" in
+			controller | db | '*' | '.[!.]*') ;;
+			*) rm -rf "$entry" ;;
+			esac
+		done
+		for entry in /etc/meshforge/* /etc/meshforge/.[!.]*; do
+			case "${entry##*/}" in
+			controller.toml | '*' | '.[!.]*') ;;
+			*) rm -rf "$entry" ;;
+			esac
+		done
+	else
+		rm -rf /var/lib/meshforge /etc/meshforge
+		if getent passwd meshforge >/dev/null; then
+			userdel meshforge || true
 		fi
-	done
+		if getent group meshforge >/dev/null; then
+			groupdel meshforge || true
+		fi
+	fi
+	if getent group meshforge-admin >/dev/null; then
+		groupdel meshforge-admin || true
+	fi
 	if [ -d /run/systemd/system ]; then
 		systemctl daemon-reload || true
 		# shellcheck disable=SC2086 # two unit names
