@@ -291,8 +291,7 @@ jobs:
           lintian --version
           lintian --fail-on error --tag-display-limit 0 dist/meshforge-agent_*-1_amd64.deb
       # V0.17 G2: the controller package (bundle with the dashboard and the
-      # managed PostgreSQL). The .deb size gate is off until the Lead decides
-      # the nfpm-xz budget question (G2 progress note item 14).
+      # managed PostgreSQL), size-checked against the Q17 budget.
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: "22"
@@ -302,8 +301,8 @@ jobs:
         run: |
           uv run python scripts/build_bundle.py --role controller --out dist/controller/ --skip-dashboard-build
           bundle=$(ls -d dist/controller/meshforge-*-linux-x86_64)
-          uv run python scripts/build_deb.py --role controller --bundle "$bundle" --out dist/controller/ --no-size-budget
-          uv run python scripts/build_deb.py --role controller --bundle "$bundle" --out dist/controller/ --no-size-budget --revision 2
+          uv run python scripts/build_deb.py --role controller --bundle "$bundle" --out dist/controller/
+          uv run python scripts/build_deb.py --role controller --bundle "$bundle" --out dist/controller/ --revision 2
       - name: lintian, controller (errors fail)
         run: lintian --fail-on error --tag-display-limit 0 dist/controller/meshforge-controller_*-1_amd64.deb
       - name: package tests (systemd containers, real fabric)

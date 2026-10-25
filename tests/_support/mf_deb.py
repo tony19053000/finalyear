@@ -97,7 +97,7 @@ def built_controller_debs(work: Path) -> Debs:
     """The meshforge-controller package in revisions 1 and 2 (V0.17 G2): from
     ``$MESHFORGE_TEST_CONTROLLER_DEB_DIR`` when set (CI), else built here
     (controller bundle with the dashboard and PostgreSQL, then two .debs).
-    Built without the .deb size gate: see the G2 progress note (nfpm's xz)."""
+    Built with the Q17 .deb size gate on (build_bundle STRIP_SITE keeps it under)."""
     preset = os.environ.get(CONTROLLER_DEB_DIR_ENV)
     if preset:
         folder = Path(preset)
@@ -116,7 +116,7 @@ def built_controller_debs(work: Path) -> Debs:
             subprocess.run(
                 [sys.executable, str(scripts / "build_deb.py"), "--role", "controller",
                  "--bundle", str(bundle), "--out", str(work), "--revision",
-                 str(revision), "--force", "--no-size-budget"],
+                 str(revision), "--force"],
                 check=True, timeout=900, env=env,
             )  # fmt: skip
         folder = work

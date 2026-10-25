@@ -510,6 +510,53 @@ def relocate_installed(root: Path, layout: Layout) -> list[str]:
     return sorted(p.relative_to(root).as_posix() for p in changed)
 
 
+STRIP_SITE: Final[Mapping[str, tuple[tuple[str, str], ...]]] = {
+    # V0.17 G2 (Lead, G2 progress note item 14): the controller .deb (nfpm's xz)
+    # must fit the Q17 150 MB budget. Globs relative to site-packages; nothing
+    # MeshForge runs imports them (the installed controller is run end to end in
+    # tests/component/packaging/test_v017_g2_controller_deb.py).
+    "agent": (),
+    "controller": (
+        ("numpy/**/tests", "numpy's own test suites"),
+        ("numpy/_core/include", "C headers for building extensions"),
+        ("pyarrow/tests", "pyarrow's own test suite"),
+        ("pyarrow/include", "C++ headers for building extensions"),
+        ("pyarrow/src", "C++ sources for building extensions"),
+        ("greenlet/tests", "greenlet's own test suite"),
+    ),
+}
+"""Per role: what of the installed wheels is not shipped (role -> (glob, why))."""
+
+
+def strip_site_packages(
+    root: Path, layout: Layout, rules: Sequence[tuple[str, str]]
+) -> list[str]:
+    """Delete what ``rules`` match in site-packages and drop the deleted files'
+    RECORD rows (so ``RECORD`` still lists only shipped files). Returns the
+    deleted files relative to ``root``, sorted."""
+    site = layout.site_packages_path(root)
+    removed: dict[Path, bytes | None] = {}
+    for pattern, _why in rules:
+        for path in sorted(site.glob(pattern)):
+            if not os.path.lexists(path):
+                continue  # inside a folder an earlier match removed
+            if path.is_dir() and not path.is_symlink():
+                for item in sorted(path.rglob("*")):
+                    if item.is_symlink() or not item.is_dir():
+                        removed[Path(os.path.normpath(item))] = None
+                shutil.rmtree(path)
+            else:
+                removed[Path(os.path.normpath(path))] = None
+                path.unlink()
+    if removed:
+        for record in sorted(site.glob("*.dist-info/RECORD")):
+            text = record.read_text(encoding="utf-8")
+            new_text = update_record(text, site, removed)
+            if new_text != text:
+                record.write_text(new_text, encoding="utf-8")
+    return sorted(p.relative_to(root).as_posix() for p in removed)
+
+
 COMPILE_SCRIPT: Final = """\
 import compileall, py_compile, sys
 ok = compileall.compile_dir(
@@ -725,6 +772,8 @@ def build(options: BuildOptions) -> Path:
         reqs.write_text(requirements(uv, REPO, extras, wheel, env), encoding="utf-8")
         log(f"installing extras {', '.join(extras)} from uv.lock (hash-checked)")
         install(uv, root, layout, reqs, env)
+        stripped = strip_site_packages(root, layout, STRIP_SITE[options.role])
+        log(f"stripped {len(stripped)} installed files (tests, headers)")
         relocated = relocate_installed(root, layout)
         log(f"relocated {len(relocated)} installed files")
         bad = compile_bytecode(root, layout, env)
