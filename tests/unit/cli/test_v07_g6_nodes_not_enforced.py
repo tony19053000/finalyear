@@ -101,6 +101,7 @@ def test_the_api_row_carries_the_live_list() -> None:
     node: Any = SimpleNamespace(
         node_id="node_a",
         hostname="a",
+        display_name="",
         os="Linux",
         platform="x86_64",
         state=NodeState.ONLINE,

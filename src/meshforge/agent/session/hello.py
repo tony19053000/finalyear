@@ -117,6 +117,7 @@ def build_hello(
     peer_endpoint: str = "",
     slots: tuple[int, int] | None = None,
     policy: agent_pb2.OwnerPolicy | None = None,
+    display_name: str = "",
 ) -> agent_pb2.Hello:
     """The Hello for one attempt. ``hardware``/``facts`` are injectable for tests.
 
@@ -128,6 +129,8 @@ def build_hello(
     fields absent (execution is off - the node takes no jobs anyway).
     ``policy`` (V0.7 G5, D142): the owner's current policy; None leaves it
     absent (an agent built without a live policy, e.g. a test).
+    ``display_name`` (V0.17 G3, Q27): the owner's name for this laptop (already
+    validated by ``check_node_name``); empty = none.
     """
     hostname, os_text, plat = facts if facts is not None else host_facts()
     hello = agent_pb2.Hello(
@@ -140,6 +143,7 @@ def build_hello(
         platform=plat,
         hardware=hardware if hardware is not None else basic_hardware(),
         peer_endpoint=peer_endpoint,
+        display_name=display_name,
     )
     if hardware_scores is not None:
         hello.hardware_scores.CopyFrom(hardware_scores)

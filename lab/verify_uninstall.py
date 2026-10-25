@@ -56,6 +56,14 @@ PROGRAM_PATHS: Final = (
     "/opt/meshforge",
     "/usr/bin/meshforge-agent",
     "/usr/bin/compute",
+    # V0.17 G3: the local console's launcher, menu entry, icon, helper, token folder
+    "/usr/bin/meshforge-console-open",
+    "/usr/share/applications/meshforge.desktop",
+    "/usr/share/icons/hicolor/scalable/apps/meshforge.svg",
+    "/usr/lib/meshforge",
+    "/usr/share/polkit-1/actions/org.meshforge.docker-access.policy",
+    "/usr/lib/tmpfiles.d/meshforge-agent.conf",
+    "/run/meshforge-console",
 )
 UNIT_PATHS: Final = (
     "/usr/lib/systemd/system/meshforge-agent.service",

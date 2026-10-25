@@ -732,11 +732,13 @@ dependencies = [
 [package.optional-dependencies]
 agent = [
     { name = "docker" },
+    { name = "fastapi" },
     { name = "h11" },
     { name = "numpy" },
     { name = "nvidia-ml-py" },
     { name = "psutil" },
     { name = "uv" },
+    { name = "uvicorn" },
     { name = "zeroconf" },
 ]
 controller = [
@@ -787,6 +789,7 @@ requires-dist = [
     { name = "asyncpg", marker = "extra == 'controller'", specifier = ">=0.31" },
     { name = "cryptography", specifier = ">=46" },
     { name = "docker", marker = "extra == 'agent'", specifier = ">=7.1" },
+    { name = "fastapi", marker = "extra == 'agent'", specifier = ">=0.141" },
     { name = "fastapi", marker = "extra == 'controller'", specifier = ">=0.141" },
     { name = "grpcio", specifier = ">=1.84" },
     { name = "h11", marker = "extra == 'agent'", specifier = ">=0.16" },
@@ -812,6 +815,7 @@ requires-dist = [
     { name = "typer", specifier = ">=0.27" },
     { name = "tzdata", marker = "sys_platform == 'win32' and extra == 'controller'", specifier = ">=2025.2" },
     { name = "uv", marker = "extra == 'agent'", specifier = ">=0.10" },
+    { name = "uvicorn", marker = "extra == 'agent'", specifier = ">=0.53" },
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'controller'", specifier = ">=0.53" },
     { name = "websockets", specifier = ">=15.0" },
     { name = "xgboost", marker = "sys_platform == 'darwin' and extra == 'ml'", specifier = ">=3.4,<4" },

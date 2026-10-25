@@ -33,6 +33,7 @@ DEB_DIR_ENV: Final = "MESHFORGE_TEST_DEB_DIR"
 UBUNTU_VERSIONS: Final = ("22.04", "24.04")
 UNIT: Final = "meshforge-agent.service"
 PATH_UNIT: Final = "meshforge-agent.path"
+"""Shipped by G1 only; V0.17 G3 removed it (the service always runs)."""
 
 
 @dataclass(frozen=True)

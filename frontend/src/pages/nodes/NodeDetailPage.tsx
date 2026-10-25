@@ -90,8 +90,8 @@ export function NodeDetailPage() {
         <BackLink />
       </div>
       <PageHeader
-        title={n.hostname}
-        description={`${n.os} · ${n.platform}`}
+        title={n.display_name ? n.display_name : n.hostname}
+        description={n.display_name ? `${n.hostname} · ${n.os} · ${n.platform}` : `${n.os} · ${n.platform}`}
         actions={isAdmin && n.state !== "revoked" ? <RevokeNode nodeId={n.node_id} hostname={n.hostname} /> : undefined}
       />
       <div className="flex flex-col gap-5">

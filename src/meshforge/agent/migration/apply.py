@@ -33,6 +33,7 @@ from meshforge.agent.migration.planning import (
     check_config_bytes,
     identity_from,
     plan,
+    policy_problem,
 )
 from meshforge.agent.migration.safe_source import (
     OpenDir,
@@ -158,6 +159,7 @@ def execute(
                     "meshforge-agent migrate-identity`"
                 )
                 return _block(chosen, owner, report)
+            _copy_policy(chosen, owner, today, report)
         if config is not None:
             _copy_config(chosen, config, config_group, today, report)
     return report
@@ -346,6 +348,50 @@ def _copy_config(
         chosen.notes.append(f"{source} was copied but not renamed: {exc}")
         return
     report.actions.append(f"renamed {source} -> {renamed.name}")
+
+
+def _copy_policy(
+    chosen: MigrationPlan, owner: Owner, today: str, report: MigrationReport
+) -> None:
+    """After the identity committed: the owner's ``policy.toml`` follows it
+    (G1 follow-up a), re-read through ``safe_source`` and re-validated now.
+    Never blocks: a refusal is a note and the service keeps its safe default
+    (accepts no jobs)."""
+    planned = chosen.policy
+    source, uid = planned.source, planned.uid
+    if planned.action != "copy" or source is None or uid is None:
+        return
+    target = chosen.paths.target_policy
+
+    def refuse(problem: str) -> None:
+        planned.action, planned.problem = "refused", problem
+
+    try:
+        with opened_dir(source.parent, uid) as folder:
+            found = read_file(folder, source.name)
+            if found is None:
+                refuse(f"{source} disappeared")
+                return
+            problem = policy_problem(found.data, source)
+            if problem is not None:
+                refuse(problem)
+                return
+            if os.path.lexists(target):
+                planned.action = "kept"
+                return
+            atomic_write_bytes(target, found.data, mode=0o600)
+            _chown(target, owner)
+            try:
+                renamed = rename_aside(
+                    folder.fd, folder.path, source.name, today, (found.dev, found.ino)
+                )
+            except (UnsafeSourceError, OSError) as exc:
+                chosen.notes.append(f"{source} was copied but not renamed: {exc}")
+                return
+    except (UnsafeSourceError, OSError) as exc:
+        refuse(str(exc))
+        return
+    report.actions.append(f"copied the owner policy; renamed {source} -> {renamed}")
 
 
 def _fsync_dir(directory: Path) -> None:

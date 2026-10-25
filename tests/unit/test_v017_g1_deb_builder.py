@@ -185,13 +185,19 @@ def test_real_nfpm_config_renders_completely() -> None:
         "dst": "/opt/meshforge/current",
         "type": "symlink",
     }
-    for wrapper in ("meshforge-agent", "compute"):
+    for wrapper in ("meshforge-agent", "compute", "meshforge-console-open"):
         assert (
             dsts[f"/usr/bin/{wrapper}"]["src"]
             == f"/opt/meshforge/current/bin/{wrapper}"
         )
-    for unit in ("meshforge-agent.service", "meshforge-agent.path"):
-        assert dsts[f"/usr/lib/systemd/system/{unit}"]["src"] == f"/s/{unit}"
+    # V0.17 G3: the service always runs (local console); no path unit any more
+    unit = "meshforge-agent.service"
+    assert dsts[f"/usr/lib/systemd/system/{unit}"]["src"] == f"/s/{unit}"
+    assert "/usr/lib/systemd/system/meshforge-agent.path" not in dsts
+    assert dsts["/usr/lib/tmpfiles.d/meshforge-agent.conf"]["src"] == (
+        "/s/meshforge-agent.tmpfiles"
+    )
+    assert dsts["/usr/lib/meshforge/docker-access"]["file_info"]["mode"] == 0o755
     # every staged file is packaged, every packaged stage file is staged
     staged_srcs = {f"/s/{rel}" for rel in bd.STAGED if not rel.startswith("scripts/")}
     packaged = {c["src"] for c in doc["contents"] if str(c["src"]).startswith("/s/")}
@@ -315,7 +321,7 @@ def test_inspector_accepts_a_complete_package(tmp_path: Path) -> None:
 
 
 def test_inspector_names_what_is_missing_or_wrong(tmp_path: Path) -> None:
-    missing = "./usr/lib/systemd/system/meshforge-agent.path"
+    missing = "./usr/share/applications/meshforge.desktop"
     problems = bd.check_contents(
         bd.inspect_deb(_deb(tmp_path, drop=missing)), "1.0", "1.0-1"
     )
@@ -398,6 +404,7 @@ def _unit(name: str) -> dict[str, list[str]]:
 def test_service_unit_is_the_hardened_system_service() -> None:
     from meshforge.agent.execution.cpu_cgroup import LEAF_NAME
     from meshforge.agent.identity import NODE_CERT_FILE_NAME
+    from meshforge.agent.settings import SYSTEM_CONSOLE_TOKEN_DIR
     from meshforge.agent.system_cli import (
         INSTALL_MODE_ENV_VAR,
         SERVICE_USER,
@@ -416,7 +423,10 @@ def test_service_unit_is_the_hardened_system_service() -> None:
         str(int(ExitCode.CONFLICT)),
     }
     assert unit["ProtectSystem"] == ["strict"]
-    assert unit["ReadWritePaths"] == [str(SYSTEM_LINUX_DATA_DIR)]
+    # V0.17 G3: + the console token folder ("-": optional)
+    assert unit["ReadWritePaths"] == [
+        f"{SYSTEM_LINUX_DATA_DIR} -{SYSTEM_CONSOLE_TOKEN_DIR}"
+    ]
     for key in ("ProtectHome", "PrivateTmp", "NoNewPrivileges", "Delegate"):
         assert unit[key] == ["yes"], key
     for key in _HARDENING:
@@ -428,10 +438,8 @@ def test_service_unit_is_the_hardened_system_service() -> None:
     assert unit["KillMode"] == ["mixed"]
     assert unit["WantedBy"] == ["multi-user.target"]
     enrolment = f"{SYSTEM_LINUX_DATA_DIR}/identity/{NODE_CERT_FILE_NAME}"
-    assert unit["ConditionPathExists"] == [enrolment]
-    path = _unit("meshforge-agent.path")
-    assert path["PathChanged"] == [enrolment]
-    assert path["Unit"] == ["meshforge-agent.service"]
+    # V0.17 G3: the service runs before the join (its console is how one joins)
+    assert "ConditionPathExists" not in unit
     postinst = (PACKAGING / "scripts" / "postinst").read_text("utf-8")
     assert f"ENROLMENT={enrolment}\n" in postinst
     assert "docker" not in " ".join(unit.get("SupplementaryGroups", []))  # Q12

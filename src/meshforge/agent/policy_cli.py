@@ -26,14 +26,14 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Any, Final
+from typing import TYPE_CHECKING, Annotated, Any
 
 import typer
 
 from meshforge.common.exit_codes import ExitCode
 
 if TYPE_CHECKING:
-    from meshforge.agent.settings import AgentSettings, PolicySettings
+    from meshforge.agent.settings import AgentSettings
 
 __all__ = ["bench_app", "policy_app"]
 
@@ -61,11 +61,6 @@ _ConfigOption = Annotated[
     ),
 ]
 _PROG = "meshforge-agent"
-_RESTART_KEYS: Final = {
-    "accept_jobs": "runtime",
-    "allow_unsandboxed": "subprocess/venv runtime",
-}
-"""Keys whose turning on needs a restart of an agent started with them off."""
 
 
 def _settings(config: Path | None) -> AgentSettings:
@@ -80,32 +75,9 @@ def _fail(message: str, code: int) -> typer.Exit:
 
 
 def _view(settings: AgentSettings) -> dict[str, Any]:
-    from meshforge.agent.policy import LivePolicy, effective_settings, policy_path
-    from meshforge.common.errors import MeshForgeError
+    from meshforge.agent.policy import policy_view
 
-    live = LivePolicy(
-        settings.agent.policy,
-        policy_path(settings),
-        gpu_count=0,
-        max_concurrent_attempts=settings.agent.execution.max_concurrent_attempts,
-    )
-    state = live.state
-    policy = state.policy.as_dict()
-    policy.pop("revision", None)
-    policy.pop("not_enforced", None)
-    try:
-        effective = effective_settings(settings.agent.policy, state.overlay)
-    except MeshForgeError:
-        effective = None
-    return {
-        "policy": policy,
-        "max_cpu_jobs": 0 if effective is None else effective.max_cpu_jobs,
-        "max_gpu_jobs": 0 if effective is None else effective.max_gpu_jobs,
-        "live_file": str(live.path),
-        "live_keys": sorted(state.overlay or {}),
-        "invalid": state.invalid_reason,
-        "deprecated_keys": list(settings.agent.deprecated_keys),
-    }
+    return policy_view(settings)
 
 
 @policy_app.command("show")
@@ -152,53 +124,33 @@ def set_(
 
 
 def _apply(config: Path | None, assignments: list[str]) -> None:
-    from meshforge.agent.policy import (
-        effective_settings,
-        parse_assignments,
-        policy_path,
-        read_overlay,
-        write_overlay,
-    )
+    from meshforge.agent.policy import RESTART_KEYS, apply_changes, parse_assignments
     from meshforge.common.errors import MeshForgeError
 
     settings = _settings(config)
-    path = policy_path(settings)
     try:
         changes = parse_assignments(assignments)
-        current = read_overlay(path) or {}
-        try:
-            before: PolicySettings | None = effective_settings(
-                settings.agent.policy, current
-            )
-        except MeshForgeError:  # the old file was invalid: say it, to be safe
-            before = None
-        merged = {**current, **changes}
-        effective = effective_settings(settings.agent.policy, merged)
-        slots = effective.max_cpu_jobs + (effective.max_gpu_jobs or 0)
-        if slots > settings.agent.execution.max_concurrent_attempts:
-            raise _fail(
-                "max_cpu_jobs + max_gpu_jobs must be <= [agent.execution] "
-                "max_concurrent_attempts",
-                ExitCode.USAGE_ERROR,
-            )
-        write_overlay(path, merged)
+        result = apply_changes(settings, changes)
     except MeshForgeError as exc:
         raise _fail(exc.message, ExitCode.USAGE_ERROR) from None
     except OSError as exc:
         raise _fail(
-            f"cannot write {path}: {exc.strerror or exc}", ExitCode.CONFIG_ERROR
+            f"cannot write {exc.filename or 'the live policy file'}: "
+            f"{exc.strerror or exc}",
+            ExitCode.CONFIG_ERROR,
         ) from None
     typer.echo(
-        f"policy saved to {path}; a running agent applies it within "
+        f"policy saved to {result.path}; a running agent applies it within "
         f"{settings.agent.policy.reload_interval_s:g} s"
     )
-    for key, what in _RESTART_KEYS.items():
+    for key in result.restart_keys:
         # turned on now while it was off: a running agent may have started with
         # it off and then never probed these runtimes (fix r1, T-9)
-        if changes.get(key) is True and (before is None or not getattr(before, key)):
+        if changes.get(key) is True:
             typer.echo(
                 f"note: if the agent was started with {key} = false it has no "
-                f"{what} yet - restart it once (the restart reads this policy)"
+                f"{RESTART_KEYS[key]} yet - restart it once (the restart reads this "
+                "policy)"
             )
     raise typer.Exit(ExitCode.OK)
 

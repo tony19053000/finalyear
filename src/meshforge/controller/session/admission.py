@@ -109,6 +109,7 @@ def check_hello(hello: agent_pb2.Hello) -> Rejected | None:
         os=hello.os,
         platform=hello.platform,
         agent_version=hello.agent_version,
+        display_name=hello.display_name,
     )
     if too_long is not None:
         return Rejected(

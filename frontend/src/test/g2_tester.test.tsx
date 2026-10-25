@@ -117,7 +117,8 @@ describe("T: CSRF header on every mutating call, never on reads", () => {
   // V0.8 G5: G4's `rawRequest` allowance is gone - client.ts gained
   // `headers`/`body`, so blob uploads and submit use apiRequest too.
   it("the ONLY fetch/XHR/sendBeacon/EventSource call site in src is api/client.ts", () => {
-    const allowed = [join("api", "client.ts")];
+    // V0.17 G3: the agent's local console is a second app with its own single call site.
+    const allowed = [join("api", "client.ts"), join("agentConsole", "api.ts")];
     const offenders = SOURCES.filter((f) => !allowed.some((a) => f.endsWith(a))).filter((f) =>
       /\bfetch\s*\(|XMLHttpRequest|sendBeacon|new EventSource/.test(readFileSync(f, "utf8")),
     );

@@ -38,6 +38,7 @@ from starlette.responses import FileResponse, PlainTextResponse, Response
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from meshforge.common.errors import FailureType
+from meshforge.common.web_security import CSP, SECURITY_HEADERS
 from meshforge.controller.api.errors import error_response
 
 __all__ = [
@@ -50,18 +51,6 @@ __all__ = [
 ]
 
 DEFAULT_DIST: Final = Path(__file__).resolve().parent / "dist"
-CSP: Final = (
-    "default-src 'self'; script-src 'self'; style-src 'self'; "
-    "img-src 'self' data:; font-src 'self'; connect-src 'self'; "
-    "object-src 'none'; base-uri 'self'; form-action 'self'; "
-    "frame-ancestors 'none'"
-)
-SECURITY_HEADERS: Final = (
-    ("content-security-policy", CSP),
-    ("x-content-type-options", "nosniff"),
-    ("referrer-policy", "no-referrer"),
-    ("x-frame-options", "DENY"),
-)
 IMMUTABLE: Final = "public, max-age=31536000, immutable"
 NO_CACHE: Final = "no-cache"
 NOT_BUILT_HTML: Final = """<!doctype html>

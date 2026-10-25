@@ -93,3 +93,28 @@ Implemented as decided, with these concrete choices (details: `docs/briefs/progr
 - **Accepted G1 deviations:** `safe_source` accepts a group-writable source when the group is the owner's
   private group (Debian user-private-group convention); a source caught mid-rotation is refused (operator
   re-runs `migrate-identity`) rather than retried.
+
+## Update — what V0.17 G3 built (agent local console, 2026-10-25)
+Details: `docs/briefs/progress/V0.17-G3.md`; architecture: ARCHITECTURE §23 "Agent local console".
+- **The service always runs** (replaces G1's `ConditionPathExists=` + `meshforge-agent.path`): with the console on
+  (default for the system service) a supervisor keeps the console up, waits for the join (console or CLI), starts
+  the fabric part in process, restarts it in process, stops it on "leave", and keeps the process up after a typed
+  stop (revoked / conflict / config) so the console can say why. Exit codes 4/5 still apply to a broken
+  configuration file at start (before the console exists). The package's `preinst` disables the G1 path unit on
+  upgrade; `prerm` disables units one by one.
+- **Console (D391)**: FastAPI + plain uvicorn (Q23) on `127.0.0.1:47130` only; token in
+  `/run/meshforge-console/token` (tmpfiles.d, `2750 meshforge:meshforge-admin`) instead of
+  `/var/lib/meshforge/console/token` - the state folder is `0750 meshforge:meshforge`, so the admin group could not
+  reach a file inside it; `/run` also gives "rotates on restart" for free. The launcher puts a single-use 60-s code
+  in the URL fragment, not the token (process arguments are visible to every local user).
+- **Docker access (Q24)**: a polkit action + helper run by `pkexec` from the owner's **desktop session** (app-menu
+  action), not a button that makes the service call pkexec: the service has `NoNewPrivileges=yes` and no session,
+  and any rule letting the service user trigger it would let unsandboxed job code (which runs as that user) make
+  itself root-equivalent. The console explains and shows the command.
+- **QR (Q25)**: `jsqr` 1.4.0 is **Apache-2.0** (the brief said "both MIT"; still permissive, no network), loaded only
+  when the owner opts in to scanning (own chunk).
+- **Node name (Q27)**: `Hello.display_name` -> `node.display_name` (migration 0035) -> `GET /v1/nodes` -> dashboard.
+- Packaging: `.desktop` entry + icon, `meshforge-console-open` in the bundle, the installing user (`SUDO_USER` /
+  `PKEXEC_UID`) joins `meshforge-admin`; the launcher uses `sg meshforge-admin` when that membership is newer than
+  the desktop session, so no log-out is needed. The ufw app profile of D389 was not added (an `/etc` conffile
+  would survive `apt remove` and fail the uninstall check); the firewall check prints a port rule instead.

@@ -8,7 +8,7 @@ UNITS="meshforge-agent.service meshforge-agent.path"
 
 case "${1:-}" in
 purge)
-	rm -rf /var/lib/meshforge /etc/meshforge
+	rm -rf /var/lib/meshforge /etc/meshforge /run/meshforge-console
 	if getent passwd meshforge >/dev/null; then
 		userdel meshforge || true
 	fi
@@ -24,6 +24,10 @@ purge)
 	fi
 	;;
 remove)
+	# the console token folder (V0.17 G3): runtime only, empty once the service
+	# stopped; its tmpfiles.d entry is gone, so nothing recreates it
+	rm -f /run/meshforge-console/token
+	rmdir /run/meshforge-console 2>/dev/null || true
 	# the unit files are gone now; also forget a "failed" state systemd would
 	# otherwise keep listing (lab/verify_uninstall.py checks for it)
 	if [ -d /run/systemd/system ]; then

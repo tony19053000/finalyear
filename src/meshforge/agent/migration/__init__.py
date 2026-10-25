@@ -43,6 +43,12 @@ re-reads everything that way before its first write; a violation (in the plan or
 since it) is ``blocked`` with the reason, and a failed verify removes the copied
 files (the marker stays).
 
+The owner's live policy (``<user data dir>/policy.toml``) follows a migrated
+identity (V0.17 G3): read through ``safe_source``, validated by the agent's own
+policy parser, written ``0600`` for the service, its source renamed
+``policy.toml.migrated-<date>``. A refused policy file never blocks: the
+service keeps its safe default (accepts no jobs) and the report says so.
+
 The peer/env/blob caches are **not** migrated (Q14: they are caches). Nothing
 here logs or prints key material; paths and ``node_id`` only.
 """
@@ -60,7 +66,11 @@ from meshforge.agent.migration.model import (
     Paths,
     system_paths,
 )
-from meshforge.agent.migration.planning import check_config, find_candidates, plan
+from meshforge.agent.migration.planning import (
+    check_config_bytes,
+    find_candidates,
+    plan,
+)
 from meshforge.agent.migration.user_units import running_user_agents, stop_user_unit
 
 __all__ = [
@@ -73,7 +83,7 @@ __all__ = [
     "MigrationReport",
     "Owner",
     "Paths",
-    "check_config",
+    "check_config_bytes",
     "execute",
     "find_candidates",
     "migrate",

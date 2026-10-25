@@ -3,6 +3,8 @@
     uv run python scripts/export_openapi.py                 # to stdout
     uv run python scripts/export_openapi.py --out FILE      # write FILE
     uv run python scripts/export_openapi.py --check FILE    # exit 1 if FILE differs
+    uv run python scripts/export_openapi.py --console ...   # the agent console's API
+                                                            # (V0.17 G3) instead
 
 The output is deterministic (sorted keys, two-space indent, trailing newline),
 so the dashboard's generated TypeScript client (``openapi-typescript``) and its
@@ -18,10 +20,16 @@ import sys
 from pathlib import Path
 
 
-def render() -> str:
-    from meshforge.controller.http import openapi_document
+def render(*, console: bool = False) -> str:
+    if console:
+        from meshforge.agent.console.app import openapi_document as console_document
 
-    return json.dumps(openapi_document(), indent=2, sort_keys=True) + "\n"
+        document = console_document()
+    else:
+        from meshforge.controller.http import openapi_document
+
+        document = openapi_document()
+    return json.dumps(document, indent=2, sort_keys=True) + "\n"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -31,8 +39,13 @@ def main(argv: list[str] | None = None) -> int:
     group.add_argument(
         "--check", type=Path, help="compare with this file; exit 1 when it differs"
     )
+    parser.add_argument(
+        "--console",
+        action="store_true",
+        help="the agent's local console API (frontend/console-openapi.json)",
+    )
     args = parser.parse_args(argv)
-    text = render()
+    text = render(console=args.console)
     if args.check is not None:
         try:
             current = args.check.read_text(encoding="utf-8")

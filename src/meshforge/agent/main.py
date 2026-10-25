@@ -154,9 +154,44 @@ def run(
     settings = _load_settings(config, **overrides)
     configure_logging(settings.log.level, fmt=settings.log.format, component="agent")
 
+    if settings.console_enabled:
+        # V0.17 G3 (D391): the local console stays up; the fabric part starts
+        # once this laptop has joined (agent/console/supervisor.py).
+        raise typer.Exit(_run_with_console(settings, config, overrides))
+
     from meshforge.agent.runtime import run_agent
 
     raise typer.Exit(run_agent(settings))
+
+
+def _run_with_console(
+    settings: AgentSettings, config: Path | None, overrides: dict[str, object]
+) -> int:
+    import asyncio
+
+    from meshforge.agent.settings import AgentSettings as Loader
+    from meshforge.common.logging import get_logger
+
+    try:
+        from meshforge.agent.console.server import run_with_console
+    except ImportError as exc:
+        typer.echo(
+            f"{PROG_NAME}: the local console needs the agent extra (`uv sync --extra "
+            f"agent`): {exc}; or set [agent.console] enabled = false",
+            err=True,
+        )
+        return int(ExitCode.CONFIG_ERROR)
+    try:
+        return int(
+            asyncio.run(
+                run_with_console(
+                    settings, reload_settings=lambda: Loader.load(config, **overrides)
+                )
+            )
+        )
+    except Exception as exc:  # noqa: BLE001 - last line of defence, like run_agent
+        get_logger(__name__).exception("agent.crashed", cause=type(exc).__name__)
+        return int(ExitCode.FAILURE)
 
 
 @identity_app.command("show")

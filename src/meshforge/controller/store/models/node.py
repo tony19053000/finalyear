@@ -32,6 +32,7 @@ from sqlalchemy import (
     Index,
     Integer,
     String,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
@@ -174,6 +175,11 @@ class Node(TimestampMixin, Base):
 
     node_id: Mapped[str] = id_column(primary_key=True)
     hostname: Mapped[str] = mapped_column(String(255), nullable=False)
+    display_name: Mapped[str] = mapped_column(
+        String(64), nullable=False, server_default=text("''"), default=""
+    )
+    """V0.17 G3 (Q27): ``Hello.display_name``, the owner's name for the laptop;
+    empty = none (migration 0035)."""
     os: Mapped[str] = mapped_column(String(128), nullable=False)
     platform: Mapped[str] = mapped_column(String(64), nullable=False)
     hardware: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)

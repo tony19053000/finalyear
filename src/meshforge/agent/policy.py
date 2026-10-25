@@ -62,12 +62,17 @@ __all__ = [
     "LIVE_KEYS",
     "MAX_OVERLAY_BYTES",
     "POLICY_FILE_NAME",
+    "RESTART_KEYS",
     "LivePolicy",
+    "PolicyChange",
     "PolicyState",
+    "apply_changes",
     "format_overlay",
     "not_enforced_caps",
     "parse_assignments",
+    "parse_overlay",
     "policy_path",
+    "policy_view",
     "read_overlay",
     "startup_policy",
     "write_overlay",
@@ -195,6 +200,14 @@ def read_overlay(path: Path) -> dict[str, Any] | None:
         if exc.reason is PrivateFileReason.MISSING:
             return None
         raise ConfigError(exc.message, details={"reason": exc.reason.value}) from None
+    return parse_overlay(raw, path)
+
+
+def parse_overlay(raw: bytes, path: Path) -> dict[str, Any]:
+    """The keys of live-file content already read (``path`` names it in
+    errors); :class:`ConfigError` when it is not a table of :data:`LIVE_KEYS`.
+    Used by :func:`read_overlay` and the V0.17 identity migration (which reads
+    a user's file through ``safe_source``, never by path)."""
     try:
         data = tomllib.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, tomllib.TOMLDecodeError) as exc:
@@ -488,3 +501,95 @@ def clear_overlay(path: Path) -> bool:
         path.unlink()
         return True
     return False
+
+
+RESTART_KEYS: Final = {
+    "accept_jobs": "runtime",
+    "allow_unsandboxed": "subprocess/venv runtime",
+}
+"""Keys whose turning on needs a restart of an agent started with them off
+(module docstring)."""
+
+
+@dataclass(frozen=True, slots=True)
+class PolicyChange:
+    """What :func:`apply_changes` wrote."""
+
+    path: Path
+    effective: PolicySettings
+    restart_keys: tuple[str, ...]
+    """Keys turned on now that were off before: an agent started with them off
+    needs one restart to get the runtimes (:data:`RESTART_KEYS`)."""
+
+
+def apply_changes(
+    settings: AgentSettings, changes: Mapping[str, Any], *, replace: bool = False
+) -> PolicyChange:
+    """Merge ``changes`` into the live file (or, ``replace``, make them the whole
+    file), validate the **effective** policy first, then write it atomically.
+
+    The one implementation behind ``meshforge-agent policy set`` and the
+    console's Settings page (V0.17 G3). Raises :class:`ConfigError` for an
+    invalid result (nothing written) and :class:`OSError` when the file cannot
+    be written."""
+    unknown = sorted(set(changes) - set(LIVE_KEYS))
+    if unknown:
+        raise ConfigError(
+            f"unknown policy keys: {', '.join(unknown)}",
+            details={"reason": "unknown_key"},
+        )
+    path = policy_path(settings)
+    current = {} if replace else (read_overlay(path) or {})
+    try:
+        before: PolicySettings | None = effective_settings(
+            settings.agent.policy, read_overlay(path) if replace else current
+        )
+    except ConfigError:  # the old file was invalid: count every key as new
+        before = None
+    merged = {**current, **changes}
+    effective = effective_settings(settings.agent.policy, merged)
+    slots = effective.max_cpu_jobs + (effective.max_gpu_jobs or 0)
+    if slots > settings.agent.execution.max_concurrent_attempts:
+        raise ConfigError(
+            "max_cpu_jobs + max_gpu_jobs must be <= [agent.execution] "
+            "max_concurrent_attempts",
+            details={"reason": "too_many_slots"},
+        )
+    write_overlay(path, merged)
+    restart = tuple(
+        key
+        for key in RESTART_KEYS
+        if getattr(effective, key) and (before is None or not getattr(before, key))
+    )
+    return PolicyChange(path=path, effective=effective, restart_keys=restart)
+
+
+def policy_view(settings: AgentSettings) -> dict[str, Any]:
+    """The effective policy as ``policy show --json`` prints it (and the
+    console's Settings page reads it): the policy, the slots, the live file,
+    which keys it sets, why it is invalid (fails closed), deprecated keys."""
+    live = LivePolicy(
+        settings.agent.policy,
+        policy_path(settings),
+        gpu_count=0,
+        max_concurrent_attempts=settings.agent.execution.max_concurrent_attempts,
+    )
+    state = live.state
+    policy = state.policy.as_dict()
+    policy.pop("revision", None)
+    policy.pop("not_enforced", None)
+    try:
+        effective: PolicySettings | None = effective_settings(
+            settings.agent.policy, state.overlay
+        )
+    except ConfigError:
+        effective = None
+    return {
+        "policy": policy,
+        "max_cpu_jobs": 0 if effective is None else effective.max_cpu_jobs,
+        "max_gpu_jobs": 0 if effective is None else effective.max_gpu_jobs,
+        "live_file": str(live.path),
+        "live_keys": sorted(state.overlay or {}),
+        "invalid": state.invalid_reason,
+        "deprecated_keys": list(settings.agent.deprecated_keys),
+    }

@@ -212,6 +212,11 @@ message Hello {
   OwnerPolicy policy = 13;
   // V0.7 G3: node identity is proven by the client certificate (mTLS); node_id
   // must equal the certificate's.
+  // V0.17 G3 (Q27): the friendly name the laptop's owner gave it in the local
+  // console (or [agent] node_name); empty = none, the dashboard shows the
+  // hostname. Printable, at most 64 characters: the controller refuses the
+  // Hello (INVALID_ARGUMENT) for a control character and clips nothing.
+  string display_name = 14;
 }
 
 // The node owner's policy (V0.7 G5, roadmap 0.7.8, D142). The agent is

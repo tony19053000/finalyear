@@ -82,7 +82,11 @@ MAINTAINER: Final = "MeshForge team <meshforge@example.org>"
 STAGED: Final[Mapping[str, int]] = {
     # file in packaging/linux -> mode in the stage (and so in the package)
     "meshforge-agent.service": 0o644,
-    "meshforge-agent.path": 0o644,
+    "meshforge-agent.tmpfiles": 0o644,
+    "desktop/meshforge.desktop": 0o644,
+    "desktop/meshforge.svg": 0o644,
+    "desktop/docker-access": 0o755,
+    "desktop/org.meshforge.docker-access.policy": 0o644,
     "lintian-overrides": 0o644,
     "copyright": 0o644,
     "scripts/preinst": 0o755,
@@ -101,7 +105,12 @@ REQUIRED_PATHS: Final = (
     ("./usr/bin/meshforge-agent", "symlink"),
     ("./usr/bin/compute", "symlink"),
     ("./usr/lib/systemd/system/meshforge-agent.service", "file"),
-    ("./usr/lib/systemd/system/meshforge-agent.path", "file"),
+    ("./usr/bin/meshforge-console-open", "symlink"),
+    ("./opt/meshforge/{v}/bin/meshforge-console-open", "file"),
+    ("./usr/share/applications/meshforge.desktop", "file"),
+    ("./usr/lib/tmpfiles.d/meshforge-agent.conf", "file"),
+    ("./usr/lib/meshforge/docker-access", "file"),
+    ("./usr/share/polkit-1/actions/org.meshforge.docker-access.policy", "file"),
     ("./usr/share/doc/meshforge-agent/copyright", "file"),
     ("./usr/share/doc/meshforge-agent/changelog.Debian.gz", "file"),
 )

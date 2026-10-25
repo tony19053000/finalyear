@@ -115,10 +115,11 @@ export function NodesPage() {
               e.stopPropagation();
             }}
           >
-            {n.hostname}
+            {n.display_name ? n.display_name : n.hostname}
           </Link>
           <span className="font-mono text-2xs text-fg-muted" title={n.node_id}>
-            {shortId(n.node_id)}
+            {/* V0.17 G3 (Q27): the owner's name above, the hostname here */}
+            {n.display_name ? `${n.hostname} · ${shortId(n.node_id)}` : shortId(n.node_id)}
           </span>
         </span>
       ),

@@ -1,0 +1,1326 @@
+{
+  "components": {
+    "schemas": {
+      "CheckView": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Action"
+          },
+          "fix": {
+            "title": "Fix",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "warn",
+              "missing"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "why": {
+            "title": "Why",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "status",
+          "why",
+          "fix",
+          "action"
+        ],
+        "title": "CheckView",
+        "type": "object"
+      },
+      "ChecksView": {
+        "additionalProperties": false,
+        "properties": {
+          "checks": {
+            "items": {
+              "$ref": "#/components/schemas/CheckView"
+            },
+            "title": "Checks",
+            "type": "array"
+          }
+        },
+        "required": [
+          "checks"
+        ],
+        "title": "ChecksView",
+        "type": "object"
+      },
+      "ControllerView": {
+        "additionalProperties": false,
+        "properties": {
+          "host": {
+            "title": "Host",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "port": {
+            "title": "Port",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "host",
+          "port"
+        ],
+        "title": "ControllerView",
+        "type": "object"
+      },
+      "DiscoverView": {
+        "additionalProperties": false,
+        "properties": {
+          "controllers": {
+            "items": {
+              "$ref": "#/components/schemas/ControllerView"
+            },
+            "title": "Controllers",
+            "type": "array"
+          },
+          "problem": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Problem"
+          }
+        },
+        "required": [
+          "controllers"
+        ],
+        "title": "DiscoverView",
+        "type": "object"
+      },
+      "DockerAccessView": {
+        "additionalProperties": false,
+        "description": "How to give the service Docker access (it cannot do it itself: Q24 and\nthe progress note's decision 4).",
+        "properties": {
+          "command": {
+            "title": "Command",
+            "type": "string"
+          },
+          "explanation": {
+            "title": "Explanation",
+            "type": "string"
+          },
+          "menu_action": {
+            "title": "Menu Action",
+            "type": "string"
+          },
+          "supported": {
+            "title": "Supported",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "supported",
+          "menu_action",
+          "command",
+          "explanation"
+        ],
+        "title": "DockerAccessView",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "HealthView": {
+        "additionalProperties": false,
+        "properties": {
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ok",
+          "version"
+        ],
+        "title": "HealthView",
+        "type": "object"
+      },
+      "JoinRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "maxLength": 512,
+            "minLength": 1,
+            "title": "Code",
+            "type": "string"
+          },
+          "controller_host": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A controller found on this network (its address replaces the code's; the code's CA pin still decides).",
+            "title": "Controller Host"
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "title": "JoinRequest",
+        "type": "object"
+      },
+      "JoinView": {
+        "additionalProperties": false,
+        "properties": {
+          "cert_not_after": {
+            "title": "Cert Not After",
+            "type": "string"
+          },
+          "controller": {
+            "title": "Controller",
+            "type": "string"
+          },
+          "fabric_id": {
+            "title": "Fabric Id",
+            "type": "string"
+          },
+          "node_id": {
+            "title": "Node Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "fabric_id",
+          "node_id",
+          "controller",
+          "cert_not_after"
+        ],
+        "title": "JoinView",
+        "type": "object"
+      },
+      "LaunchCodeView": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "expires_in_s": {
+            "title": "Expires In S",
+            "type": "number"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "url",
+          "expires_in_s"
+        ],
+        "title": "LaunchCodeView",
+        "type": "object"
+      },
+      "LeaveRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "confirm": {
+            "const": "leave",
+            "title": "Confirm",
+            "type": "string"
+          }
+        },
+        "required": [
+          "confirm"
+        ],
+        "title": "LeaveRequest",
+        "type": "object"
+      },
+      "LogLineView": {
+        "additionalProperties": false,
+        "properties": {
+          "event": {
+            "title": "Event",
+            "type": "string"
+          },
+          "fields": {
+            "additionalProperties": true,
+            "title": "Fields",
+            "type": "object"
+          },
+          "level": {
+            "title": "Level",
+            "type": "string"
+          },
+          "logger": {
+            "title": "Logger",
+            "type": "string"
+          },
+          "seq": {
+            "title": "Seq",
+            "type": "integer"
+          },
+          "timestamp": {
+            "title": "Timestamp",
+            "type": "string"
+          }
+        },
+        "required": [
+          "seq",
+          "timestamp",
+          "level",
+          "event",
+          "logger",
+          "fields"
+        ],
+        "title": "LogLineView",
+        "type": "object"
+      },
+      "LogsView": {
+        "additionalProperties": false,
+        "properties": {
+          "capacity": {
+            "title": "Capacity",
+            "type": "integer"
+          },
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/LogLineView"
+            },
+            "title": "Lines",
+            "type": "array"
+          }
+        },
+        "required": [
+          "lines",
+          "capacity"
+        ],
+        "title": "LogsView",
+        "type": "object"
+      },
+      "NodeNameRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "maxLength": 256,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "NodeNameRequest",
+        "type": "object"
+      },
+      "NodeNameView": {
+        "additionalProperties": false,
+        "properties": {
+          "applies_after_restart": {
+            "title": "Applies After Restart",
+            "type": "boolean"
+          },
+          "hostname": {
+            "title": "Hostname",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "source": {
+            "enum": [
+              "console",
+              "config",
+              "none"
+            ],
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "source",
+          "hostname",
+          "applies_after_restart"
+        ],
+        "title": "NodeNameView",
+        "type": "object"
+      },
+      "OkView": {
+        "additionalProperties": false,
+        "properties": {
+          "message": {
+            "default": "",
+            "title": "Message",
+            "type": "string"
+          },
+          "ok": {
+            "default": true,
+            "title": "Ok",
+            "type": "boolean"
+          }
+        },
+        "title": "OkView",
+        "type": "object"
+      },
+      "PolicyRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "values": {
+            "$ref": "#/components/schemas/PolicyValues"
+          }
+        },
+        "required": [
+          "values"
+        ],
+        "title": "PolicyRequest",
+        "type": "object"
+      },
+      "PolicyValues": {
+        "additionalProperties": false,
+        "description": "The owner's live settings (``meshforge-agent policy`` keys). In a PUT,\nabsent keys stay as they are; ``null`` on a limit removes the limit.",
+        "properties": {
+          "accept_gpu_sessions": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accept Gpu Sessions"
+          },
+          "accept_jobs": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accept Jobs"
+          },
+          "allow_network": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Allow Network"
+          },
+          "allow_unsandboxed": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Allow Unsandboxed"
+          },
+          "allowed_users": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 64,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Allowed Users"
+          },
+          "max_cpu_jobs": {
+            "anyOf": [
+              {
+                "maximum": 64.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Cpu Jobs"
+          },
+          "max_cpu_percent": {
+            "anyOf": [
+              {
+                "maximum": 100.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Cpu Percent"
+          },
+          "max_gpu_jobs": {
+            "anyOf": [
+              {
+                "maximum": 64.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Gpu Jobs"
+          },
+          "max_ram_bytes": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Ram Bytes"
+          },
+          "max_vram_bytes": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Vram Bytes"
+          },
+          "pause_benchmarks": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pause Benchmarks"
+          }
+        },
+        "title": "PolicyValues",
+        "type": "object"
+      },
+      "PolicyView": {
+        "additionalProperties": false,
+        "properties": {
+          "cpu_threads": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cpu Threads"
+          },
+          "deprecated_keys": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Deprecated Keys",
+            "type": "array"
+          },
+          "invalid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Invalid"
+          },
+          "live_keys": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Live Keys",
+            "type": "array"
+          },
+          "max_cpu_jobs": {
+            "title": "Max Cpu Jobs",
+            "type": "integer"
+          },
+          "max_gpu_jobs": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Gpu Jobs"
+          },
+          "owner_activity_guard": {
+            "title": "Owner Activity Guard",
+            "type": "boolean"
+          },
+          "policy": {
+            "additionalProperties": true,
+            "title": "Policy",
+            "type": "object"
+          },
+          "restart_needed": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Restart Needed",
+            "type": "array"
+          }
+        },
+        "required": [
+          "policy",
+          "max_cpu_jobs",
+          "max_gpu_jobs",
+          "live_keys",
+          "invalid",
+          "deprecated_keys",
+          "owner_activity_guard",
+          "cpu_threads"
+        ],
+        "title": "PolicyView",
+        "type": "object"
+      },
+      "StatusView": {
+        "additionalProperties": false,
+        "properties": {
+          "cert_not_after": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cert Not After"
+          },
+          "connection": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Connection"
+          },
+          "controller": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Controller"
+          },
+          "dashboard_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dashboard Url"
+          },
+          "fabric_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fabric Id"
+          },
+          "hostname": {
+            "title": "Hostname",
+            "type": "string"
+          },
+          "identity_problem": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Identity Problem"
+          },
+          "install_mode": {
+            "enum": [
+              "user",
+              "system"
+            ],
+            "title": "Install Mode",
+            "type": "string"
+          },
+          "joined": {
+            "title": "Joined",
+            "type": "boolean"
+          },
+          "node_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Node Id"
+          },
+          "node_name": {
+            "title": "Node Name",
+            "type": "string"
+          },
+          "phase": {
+            "enum": [
+              "waiting_for_join",
+              "starting",
+              "running",
+              "stopping",
+              "stopped"
+            ],
+            "title": "Phase",
+            "type": "string"
+          },
+          "phase_since": {
+            "title": "Phase Since",
+            "type": "number"
+          },
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id"
+          },
+          "setup_complete": {
+            "title": "Setup Complete",
+            "type": "boolean"
+          },
+          "stop_reason": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StopReasonView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "install_mode",
+          "phase",
+          "phase_since",
+          "joined",
+          "setup_complete",
+          "node_name",
+          "hostname"
+        ],
+        "title": "StatusView",
+        "type": "object"
+      },
+      "StopReasonView": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "failure_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure Type"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "StopReasonView",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "title": "MeshForge agent console",
+    "version": "1"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/console/v1/checks": {
+      "get": {
+        "operationId": "checks_console_v1_checks_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChecksView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Checks"
+      }
+    },
+    "/console/v1/discover": {
+      "get": {
+        "operationId": "discover_console_v1_discover_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiscoverView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Discover"
+      }
+    },
+    "/console/v1/docker-access": {
+      "get": {
+        "operationId": "docker_access_console_v1_docker_access_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DockerAccessView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Docker Access"
+      }
+    },
+    "/console/v1/health": {
+      "get": {
+        "operationId": "health_console_v1_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health"
+      }
+    },
+    "/console/v1/join": {
+      "post": {
+        "operationId": "join_console_v1_join_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JoinRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JoinView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Join"
+      }
+    },
+    "/console/v1/launch-code": {
+      "post": {
+        "operationId": "launch_code_console_v1_launch_code_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LaunchCodeView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Launch Code"
+      }
+    },
+    "/console/v1/leave": {
+      "post": {
+        "operationId": "leave_console_v1_leave_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LeaveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Leave"
+      }
+    },
+    "/console/v1/logs": {
+      "get": {
+        "operationId": "logs_console_v1_logs_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 300,
+              "maximum": 5000,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "After",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LogsView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Logs"
+      }
+    },
+    "/console/v1/node-name": {
+      "get": {
+        "operationId": "get_name_console_v1_node_name_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NodeNameView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Name"
+      },
+      "put": {
+        "operationId": "put_name_console_v1_node_name_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NodeNameRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NodeNameView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Name"
+      }
+    },
+    "/console/v1/policy": {
+      "get": {
+        "operationId": "get_policy_console_v1_policy_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PolicyView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Policy"
+      },
+      "put": {
+        "operationId": "put_policy_console_v1_policy_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PolicyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PolicyView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Policy"
+      }
+    },
+    "/console/v1/restart": {
+      "post": {
+        "operationId": "restart_console_v1_restart_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Restart"
+      }
+    },
+    "/console/v1/session": {
+      "delete": {
+        "operationId": "sign_out_console_v1_session_delete",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Sign Out"
+      },
+      "post": {
+        "operationId": "exchange_console_v1_session_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": false,
+                "description": "The page trades the launcher's one-time code (``#c=``) for the session\ncookie, once. (The token itself is never accepted from a browser: it only\nbuys launch codes, ``POST /launch-code``.)",
+                "properties": {
+                  "code": {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "title": "Code",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "code"
+                ],
+                "title": "ExchangeRequest",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Exchange"
+      }
+    },
+    "/console/v1/setup-complete": {
+      "post": {
+        "operationId": "setup_done_console_v1_setup_complete_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Setup Done"
+      }
+    },
+    "/console/v1/status": {
+      "get": {
+        "operationId": "status_console_v1_status_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusView"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Status"
+      }
+    }
+  }
+}
