@@ -5,6 +5,10 @@
 # is root-equivalent - the reason it is never done by default) and restarts the
 # service so it gets the group. Exit: 0 done, 3 no docker group, 4 not root.
 set -eu
+# pkexec passes a minimal environment; never trust an inherited PATH (usermod,
+# getent, systemctl are resolved from the system folders only)
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
 say() { printf 'meshforge docker-access: %s\n' "$*" >&2; }
 
 if [ "$(id -u)" -ne 0 ]; then

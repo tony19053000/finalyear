@@ -55,11 +55,11 @@ class HealthView(_Model):
 
 
 class ExchangeRequest(_Model):
-    """The page trades the launcher's one-time code (``#c=``) - or the token
-    itself (``#t=``) - for the session cookie, once."""
+    """The page trades the launcher's one-time code (``#c=``) for the session
+    cookie, once. (The token itself is never accepted from a browser: it only
+    buys launch codes, ``POST /launch-code``.)"""
 
-    code: str | None = Field(default=None, max_length=256)
-    token: str | None = Field(default=None, max_length=256)
+    code: str = Field(min_length=1, max_length=256)
 
 
 class LaunchCodeView(_Model):

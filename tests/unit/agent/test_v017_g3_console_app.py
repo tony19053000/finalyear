@@ -3,7 +3,7 @@
 * every request: ``Host`` must be ``127.0.0.1:<port>`` (DNS rebinding) - else 421;
   the dashboard's security headers on every answer, ``no-store`` on the API;
 * access: the launcher's ``POST /launch-code`` needs the token (Bearer) and no
-  browser Origin; ``POST /session`` trades a one-time code (or the token) for an
+  browser Origin; ``POST /session`` trades a one-time code (never the token) for an
   ``HttpOnly; SameSite=Strict`` cookie and needs our Origin; codes are single
   use; wrong tries are throttled; every other route needs the cookie, writes
   also our Origin (CSRF);
@@ -205,13 +205,14 @@ async def test_code_is_single_use_and_expires(
     clock.now += 61
     r = await http.post("/console/v1/session", json={"code": late}, headers=ORIGIN)
     assert r.status_code == 401
-    # the token itself (#t=) works too, but never without our Origin
-    r = await http.post("/console/v1/session", json={"token": ctx.auth.token})
-    assert r.status_code == 403
+    # the token itself is never a browser credential (it only buys codes)
     r = await http.post(
         "/console/v1/session", json={"token": ctx.auth.token}, headers=ORIGIN
     )
-    assert r.status_code == 200
+    assert r.status_code == 422
+    # Origin is checked before the body is even read
+    r = await http.post("/console/v1/session", content=b"not json")
+    assert r.status_code == 403
 
 
 async def test_session_expires_and_sign_out_ends_it(
@@ -226,7 +227,7 @@ async def test_session_expires_and_sign_out_ends_it(
     assert (await http.get("/console/v1/status")).status_code == 401
 
 
-async def test_guessing_is_throttled(
+async def test_guessing_is_throttled_but_never_locks_the_owner_out(
     http: httpx.AsyncClient, ctx: ConsoleContext
 ) -> None:
     for _ in range(MAX_FAILURES_PER_MINUTE):
@@ -234,9 +235,25 @@ async def test_guessing_is_throttled(
             "/console/v1/session", json={"code": "nope"}, headers=ORIGIN
         )
         assert r.status_code == 401
+    r = await http.post("/console/v1/session", json={"code": "nope"}, headers=ORIGIN)
+    assert r.status_code == 429  # failed tries are slowed down ...
     good = ctx.auth.new_launch_code()
     r = await http.post("/console/v1/session", json={"code": good}, headers=ORIGIN)
-    assert r.status_code == 429
+    assert r.status_code == 200  # ... the right credential always works (G3-D1)
+    bad = {"authorization": "Bearer wrong"}
+    assert (await http.post("/console/v1/launch-code", headers=bad)).status_code == 429
+    bearer = {"authorization": f"Bearer {ctx.auth.token}"}
+    assert (
+        await http.post("/console/v1/launch-code", headers=bearer)
+    ).status_code == 200
+
+
+async def test_origin_is_checked_before_the_session(
+    http: httpx.AsyncClient,
+) -> None:
+    # no cookie at all: a cross-site write gets 403, not 401 (learns nothing)
+    r = await http.post("/console/v1/restart", headers={"origin": "http://evil"})
+    assert r.status_code == 403
 
 
 # ---------------------------------------------------------------- endpoints
@@ -403,6 +420,14 @@ async def test_setup_complete_is_remembered(
     http: httpx.AsyncClient, ctx: ConsoleContext
 ) -> None:
     await _sign_in(http, ctx)
+    # Q26 server-side: not before the owner's policy choice was saved
+    r = await http.post("/console/v1/setup-complete", headers=ORIGIN)
+    assert r.status_code == 409 and r.json()["error"]["code"] == "policy_not_saved"
+    assert (await http.get("/console/v1/status")).json()["setup_complete"] is False
+    saved = await http.put(
+        "/console/v1/policy", json={"values": {"accept_jobs": False}}, headers=ORIGIN
+    )
+    assert saved.status_code == 200
     r = await http.post("/console/v1/setup-complete", headers=ORIGIN)
     assert r.status_code == 200
     assert (await http.get("/console/v1/status")).json()["setup_complete"] is True

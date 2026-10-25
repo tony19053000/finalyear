@@ -23,14 +23,6 @@ class _Client:
         self.stopped.set()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="DEFECT G3-D2 (major): the supervisor starts the fabric part with the "
-    "settings read at PROCESS START; /etc/meshforge/config.toml edited after the "
-    "install and before the join (the documented order, and what "
-    "tests/cluster/test_v017_g1_deb_service.py does) is ignored until a restart. "
-    "G1 started the process only after the join, so it always saw the file.",
-)
 async def test_config_written_before_the_join_is_used_when_the_fabric_part_starts(
     tmp_path: Path,
 ) -> None:

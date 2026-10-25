@@ -133,7 +133,12 @@ async def test_a_broken_config_on_restart_keeps_the_console(tmp_path: Path) -> N
     settings = _settings(tmp_path)
     _enrol(settings)
 
-    def broken() -> AgentSettings:
+    calls = {"n": 0}
+
+    def broken() -> AgentSettings:  # fine at the first start, broken on restart
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return settings
         raise ConfigError("[agent] bogus: extra inputs are not permitted")
 
     sup = Supervisor(
@@ -242,3 +247,29 @@ async def test_unknown_command_is_refused(tmp_path: Path) -> None:
     sup = Supervisor(_settings(tmp_path), serve_fn=FakeServe(), install_signals=False)
     with pytest.raises(ValueError, match="unknown"):
         sup.request("format-disk")
+
+
+async def test_a_config_broken_before_the_join_stops_with_the_reason(
+    tmp_path: Path,
+) -> None:
+    settings = _settings(tmp_path)
+
+    def broken() -> AgentSettings:
+        raise ConfigError("[agent] bogus: extra inputs are not permitted")
+
+    serve = FakeServe()
+    sup = Supervisor(
+        settings,
+        reload_settings=broken,
+        serve_fn=serve,
+        poll_s=0.05,
+        install_signals=False,
+    )
+    task = await _start(sup)
+    await sup.wait_phase(FabricPhase.WAITING_FOR_JOIN)
+    _enrol(settings)
+    await sup.wait_phase(FabricPhase.STOPPED)
+    assert serve.starts == 0
+    assert sup.stop_reason is not None and sup.stop_reason.code == "config_reload"
+    sup.request_shutdown()
+    assert await task == ExitCode.OK

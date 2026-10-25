@@ -16,6 +16,12 @@ has only a browser cannot act on an exit code, so with the console on
     STOPPED --restart--> STARTING ; STOPPED --leave--> WAITING_FOR_JOIN
     any --SIGINT/SIGTERM--> fabric part stopped, console closed, exit 0
 
+Leaving ``WAITING_FOR_JOIN`` re-reads the configuration (G3-D2): a
+``config.toml`` written after the install and before the join is used. If the
+fabric part's ``serve()`` ever ends on its own (no stop was asked), the phase is
+``STOPPED`` (``ended``) and stays so until the owner restarts it from the
+console - there is no automatic restart loop inside the process.
+
 The enrolment is polled every ``poll_s`` (the CLI join writes ``node.crt``
 from another process), so no path unit is needed. A typed stop keeps the
 process - and the console that explains it - up; only an **unexpected** crash
@@ -246,6 +252,11 @@ class Supervisor:
                 self._reload_settings()
             elif command == "leave":
                 await self._leave()
+            return
+        if self.phase is FabricPhase.WAITING_FOR_JOIN and not self._reload_settings():
+            # G3-D2: the configuration may have been written after the process
+            # started and before the join (the documented order); a broken one
+            # leaves the fabric part stopped with the reason shown.
             return
         await self._run_fabric()
 

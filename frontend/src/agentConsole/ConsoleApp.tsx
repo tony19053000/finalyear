@@ -37,8 +37,8 @@ type Access = "exchanging" | "ready" | "expired";
  */
 const exchanges = new Map<string, Promise<unknown>>();
 
-function exchangeOnce(credential: { code?: string; token?: string }): Promise<unknown> {
-  const key = credential.code !== undefined ? `c:${credential.code}` : `t:${credential.token ?? ""}`;
+function exchangeOnce(credential: { code: string }): Promise<unknown> {
+  const key = credential.code;
   let pending = exchanges.get(key);
   if (pending === undefined) {
     pending = consoleApi.exchange(credential);
@@ -47,7 +47,7 @@ function exchangeOnce(credential: { code?: string; token?: string }): Promise<un
   return pending;
 }
 
-/** Trade the launcher's `#c=` / `#t=` for the session cookie, once (bootstrap.ts). */
+/** Trade the launcher's `#c=` for the session cookie, once (bootstrap.ts). */
 function useAccess(): Access {
   const [credential] = useState(() => readCredential(window.location.hash));
   const [access, setAccess] = useState<Access>(credential === null ? "ready" : "exchanging");

@@ -68,7 +68,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 }
 
 export const consoleApi = {
-  exchange: (credential: { code?: string; token?: string }) => request<OkView>("POST", "/session", credential),
+  exchange: (credential: { code: string }) => request<OkView>("POST", "/session", credential),
   signOut: () => request<OkView>("DELETE", "/session"),
   status: () => request<StatusView>("GET", "/status"),
   discover: () => request<DiscoverView>("GET", "/discover"),

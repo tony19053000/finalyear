@@ -56,9 +56,9 @@ function status(over: Partial<StatusView> = {}): StatusView {
 }
 
 describe("bootstrap: the launch fragment", () => {
-  it("reads #c= and #t=, refuses junk", () => {
+  it("reads #c= only (never a token), refuses junk", () => {
     expect(readCredential("#c=abc_DEF-1")).toEqual({ code: "abc_DEF-1" });
-    expect(readCredential("#t=tok")).toEqual({ token: "tok" });
+    expect(readCredential("#t=tok")).toBeNull();
     expect(readCredential("")).toBeNull();
     expect(readCredential("#c=<script>")).toBeNull();
     expect(readCredential(`#c=${"a".repeat(300)}`)).toBeNull();

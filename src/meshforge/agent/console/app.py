@@ -199,19 +199,21 @@ def _ctx(request: Request) -> ConsoleContext:
 
 
 def _session(request: Request) -> ConsoleContext:
+    """Origin first (a cross-site write learns nothing about the session, not
+    even whether the cookie is valid), then the session."""
     ctx = _ctx(request)
+    if request.method in _UNSAFE and not origin_ok(
+        request.headers.get("origin"), ctx.auth.port
+    ):
+        raise ConsoleHTTPError(
+            403, "bad_origin", "This request did not come from the console page."
+        )
     if not ctx.auth.session_ok(request.cookies.get(COOKIE_NAME)):
         raise ConsoleHTTPError(
             401,
             "signed_out",
             "You are not signed in to this console.",
             "Open MeshForge from the app menu.",
-        )
-    if request.method in _UNSAFE and not origin_ok(
-        request.headers.get("origin"), ctx.auth.port
-    ):
-        raise ConsoleHTTPError(
-            403, "bad_origin", "This request did not come from the console page."
         )
     return ctx
 
@@ -382,11 +384,15 @@ def create_app(ctx: ConsoleContext) -> FastAPI:
         auth = _ctx(request).auth
         if request.headers.get("origin") is not None:
             raise ConsoleHTTPError(403, "bad_origin", "Not for browsers.")
-        if auth.throttled():
-            raise ConsoleHTTPError(429, "throttled", "Too many tries; wait a minute.")
         header = request.headers.get("authorization", "")
         scheme, _, token = header.partition(" ")
+        # G3-D1: the credential is checked FIRST; the throttle only answers
+        # failed tries, so a stranger's wrong guesses never lock the owner out.
         if scheme.lower() != "bearer" or not auth.token_matches(token.strip()):
+            if auth.throttled():
+                raise ConsoleHTTPError(
+                    429, "throttled", "Too many tries; wait a minute."
+                )
             raise ConsoleHTTPError(401, "bad_token", "The console token is not valid.")
         code = auth.new_launch_code()
         return LaunchCodeView(
@@ -396,18 +402,23 @@ def create_app(ctx: ConsoleContext) -> FastAPI:
         )
 
     @app.post(f"{API_PREFIX}/session", response_model=OkView)
-    async def exchange(request: Request, body: ExchangeRequest) -> Response:
+    async def exchange(request: Request) -> Response:
         auth = _ctx(request).auth
+        # Origin before anything else, also before the body is read.
         if not origin_ok(request.headers.get("origin"), auth.port):
             raise ConsoleHTTPError(
                 403, "bad_origin", "This request did not come from the console page."
             )
-        if auth.throttled():
-            raise ConsoleHTTPError(429, "throttled", "Too many tries; wait a minute.")
-        ok = (body.code is not None and auth.redeem_launch_code(body.code)) or (
-            body.token is not None and auth.token_matches(body.token)
-        )
-        if not ok:
+        try:
+            body = ExchangeRequest.model_validate_json(await request.body())
+        except ValueError:
+            raise ConsoleHTTPError(422, "invalid", 'Expected {"code": ...}.') from None
+        # G3-D1: the code is checked first; only a failed try meets the throttle.
+        if not auth.redeem_launch_code(body.code):
+            if auth.throttled():
+                raise ConsoleHTTPError(
+                    429, "throttled", "Too many tries; wait a minute."
+                )
             raise ConsoleHTTPError(
                 401,
                 "link_expired",
@@ -486,6 +497,17 @@ def create_app(ctx: ConsoleContext) -> FastAPI:
 
     @app.post(f"{API_PREFIX}/setup-complete", response_model=OkView)
     async def setup_done(c: _Session) -> OkView:
+        from meshforge.agent.policy import policy_path
+
+        # Q26, server-enforced: the wizard's policy step cannot be skipped by
+        # calling this directly - the owner's choice must have been saved.
+        if not await asyncio.to_thread(policy_path(c.settings).is_file):
+            raise ConsoleHTTPError(
+                409,
+                "policy_not_saved",
+                "Choose what this laptop shares first.",
+                "Save the settings in the 'What this laptop shares' step.",
+            )
         try:
             await asyncio.to_thread(mark_setup_complete, c.settings)
         except OSError as exc:

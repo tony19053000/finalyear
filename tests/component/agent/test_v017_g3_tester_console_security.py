@@ -468,9 +468,11 @@ async def test_code_and_token_in_url_query_are_not_accepted(live: Live) -> None:
     assert st == 401
 
 
-async def test_token_in_exchange_body_works_once_page_style_and_is_origin_bound(
+async def test_token_is_never_a_browser_credential(
     live: Live,
 ) -> None:
+    # fix round 1 (Lead item 3): the `#t=` sign-in path is gone; the token only
+    # buys launch codes (POST /launch-code with Bearer, no browser Origin)
     st, *_ = await raw(
         live.port,
         "POST",
@@ -478,7 +480,7 @@ async def test_token_in_exchange_body_works_once_page_style_and_is_origin_bound(
         headers=[("Origin", live.origin)],
         body=json.dumps({"token": live.token}).encode(),
     )
-    assert st == 200
+    assert st == 422
     st, *_ = await raw(
         live.port,
         "POST",
@@ -486,7 +488,7 @@ async def test_token_in_exchange_body_works_once_page_style_and_is_origin_bound(
         headers=[("Origin", live.origin)],
         body=json.dumps({"token": live.token[:-1] + "x"}).encode(),
     )
-    assert st == 401
+    assert st == 422
 
 
 @pytest.mark.parametrize(
@@ -514,7 +516,7 @@ async def test_exchange_malformed_bodies_never_sign_in(
     assert st in (400, 401, 422) and not cookies
 
 
-async def test_wrong_tries_are_throttled_and_then_even_the_right_one_waits(
+async def test_wrong_tries_are_throttled_but_the_right_one_still_works(
     live: Live,
 ) -> None:
     h = [("Origin", live.origin)]
@@ -531,15 +533,22 @@ async def test_wrong_tries_are_throttled_and_then_even_the_right_one_waits(
     assert seen[0] == 401
     assert 429 in seen, f"no throttle after {len(seen)} wrong tries: {set(seen)}"
     assert seen.index(429) <= MAX_FAILURES_PER_MINUTE + 1
-    # session auth of an already signed-in browser is NOT locked out by it
-    # (only the exchange / launch-code are throttled): record, do not assert hard
+    # fix round 1 (G3-D1): the credential is checked first; only failed tries
+    # meet the throttle, so the owner's right token still gets a code
+    st, *_ = await raw(
+        live.port,
+        "POST",
+        "/console/v1/launch-code",
+        headers=[("Authorization", "Bearer still-wrong")],
+    )
+    assert st == 429
     st, *_ = await raw(
         live.port,
         "POST",
         "/console/v1/launch-code",
         headers=[("Authorization", f"Bearer {live.token}")],
     )
-    assert st == 429
+    assert st == 200
 
 
 # ---------------------------------------------------------- token file / bind
@@ -704,13 +713,6 @@ async def test_oversized_body_does_not_take_the_console_down(live: Live) -> None
     assert st == 200 and time.monotonic() - t0 < 5
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="DEFECT G3-D1 (major): the throttle is global (auth.py throttled()): "
-    "30 wrong tries from any local process make even the correct token get 429, "
-    "so a local user can lock the owner out of the launcher/console for as long "
-    "as they keep failing.",
-)
 async def test_wrong_tries_by_a_stranger_do_not_lock_the_owner_out(live: Live) -> None:
     for i in range(MAX_FAILURES_PER_MINUTE + 5):
         await raw(
@@ -726,11 +728,19 @@ async def test_wrong_tries_by_a_stranger_do_not_lock_the_owner_out(live: Live) -
         headers=[("Authorization", f"Bearer {live.token}")],
     )
     assert st == 200, f"owner locked out: {st}"
+    for i in range(MAX_FAILURES_PER_MINUTE + 5):
+        await raw(
+            live.port,
+            "POST",
+            "/console/v1/session",
+            headers=[("Origin", live.origin)],
+            body=json.dumps({"code": f"wrong-{i}"}).encode(),
+        )
     code_st, *_ = await raw(
         live.port,
         "POST",
         "/console/v1/session",
         headers=[("Origin", live.origin)],
-        body=json.dumps({"token": live.token}).encode(),
+        body=json.dumps({"code": await _code(live)}).encode(),
     )
     assert code_st == 200, f"owner locked out of the session exchange: {code_st}"

@@ -238,8 +238,15 @@ async def agent(
         await _until(lambda: (token_dir / "token").is_file())
         token = (token_dir / "token").read_text().strip()
         async with httpx.AsyncClient(base_url=base, timeout=60) as http:
+            # fix round 1 (Lead item 3): the token only buys launch codes
+            launch = await http.post(
+                "/console/v1/launch-code", headers={"authorization": f"Bearer {token}"}
+            )
+            assert launch.status_code == 200
             r = await http.post(
-                "/console/v1/session", json={"token": token}, headers={"origin": base}
+                "/console/v1/session",
+                json={"code": launch.json()["code"]},
+                headers={"origin": base},
             )
             assert r.status_code == 200
             http.cookies.update(r.cookies)

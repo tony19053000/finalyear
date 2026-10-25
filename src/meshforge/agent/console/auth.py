@@ -11,7 +11,7 @@
   a single-use code valid ``launch_code_ttl_s`` and opens the browser on
   ``#c=<code>``; only that short-lived code ever appears in a process's command
   line (``xdg-open``'s argv is visible to other local users), never the token.
-* **Session** - the page posts the code (or the token itself, ``#t=``) once and
+* **Session** - the page posts the code once (never the token) and
   gets an ``HttpOnly; SameSite=Strict`` cookie naming a random server-side
   session (memory only: a restart signs everyone out, like the token).
 * **Host / Origin** - every request must say ``Host: 127.0.0.1:<port>`` (a DNS
@@ -57,8 +57,10 @@ COOKIE_NAME: Final = "mf_console"
 MAX_SESSIONS: Final = 16
 MAX_LAUNCH_CODES: Final = 8
 MAX_FAILURES_PER_MINUTE: Final = 30
-"""Wrong tokens/codes accepted per minute before the exchange answers 429 (a
-256-bit token cannot be guessed; this only keeps a local loop from burning CPU)."""
+"""Wrong tokens/codes per minute after which a FAILED try answers 429 instead
+of 401 (a 256-bit token cannot be guessed; this only keeps a local loop quiet).
+The credential is always checked first, so the right one is never refused
+(G3-D1: a stranger's wrong tries must not lock the owner out)."""
 _TOKEN_BYTES: Final = 32
 
 
