@@ -28,6 +28,7 @@ import asyncio
 import mimetypes
 import os
 import socket
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -45,7 +46,11 @@ from meshforge.agent.console.auth import (
     host_ok,
     origin_ok,
 )
-from meshforge.agent.console.checks import DOCKER_ACCESS_COMMAND, run_checks
+from meshforge.agent.console.checks import (
+    DOCKER_ACCESS_COMMAND,
+    docker_access_command,
+    run_checks,
+)
 from meshforge.agent.console.joining import JoinProblemError, join_from_console
 from meshforge.agent.console.logbuffer import LogBuffer
 from meshforge.agent.console.models import (
@@ -652,6 +657,20 @@ def create_app(ctx: ConsoleContext) -> FastAPI:
     @app.get(f"{API_PREFIX}/docker-access", response_model=DockerAccessView)
     async def docker_access(c: _Session) -> DockerAccessView:
         system = install_mode() is InstallMode.SYSTEM
+        if sys.platform == "win32":
+            return DockerAccessView(
+                supported=system,
+                menu_action="MeshForge - give Docker access",
+                command=docker_access_command(),
+                explanation=(
+                    "Docker access lets MeshForge run jobs in containers. It is the "
+                    "same as full admin rights on this computer, so only an "
+                    "administrator can turn it on: use the Start-menu entry (Windows "
+                    "asks for an administrator's OK) or run the command in an "
+                    "administrator PowerShell. MeshForge restarts by itself "
+                    "afterwards; open it again from the Start menu."
+                ),
+            )
         return DockerAccessView(
             supported=system,
             menu_action="MeshForge: Give Docker access",
