@@ -355,6 +355,9 @@ class AgentSessionClient:
         # V0.5 G4 hooks (D97-D101); None/empty = not wired.
         self.peer_endpoint: Callable[[], str] | None = None
         """``host:port`` for ``Hello.peer_endpoint`` (asked for every Hello)."""
+        self.display_name: Callable[[], str] | None = None
+        """V0.17 G3 (Q27): ``Hello.display_name``, asked for every Hello (the
+        owner's console writes the file it reads)."""
         self.on_hello_ack: Callable[[agent_pb2.HelloAck], None] | None = None
         self.live_policy: LivePolicy | None = None
         self.owner_heartbeat: Callable[[], tuple[bool, str, str]] | None = None
@@ -571,6 +574,7 @@ class AgentSessionClient:
                 policy=None
                 if self.live_policy is None
                 else owner_policy.to_proto(self.live_policy.policy),
+                display_name=self.display_name() if self.display_name else "",
             )
             try:
                 await self._write(agent_pb2.AgentMessage(hello=hello))

@@ -115,9 +115,9 @@ class Lab:
         box.ok("chmod 600 /root/secret.txt")
 
     def reset(self) -> None:
-        # (a migrated enrolled identity starts the service via the path unit;
-        # stop it so it cannot touch the folder being reset)
-        self.box.ok("systemctl stop meshforge-agent.path meshforge-agent.service")
+        # (the service runs and starts its fabric part once an enrolled identity
+        # appears (V0.17 G3); stop it so it cannot touch the folder being reset)
+        self.box.ok("systemctl stop meshforge-agent.service")
         self.box.ok(
             "rm -rf /home/alice /var/lib/meshforge/identity /root/stash && "
             "cp -a /root/pristine /home/alice && mkdir -p /root/stash"

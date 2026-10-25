@@ -130,6 +130,7 @@ class _SummaryFields(TypedDict):
     scores: NodeScores
     certificate: NodeCertificate | None
     not_enforced: tuple[str, ...] | None
+    display_name: str
 
 
 def _certificate(node: NodeRecord) -> NodeCertificate | None:
@@ -179,6 +180,7 @@ def _summary_fields(
             if live is not None and live.policy is not None
             else None
         ),
+        "display_name": node.display_name,
     }
 
 

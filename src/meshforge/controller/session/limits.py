@@ -94,6 +94,10 @@ PLATFORM_MAX_LENGTH: Final = 64
 AGENT_VERSION_MAX_LENGTH: Final = 64
 """``Hello.agent_version`` - matches ``node_session.agent_version`` ``String(64)``."""
 
+DISPLAY_NAME_MAX_LENGTH: Final = 64
+"""``Hello.display_name`` (V0.17 G3, Q27) - matches ``node.display_name``
+``String(64)`` and the agent's ``check_node_name``."""
+
 MESSAGE_ID_MAX_LENGTH: Final = 30
 """``len("cmd_") + 26`` - every valid ``message_id`` is exactly this long."""
 
@@ -102,6 +106,7 @@ _HELLO_STRING_LIMITS: Final[tuple[tuple[str, int], ...]] = (
     ("os", OS_MAX_LENGTH),
     ("platform", PLATFORM_MAX_LENGTH),
     ("agent_version", AGENT_VERSION_MAX_LENGTH),
+    ("display_name", DISPLAY_NAME_MAX_LENGTH),
 )
 
 
@@ -129,7 +134,12 @@ def _non_printable_reason(path: str, value: str) -> str | None:
 
 
 def check_hello_strings(
-    *, hostname: str, os: str, platform: str, agent_version: str
+    *,
+    hostname: str,
+    os: str,
+    platform: str,
+    agent_version: str,
+    display_name: str = "",
 ) -> str | None:
     """Return a reason if a Hello string field is over its cap or not printable.
 
@@ -144,6 +154,7 @@ def check_hello_strings(
         "os": os,
         "platform": platform,
         "agent_version": agent_version,
+        "display_name": display_name,
     }
     for field, limit in _HELLO_STRING_LIMITS:
         length = len(values[field])

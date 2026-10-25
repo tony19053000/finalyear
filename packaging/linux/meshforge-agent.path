@@ -1,3 +1,8 @@
+# NOT INSTALLED since V0.17 G3: the service now always runs (its local console is
+# how a laptop joins) and starts the fabric part by itself after a join. The
+# package's preinst disables this unit on an upgrade from a G1 build. Kept in the
+# tree only until the Lead removes it.
+#
 # MeshForge node agent - start the service when this laptop joins a fabric
 # (V0.17 G1). Installed and enabled by the meshforge-agent .deb.
 #

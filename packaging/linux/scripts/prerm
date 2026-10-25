@@ -3,6 +3,8 @@
 # upgrade it keeps running until postinst restarts it on the new version.
 set -eu
 
+# meshforge-agent.path: only on a laptop upgraded from a G1 build whose preinst
+# could not disable it (V0.17 G3 dropped it); stopping a missing unit is harmless.
 UNITS="meshforge-agent.path meshforge-agent.service"
 
 case "${1:-}" in
@@ -15,14 +17,16 @@ remove | deconfigure)
 	if [ -d /var/lib/meshforge ]; then
 		: >/var/lib/meshforge/.package-removed
 	fi
-	# the path unit first, so it cannot start the service again
-	if [ -d /run/systemd/system ]; then
-		# shellcheck disable=SC2086 # two unit names
-		systemctl stop $UNITS || true
-	fi
-	# disable works without a running systemd too (it only removes the links)
-	# shellcheck disable=SC2086
-	systemctl disable $UNITS >/dev/null 2>&1 || true
+	# the legacy path unit first, so it cannot start the service again. One unit
+	# per command: `systemctl disable` refuses the whole list when one unit file
+	# does not exist (the G1 path unit is gone since V0.17 G3).
+	for unit in $UNITS; do
+		if [ -d /run/systemd/system ]; then
+			systemctl stop "$unit" >/dev/null 2>&1 || true
+		fi
+		# disable works without a running systemd too (it only removes the links)
+		systemctl disable "$unit" >/dev/null 2>&1 || true
+	done
 	;;
 upgrade | failed-upgrade) ;;
 *) ;;

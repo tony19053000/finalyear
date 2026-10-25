@@ -1965,11 +1965,12 @@ What the install does (`packaging/linux/scripts/postinst`, re-runnable):
 
 | Step | Result |
 |---|---|
-| system user + groups | `meshforge` (the service account, no login), `meshforge-admin` (for the local console, G3) |
+| system user + groups | `meshforge` (the service account, no login), `meshforge-admin` (may open the local console; the user who ran `sudo apt install` is added) |
 | state folders | `/etc/meshforge` (root, 0755), `/var/lib/meshforge` (meshforge, 0750) |
-| GPU groups | `meshforge` joins `video` / `render` if they exist. **Not** `docker` (root-equivalent, Q12): the agent reports "docker: no access" until you run `sudo usermod -aG docker meshforge && sudo systemctl restart meshforge-agent` |
+| GPU groups | `meshforge` joins `video` / `render` if they exist. **Not** `docker` (root-equivalent, Q12): the agent reports "docker: no access" until the owner uses app menu > MeshForge > **Give Docker access** (asks for an admin password) or runs `sudo usermod -aG docker meshforge && sudo systemctl restart meshforge-agent` |
 | migration (D387) | `meshforge-agent migrate-identity`: a laptop that already ran the agent as a user keeps its `node_id` (see below) |
-| services | `meshforge-agent.service` + `meshforge-agent.path` enabled; the service is started only when the laptop has joined |
+| console | token folder `/run/meshforge-console` (tmpfiles.d), app-menu entry `MeshForge` (`/usr/share/applications/meshforge.desktop` -> `meshforge-console-open`) |
+| services | `meshforge-agent.service` enabled and started - it runs before the join (its console is how the owner joins) |
 
 **Where things are** (`MESHFORGE_INSTALL_MODE=system`, set by the unit, never guessed — Q11):
 
@@ -1979,9 +1980,17 @@ What the install does (`packaging/linux/scripts/postinst`, re-runnable):
 | config | `/etc/meshforge/config.toml` (optional; `root:meshforge 0640`) |
 | identity, envs, caches, policy | `/var/lib/meshforge/` (`identity/` is `meshforge 0700`) |
 | logs | `journalctl -u meshforge-agent` |
-| units | `/usr/lib/systemd/system/meshforge-agent.{service,path}` |
+| units | `/usr/lib/systemd/system/meshforge-agent.service` (+ `/usr/lib/tmpfiles.d/meshforge-agent.conf`) |
+| console | `http://127.0.0.1:47130/` (loopback only), token `/run/meshforge-console/token`, launcher `/usr/bin/meshforge-console-open` |
 
 ### Joining (a fresh laptop)
+
+No terminal needed (V0.17 G3): open **MeshForge** from the app menu (or run
+`meshforge-console-open`). The local console's wizard asks for the `mf1-...` code
+(paste it, or scan the QR shown on the dashboard's Invites page with the webcam),
+then what this laptop shares (safe defaults: no jobs, GPU not shared, 50 % CPU per
+job), shows the checks (Docker, GPU, CUDA, disk, firewall, peer port) and links
+to the dashboard. From a terminal it still works:
 
 ```bash
 sudo meshforge-agent join            # paste the mf1-... code from the fabric admin
@@ -1989,10 +1998,9 @@ sudo meshforge-agent join            # paste the mf1-... code from the fabric ad
 
 You type it as yourself; the command re-executes as `meshforge` via `sudo`
 (Q15), so the identity is the **service's**, never a second one in your home.
-`join` writes `/var/lib/meshforge/identity/node.crt`; `meshforge-agent.path`
-sees it and starts the service — no `systemctl` needed. Until then the service
-is *inactive* (a start condition, not a failure) and `apt install` says
-"has not joined a fabric yet". The same re-execution applies to `identity show`,
+The running service notices the new `node.crt` within 2 s and connects — no
+`systemctl` needed. Until then it runs with only its console up and `apt install`
+says "has not joined a fabric yet". The same re-execution applies to `identity show`,
 `hardware show`, `policy …`: on a packaged laptop they act on the service's state.
 `MESHFORGE_INSTALL_MODE=user` opts a developer out (their own state in `~`).
 
@@ -2017,11 +2025,23 @@ then:
 
 ```bash
 sudo meshforge-agent migrate-identity --from /home/<user>/.local/share/meshforge/identity
-sudo systemctl enable --now meshforge-agent.service meshforge-agent.path
+sudo systemctl enable --now meshforge-agent.service
 ```
 
 `--dry-run` prints the plan and writes nothing. The env/peer caches are not
 moved (Q14): the service re-downloads what it needs.
+
+### The local console (V0.17 G3)
+
+| Question | Answer |
+|---|---|
+| Who may open it? | members of `meshforge-admin` (they can read `/run/meshforge-console/token`). Add one: `sudo usermod -aG meshforge-admin <user>`; the launcher works at once (it uses `sg`), other programs after the next log-in. Anyone else gets "ask an admin". |
+| Is it on the network? | No. It listens on `127.0.0.1:47130` only, refuses any other `Host` (421) and cross-site writes (403). |
+| The page says "This link has expired" | Links work once, for 60 s. Open MeshForge from the app menu again. Restarting the agent signs every browser out (the token rotates). |
+| "MeshForge is stopped on this laptop" | A typed stop: revoked (leave, then join again with a new code), conflict (another agent uses this identity), config (fix `/etc/meshforge/config.toml`). The page has Restart / Leave. |
+| Leave the fabric | Settings > Leave: stops jobs, says Goodbye, deletes the identity (key + certificate). Settings (policy, name) stay. The admin can remove the old node in the dashboard. |
+| Turn it off | `[agent.console] enabled = false` in `/etc/meshforge/config.toml`, restart: the agent then behaves like G1 (exits 4 while not joined). |
+| Port taken | `agent.console.unavailable` in the journal; the agent runs without its console (join from the terminal). Change `[agent.console] port`. |
 
 ### Day-to-day
 

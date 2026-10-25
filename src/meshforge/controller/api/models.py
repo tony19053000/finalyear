@@ -197,6 +197,13 @@ class NodeSummary(ApiModel):
             "offline or an agent from before V0.7 G5."
         ),
     )
+    display_name: str = Field(
+        default="",
+        description=(
+            "V0.17 G3: the name the laptop's owner gave it in the agent's local "
+            "console; empty = none, show the hostname."
+        ),
+    )
 
 
 class CacheCount(ApiModel):

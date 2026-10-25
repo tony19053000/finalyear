@@ -89,6 +89,7 @@ class FakeRegistry:
         hardware_scores: Mapping[str, Any] | None = None,
         cpu_slots: int | None = None,
         gpu_slots: int | None = None,
+        display_name: str = "",
     ) -> NodeRecord:
         self.calls.append("upsert_node_on_hello")
         now = dt.datetime.now(dt.UTC)

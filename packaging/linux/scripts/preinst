@@ -18,6 +18,14 @@ install | upgrade)
 	if ! getent group meshforge-admin >/dev/null; then
 		groupadd --system meshforge-admin
 	fi
+	# V0.17 G3: the G1 path unit is gone (the service always runs now). Stop and
+	# disable it while its file still exists, so no dangling link stays behind.
+	if [ "${1:-}" = upgrade ] && [ -e /usr/lib/systemd/system/meshforge-agent.path ]; then
+		if [ -d /run/systemd/system ]; then
+			systemctl stop meshforge-agent.path >/dev/null 2>&1 || true
+		fi
+		systemctl disable meshforge-agent.path >/dev/null 2>&1 || true
+	fi
 	;;
 abort-upgrade) ;;
 *) ;;

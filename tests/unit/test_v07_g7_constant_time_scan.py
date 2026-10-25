@@ -127,6 +127,23 @@ ALLOWED: dict[tuple[str, str], str] = {
     ("agent/execution/lane_staging.py", "attempt.fetch_token == used"): (
         "agent bookkeeping: which of its own fetch tokens a chunk staging used"
     ),
+    # V0.17 G3: the console's Host/Origin header checks (public values, not
+    # credentials), a group-membership test, exit-code compares
+    ("agent/console/auth.py", "host.strip().lower() == expected_host(port)"): (
+        "the Host header against the console's own address (public)"
+    ),
+    ("agent/console/auth.py", "origin.strip().lower() == expected_origin(port)"): (
+        "the Origin header against the console's own origin (public)"
+    ),
+    ("agent/console/checks.py", "pwd.getpwuid(os.getuid()).pw_name in group.gr_mem"): (
+        "a user name in /etc/group (world-readable), no credential"
+    ),
+    ("agent/console/launcher.py", "exc.code == ExitCode.CONFIG_ERROR"): (
+        "an exit code"
+    ),
+    ("agent/console/supervisor.py", "int(exc.exit_code) == int(ExitCode.CONFLICT)"): (
+        "an exit code"
+    ),
     ("agent/cas/materialise.py", "Path(os.path.realpath(path.parent)) != expected"): (
         "a filesystem path compare (a folder became a link), no credential"
     ),

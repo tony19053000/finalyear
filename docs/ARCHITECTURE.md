@@ -1220,6 +1220,7 @@ The controller role is proposed for Laptop 1 (native Linux, simplest to keep run
 | `compute node prepare` scratch (V0.5 G5) | `<data dir>/prepare/<id>/requirements.txt`, deleted after each env | - |
 | Named inputs in a job's folder (V0.5 G5, D92) | `<data dir>/work/<attempt_id>/<mount>` read-only (files `0444`, folders `0555`); the workdir is removed with a remover that restores write bits | manifest `inputs` |
 | Blob URL agents fetch from (D67) | `http://<host the agent dialled>:<REST port>` unless set | `[controller.api] advertise_url` |
+| **Agent local console** (V0.17 G3, D391/D392; the owner's UI: wizard, settings, checks, logs, leave) | `http://127.0.0.1:47130/` **only** (any other `bind` is a config error; the bound socket is re-checked as loopback). Access token rotated every start: Linux system service `/run/meshforge-console/token` (`2750 meshforge:meshforge-admin` folder, `0640` file, tmpfiles.d), dev `<data dir>/console/token` (`0600`). UI build `src/meshforge/agent/console/dist/` (git-ignored wheel artifact, `npm run build`) | `[agent.console] enabled` (empty = on for the system service only) `/ port / token_dir / session_ttl_s / launch_code_ttl_s / log_lines`; `[agent] node_name`; launcher `meshforge-console-open` |
 | Agent log file on Windows (Task Scheduler has no console) | `%LOCALAPPDATA%\MeshForge\agent.log`, set in the task's command line; not rotated in V0.3 | `docs/OPERATIONS.md` §3 |
 
 Spike ports (V0.2) live in 472xx–473xx and never collide with these.
@@ -1244,9 +1245,9 @@ A packaged laptop runs the agent as a system service in **system** mode, chosen 
 The bundle (`scripts/build_bundle.py`) is a relocatable python-build-standalone CPython 3.12 with the
 `meshforge` wheel and the locked dependencies of one role; launchers find the interpreter relative to themselves,
 job venvs are built on it through the version-independent `current` path, and `BUILDINFO.json` /
-`MANIFEST.sha256` describe it (`--version` prints the build's git sha). The service starts only once the laptop
-is enrolled (`ConditionPathExists=` on `identity/node.crt`); `meshforge-agent.path` starts it when `join` writes
-that file. On a packaged laptop a human's `meshforge-agent join|identity|policy|hardware` re-executes as
+`MANIFEST.sha256` describe it (`--version` prints the build's git sha). Since V0.17 G3 the service **always
+runs**: with its local console on (below) the agent no longer exits "not enrolled" - it waits for the join and
+starts its fabric part by itself (the G1 `ConditionPathExists=` + `meshforge-agent.path` are gone). On a packaged laptop a human's `meshforge-agent join|identity|policy|hardware` re-executes as
 `meshforge` via `sudo` (Q15), so there is one identity per laptop. Installing the package migrates an existing
 per-user identity + config (`meshforge-agent migrate-identity`, D387; never mints while one is undecided).
 Operator steps: OPERATIONS §2 and §4.
@@ -1295,6 +1296,57 @@ POSTs must be JSON with a loopback `Origin`. "Create the fabric" = admin name + 
 12+ chars, 6+ distinct, not containing the name when it has 3+ characters, not common) → fabric CA + server cert (CA removed again if the admin
 cannot be created) → admin user → first invite (code + QR). The token is deleted, `/v1/setup/*` answers 410 for
 good (also in the normal app), and `_serve` starts a new runtime in-process — now with TLS, gRPC and enrolment.
+
+**Agent local console** (V0.17 G3, D388/D391/D392 — `agent/console/`, ADR-0022 update)
+
+A laptop that has not joined has no controller to open, and the owner policy belongs to the laptop owner (D142),
+so the agent serves its own small UI, built from the same React app (second Vite entry
+`frontend/src/agentConsole/`, same components, tokens and CSP check):
+
+```
+meshforge-agent run  (console on)
+  ├─ console: FastAPI + plain uvicorn in the agent's event loop, 127.0.0.1:47130 only
+  │    /console/v1/{health,launch-code,session,status,discover,join,setup-complete,
+  │                 policy,node-name,checks,docker-access,logs,restart,leave} + the SPA
+  └─ Supervisor (fabric part = runtime.serve())
+       WAITING_FOR_JOIN --enrolled--> STARTING --> RUNNING --restart--> (in process) STARTING
+       RUNNING --leave--> identity reset --> WAITING_FOR_JOIN
+       RUNNING --typed stop (revoked / conflict / config)--> STOPPED (reason shown; restart or leave)
+       serve() ends on its own (no stop asked) --> STOPPED ("ended") until the owner restarts it
+       unexpected crash --> process exits FAILURE (the service manager restarts it)
+```
+
+Leaving `WAITING_FOR_JOIN` re-reads the configuration first (fix round 1, G3-D2), so a `config.toml` written
+after the install and before the join is what the fabric part starts with; a broken one leaves it `STOPPED`
+(`config_reload`) with the reason shown. A `STOPPED` fabric part is never restarted automatically inside the
+process - the console's Restart (or a service restart) does it.
+
+- **Access** (no passwords): the token file is readable by the service and `meshforge-admin` only (the
+  installing user is added by the package). `meshforge-console-open` (app menu entry `MeshForge`) trades it for a
+  60-s single-use **launch code** and opens `http://127.0.0.1:47130/#c=<code>`; the page trades the code (never the
+token - it only buys codes) for an
+  `HttpOnly; SameSite=Strict` session cookie and drops the fragment. Only the short-lived code is ever in a
+  command line. Every request must say `Host: 127.0.0.1:47130` (DNS rebinding -> 421), every write
+  `Origin: http://127.0.0.1:47130` (CSRF -> 403, checked before the session and before the body is read). The
+credential is checked first and only failed tries are throttled, so a stranger's guesses never lock the owner out.
+`/setup-complete` is refused until the owner's policy was saved (the wizard's policy step cannot be skipped).
+- **Join** = `enrollment.join` (the CLI's code path) with errors mapped to plain words (`expired`, `used`,
+  `ca_mismatch`, `unreachable`, ...); the owner may pick a controller found by mDNS, which replaces only the code's
+  host - the CA pin still decides. A CLI `sudo meshforge-agent join` is noticed by the supervisor's poll.
+- **Policy** = `policy.apply_changes` / `policy_view`, the same validator and live file as `meshforge-agent
+  policy`; keys that need a restart are named and the console offers the in-process restart.
+- **Node name** (Q27): `<data dir>/node_name` (or `[agent] node_name`) -> `Hello.display_name` (proto field 14) ->
+  `node.display_name` (migration 0035, `String(64)`, printable; the controller refuses a bad one at admission) ->
+  `GET /v1/nodes` -> dashboard.
+- **Checks** (D388) run in the service's own process: Docker (SDK probe, permission, seccomp, "added but not
+  restarted"), NVIDIA driver/`nvidia-smi`, CUDA device access + driver CUDA version, free disk, `ufw` state,
+  peer server reachability - each `ok|warn|missing` + why + fix. They never gate anything.
+- **Docker access** cannot be granted by the service itself (`NoNewPrivileges`, no session for a polkit agent, and
+  letting the service user trigger it would let unsandboxed job code make itself root-equivalent): the console
+  explains, and the owner uses the app-menu action `Give Docker access` (`pkexec /usr/lib/meshforge/docker-access`,
+  polkit `auth_admin`) or the printed command.
+- **Logs**: a `logging.Handler` keeps the agent's last `log_lines` records, rendered through the redaction
+  processor (never job output).
 
 ## 24. Cross-platform strategy
 

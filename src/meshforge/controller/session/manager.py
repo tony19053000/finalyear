@@ -565,6 +565,7 @@ class SessionManager:
             await self._registry.upsert_node_on_hello(
                 node_id=node_id,
                 hostname=hello.hostname,
+                display_name=hello.display_name,
                 os=hello.os,
                 platform=hello.platform,
                 hardware=MessageToDict(

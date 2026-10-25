@@ -286,8 +286,12 @@ def locked(
         raise _open_error(path, folder.fd, LOCK_FILE_NAME, exc) from None
     with os.fdopen(fd, "r+b", buffering=0) as fh:
         st = _fstat(fh.fileno())
-        if created and st.st_uid != folder.uid:
-            os.fchown(fh.fileno(), folder.uid, -1)
+        if created:
+            # root created it: hand it to the user *and* their group, like the
+            # lock their own agent would have created (G1 follow-up c)
+            gid = _primary_gid(folder.uid)
+            if st.st_uid != folder.uid or (gid is not None and st.st_gid != gid):
+                os.fchown(fh.fileno(), folder.uid, -1 if gid is None else gid)
         elif not stat.S_ISREG(st.st_mode) or st.st_uid != folder.uid:
             raise UnsafeSourceError(
                 path, f"{path} is not a plain file of uid {folder.uid}"
@@ -305,6 +309,16 @@ def locked(
             yield
         finally:
             unlock(fh)
+
+
+def _primary_gid(uid: int) -> int | None:
+    """``uid``'s primary group (``None`` if the account is unknown)."""
+    import pwd
+
+    try:
+        return pwd.getpwuid(uid).pw_gid
+    except KeyError:
+        return None
 
 
 def identity_of(fd: int) -> tuple[int, int]:
@@ -329,9 +343,20 @@ def rename_aside(
     os.rename(name, candidate, src_dir_fd=parent_fd, dst_dir_fd=parent_fd)
     moved = os.stat(candidate, dir_fd=parent_fd, follow_symlinks=False)
     if (moved.st_dev, moved.st_ino) != expect:
-        os.rename(candidate, name, src_dir_fd=parent_fd, dst_dir_fd=parent_fd)
-        raise UnsafeSourceError(
-            parent / name,
-            f"{parent / name} was replaced while it was being migrated; left as is",
+        swapped = (
+            f"{parent / name} was replaced while it was being migrated (the "
+            "entry renamed is not the one that was read)"
         )
+        try:
+            os.rename(candidate, name, src_dir_fd=parent_fd, dst_dir_fd=parent_fd)
+        except OSError as exc:
+            # G1 follow-up d: both facts, never only the second one - the
+            # unknown entry now sits under the .migrated name
+            raise UnsafeSourceError(
+                parent / name,
+                f"{swapped}; putting it back failed too ({exc.strerror or exc}): "
+                f"it is now {parent / candidate} - check that entry and rename it "
+                "back by hand",
+            ) from None
+        raise UnsafeSourceError(parent / name, f"{swapped}; left as is")
     return parent / candidate

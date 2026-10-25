@@ -459,6 +459,7 @@ class Hello(_message.Message):
     MAX_CPU_JOBS_FIELD_NUMBER: _builtins.int
     MAX_GPU_JOBS_FIELD_NUMBER: _builtins.int
     POLICY_FIELD_NUMBER: _builtins.int
+    DISPLAY_NAME_FIELD_NUMBER: _builtins.int
     node_id: _builtins.str
     protocol_version: _common_pb2.ProtocolVersion.ValueType
     """Must be set; the controller accepts a configured range of versions and
@@ -490,6 +491,14 @@ class Hello(_message.Message):
     [controller.jobs] max_attempts_per_node.
     """
     max_gpu_jobs: _builtins.int
+    display_name: _builtins.str
+    """V0.7 G3: node identity is proven by the client certificate (mTLS); node_id
+    must equal the certificate's.
+    V0.17 G3 (Q27): the friendly name the laptop's owner gave it in the local
+    console (or [agent] node_name); empty = none, the dashboard shows the
+    hostname. Printable, at most 64 characters: the controller refuses the
+    Hello (INVALID_ARGUMENT) for a control character and clips nothing.
+    """
     @_builtins.property
     def hardware(self) -> Global___HardwareSummary:
         """Static hardware inventory (roadmap 0.3.3); dynamic usage is ResourceUpdate."""
@@ -508,8 +517,6 @@ class Hello(_message.Message):
         controller assumes an open policy (its agent enforces what it enforces). A
         present but malformed or oversized policy is refused as a whole: the node
         is treated as accepting nothing (fail closed), never trusted partially.
-        V0.7 G3: node identity is proven by the client certificate (mTLS); node_id
-        must equal the certificate's.
         """
 
     def __init__(
@@ -528,10 +535,11 @@ class Hello(_message.Message):
         max_cpu_jobs: _builtins.int | None = ...,
         max_gpu_jobs: _builtins.int | None = ...,
         policy: Global___OwnerPolicy | None = ...,
+        display_name: _builtins.str = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _typing.Literal["_max_cpu_jobs", b"_max_cpu_jobs", "_max_gpu_jobs", b"_max_gpu_jobs", "hardware", b"hardware", "hardware_scores", b"hardware_scores", "max_cpu_jobs", b"max_cpu_jobs", "max_gpu_jobs", b"max_gpu_jobs", "policy", b"policy"]  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["_max_cpu_jobs", b"_max_cpu_jobs", "_max_gpu_jobs", b"_max_gpu_jobs", "agent_version", b"agent_version", "hardware", b"hardware", "hardware_scores", b"hardware_scores", "hostname", b"hostname", "max_cpu_jobs", b"max_cpu_jobs", "max_gpu_jobs", b"max_gpu_jobs", "node_id", b"node_id", "os", b"os", "peer_endpoint", b"peer_endpoint", "platform", b"platform", "policy", b"policy", "protocol_version", b"protocol_version", "session_epoch", b"session_epoch"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["_max_cpu_jobs", b"_max_cpu_jobs", "_max_gpu_jobs", b"_max_gpu_jobs", "agent_version", b"agent_version", "display_name", b"display_name", "hardware", b"hardware", "hardware_scores", b"hardware_scores", "hostname", b"hostname", "max_cpu_jobs", b"max_cpu_jobs", "max_gpu_jobs", b"max_gpu_jobs", "node_id", b"node_id", "os", b"os", "peer_endpoint", b"peer_endpoint", "platform", b"platform", "policy", b"policy", "protocol_version", b"protocol_version", "session_epoch", b"session_epoch"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     _WhichOneofReturnType__max_cpu_jobs: _TypeAlias = _typing.Literal["max_cpu_jobs"]  # noqa: Y015
     _WhichOneofArgType__max_cpu_jobs: _TypeAlias = _typing.Literal["_max_cpu_jobs", b"_max_cpu_jobs"]  # noqa: Y015

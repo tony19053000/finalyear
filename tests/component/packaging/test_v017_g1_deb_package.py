@@ -19,10 +19,13 @@ ran ``meshforge-agent`` from a checkout), and no Python at all.
 5. ``apt remove`` keeps identity/config and leaves no unit, process or program
    file (``lab/verify_uninstall.py``); re-install -> same ``node_id``;
 6. ``apt purge`` leaves nothing (``verify_uninstall.py --data-removed``);
-7. a **fresh** install (no per-user agent) is "not joined yet": the service is
-   skipped (inactive, not failed), the path unit waits, and a node
-   certificate appearing starts the service (here a broken one -> exit 4, not
-   restarted, no loop).
+7. a **fresh** install (no per-user agent) is "not joined yet": the service runs
+   with only its local console up (V0.17 G3: token in /run/meshforge-console,
+   loopback only, Host-checked; a member of meshforge-admin gets a console URL
+   from ``meshforge-console-open``, another user is told to ask an admin), and a
+   node certificate appearing starts the fabric part by itself (here a broken
+   one -> stopped with the reason in the journal, the process and its console
+   stay up, no restart loop).
 
 Slow (bundle + .deb build, two containers); CI runs it in the package-linux job
 with the packages it built (``MESHFORGE_TEST_DEB_DIR``).
@@ -41,7 +44,6 @@ import pytest
 pytest.importorskip("cryptography", reason="the test makes a real enrolled identity")
 
 from mf_deb import (
-    PATH_UNIT,
     UBUNTU_VERSIONS,
     UNIT,
     Debs,
@@ -209,7 +211,8 @@ def test_deb_lifecycle_on_a_laptop_that_already_joined(
                    "RestrictRealtime", "UMask", "ProtectClock")  # fmt: skip
     assert unit["ProtectSystem"] == "strict" and unit["ProtectHome"] == "yes", unit
     assert unit["NoNewPrivileges"] == "yes" and unit["PrivateTmp"] == "yes", unit
-    assert unit["ReadWritePaths"] == "/var/lib/meshforge", unit
+    # V0.17 G3: + the console token folder ("-": optional)
+    assert unit["ReadWritePaths"] == "/var/lib/meshforge -/run/meshforge-console", unit
     assert unit["User"] == "meshforge" and unit["KillMode"] == "mixed", unit
     assert "MESHFORGE_INSTALL_MODE=system" in unit["Environment"], unit
     assert set(unit["RestartPreventExitStatus"].split()) == {"4", "5"}, unit
@@ -316,38 +319,90 @@ def test_deb_lifecycle_on_a_laptop_that_already_joined(
     assert "CLEAN" in check.stdout
 
 
+_PY = "/opt/meshforge/current/python/bin/python3.12"
+_PROBE = (
+    "import sys, urllib.request, urllib.error\n"
+    "req = urllib.request.Request('http://127.0.0.1:47130/console/v1/health')\n"
+    "if len(sys.argv) > 1: req.add_header('Host', sys.argv[1])\n"
+    "try:\n"
+    "    print(urllib.request.urlopen(req, timeout=5).status)\n"
+    "except urllib.error.HTTPError as e:\n"
+    "    print(e.code)\n"
+)
+
+
 def test_fresh_install_waits_for_the_join(
-    debs: Debs, box: tuple[SystemdBox, str]
+    debs: Debs, box: tuple[SystemdBox, str], tmp_path: Path
 ) -> None:
     sb, _ = box
     done = sb.install(debs.first)
     assert done.returncode == 0, done.stdout[-4000:]
+    # V0.17 G3: the service runs before the join (its console is how one joins)
+    assert f"service {UNIT} is running" in done.stdout, done.stdout[-3000:]
     assert "has not joined a fabric yet" in done.stdout, done.stdout[-3000:]
-    assert "is running" not in done.stdout
-    assert sb.ok(f"systemctl is-enabled {UNIT} {PATH_UNIT}").split() == ["enabled"] * 2
-    assert sb.run(f"systemctl is-active {PATH_UNIT}").stdout.strip() == "active"
-    facts = sb.show(UNIT, "ActiveState", "Result", "ConditionResult")
-    assert facts["ActiveState"] == "inactive", facts
-    assert facts["ConditionResult"] == "no", facts
+    assert "app menu" in done.stdout
+    assert sb.ok(f"systemctl is-enabled {UNIT}").split() == ["enabled"]
+    assert sb.run("systemctl cat meshforge-agent.path").returncode != 0
+    _wait_running(sb)
+    # the console: token readable by the service + meshforge-admin only
+    for _ in range(60):
+        if sb.run("test -f /run/meshforge-console/token").returncode == 0:
+            break
+        sb.run("sleep 0.5")
+    stat = sb.ok(
+        "stat -c '%a %U %G' /run/meshforge-console /run/meshforge-console/token"
+    )
+    assert stat.splitlines() == [
+        "2750 meshforge meshforge-admin",
+        "640 meshforge meshforge-admin",
+    ], stat
+    probe = tmp_path / "probe.py"
+    probe.write_text(_PROBE, encoding="utf-8")
+    sb.copy_in(probe, "/tmp/probe.py")
+    assert sb.ok(f"{_PY} /tmp/probe.py").strip() == "200"
+    assert sb.ok(f"{_PY} /tmp/probe.py evil.example:47130").strip() == "421"
+    # LAN never: nothing listens on 47130 except loopback
+    listen = sb.ok("cat /proc/net/tcp")
+    port_hex = f":{47130:04X}"
+    assert f"{port_hex} " in listen
+    for line in listen.splitlines()[1:]:
+        local = line.split()[1]
+        if local.endswith(port_hex):
+            assert local.startswith("0100007F:"), line  # 127.0.0.1 only
+    # who may open it: a member of meshforge-admin yes, another user no
+    sb.ok("useradd -m carol && usermod -aG meshforge-admin carol && useradd -m dave")
+    url = sb.run("sudo -u carol meshforge-console-open --print-url --wait 30")
+    assert url.returncode == 0, url.stdout + url.stderr
+    assert url.stdout.strip().startswith("http://127.0.0.1:47130/#c="), url.stdout
+    denied = sb.run("sudo -u dave meshforge-console-open --print-url --wait 5")
+    assert denied.returncode == 4, denied.stdout + denied.stderr
+    assert "meshforge-admin" in denied.stderr
     # the admin CLI mints the identity in the SERVICE's place (Q15), never in ~
     shown = sb.identity()
     assert shown["enrolled"] is False
     assert str(shown["path"]) == SYSTEM_IDENTITY
     assert sb.run("test -e /root/.local/share/meshforge").returncode != 0
 
-    # a node certificate appears (as `join` writes it) -> the path unit starts
-    # the service; this one is garbage -> exit 4, not restarted, no loop
+    # a node certificate appears (as `join` writes it) -> the supervisor starts
+    # the fabric part; this one is garbage -> stopped with the reason, the
+    # process (and its console) stays up, no restart loop
+    before = sb.show(UNIT, "MainPID")["MainPID"]
     sb.ok(
         "sudo -u meshforge sh -c 'umask 077; echo junk > "
         f"{SYSTEM_IDENTITY}/node.crt.tmp && mv {SYSTEM_IDENTITY}/node.crt.tmp "
         f"{SYSTEM_IDENTITY}/node.crt'"
     )
-    facts = sb.wait_unit(UNIT, ["failed"], within=30)
-    assert facts["ExecMainStatus"] == "4", facts
-    sb.run("sleep 7")
-    facts = sb.show(UNIT, "ActiveState", "NRestarts")
-    assert facts == {"ActiveState": "failed", "NRestarts": "0"}, facts
-    assert "invalid_enrollment" in sb.journal() or "unusable" in sb.journal()
+    for _ in range(60):
+        if '"new": "stopped"' in sb.journal():
+            break
+        sb.run("sleep 0.5")
+    journal = sb.journal()
+    assert '"new": "stopped"' in journal, journal[-3000:]
+    assert "invalid_enrollment" in journal or "unusable" in journal
+    facts = sb.show(UNIT, "ActiveState", "NRestarts", "MainPID")
+    assert facts == {"ActiveState": "active", "NRestarts": "0", "MainPID": before}, (
+        facts
+    )
 
     done = sb.apt("purge -y meshforge-agent")
     assert done.returncode == 0, done.stdout[-3000:]
@@ -396,7 +451,7 @@ def test_two_per_user_agents_block_the_migration_not_the_install(
         "meshforge-agent migrate-identity --from "
         "/home/bob/.local/share/meshforge/identity"
     )
-    sb.ok(f"systemctl enable --now {UNIT} {PATH_UNIT}")
+    sb.ok(f"systemctl enable --now {UNIT}")
     _wait_running(sb)
     assert sb.identity()["node_id"] == ids["bob"]
     sb.ok("test -f /home/alice/.local/share/meshforge/identity/node.key")

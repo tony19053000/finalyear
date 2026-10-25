@@ -8,19 +8,23 @@
   },
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build && node scripts/build-stamp.mjs && node scripts/check-dist.mjs",
+    "build": "tsc -b && vite build && node scripts/build-stamp.mjs && node scripts/check-dist.mjs && npm run build:console",
+    "build:console": "vite build --mode console && node scripts/build-stamp.mjs ../src/meshforge/agent/console/dist && node scripts/check-dist.mjs ../src/meshforge/agent/console/dist",
     "check:dist": "node scripts/check-dist.mjs",
     "lint": "eslint . --max-warnings 0",
     "typecheck": "tsc -b",
     "test": "vitest run",
     "gen:openapi": "uv run python ../scripts/export_openapi.py --out openapi.json",
     "gen:api": "npm run gen:openapi && node scripts/gen-api.mjs",
-    "check:api": "uv run python ../scripts/export_openapi.py --check openapi.json && node scripts/gen-api.mjs --check"
+    "check:api": "uv run python ../scripts/export_openapi.py --check openapi.json && node scripts/gen-api.mjs --check",
+    "gen:console-api": "uv run python ../scripts/export_openapi.py --console --out console-openapi.json && node scripts/gen-api.mjs --console",
+    "check:console-api": "uv run python ../scripts/export_openapi.py --console --check console-openapi.json && node scripts/gen-api.mjs --console --check"
   },
   "dependencies": {
     "@radix-ui/react-tabs": "1.2.1",
     "@radix-ui/react-toast": "1.3.1",
     "@tanstack/react-query": "5.104.3",
+    "jsqr": "1.4.0",
     "qrcode-generator": "2.0.4",
     "react": "18.3.1",
     "react-dom": "18.3.1",

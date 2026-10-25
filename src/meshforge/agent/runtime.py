@@ -75,6 +75,7 @@ from meshforge.agent.cache.images import (
 )
 from meshforge.agent.cas import AgentCas
 from meshforge.agent.conditions.runner import ConditionRunner, probe_kinds
+from meshforge.agent.console.node_name import effective_node_name
 from meshforge.agent.envs.node_prepare import PrepareService
 from meshforge.agent.execution.executor import Executor
 from meshforge.agent.execution.offer import build_execution
@@ -367,11 +368,20 @@ def wire_executor(client: AgentSessionClient, executor: Executor) -> None:
 
 
 async def serve(
-    settings: AgentSettings, *, identity: NodeIdentity | None = None
+    settings: AgentSettings,
+    *,
+    identity: NodeIdentity | None = None,
+    install_signals: bool = True,
+    on_client: Callable[[AgentSessionClient], None] | None = None,
 ) -> AgentSessionClient:
     """Run the agent until a signal stops it; returns the finished client.
 
     Raises the typed error that stopped it, if any (see :func:`run_agent`).
+
+    V0.17 G3: the local console's supervisor runs this as the "fabric part" of
+    the process - it owns the signals (``install_signals=False``) and gets the
+    client as soon as it exists (``on_client``) to stop it, read its state and
+    its peer endpoint.
     """
     if settings.security.insecure:
         # D139: every start, loud - this mode must never go unnoticed.
@@ -438,6 +448,8 @@ async def serve(
         cpu_cgroup=execution.cpu_cgroups is not None,
     )
     client.live_policy = live_policy
+    # V0.17 G3 (Q27): the owner's name for this laptop, read at every Hello
+    client.display_name = functools.partial(effective_node_name, settings)
     cas = AgentCas.at(settings.data_dir)
     peer = await start_peer(settings, cas, client, identity=identity)
     cache = await start_cache(
@@ -520,7 +532,10 @@ async def serve(
         await conditions.sweep()  # a crashed run's leftovers (V0.9 G4)
     renew_task = start_renewer(settings, client, http_tls=http_tls, peer=peer)
     policy_task = start_policy_watch(settings, client, live_policy, guard=bench_guard)
-    install_signal_handlers(client.request_stop)
+    if install_signals:
+        install_signal_handlers(client.request_stop)
+    if on_client is not None:
+        on_client(client)
     log.info(
         "agent.started",
         node_id=client.node_id,

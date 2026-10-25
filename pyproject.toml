@@ -88,6 +88,11 @@ agent = [
     # V0.5 G4 (brief D97): the agent's read-only peer blob server parses HTTP/1.1 with
     # h11 (already installed via httpx/httpcore; explicit because the agent imports it).
     "h11>=0.16",
+    # V0.17 G3 (D391, Q23): the local console (127.0.0.1:47130 only) - the same web
+    # stack as the controller, plain uvicorn (no [standard]: no uvloop/httptools/
+    # watchfiles in the agent bundle; h11 serves one local browser fine).
+    "fastapi>=0.141",
+    "uvicorn>=0.53",
 ]
 # V0.15 G2 (D340, Q16): the ML planner's training/comparison library
 # (meshforge.controller.ml.train - the only package allowed to import these, an
@@ -119,6 +124,8 @@ gpu = [
 compute = "meshforge.cli.app:main"
 meshforge-controller = "meshforge.controller.app:main"
 meshforge-agent = "meshforge.agent.main:main"
+# V0.17 G3 (D391): the app-menu launcher of the agent's local console
+meshforge-console-open = "meshforge.agent.console.launcher:main"
 
 [dependency-groups]
 # Roadmap 0.1.2 says "extra dev"; a PEP 735 dependency group is used instead so dev
@@ -206,7 +213,11 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/meshforge"]
 # V0.8 (D169): the built dashboard is git-ignored but belongs in the wheel.
-artifacts = ["src/meshforge/controller/web/dist/**"]
+# V0.17 G3 (D391): so is the agent's local console UI.
+artifacts = [
+    "src/meshforge/controller/web/dist/**",
+    "src/meshforge/agent/console/dist/**",
+]
 
 # ---------------------------------------------------------------------------
 # Import boundaries (roadmap 0.1.4, ARCHITECTURE §21). Run: `uv run lint-imports`.

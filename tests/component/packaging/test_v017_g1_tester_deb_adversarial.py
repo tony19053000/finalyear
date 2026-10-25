@@ -521,9 +521,7 @@ def test_no_secret_key_material_in_install_output_or_journal(
         for ln in (folder / "node.key").read_text().splitlines()
         if len(ln) > 20 and "-----" not in ln
     ]
-    blob = (
-        done.stdout + box.journal(lines=500) + box.journal("meshforge-agent.path", 100)
-    )
+    blob = done.stdout + box.journal(lines=500)
     assert "PRIVATE KEY" not in blob
     for ln in key_lines:
         assert ln not in blob
@@ -549,7 +547,7 @@ def test_stopped_by_admin_stays_stopped_and_disabled_survives_upgrade(
     time.sleep(8)
     assert (
         box.show(UNIT, "ActiveState")["ActiveState"] == "inactive"
-    )  # path unit leaves it
+    )  # nothing starts it again behind the admin's back
     box.ok(f"systemctl disable --now {UNIT}")
     done = box.install(debs.second)
     assert done.returncode == 0, done.stdout[-3000:]
@@ -718,7 +716,8 @@ def test_purge_without_remove_then_clean_fresh_reinstall(
     assert done.returncode == 0, done.stdout[-3000:]
     assert "has not joined" in done.stdout
     assert box.run("meshforge-agent identity show --json").stdout.count(node_id) == 0
-    assert box.show(UNIT, "ActiveState")["ActiveState"] == "inactive"
+    # V0.17 G3: running, waiting for the join with only its console up
+    assert box.show(UNIT, "ActiveState")["ActiveState"] == "active"
 
 
 def test_remove_then_dpkg_purge_and_remove_twice(
