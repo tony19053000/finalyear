@@ -151,38 +151,6 @@
         "title": "DockerAccessView",
         "type": "object"
       },
-      "ExchangeRequest": {
-        "additionalProperties": false,
-        "description": "The page trades the launcher's one-time code (``#c=``) - or the token\nitself (``#t=``) - for the session cookie, once.",
-        "properties": {
-          "code": {
-            "anyOf": [
-              {
-                "maxLength": 256,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Code"
-          },
-          "token": {
-            "anyOf": [
-              {
-                "maxLength": 256,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Token"
-          }
-        },
-        "title": "ExchangeRequest",
-        "type": "object"
-      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -1283,7 +1251,21 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ExchangeRequest"
+                "additionalProperties": false,
+                "description": "The page trades the launcher's one-time code (``#c=``) for the session\ncookie, once. (The token itself is never accepted from a browser: it only\nbuys launch codes, ``POST /launch-code``.)",
+                "properties": {
+                  "code": {
+                    "maxLength": 256,
+                    "minLength": 1,
+                    "title": "Code",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "code"
+                ],
+                "title": "ExchangeRequest",
+                "type": "object"
               }
             }
           },
@@ -1299,16 +1281,6 @@
               }
             },
             "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
           }
         },
         "summary": "Exchange"

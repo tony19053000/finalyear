@@ -401,7 +401,20 @@ def create_app(ctx: ConsoleContext) -> FastAPI:
             expires_in_s=ctx.settings.agent.console.launch_code_ttl_s,
         )
 
-    @app.post(f"{API_PREFIX}/session", response_model=OkView)
+    # The body is read by hand (Origin first, before it is parsed), so its
+    # schema is declared here to keep it in the OpenAPI contract.
+    @app.post(
+        f"{API_PREFIX}/session",
+        response_model=OkView,
+        openapi_extra={
+            "requestBody": {
+                "required": True,
+                "content": {
+                    "application/json": {"schema": ExchangeRequest.model_json_schema()}
+                },
+            }
+        },
+    )
     async def exchange(request: Request) -> Response:
         auth = _ctx(request).auth
         # Origin before anything else, also before the body is read.
