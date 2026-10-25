@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import platform
 import re
 import subprocess
 import sys
@@ -141,7 +142,7 @@ def pinned_iscc(pins: Mapping[str, object], cache: Path) -> Path:
     if iscc.is_file():
         return iscc
     setup = build_bundle.fetch(download, cache)
-    done = subprocess.run(  # noqa: S603 - the sha256-checked pinned installer
+    done = subprocess.run(
         [
             str(setup),
             "/VERYSILENT",
@@ -179,7 +180,7 @@ def build(
     size_budget: bool,
     pins_path: Path = PINS,
 ) -> Path:
-    if sys.platform != "win32":
+    if platform.system() != "Windows":  # not sys.platform: mypy would skip the rest
         raise BundleError(
             "the installer is built on Windows (Inno Setup)", reason="unsupported"
         )
@@ -199,7 +200,7 @@ def build(
     out.mkdir(parents=True, exist_ok=True)
     argv = [str(compiler), "/Qp", *iscc_defines(bundle, version, names, out), str(ISS)]
     log(f"ISCC {names.output_name}.exe (version folder {names.version_dir})")
-    done = subprocess.run(argv, capture_output=True, text=True, check=False)  # noqa: S603
+    done = subprocess.run(argv, capture_output=True, text=True, check=False)
     if done.returncode != 0:
         tail = (done.stdout + done.stderr)[-3000:]
         raise BundleError(
