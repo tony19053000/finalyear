@@ -253,7 +253,7 @@ jobs:
   package-linux:
     name: package-linux (bundle + .deb, Ubuntu systemd containers)
     runs-on: ubuntu-24.04
-    timeout-minutes: 75
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -290,9 +290,26 @@ jobs:
           sudo apt-get install -y -qq lintian
           lintian --version
           lintian --fail-on error --tag-display-limit 0 dist/meshforge-agent_*-1_amd64.deb
+      # V0.17 G2: the controller package (bundle with the dashboard and the
+      # managed PostgreSQL). The .deb size gate is off until the Lead decides
+      # the nfpm-xz budget question (G2 progress note item 14).
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: "22"
+      - name: build the dashboard
+        run: npm --prefix frontend ci && npm --prefix frontend run build
+      - name: build the controller bundle and .deb (revisions 1 and 2)
+        run: |
+          uv run python scripts/build_bundle.py --role controller --out dist/controller/ --skip-dashboard-build
+          bundle=$(ls -d dist/controller/meshforge-*-linux-x86_64)
+          uv run python scripts/build_deb.py --role controller --bundle "$bundle" --out dist/controller/ --no-size-budget
+          uv run python scripts/build_deb.py --role controller --bundle "$bundle" --out dist/controller/ --no-size-budget --revision 2
+      - name: lintian, controller (errors fail)
+        run: lintian --fail-on error --tag-display-limit 0 dist/controller/meshforge-controller_*-1_amd64.deb
       - name: package tests (systemd containers, real fabric)
         env:
           MESHFORGE_TEST_DEB_DIR: dist
+          MESHFORGE_TEST_CONTROLLER_DEB_DIR: dist/controller
         run: >-
           uv run python scripts/pytest_exit_guard.py --run-slow
           tests/component/packaging tests/cluster/test_v017_g1_deb_service.py
@@ -306,6 +323,9 @@ jobs:
             dist/*.deb
             dist/*.deb.sha256
             dist/*.tar.xz
+            dist/controller/*.deb
+            dist/controller/*.deb.sha256
+            dist/controller/*.tar.xz
             dist/meshforge-*-linux-x86_64/BUILDINFO.json
             reports/
           if-no-files-found: error
