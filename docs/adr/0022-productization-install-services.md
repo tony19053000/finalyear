@@ -82,3 +82,27 @@ Implemented as decided, with these concrete choices (details: `docs/briefs/progr
   purge, fresh install waiting for the join); cluster — the packaged agent joins a real fabric through the path
   unit, the CPU cap is reported enforced (24.04), and a requirements job is built by the bundled uv on the
   bundled interpreter. CI job `package-linux` builds, lintian-checks, cmp-checks and runs all of it.
+
+## Update — what V0.17 G2 built (Linux controller package, 2026-10-25)
+Implemented as decided (D390, D392, D393 controller half, D398; Q18-Q22), details and every deviation in
+`docs/briefs/progress/V0.17-G2.md`:
+- **Managed PostgreSQL wired in:** `[controller.db]` (mode/port 47150/root/socket_dir/bin_dir/timeouts/backups),
+  `db_managed/runtime.py`, started first / stopped last by `ControllerRuntime`, postmaster death = controller
+  `FAILURE`. Q18 roles: superuser `meshforge_admin` for migrations (acting as the app role) / backup /
+  restore; non-superuser app role `meshforge` owns every table. The dev default password check no longer
+  applies in managed mode (the generated passwords are used).
+- **Bundle:** `build_bundle.py --role controller` adds `<bundle>/pgsql` (`scripts/pg_bundle.py`, pin in
+  `packaging/pins.toml [postgresql]`, Q19 mirror URL first — the release asset still has to be uploaded).
+  `numpy` joined the `controller` extra (model serving imports it at start; the bundled controller could not
+  start without it).
+- **Package:** `meshforge-controller` .deb (`build_deb.py --role controller`), program under
+  `/opt/meshforge/controller/` so it coexists with the agent package; `/etc/meshforge/controller.toml` written
+  once; ufw profile allowed only when ufw is active, deleted on remove (D389). The .deb is 151.6 MB against
+  the 150 MB budget (nfpm's xz; the `.tar.xz` is 120.9 MB) — open question for the Lead.
+- **Upgrade (D393):** pre-upgrade `pg_dump` + health check + restore-and-exit-4 in the controller; pointer
+  switch-back stays G5's.
+- **Setup page (D392/Q20):** loopback-only plain HTTP setup mode gated by the one-time token; create fabric =
+  admin + CA + first invite; 410 afterwards; in-process restart into TLS. No "fabric name" (no such concept)
+  and the join address comes from `controller.toml`, not a page field.
+- **Shared code:** parent-death shim in `common/death_signal.py`; the sudo re-exec of admin commands in
+  `common/system_cli.py` (agent + controller).

@@ -2077,6 +2077,60 @@ meshforge-agent -f`. Same restart policy (exit `5` not restarted for the agent,
 
 ---
 
+## 2b. Linux — the `meshforge-controller` package (V0.17 G2)
+
+Ubuntu **24.04 or newer** (the bundled PostgreSQL needs glibc 2.36; on 22.04 `apt` refuses the package on
+`libc6 (>= 2.36)`). No Docker, no system PostgreSQL, no Python needed.
+
+```bash
+sudo apt install ./meshforge-controller_<ver>_amd64.deb
+```
+
+The install output shows: the settings file it wrote (`/etc/meshforge/controller.toml`, listeners on this
+machine's LAN address), `doctor`, the service state, and the **setup link**
+`http://127.0.0.1:47110/setup#token=...`. Open it in a browser **on the controller machine** (from another
+computer: `ssh -L 47110:127.0.0.1:47110 <controller>` and open the same link). The page: checks, admin name +
+password (12+ characters), **Create the fabric** → the first join code (text + QR) and the dashboard address
+`https://<LAN-IP>:47110/` (trust the CA with `meshforge-controller ca trust-helper`; compare the fingerprint).
+The controller restarts itself into TLS; the link never works again. Lost the link before using it:
+`sudo meshforge-controller setup url`.
+
+Before the setup: if no LAN address was found, the file says so and the controller listens on 127.0.0.1 only —
+put the LAN IP in the three `*bind` lines, `sudo systemctl restart meshforge-controller`, then open the link.
+After the setup a changed IP also needs `[controller.tls] extra_sans` (the certificate names the old one).
+
+| | |
+|---|---|
+| program | `/opt/meshforge/controller/<ver>/` + `current` (bundle incl. `pgsql/`), `/usr/bin/meshforge-controller` |
+| settings | `/etc/meshforge/controller.toml` (never overwritten by the package) |
+| state | `/var/lib/meshforge/controller/` (CA, TLS, blobs, keys), `/var/lib/meshforge/db/` (PostgreSQL data, `admin.password`/`app.password` `0600`, `log/`, `backups/`) |
+| service | `meshforge-controller.service`, user `meshforge`, `journalctl -u meshforge-controller` |
+| database | its own PostgreSQL 16 on `127.0.0.1:47150` + unix socket `db/run/`; stopped with the service |
+| firewall | ufw profile `MeshForge Controller` (TCP 47100, 47101, 47110), allowed only if ufw is active |
+| `compute` | `/opt/meshforge/controller/current/bin/compute` (`/usr/bin/compute` comes with the agent package) |
+
+Admin commands (run as yourself; they re-execute as `meshforge` via `sudo`): `meshforge-controller doctor
+[--json]` (exit 1 on a failed check), `user create|list|...`, `fabric invite|show`, `db status [--json]`,
+`db backup [--out FILE]` (works while running; the file is the whole fabric database - keep it private),
+`db restore FILE --yes` (only while the service is stopped).
+
+**Upgrade:** `sudo apt install ./meshforge-controller_<new>_amd64.deb`. On a version change the controller
+dumps `db/backups/pre-<new>.dump` (newest 3 kept) before migrating. If it is not serving within 60 s it restores
+that dump, exits 4 and stays stopped (`journalctl` says why; start the previous version, or fix and `systemctl
+start`). **Moving the team's dev Compose database in (Q21, 🧑):** `pg_dump -Fc -h 127.0.0.1 -U meshforge
+meshforge > dev.dump` from the Compose DB, then `sudo systemctl stop meshforge-controller && sudo
+meshforge-controller db restore dev.dump --yes && sudo systemctl start meshforge-controller` (objects are
+re-owned by the app role; an older schema is migrated - after a backup - on start).
+
+**Remove / purge:** `apt remove` keeps the fabric (CA, database, settings); `apt purge` deletes the
+controller's state only - the agent package on the same machine keeps its own, and the `meshforge` user goes
+with the last package.
+
+**Developer checkout, managed mode:** `uv run python scripts/pg_bundle.py --out .cache/pg` prints a `bin`
+folder; set `[controller.db] mode = "managed"`, `bin_dir = "<that>"`, and a short `socket_dir` if the data
+root is deep (unix socket paths are limited to 107 bytes). `MESHFORGE_TEST_PG=managed` runs the shared
+test PostgreSQL fixture on the bundled server instead of Docker.
+
 ## 3. Windows — Task Scheduler
 
 The agent runs **natively on Windows**, not inside WSL

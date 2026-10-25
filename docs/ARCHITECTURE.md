@@ -1251,6 +1251,43 @@ that file. On a packaged laptop a human's `meshforge-agent join|identity|policy|
 per-user identity + config (`meshforge-agent migrate-identity`, D387; never mints while one is undecided).
 Operator steps: OPERATIONS §2 and §4.
 
+**The controller package** (V0.17 G2, D390/D392/D393/D398 — [ADR-0022](adr/0022-productization-install-services.md))
+
+`meshforge-controller` (Ubuntu 24.04+, `Depends: libc6 (>= 2.36)`) installs next to the agent package without
+clashing: program `/opt/meshforge/controller/<ver>` + `current`, config `/etc/meshforge/controller.toml`
+(written once by `setup init-config`: the three listeners on the LAN address of the default route), state
+`/var/lib/meshforge/controller/` and `/var/lib/meshforge/db/`, unit `meshforge-controller.service` (same user
+`meshforge`, same hardening, `KillMode=mixed`). Each package's purge removes only its own state; the user goes
+with the last one.
+
+*Managed database* (`[controller.db] mode = "managed"`, the system-mode default; dev default `external` =
+`[database]`). The controller bundle carries a trimmed, sha256-pinned PostgreSQL 16 (`<bundle>/pgsql`,
+`scripts/pg_bundle.py`, mirror-then-upstream download, Q19). `ControllerRuntime` starts it **first, on the
+event-loop thread** (the postmaster's parent-death signal SIGINT follows the forking thread), bound to
+`127.0.0.1:47150` (Q22) + a `0700` unix socket, and stops it **last**, after the engine is disposed; a postmaster
+that dies under a running controller stops it with `FAILURE` (systemd restarts both; the restart reconciles
+orphans/stale pid files). Two roles (Q18): `meshforge_admin` (initdb superuser) is used only for role/database
+creation, backup, restore and the migrations, which run as it *acting as* the app role (`role` startup
+setting) so every table is owned by `meshforge` — a non-superuser that owns only its database and is what the
+engine and the admin CLI connect as (`app.password`, `0600`). `doctor` checks binaries, glibc, port, password
+files, data major, disk, CA and dashboard.
+
+*Upgrade backup (D393, controller half).* Before migrating, when the controller version differs from the last
+good start (`db/schema-version.json`, written after each start's health check) or the database is not at head,
+the controller dumps `db/backups/pre-<ver>.dump` (keep 3). If the start then fails or is not serving within
+`[controller.db] health_timeout_s` (60 s), the backup is restored in `stop()` (once nothing uses the database)
+and the controller exits 4 (`upgrade_rolled_back`; not restarted). `meshforge-controller db
+status|backup|restore`: backup attaches to a running controller; restore refuses while it runs.
+
+*Setup mode (D392, Q20).* `mtls`, no fabric CA, no users and a setup token (`controller/setup-token`, `0600`,
+made by `meshforge-controller setup url`, which the postinst runs and prints): the controller runs only the
+setup page — plain HTTP on **loopback only** (`[controller.setup] bind`, default `127.0.0.1:47110`), behind the
+loopback Host guard; the token from the URL fragment is exchanged for an HttpOnly `SameSite=Strict` cookie;
+POSTs must be JSON with a loopback `Origin`. "Create the fabric" = admin name + password (first-admin rule:
+12+ chars, 6+ distinct, not the name, not common) → fabric CA + server cert (CA removed again if the admin
+cannot be created) → admin user → first invite (code + QR). The token is deleted, `/v1/setup/*` answers 410 for
+good (also in the normal app), and `_serve` starts a new runtime in-process — now with TLS, gRPC and enrolment.
+
 ## 24. Cross-platform strategy
 
 - **Agent runs natively on Windows** (not inside WSL) — avoids WSL2 NAT/inbound problems; psutil, NVML, gRPC, PyTorch all work natively. Windows service in product; background task in dev.
