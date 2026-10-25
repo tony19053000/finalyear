@@ -362,3 +362,24 @@ def test_windows_installed_needs_both_marker_files(tmp_path: Path) -> None:
     (tmp_path / "pf" / "MeshForge").mkdir(parents=True)
     (tmp_path / "pf" / "MeshForge" / "current.txt").write_text("0.17.0-1\r\n")
     assert windows_installed(env)
+
+
+# ------------------------------------------- job envs after an upgrade (F2)
+def test_a_venv_whose_base_interpreter_folder_is_gone_is_damaged(
+    tmp_path: Path,
+) -> None:
+    from meshforge.agent.envs.builder import venv_home_missing
+
+    venv = tmp_path / "venv"
+    venv.mkdir()
+    assert venv_home_missing(venv) is False  # no pyvenv.cfg: other checks decide
+    home = tmp_path / "MeshForge" / "0.17.0-1" / "python"
+    home.mkdir(parents=True)
+    (venv / "pyvenv.cfg").write_text(
+        f"home = {home}\ninclude-system-site-packages = false\n", encoding="utf-8"
+    )
+    assert venv_home_missing(venv) is False
+    home.rmdir()  # the upgrade removed the old version's folder
+    assert venv_home_missing(venv) is True
+    (venv / "pyvenv.cfg").write_text("version = 3.12\n", encoding="utf-8")
+    assert venv_home_missing(venv) is False

@@ -98,7 +98,7 @@ def layout_for(system: str, machine: str, *, experimental_windows: bool) -> Layo
             posix=False,
         )
     raise BundleError(
-        f"no bundle layout for {system} (Windows: --experimental-windows, untested)",
+        f"no bundle layout for {system} (Windows: build with --os windows there)",
         reason="unsupported",
     )
 

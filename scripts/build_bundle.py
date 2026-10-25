@@ -679,8 +679,9 @@ def _root_relative(root: Path, path: str) -> str:
 
 
 WINDOWS_IMPORT_CHECK: Final = (
-    "import win32api, win32security, win32service, win32serviceutil, "
-    "servicemanager, win32ts, win32event, win32process; "
+    "import pywintypes, win32api, win32con, win32gui, win32security, "
+    "win32service, win32serviceutil, servicemanager, win32ts, win32event, "
+    "win32process; "
     "from win32com.shell import shell; print('pywin32 ok')"
 )
 """V0.17 G4: what the service host and the installer helper import, run with
