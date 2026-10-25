@@ -53,6 +53,7 @@ __all__ = [
     "schtasks_argv",
     "service_python",
     "shim_text",
+    "sync_peer_rule",
 ]
 
 CURRENT_FILE_NAME: Final = "current.txt"
@@ -281,13 +282,36 @@ def console_revoke_argv(console_dir: PureWindowsPath, sids: Sequence[str]) -> li
 def netsh_delete_outcome(
     code: int, output: str
 ) -> Literal["deleted", "absent", "unexpected"]:
-    """``netsh advfirewall firewall delete rule name=...``: 0 deleted; 1 with
-    "No rules match" = there was none (fine); anything else is worth a log line."""
+    """``netsh advfirewall firewall delete rule name=...``: 0 deleted; 1 = no rule
+    has that name (decided by the exit code alone - netsh's text is localised,
+    fix round 2); anything else is worth a log line. ``output`` is only for the
+    caller's log."""
+    del output
     if code == 0:
         return "deleted"
-    if code == 1 and "no rules match" in output.lower():
+    if code == 1:
         return "absent"
     return "unexpected"
+
+
+def sync_peer_rule(
+    delete_rule: Callable[[], tuple[int, str]],
+    add_rule: Callable[[], None],
+    *,
+    peer_serving: bool,
+    warn: Callable[[int, str], None],
+) -> str:
+    """D389: delete the peer rule **by name**, then add it back when peer serving
+    is on. A delete that fails is logged (``warn(code, output tail)``) and never
+    stops the add - the add is what makes peer serving work; a stale duplicate is
+    only cosmetic and the next sync deletes it. Returns the delete outcome."""
+    code, output = delete_rule()
+    outcome = netsh_delete_outcome(code, output)
+    if outcome == "unexpected":
+        warn(code, output.strip()[-300:])
+    if peer_serving:
+        add_rule()
+    return outcome
 
 
 def docker_remove_outcome(
@@ -362,7 +386,15 @@ def remove_tree_no_follow(root: Path, fix_access: Callable[[Path], None]) -> int
             fix_access(path)
             with contextlib.suppress(OSError):  # Windows: the read-only bit
                 os.chmod(path, stat.S_IWRITE | stat.S_IREAD)
-            op(path)
+            try:
+                op(path)
+            except OSError as exc:
+                raise OSError(
+                    exc.errno,
+                    f"{exc.strerror or exc} (still refused after taking ownership "
+                    "and full control as Administrators)",
+                    str(path),
+                ) from exc
 
     def walk(path: Path) -> None:
         nonlocal removed

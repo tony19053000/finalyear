@@ -47,13 +47,13 @@ from meshforge.agent.wininstall import (
     data_fix_argvs,
     docker_remove_outcome,
     docker_users_argv,
-    netsh_delete_outcome,
     path_add,
     path_remove,
     remove_tree_no_follow,
     schtasks_argv,
     service_python,
     shim_text,
+    sync_peer_rule,
 )
 from meshforge.agent.winservice import (
     AGENT_LOG_NAME,
@@ -336,17 +336,36 @@ class RealOps:
 
     def sync_firewall(self, peer_serving: bool) -> None:
         rule = peer_firewall_rule(self._peer_port())
-        done = run_tool(
-            firewall_delete_argv(PEER_FIREWALL_RULE), ok_codes=frozenset(range(256))
-        )
-        output = (done.stdout + done.stderr).strip()
-        if netsh_delete_outcome(done.returncode, output) == "unexpected":
-            raise OpsError(
-                f"deleting the old {PEER_FIREWALL_RULE} rule failed (exit "
-                f"{done.returncode}): {output[-300:]}"
+
+        def delete_rule() -> tuple[int, str]:
+            done = run_tool(
+                firewall_delete_argv(PEER_FIREWALL_RULE), ok_codes=frozenset(range(256))
             )
-        if peer_serving:
+            return done.returncode, done.stdout + done.stderr
+
+        def add_rule() -> None:
             run_tool(firewall_add_argv(rule))
+
+        def warn(code: int, output: str) -> None:
+            log.warning(
+                "agent.service.firewall_rule_delete_failed",
+                rule=PEER_FIREWALL_RULE,
+                exit_code=code,
+                output=output,
+            )
+
+        outcome = sync_peer_rule(
+            delete_rule,
+            add_rule,
+            peer_serving=peer_serving,
+            warn=warn,
+        )
+        log.info(
+            "agent.service.firewall_rule_sync",
+            rule=PEER_FIREWALL_RULE,
+            delete=outcome,
+            added=peer_serving,
+        )
 
     def _peer_port(self) -> int:
         from meshforge.agent.settings import DEFAULT_PEER_PORT, AgentSettings

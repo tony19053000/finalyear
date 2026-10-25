@@ -480,8 +480,16 @@ def test_console_reader_is_the_session_user_else_the_process_user() -> None:
     [
         (0, "Deleted 1 rule(s).", "deleted"),
         (1, "No rules match the specified criteria.", "absent"),
-        (1, "The requested operation requires elevation.", "unexpected"),
+        # fix round 2: the exit code decides, never netsh's (localised) text
+        (
+            1,
+            "Es gibt keine Regeln, die den angegebenen Kriterien entsprechen.",
+            "absent",
+        ),
+        (1, "Aucune règle ne correspond aux critères spécifiés.", "absent"),
+        (1, "", "absent"),
         (5, "", "unexpected"),
+        (2, "No rules match the specified criteria.", "unexpected"),
     ],
 )
 def test_netsh_delete_outcome(code: int, output: str, outcome: str) -> None:
@@ -499,3 +507,66 @@ def test_netsh_delete_outcome(code: int, output: str, outcome: str) -> None:
 )
 def test_docker_remove_outcome(code: int, output: str, outcome: str) -> None:
     assert wi.docker_remove_outcome(code, output) == outcome
+
+
+# ------------------------------------- fix round 2: a failed delete never stops the add
+class _Firewall:
+    def __init__(self, code: int, output: str) -> None:
+        self.code, self.output = code, output
+        self.calls: list[str] = []
+        self.warnings: list[tuple[int, str]] = []
+
+    def delete(self) -> tuple[int, str]:
+        self.calls.append("delete")
+        return self.code, self.output
+
+    def add(self) -> None:
+        self.calls.append("add")
+
+    def warn(self, code: int, output: str) -> None:
+        self.warnings.append((code, output))
+
+
+@pytest.mark.parametrize(
+    "output",
+    [
+        "Es gibt keine Regeln, die den angegebenen Kriterien entsprechen.",
+        "Aucune règle ne correspond aux critères spécifiés.",
+    ],
+)
+def test_localised_no_rule_is_absent_and_the_add_runs(output: str) -> None:
+    fw = _Firewall(1, output)
+    outcome = wi.sync_peer_rule(fw.delete, fw.add, peer_serving=True, warn=fw.warn)
+    assert outcome == "absent"
+    assert fw.calls == ["delete", "add"]
+    assert fw.warnings == []
+
+
+def test_an_unexpected_delete_is_logged_and_the_add_still_runs() -> None:
+    fw = _Firewall(5, "  Zugriff verweigert.  ")
+    outcome = wi.sync_peer_rule(fw.delete, fw.add, peer_serving=True, warn=fw.warn)
+    assert outcome == "unexpected"
+    assert fw.calls == ["delete", "add"]
+    assert fw.warnings == [(5, "Zugriff verweigert.")]
+
+
+@pytest.mark.parametrize("code", [0, 1, 5])
+def test_peer_off_only_deletes(code: int) -> None:
+    fw = _Firewall(code, "")
+    wi.sync_peer_rule(fw.delete, fw.add, peer_serving=False, warn=fw.warn)
+    assert fw.calls == ["delete"]
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32" or os.geteuid() == 0, reason="POSIX permissions"
+)
+def test_a_delete_refused_after_the_fix_names_taking_ownership(tmp_path: Path) -> None:
+    root = tmp_path / "MeshForge"
+    root.mkdir()
+    (root / "stuck").write_text("x")
+    root.chmod(0o500)
+    try:
+        with pytest.raises(OSError, match="after taking ownership"):
+            wi.remove_tree_no_follow(root, lambda p: None)  # the fix does not help
+    finally:
+        root.chmod(0o700)

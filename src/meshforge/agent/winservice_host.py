@@ -34,6 +34,7 @@ import servicemanager
 import win32service
 import win32serviceutil
 
+from meshforge.agent.wininstall import netsh_delete_outcome
 from meshforge.agent.winservice import (
     AGENT_LOG_NAME,
     SERVICE_LOG_NAME,
@@ -351,7 +352,8 @@ def install(
             _run_tool(argv)
     if peer_firewall:
         rule = peer_firewall_rule()
-        _run_tool(firewall_delete_argv(rule.name), ok_codes=frozenset({0, 1}))
+        # Delete by name first (any exit: the add below is what matters).
+        _run_tool(firewall_delete_argv(rule.name), ok_codes=frozenset(range(256)))
         _run_tool(firewall_add_argv(rule))
     log.info(
         "agent.service.installed",
@@ -397,13 +399,17 @@ def uninstall(name: str = SERVICE_NAME, *, stop_timeout_s: float = 60.0) -> bool
                 f"removing service {name} failed: {exc.strerror} ({exc.winerror})"
             ) from exc
     # netsh exits 1 when no rule has that name: already gone is fine (logged).
+    # By the exit code alone (netsh's text is localised); a failed delete is
+    # logged, never fatal: the service itself is already gone.
     code = _run_tool(
-        firewall_delete_argv(peer_firewall_rule().name), ok_codes=frozenset({0, 1})
+        firewall_delete_argv(peer_firewall_rule().name), ok_codes=frozenset(range(256))
     )
-    log.info(
+    outcome = netsh_delete_outcome(code, "")
+    (log.warning if outcome == "unexpected" else log.info)(
         "agent.service.firewall_rule_delete",
         rule=peer_firewall_rule().name,
-        outcome="deleted" if code == 0 else "absent",
+        outcome=outcome,
+        exit_code=code,
     )
     log.info("agent.service.uninstalled", service=name, existed=existed)
     return existed
