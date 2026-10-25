@@ -65,6 +65,12 @@ def rerun_hint() -> str:
     return "`sudo meshforge-agent migrate-identity`"
 
 
+def admin_prefix() -> str:
+    """What goes before an admin command in this OS's messages (Windows: an
+    elevated prompt instead, said separately)."""
+    return "" if _WINDOWS else "sudo "
+
+
 def start_hint() -> str:
     """How to start the service once a blocked migration is resolved."""
     if _WINDOWS:

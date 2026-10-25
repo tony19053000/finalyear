@@ -29,6 +29,7 @@ from meshforge.agent.migration.model import (
     MigrationPlan,
     Paths,
     PolicyPlan,
+    admin_prefix,
     example_identity_dir,
     rerun_hint,
     start_hint,
@@ -352,7 +353,7 @@ def plan(
             paths,
             ["more than one per-user identity found:", *listed],
             "choose the one this laptop should keep: `"
-            + ("" if sys.platform == "win32" else "sudo ")
+            + admin_prefix()
             + "meshforge-agent migrate-identity --from <folder>` (or rename the "
             f"others, e.g. to identity.unused, and re-run {rerun_hint()}); then "
             f"{start_hint()}",
