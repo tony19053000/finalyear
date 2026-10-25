@@ -123,7 +123,7 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 - **2026-10-16: V0.8 G1 CLOSED** — gate whole component 2144 passed exit 0, `-m security` 1806 passed exit 0 (D186). G2 item 0 approved + merged (D185). G2 frontend (branch `worktree-agent-af40f9465633ac195`) tester r1 running; G6 CLI implementer running (parallel wave, team request).
 - **2026-10-15: V0.8 STARTED** — brief approved by the team (all §7 recommendations), ADR-0017 Accepted. G1 implementer running (brief §5a). Next: tester r1 → reviewer → whole component once → close G1.
 - **2026-10-15: V0.7 G7 CLOSED** — 0.7.11 `[x]` (D168). Security suite `-m security` 1475 passed; threat_model_check 99 rows 0 failing; whole component 1916 exit 0. **V0.7 agent-side complete; closes on 🧑 0.7.12 lab** (`lab/checklists/V0.7-security.md`). Next agent work: V0.8 (dashboard & CLI v1), item 0 = D168 non-blocking list.
-- **2026-10-14: V0.7 G7 STARTED** — brief §5g + D166 `ba17d9d`; 0.7.11 `[~]`; implementer STOPPED by user, partial wip @5def4185 in worktree agent-a92fb795dc545626f. Next: tester r1 → reviewer → whole component once → close.
+- **2026-10-14: V0.7 G7 STARTED** — brief §5g + D166 `ba17d9d`; 0.7.11 `[~]`; implementer RESUMED (running) from wip @5def4185 in worktree agent-a92fb795dc545626f. Next: tester r1 → reviewer → whole component once → close.
 - **2026-10-14: V0.7 G6 CLOSED** — 0.7.10 `[x]`. Fix r3 exit list green (final whole component at `147942b`: 1901 passed / 14 skipped / 0 failed, exit 0 (67 min, 2026-10-14)), tester r4 PASS `bde4410`, reviewer APPROVE (4 non-blocking → D165). **Next: Lead writes the G7 brief (0.7.11 security suite); item 0 = D165.**
 - **2026-10-14: V0.7 G6 tester r3 FAIL (T-21 major symlinked secrets base; T-18..T-20, T-22 minor) → D164 → fix round 3 committed `8f113b4`..`1266086`, NOT verified (exit list stopped by the user mid-run).** Next: implementer exit list + hand-off → tester r4 → reviewer → close 0.7.10. See SESSION_HANDOFF §1.
 - **2026-10-13 (night): V0.7 G6 tester r2 FAIL (T-17 blocker matcher hang, T-14 major secret folder left on cancel) → D163 → fix round 2 committed `8c54823`..`5897278`, NOT verified: exit list blocked - 🧑 laptop on battery again.** Next (on mains): implementer exit list + hand-off → tester r3 → reviewer → close 0.7.10. See SESSION_HANDOFF §1.
@@ -279,7 +279,7 @@ Reviewer non-blocking follow-ups (carry into G2/G3): (1) `mint` should carry `pe
 - Windows: not yet run (first real CI run will cover unit + fresh-clone on windows-latest)
 
 ## Next Recommended Task
-**V0.17 G4 APPROVED** (§5d, Q28–Q34 as recommended) — implementer STOPPED by user, partial wip @5def4185 in worktree agent-a92fb795dc545626f. (Windows service + Inno Setup installer + firewall + Docker/GPU checks, 0.17.1; reuses G1/G3; SP1 verdict pywin32 D386) — Lead drafts, team approves. 🧑 labs: G1, G2 (Q19 mirror upload, Q21 pg_dump import), G3, SP1, SP3, icacls (D400).
+**V0.17 G4 APPROVED** (§5d, Q28–Q34 as recommended) — implementer RESUMED (running) from wip @5def4185 in worktree agent-a92fb795dc545626f. (Windows service + Inno Setup installer + firewall + Docker/GPU checks, 0.17.1; reuses G1/G3; SP1 verdict pywin32 D386) — Lead drafts, team approves. 🧑 labs: G1, G2 (Q19 mirror upload, Q21 pg_dump import), G3, SP1, SP3, icacls (D400).
 
 _Older:_ **V0.17 brief DRAFTED** (`docs/briefs/V0.17-productization.md`, D384–D397) — team to answer **Q1–Q10** (§7); Q1 (GitHub repo + Windows CI) is a hard prerequisite. Then G0 spikes SP1–SP3.
 
