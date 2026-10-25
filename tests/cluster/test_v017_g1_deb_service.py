@@ -5,10 +5,13 @@ enrolment listener) on this machine, and a clean Ubuntu 24.04 systemd container
 sharing the host network (so ``127.0.0.1`` is the controller) with the
 meshforge-agent ``.deb`` installed - no Python, no uv, never joined.
 
-1. ``apt install``: "not joined yet", the service waits (inactive, condition);
+1. ``apt install``: "not joined yet"; since V0.17 G3 the service already runs,
+   waiting for the join with only its local console up; ``config.toml`` is
+   written afterwards (the documented order);
 2. ``meshforge-agent join -`` typed by root -> re-executed as ``meshforge``
-   (Q15), the code on stdin; the path unit starts the service by itself; the
-   node is CONNECTED with the certificate bound to the service's key;
+   (Q15), the code on stdin; the running service notices the enrolment, re-reads
+   the configuration written in 1 (G3-D2) and starts its fabric part by itself;
+   the node is CONNECTED with the certificate bound to the service's key;
 3. the node's live owner policy has no ``max_cpu_percent:unsandboxed_linux`` in
    ``not_enforced``: the service's delegated cgroup enforces CPU shares (V0.7 G6;
    systemd 255);
@@ -160,7 +163,8 @@ def test_packaged_agent_joins_and_runs_a_venv_job(
     box.copy_in(wheels, WHEELS)
     box.ok(f"chown -R meshforge:meshforge {WHEELS}")
 
-    # 2. join as root -> as meshforge; the path unit starts the service
+    # 2. join as root -> as meshforge; the waiting service starts its fabric part
+    #    with the config written above (V0.17 G3: no path unit any more)
     made = fabric.call("POST", "/v1/fabric/invites", json={"ttl_s": 300})
     assert made.status_code == 201, made.text
     code = str(made.json()["code"])
