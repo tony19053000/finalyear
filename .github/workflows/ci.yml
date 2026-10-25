@@ -1,7 +1,8 @@
 # CI for MeshForge (roadmap 0.1.10).
 #
 # Jobs:  lint · types · unit (Linux + Windows) · component (Linux, 8 shards) ·
-#        cluster (Linux) · fresh-clone (Linux + Windows) · package-linux · ci-ok
+#        cluster (Linux) · fresh-clone (Linux + Windows) · package-linux ·
+#        package-windows · ci-ok
 # Branch protection on `main` should require ONLY the `ci-ok` check: it passes
 # iff every other job passed, so adding/renaming jobs never needs a settings change.
 #
@@ -103,6 +104,17 @@ jobs:
       # deliberately not installed (D399).
       - run: uv sync --locked --extra controller --extra agent --extra ml
       - run: uv run mypy
+      # V0.17 G4: the Windows-only service/installer modules (pywin32) are
+      # type-checked as Windows code too (types-pywin32). Only those files:
+      # the rest of src is checked for Linux above and has POSIX-only branches.
+      - name: mypy --platform win32 (Windows service + installer modules)
+        run: >-
+          uv run mypy --platform win32 --follow-imports=silent
+          src/meshforge/agent/winservice.py src/meshforge/agent/winservice_host.py
+          src/meshforge/agent/winservice_ops.py src/meshforge/agent/winservice_admin.py
+          src/meshforge/agent/winservice_supervisor.py src/meshforge/agent/wininstall.py
+          src/meshforge/agent/winsetup.py src/meshforge/agent/console/launcher_windows.py
+          src/meshforge/agent/console/checks_windows.py src/meshforge/common/windows_service.py
       # Each lab workload is a standalone container entrypoint named main.py, so
       # they cannot share one mypy run (duplicate module `main`); one run each.
       - name: mypy lab workloads (one run per entrypoint)
@@ -379,11 +391,140 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  # V0.17 G4 (D385-D389, D395, Q28-Q33): the Windows agent bundle + Inno Setup
+  # installer, built from this commit and installed for real on the runner
+  # (elevated): a developer identity + the dev scheduled task first, then a
+  # silent install (service RUNNING as NT SERVICE\MeshForgeAgent, same node_id,
+  # console on loopback only, token/identity ACLs exact), crash / exit 4 / stop,
+  # upgrade to revision 2 (same node_id), the installed service joining a real
+  # fabric and running a venv job (honest CPU cap), uninstall (data kept) ->
+  # lab/verify_uninstall.py, reinstall (same node) and uninstall with
+  # /REMOVEDATA -> verify again. lab/windows/package_check.py does the checks.
+  package-windows:
+    name: package-windows (bundle + installer, real service)
+    runs-on: windows-latest
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      SETUP_ARGS: /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: ${{ env.UV_PYTHON }}
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      # agent: the bundle's wheels and the dev identity; controller: the fabric
+      # harness of the service's join test.
+      - run: uv sync --locked --extra controller --extra agent
+      - name: cache pinned downloads (python-build-standalone, Inno Setup, wheels)
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+        with:
+          path: ~\AppData\Local\meshforge-bundle
+          key: meshforge-bundle-windows-${{ hashFiles('packaging/pins.toml', 'uv.lock') }}
+      - name: build the agent bundle
+        run: uv run python scripts/build_bundle.py --role agent --os windows --out dist/ --cache "$env:LOCALAPPDATA\meshforge-bundle"
+      - name: build the installer (revision 1, and 2 for the upgrade test)
+        run: |
+          $bundle = (Get-ChildItem dist -Directory -Filter 'meshforge-*-windows-x86_64').FullName
+          $version = (Get-Content "$bundle\BUILDINFO.json" | ConvertFrom-Json).version
+          "BUNDLE=$bundle" >> $env:GITHUB_ENV
+          "MF_VERSION=$version" >> $env:GITHUB_ENV
+          uv run python scripts/build_windows_installer.py --bundle $bundle --out dist/ --cache "$env:LOCALAPPDATA\meshforge-bundle"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          uv run python scripts/build_windows_installer.py --bundle $bundle --out dist/ --revision 2 --cache "$env:LOCALAPPDATA\meshforge-bundle"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          Get-ChildItem dist\*.exe | Format-Table Name, Length
+      - name: a developer laptop (user-mode identity + dev scheduled task)
+        run: |
+          New-Item -ItemType Directory -Force reports | Out-Null
+          uv run meshforge-agent identity show
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          uv run python lab/windows/package_check.py seed --state reports/windows-state.json
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: silent install (revision 1)
+        run: |
+          $exe = "dist\MeshForge-Agent-Setup-$env:MF_VERSION-1.exe"
+          $p = Start-Process $exe -ArgumentList "$env:SETUP_ARGS /LOG=`"$pwd\reports\install-1.log`"" -Wait -PassThru
+          "installer exit code: $($p.ExitCode)"
+          Get-Content "$env:ProgramData\MeshForge\logs\setup-result.json" -ErrorAction SilentlyContinue
+          if ($p.ExitCode -ne 0) { exit 1 }
+      - name: installed service checks
+        run: uv run python lab/windows/package_check.py installed --state reports/windows-state.json --version-dir "$env:MF_VERSION-1"
+      - name: crash -> restarted by the SCM
+        run: uv run python lab/windows/package_check.py crash
+      - name: exit 4 -> stopped, not restarted
+        run: uv run python lab/windows/package_check.py exit4
+      - name: requested stop -> no process left
+        run: uv run python lab/windows/package_check.py stop
+      - name: upgrade (revision 2)
+        run: |
+          $exe = "dist\MeshForge-Agent-Setup-$env:MF_VERSION-2.exe"
+          $p = Start-Process $exe -ArgumentList "$env:SETUP_ARGS /LOG=`"$pwd\reports\install-2.log`"" -Wait -PassThru
+          "installer exit code: $($p.ExitCode)"
+          if ($p.ExitCode -ne 0) { exit 1 }
+          uv run python lab/windows/package_check.py upgraded --state reports/windows-state.json --version-dir "$env:MF_VERSION-2"
+      - name: the installed service joins a fabric and runs a venv job
+        env:
+          MESHFORGE_TEST_WINDOWS_SERVICE: "1"
+          MESHFORGE_TEST_PG: external
+          MESHFORGE_TEST_PG_PASSWORD: root
+        run: |
+          # The runner's PostgreSQL (user postgres / password root, disabled by default)
+          $pg = Get-Service -Name 'postgresql*' | Select-Object -First 1
+          Set-Service $pg.Name -StartupType Manual
+          Start-Service $pg.Name
+          uv run python scripts/pytest_exit_guard.py --run-slow -o junit_family=xunit1 tests/cluster/test_v017_g4_windows_service_fabric.py --junitxml=reports/junit-package-windows.xml
+      - name: uninstall (data kept) + verify
+        run: |
+          $p = Start-Process "$env:ProgramFiles\MeshForge\unins000.exe" -ArgumentList "$env:SETUP_ARGS /LOG=`"$pwd\reports\uninstall-1.log`"" -Wait -PassThru
+          "uninstaller exit code: $($p.ExitCode)"
+          $deadline = (Get-Date).AddSeconds(120)
+          while ((Test-Path "$env:ProgramFiles\MeshForge") -and ((Get-Date) -lt $deadline)) { Start-Sleep 1 }
+          uv run python lab/verify_uninstall.py --os windows
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: reinstall keeps the node; uninstall with /REMOVEDATA + verify
+        run: |
+          $exe = "dist\MeshForge-Agent-Setup-$env:MF_VERSION-2.exe"
+          $p = Start-Process $exe -ArgumentList "$env:SETUP_ARGS /LOG=`"$pwd\reports\install-3.log`"" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { "installer exit code: $($p.ExitCode)"; exit 1 }
+          uv run python lab/windows/package_check.py reinstalled --state reports/windows-state.json --version-dir "$env:MF_VERSION-2"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $p = Start-Process "$env:ProgramFiles\MeshForge\unins000.exe" -ArgumentList "$env:SETUP_ARGS /REMOVEDATA /LOG=`"$pwd\reports\uninstall-2.log`"" -Wait -PassThru
+          "uninstaller exit code: $($p.ExitCode)"
+          $deadline = (Get-Date).AddSeconds(120)
+          while ((Test-Path "$env:ProgramFiles\MeshForge") -and ((Get-Date) -lt $deadline)) { Start-Sleep 1 }
+          uv run python lab/verify_uninstall.py --os windows --data-removed
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: collect logs
+        if: ${{ !cancelled() }}
+        run: |
+          New-Item -ItemType Directory -Force reports\service | Out-Null
+          Copy-Item "$env:ProgramData\MeshForge\logs\*" reports\service -ErrorAction SilentlyContinue
+          Get-ChildItem "$env:TEMP\meshforge-uninstall.json" -ErrorAction SilentlyContinue | Copy-Item -Destination reports
+      - name: upload installer + reports
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: package-windows
+          path: |
+            dist/*.exe
+            dist/*.exe.sha256
+            dist/meshforge-*-windows-x86_64/BUILDINFO.json
+            reports/
+          if-no-files-found: error
+          retention-days: 14
+
   # Single required status check for branch protection.
   ci-ok:
     name: ci-ok
     if: ${{ always() }}
-    needs: [lint, types, unit, component, cluster, fresh-clone, package-linux]
+    needs: [lint, types, unit, component, cluster, fresh-clone, package-linux, package-windows]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

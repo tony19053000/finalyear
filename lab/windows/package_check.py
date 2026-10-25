@@ -23,7 +23,9 @@ prints what it checked and exits 1 on the first failed check (``FAIL: ...``):
 * ``stop``             - a requested stop: STOPPED, exit 0, no process of the
                          service account left, then started again;
 * ``upgraded``         - after the revision-2 installer: binPath and
-                         ``current.txt`` name revision 2, same node_id, RUNNING.
+                         ``current.txt`` name revision 2, same node_id, RUNNING;
+* ``reinstalled``      - after an uninstall that kept the data and a new
+                         install: same node_id, RUNNING.
 
 ``lab/verify_uninstall.py --os windows`` checks the uninstall.
 """
@@ -381,10 +383,39 @@ def cmd_upgraded(state: Path, version_dir: str) -> None:
     wait_console()
 
 
+def cmd_reinstalled(state: Path, version_dir: str) -> None:
+    """After an uninstall that kept the data, a new install is the same node."""
+    expected = json.loads(state.read_text(encoding="utf-8"))["node_id"]
+    result = _setup_result()
+    expect(
+        result.get("outcome") == "ok",
+        f"reinstall outcome is ok ({result.get('outcome')})",
+    )
+    expect(
+        (PROGRAM / "current.txt").read_text().strip() == version_dir,
+        "current.txt = the reinstalled version",
+    )
+    wait_state("RUNNING", 60)
+    expect(
+        node_id_of(DATA / "identity") == expected,
+        "same node_id after uninstall (data kept) + reinstall",
+    )
+    wait_console()
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
     parser.add_argument(
-        "command", choices=["seed", "installed", "crash", "exit4", "stop", "upgraded"]
+        "command",
+        choices=[
+            "seed",
+            "installed",
+            "crash",
+            "exit4",
+            "stop",
+            "upgraded",
+            "reinstalled",
+        ],
     )
     parser.add_argument(
         "--state", type=Path, default=Path("reports/windows-state.json")
@@ -403,8 +434,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             cmd_exit4()
         elif args.command == "stop":
             cmd_stop()
-        else:
+        elif args.command == "upgraded":
             cmd_upgraded(args.state, args.version_dir)
+        else:
+            cmd_reinstalled(args.state, args.version_dir)
     except (
         CheckError,
         OSError,
