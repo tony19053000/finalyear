@@ -282,8 +282,8 @@ begin
     if CompareText(ParamStr(I), '/REMOVEDATA') = 0 then
       RemoveData := True;
   if (not RemoveData) and (not UninstallSilent()) then
-    RemoveData := MsgBox('Also remove all MeshForge data from this computer?' +
-      #13#10#13#10 + 'This deletes this computer''s node identity (it would join ' +
+    RemoveData := MsgBox('Also remove all MeshForge data from this computer?' + #13#10#13#10 +
+      'This deletes this computer''s node identity (it would join ' +
       'as a NEW node if MeshForge is installed again), its caches and logs in ' +
       ExpandConstant('{commonappdata}') + '\MeshForge.' + #13#10#13#10 +
       'Choose No to keep them (recommended).',
