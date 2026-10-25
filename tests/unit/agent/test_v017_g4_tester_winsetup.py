@@ -531,3 +531,87 @@ def test_teardown_data_removal_error_fails_result() -> None:
 
     r = ws.teardown(Locked(python=PY1, state="running"), remove_data=True)
     assert not r.ok and any("file in use" in line for line in r.lines)
+
+
+# ================================================================ round 2 (N1, N2, N3)
+class _StopFailsSecondTime(Scm):
+    def stop_service(self, timeout_s: float) -> bool:
+        n = sum(1 for e in self.log if e == "stop")
+        if n >= 1:
+            self.log.append("stop")
+            return False
+        return super().stop_service(timeout_s)
+
+
+def test_n1_rollback_with_a_service_that_will_not_stop_repoints_nothing() -> None:
+    scm = _StopFailsSecondTime(python=PY1, state="running", current=V1.version_dir)
+    scm.behaviour = {PY1: "healthy", PY2: "no_console"}
+    res = _run(scm, timeout=3)
+    assert res.outcome is ws.SetupOutcome.FAILED
+    assert res.exit_code == ExitCode.FAILURE
+    assert scm.python == PY2  # NOT re-pointed under a running process
+    assert f"install:{PY1}" not in scm.log
+    assert scm.current == V1.version_dir  # pointer never moved to the broken version
+    assert any("did not stop" in line and "still runs" in line for line in res.lines)
+
+
+def test_n2_rollback_restores_current_shims_and_path_for_the_previous_version() -> None:
+    class Spy(Scm):
+        path_calls = 0
+
+        def ensure_on_path(self) -> None:
+            self.path_calls += 1
+
+    scm = Spy(python=PY1, state="running", current="stale", shims="stale")
+    scm.behaviour = {PY1: "healthy", PY2: "dies"}
+    res = _run(scm, timeout=3)
+    assert res.outcome is ws.SetupOutcome.ROLLED_BACK
+    assert scm.current == scm.shims == V1.version_dir
+    assert scm.path_calls >= 1
+
+
+class _MigrateBoom(Scm):
+    exc: Exception = RuntimeError("disk exploded")
+
+    def migrate(self) -> tuple[str, list[str]]:
+        raise self.exc
+
+
+def test_n3_unexpected_migration_exception_is_blocked_and_never_starts() -> None:
+    scm = _MigrateBoom()
+    res = _run(scm)
+    assert res.outcome is ws.SetupOutcome.NEEDS_ATTENTION
+    assert res.exit_code == ExitCode.CONFIG_ERROR
+    assert "start" not in scm.log and scm.state != "running"
+    text = "\n".join(res.lines)
+    assert "RuntimeError" in text and "disk exploded" in text
+    assert "this was an upgrade" not in text  # fresh install: nothing to go back to
+
+
+@pytest.mark.parametrize(
+    "exc", [RuntimeError("boom"), ws.OpsError("icacls failed"), OSError(5, "denied")]
+)
+def test_n3_migration_failure_during_upgrade_says_neither_version_runs(
+    exc: Exception,
+) -> None:
+    scm = _MigrateBoom(python=PY1, state="running", current=V1.version_dir)
+    scm.exc = exc
+    res = _run(scm)
+    assert res.outcome is not ws.SetupOutcome.OK
+    assert "start" not in scm.log and scm.state != "running"
+    text = "\n".join(res.lines)
+    assert "this was an upgrade" in text and "does NOT run either" in text
+    # the advertised recovery command names real subcommand/flag spellings
+    assert "winservice update-path --python-exe" in text and PY1 in text
+    assert "sc.exe start MeshForgeAgent" in text
+    # blocked path points current.txt at the new (installed) version like the SCM;
+    # the OpsError path leaves it: either is a real, installed version
+    assert scm.current in {V1.version_dir, V2.version_dir}
+
+
+def test_n3_keyboard_interrupt_is_not_swallowed() -> None:
+    # KeyboardInterrupt must propagate (only Exception is turned into a result)
+    scm = _MigrateBoom()
+    scm.exc = KeyboardInterrupt()  # type: ignore[assignment]
+    with pytest.raises(KeyboardInterrupt):
+        _run(scm)
