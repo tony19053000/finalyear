@@ -158,6 +158,12 @@ async def test_every_v1_route_is_enumerated_and_none_is_a_write_verb(
         "/v1/sessions",
         "/v1/clock",  # V0.9 G0 (D213): GET-only controller wall clock
         "/v1/openapi.json",  # GET-only schema endpoint; not a fabric resource route
+        # V0.17 G2 (D392): the setup page's API on a set-up controller - every
+        # method answers 410 Gone and changes nothing (setup.routes.gone_router).
+        "/v1/setup/state",
+        "/v1/setup/session",
+        "/v1/setup/info",
+        "/v1/setup/complete",
     }, app_routes
 
 

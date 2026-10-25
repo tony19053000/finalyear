@@ -469,8 +469,11 @@ def test_maintainer_scripts_keep_data_on_remove_and_never_add_docker() -> None:
         n: (PACKAGING / "scripts" / n).read_text("utf-8") for n in MAINTAINER_SCRIPTS
     }
     postrm = scripts["postrm"]
-    purge = postrm[postrm.index("purge)") : postrm.index(";;")]
+    # V0.17 G2: the purge branch has an inner `case`, so it ends at `remove)`
+    purge = postrm[postrm.index("purge)") : postrm.index("\nremove)")]
     assert "rm -rf /var/lib/meshforge /etc/meshforge" in purge
+    # V0.17 G2: with meshforge-controller on the machine its state is kept
+    assert "controller_known" in purge and "controller | db" in purge
     remove = postrm[postrm.index("\nremove)") :]
     assert "rm -rf" not in remove[: remove.index(";;")]
     for name, text in scripts.items():  # Q12: docker access is printed, never granted

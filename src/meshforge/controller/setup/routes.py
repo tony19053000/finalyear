@@ -194,9 +194,9 @@ async def complete(
 
 
 # ----------------------------------------------------------- normal mode
-@gone_router.get(
-    "/state", status_code=status.HTTP_410_GONE, responses={410: {"description": "Gone"}}
-)
+# Not in the OpenAPI document: they only ever answer 410 (no success body to
+# declare), and the setup API is not part of the REST contract.
+@gone_router.get("/state", status_code=status.HTTP_410_GONE, include_in_schema=False)
 async def gone_state() -> None:
     """The fabric exists: setup is over (410 forever, D392)."""
     raise _gone()
@@ -205,15 +205,13 @@ async def gone_state() -> None:
 @gone_router.post(
     "/session",
     status_code=status.HTTP_410_GONE,
-    responses={410: {"description": "Gone"}},
+    include_in_schema=False,
 )
 async def gone_session() -> None:
     raise _gone()
 
 
-@gone_router.get(
-    "/info", status_code=status.HTTP_410_GONE, responses={410: {"description": "Gone"}}
-)
+@gone_router.get("/info", status_code=status.HTTP_410_GONE, include_in_schema=False)
 async def gone_info() -> None:
     raise _gone()
 
@@ -221,7 +219,7 @@ async def gone_info() -> None:
 @gone_router.post(
     "/complete",
     status_code=status.HTTP_410_GONE,
-    responses={410: {"description": "Gone"}},
+    include_in_schema=False,
 )
 async def gone_complete() -> None:
     raise _gone()
