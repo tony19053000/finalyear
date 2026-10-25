@@ -583,3 +583,50 @@ def test_teardown_without_a_service_says_so() -> None:
 )
 def test_agent_started_is_found_in_either_log_format(line: bytes, found: bool) -> None:
     assert wsu.log_has_agent_started(line) is found
+
+
+# ------------------------------------------------------------ fix round 1
+def test_rollback_stops_if_the_new_version_will_not_stop(  # N1
+) -> None:
+    class StuckOnRollback(FakeOps):
+        def stop_service(self, timeout_s: float) -> bool:
+            if self.names().count("stop_service") >= 1:  # the rollback's stop
+                self._call("stop_service", timeout_s)
+                return False
+            return super().stop_service(timeout_s)
+
+    ops = StuckOnRollback(
+        exists=True,
+        state="running",
+        python=OLD_PY,
+        is_enrolled=True,
+        behaviour={NEW_PY: "no_started"},
+    )
+    result = wsu.setup(ops, NEW, health_timeout_s=5)
+    assert result.outcome is wsu.SetupOutcome.FAILED
+    # never re-pointed to the previous version while the new one still runs
+    assert ops.args("install_service") == [NEW_PY]
+    assert "write_current" not in ops.names()
+    assert "did not stop" in result.lines[-1]
+    assert "still runs the new version" in result.lines[-1]
+
+
+def test_rollback_points_current_shims_and_path_at_the_previous_version() -> None:  # N2
+    ops = _upgrade(behaviour={NEW_PY: "exit4"})
+    wsu.setup(ops, NEW)
+    names = ops.names()
+    assert names[-3:] == ["write_current", "write_shims", "ensure_on_path"]
+    assert ops.args("write_current") == ["0.17.0-1"]
+
+
+def test_a_migration_that_raises_is_treated_as_blocked() -> None:  # N3
+    class Exploding(FakeOps):
+        def migrate(self) -> tuple[str, list[str]]:
+            raise RuntimeError("disk on fire")
+
+    ops = Exploding()
+    result = wsu.setup(ops, NEW)
+    assert result.outcome is wsu.SetupOutcome.NEEDS_ATTENTION
+    assert "start_service" not in ops.names()
+    assert "RuntimeError: disk on fire" in result.lines[0]
+    assert "left STOPPED" in result.lines[-1]

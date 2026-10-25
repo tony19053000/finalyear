@@ -21,12 +21,15 @@ running version, so a new version never needs a PATH change.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+import contextlib
+import os
+import stat
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from pathlib import PureWindowsPath
-from typing import Final
+from pathlib import Path, PureWindowsPath
+from typing import Final, Literal
 
-from meshforge.common.windows_service import SERVICE_ACCOUNT
+from meshforge.common.windows_service import SERVICE_ACCOUNT, SID_ADMINISTRATORS
 
 __all__ = [
     "CURRENT_FILE_NAME",
@@ -36,12 +39,17 @@ __all__ = [
     "SHIM_DIR_NAME",
     "ProgramLayout",
     "console_grant_argv",
+    "console_reader_sids",
     "console_revoke_argv",
+    "data_fix_argvs",
+    "docker_remove_outcome",
     "docker_users_argv",
+    "netsh_delete_outcome",
     "parse_command_line",
     "path_add",
     "path_remove",
     "program_layout",
+    "remove_tree_no_follow",
     "schtasks_argv",
     "service_python",
     "shim_text",
@@ -250,8 +258,131 @@ def console_grant_argv(console_dir: PureWindowsPath, sids: Sequence[str]) -> lis
     return argv
 
 
+def console_reader_sids(
+    session_sid: str | None, current_sid: str, *, excluded: Sequence[str]
+) -> list[str]:
+    """Q30: who the installer lets read the console token - the user signed in
+    to the session that ran it (the person at the keyboard, also when an
+    administrator's password elevated it). The process's own user only when
+    there is no session user (session 0: CI, a remote install), so an
+    administrator who merely typed a password is not added as well."""
+    chosen = session_sid if session_sid is not None else current_sid
+    return [] if chosen in excluded else [chosen]
+
+
 def console_revoke_argv(console_dir: PureWindowsPath, sids: Sequence[str]) -> list[str]:
     if not sids:
         raise ValueError("no SID to revoke")
     argv = ["icacls", str(console_dir), "/remove:g"]
     return [*argv, *(f"*{sid}" for sid in dict.fromkeys(sids))]
+
+
+# ------------------------------------------------------ exit-code meanings
+def netsh_delete_outcome(
+    code: int, output: str
+) -> Literal["deleted", "absent", "unexpected"]:
+    """``netsh advfirewall firewall delete rule name=...``: 0 deleted; 1 with
+    "No rules match" = there was none (fine); anything else is worth a log line."""
+    if code == 0:
+        return "deleted"
+    if code == 1 and "no rules match" in output.lower():
+        return "absent"
+    return "unexpected"
+
+
+def docker_remove_outcome(
+    code: int, output: str
+) -> Literal["removed", "not_member", "no_group", "unexpected"]:
+    """``net localgroup docker-users <account> /delete``: system error 1377 = not
+    a member, 1376 = no such group (no Docker Desktop) - both fine on uninstall."""
+    if code == 0:
+        return "removed"
+    if "1377" in output:
+        return "not_member"
+    if "1376" in output:
+        return "no_group"
+    return "unexpected"
+
+
+# ------------------------------------------------------------ data removal
+_FILE_ATTRIBUTE_REPARSE_POINT: Final = 0x400
+
+
+def _link_like(st: os.stat_result) -> bool:
+    """A symbolic link or any reparse point (junction, mount point)."""
+    attributes = getattr(st, "st_file_attributes", 0)
+    return stat.S_ISLNK(st.st_mode) or bool(attributes & _FILE_ATTRIBUTE_REPARSE_POINT)
+
+
+def data_fix_argvs(path: PureWindowsPath | Path) -> list[list[str]]:
+    """Administrators take ownership of, and full control on, **this one entry**
+    (``/L``: the entry itself, never a link target; no ``/T``: no recursion that
+    could follow a junction a job planted). Run only after a delete was refused."""
+    admins = f"*{SID_ADMINISTRATORS}"
+    return [
+        ["icacls", str(path), "/setowner", admins, "/L", "/C", "/Q"],
+        ["icacls", str(path), "/grant", f"{admins}:F", "/L", "/C", "/Q"],
+    ]
+
+
+def _unlink_link(path: Path, st: os.stat_result) -> None:
+    """Remove a link/junction itself (never what it points to)."""
+    first, second = (
+        (os.rmdir, os.unlink)
+        if stat.S_ISDIR(st.st_mode)
+        else (
+            os.unlink,
+            os.rmdir,
+        )
+    )
+    try:
+        first(path)
+    except OSError:
+        second(path)
+
+
+def remove_tree_no_follow(root: Path, fix_access: Callable[[Path], None]) -> int:
+    """Delete ``root`` (``C:\\ProgramData\\MeshForge`` on uninstall with "remove
+    all data") without ever leaving it (V0.17 G4 fix round 1, B1).
+
+    Job code runs as the service account and can plant a junction or symlink in
+    the state folders (``envs\\...``) pointing anywhere. So: every entry is
+    ``lstat``-ed; a link or reparse point is removed **as a link** and never
+    descended into or given to ``icacls``; a refused delete calls ``fix_access``
+    on that one entry (:func:`data_fix_argvs`), then retries once. The service is
+    already deleted when this runs (teardown order), so nothing swaps entries
+    underneath. Returns the number of entries removed; raises ``OSError`` for an
+    entry that still cannot go."""
+    removed = 0
+
+    def retry(op: Callable[[Path], None], path: Path) -> None:
+        try:
+            op(path)
+        except PermissionError:
+            fix_access(path)
+            with contextlib.suppress(OSError):  # Windows: the read-only bit
+                os.chmod(path, stat.S_IWRITE | stat.S_IREAD)
+            op(path)
+
+    def walk(path: Path) -> None:
+        nonlocal removed
+        st = os.lstat(path)
+        if _link_like(st):
+            _unlink_link(path, st)
+            removed += 1
+            return
+        if stat.S_ISDIR(st.st_mode):
+            try:
+                names = sorted(os.listdir(path))
+            except PermissionError:
+                fix_access(path)
+                names = sorted(os.listdir(path))
+            for name in names:
+                walk(path / name)
+            retry(lambda p: os.rmdir(p), path)
+        else:
+            retry(lambda p: os.unlink(p), path)
+        removed += 1
+
+    walk(root)
+    return removed

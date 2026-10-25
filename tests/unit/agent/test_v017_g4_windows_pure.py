@@ -8,7 +8,9 @@ multi-SID ``icacls`` builder and the Windows decisions of the admin CLI (Q32).
 
 from __future__ import annotations
 
+import os
 import subprocess
+import sys
 from pathlib import Path, PureWindowsPath
 
 import pytest
@@ -384,3 +386,116 @@ def test_a_venv_whose_base_interpreter_folder_is_gone_is_damaged(
     assert venv_home_missing(venv) is True
     (venv / "pyvenv.cfg").write_text("version = 3.12\n", encoding="utf-8")
     assert venv_home_missing(venv) is False
+
+
+# ------------------------------- fix round 1 B1: "remove all data" never leaves
+@pytest.mark.skipif(sys.platform == "win32", reason="symlinks need privileges there")
+def test_data_removal_removes_links_as_links_and_never_fixes_acls_on_them(
+    tmp_path: Path,
+) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "precious.txt").write_text("keep me")
+    root = tmp_path / "MeshForge"
+    (root / "envs" / "venv" / "abc").mkdir(parents=True)
+    (root / "envs" / "venv" / "abc" / "pyvenv.cfg").write_text("home = x")
+    (root / "identity").mkdir()
+    (root / "identity" / "node.key").write_text("k")
+    # a job planted links pointing out of the data root
+    (root / "envs" / "trap").symlink_to(outside, target_is_directory=True)
+    (root / "envs" / "venv" / "file-trap").symlink_to(outside / "precious.txt")
+    fixed: list[Path] = []
+    count = wi.remove_tree_no_follow(root, fixed.append)
+    assert not os.path.lexists(root)
+    assert (outside / "precious.txt").read_text() == "keep me"
+    assert fixed == []  # nothing refused: no ACL change at all
+    assert count == 9  # 7 real entries + 2 links (removed as links)
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32" or os.geteuid() == 0, reason="POSIX permissions"
+)
+def test_a_refused_delete_fixes_only_that_entry_then_retries(tmp_path: Path) -> None:
+    root = tmp_path / "MeshForge"
+    locked = root / "identity"
+    locked.mkdir(parents=True)
+    (locked / "node.key").write_text("k")
+    (root / "envs").mkdir()
+    (root / "envs" / "trap").symlink_to(tmp_path, target_is_directory=True)
+    locked.chmod(0o500)  # deleting node.key is refused until access is fixed
+    calls: list[list[str]] = []
+
+    def fix_access(path: Path) -> None:
+        argvs = wi.data_fix_argvs(path)
+        calls.extend(argvs)
+        path.parent.chmod(0o700)
+
+    try:
+        wi.remove_tree_no_follow(root, fix_access)
+    finally:
+        if locked.exists():
+            locked.chmod(0o700)
+    assert not root.exists()
+    assert tmp_path.is_dir()  # the junction target survived
+    assert calls, "the refused delete asked for access"
+    for argv in calls:
+        assert argv[0] == "icacls"
+        assert "/T" not in argv and "/t" not in argv
+        assert "/L" in argv
+        assert "trap" not in argv[1]  # never a link
+        assert argv[1] == str(locked / "node.key")
+
+
+def test_data_fix_argvs_are_one_entry_no_recursion_no_link_target() -> None:
+    owner, grant = wi.data_fix_argvs(PureWindowsPath(r"C:\ProgramData\MeshForge\x"))
+    assert owner == [
+        "icacls", r"C:\ProgramData\MeshForge\x", "/setowner", "*S-1-5-32-544",
+        "/L", "/C", "/Q",
+    ]  # fmt: skip
+    assert grant[2:4] == ["/grant", "*S-1-5-32-544:F"]
+    assert "/T" not in owner + grant
+
+
+def test_a_root_that_is_itself_a_link_is_only_unlinked(tmp_path: Path) -> None:
+    target = tmp_path / "real"
+    target.mkdir()
+    (target / "f").write_text("x")
+    root = tmp_path / "MeshForge"
+    root.symlink_to(target, target_is_directory=True)
+    assert wi.remove_tree_no_follow(root, lambda p: None) == 1
+    assert (target / "f").read_text() == "x"
+
+
+# ----------------------------------------- fix round 1 N4/N5: small decisions
+def test_console_reader_is_the_session_user_else_the_process_user() -> None:
+    excluded = (wsvc.service_sid(), "S-1-5-18", "S-1-5-32-544")
+    admin = "S-1-5-21-1-2-3-500"
+    assert wi.console_reader_sids(USER_SID, admin, excluded=excluded) == [USER_SID]
+    assert wi.console_reader_sids(None, admin, excluded=excluded) == [admin]
+    assert wi.console_reader_sids(None, "S-1-5-18", excluded=excluded) == []
+
+
+@pytest.mark.parametrize(
+    ("code", "output", "outcome"),
+    [
+        (0, "Deleted 1 rule(s).", "deleted"),
+        (1, "No rules match the specified criteria.", "absent"),
+        (1, "The requested operation requires elevation.", "unexpected"),
+        (5, "", "unexpected"),
+    ],
+)
+def test_netsh_delete_outcome(code: int, output: str, outcome: str) -> None:
+    assert wi.netsh_delete_outcome(code, output) == outcome
+
+
+@pytest.mark.parametrize(
+    ("code", "output", "outcome"),
+    [
+        (0, "The command completed successfully.", "removed"),
+        (2, "System error 1377 has occurred.", "not_member"),
+        (2, "System error 1376 has occurred.", "no_group"),
+        (2, "System error 5 has occurred. Access is denied.", "unexpected"),
+    ],
+)
+def test_docker_remove_outcome(code: int, output: str, outcome: str) -> None:
+    assert wi.docker_remove_outcome(code, output) == outcome

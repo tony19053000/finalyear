@@ -482,10 +482,17 @@ jobs:
           MESHFORGE_TEST_PG: external
           MESHFORGE_TEST_PG_PASSWORD: root
         run: |
-          # The runner's PostgreSQL (user postgres / password root, disabled by default)
-          $pg = Get-Service -Name 'postgresql*' | Select-Object -First 1
-          Set-Service $pg.Name -StartupType Manual
-          Start-Service $pg.Name
+          # The runner's PostgreSQL (user postgres / password root, disabled by
+          # default): the service of the version PGBIN names, else the only one.
+          $name = $null
+          if ($env:PGBIN) {
+            $major = Split-Path (Split-Path $env:PGBIN -Parent) -Leaf
+            if (Get-Service "postgresql-x64-$major" -ErrorAction SilentlyContinue) { $name = "postgresql-x64-$major" }
+          }
+          if (-not $name) { $name = (Get-Service -Name 'postgresql*' | Select-Object -First 1).Name }
+          "PostgreSQL service: $name (PGBIN=$env:PGBIN)"
+          Set-Service $name -StartupType Manual
+          Start-Service $name
           uv run python scripts/pytest_exit_guard.py --run-slow -o junit_family=xunit1 tests/cluster/test_v017_g4_windows_service_fabric.py --junitxml=reports/junit-package-windows.xml
       - name: uninstall (data kept) + verify
         run: |
@@ -502,12 +509,25 @@ jobs:
           if ($p.ExitCode -ne 0) { "installer exit code: $($p.ExitCode)"; exit 1 }
           uv run python lab/windows/package_check.py reinstalled --state reports/windows-state.json --version-dir "$env:MF_VERSION-2"
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          # Fix round 1 B1: a job could plant a junction in the state folders;
+          # "remove all data" must delete the junction, never what it points to.
+          $sentinel = Join-Path $env:RUNNER_TEMP 'mf-sentinel'
+          New-Item -ItemType Directory -Force "$sentinel\inner" | Out-Null
+          Set-Content "$sentinel\inner\precious.txt" 'keep me'
+          $before = (Get-Acl -LiteralPath $sentinel).Sddl + '|' + (Get-Acl -LiteralPath "$sentinel\inner\precious.txt").Sddl
+          New-Item -ItemType Directory -Force "$env:ProgramData\MeshForge\envs" | Out-Null
+          cmd /c mklink /J "$env:ProgramData\MeshForge\envs\trap" "$sentinel"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
           $p = Start-Process "$env:ProgramFiles\MeshForge\unins000.exe" -ArgumentList "$env:SETUP_ARGS /REMOVEDATA /LOG=`"$pwd\reports\uninstall-2.log`"" -Wait -PassThru
           "uninstaller exit code: $($p.ExitCode)"
           $deadline = (Get-Date).AddSeconds(120)
           while ((Test-Path "$env:ProgramFiles\MeshForge") -and ((Get-Date) -lt $deadline)) { Start-Sleep 1 }
           uv run python lab/verify_uninstall.py --os windows --data-removed
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $after = (Get-Acl -LiteralPath $sentinel).Sddl + '|' + (Get-Acl -LiteralPath "$sentinel\inner\precious.txt").Sddl
+          if ($after -ne $before) { "the junction target's owner/ACL changed:`n$before`n$after"; exit 1 }
+          if ((Get-Content "$sentinel\inner\precious.txt") -ne 'keep me') { 'the junction target lost its contents'; exit 1 }
+          'junction target untouched (owner, ACL, contents)'
       - name: collect logs
         if: ${{ !cancelled() }}
         run: |

@@ -158,10 +158,17 @@ installer"; operator steps: OPERATIONS §3/§4; user steps: `docs/user/install-w
   unit-tested with a fake; `agent/winservice_ops.py` is the real one). Upgrade = a new `<ver>-<rev>` folder, the
   service re-pointed, health-checked (RUNNING + console + `agent.started` when joined, 60 s), else switched back
   (G5 hardens the rollback matrix). Silent installs exit 0 only when healthy. Unsigned (Q2).
-- **Bundle:** `.cmd` launchers, not `.exe` (an `.exe` trampoline names its interpreter and cannot pass `-I`);
+- **Bundle - no `.exe` launchers (deviation from the brief, decided here):** `meshforge-agent.exe`,
+  `compute.exe` and `meshforge-console-open.exe` are NOT shipped. The bundle has `.cmd` launchers, not `.exe` (an
+  `.exe` trampoline names its interpreter and cannot pass `-I`);
   Start-menu entries run `pythonw.exe -I -m meshforge.agent.console.launcher`. The wheels' `Scripts\*.exe`
   trampolines are dropped (they name the build interpreter); pywin32 needs no post-install (proven by an `-I`
   import check at build time). PATH = `C:\Program Files\MeshForge\bin` with shims to the running version.
+- **State location (deviation, decided here):** job environments live in `C:\ProgramData\MeshForge\envs`
+  (the agent's `data_dir/envs` default, service-modify), not under `cache\`; "remove all data" removes the
+  whole data root. That removal never follows links: each entry is `lstat`-ed, a junction/symlink a job planted
+  is removed as a link, and an ACL fix (`icacls /L`, no `/T`) is applied to one refused entry at a time
+  (fix round 1, B1).
 - **ACLs (D385, D400, Q30):** as SP1 measured; in system mode the agent's private files are service + SYSTEM +
   Administrators whoever writes them (an elevated admin CLI never locks the service out). The console token
   inherits `console\`'s ACL, which adds the installing user (read); others ask through UAC.

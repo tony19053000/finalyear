@@ -318,7 +318,19 @@ def _setup(
         result.service_state = ops.service_status().state
         return result
     ops.install_service(new_python)
-    outcome, migration_lines = ops.migrate()
+    try:
+        outcome, migration_lines = ops.migrate()
+    except OpsError:
+        raise  # a named Windows step failed: "setup stopped: ...", service stopped
+    except Exception as exc:  # a bug: never start over an undecided identity
+        log.exception("agent.service.setup_migration_error", cause=type(exc).__name__)
+        outcome = "blocked"
+        migration_lines = [
+            f"identity migration failed unexpectedly ({type(exc).__name__}: {exc}); "
+            "nothing was copied or started - run the installer again, and if it "
+            "fails again send C:\\ProgramData\\MeshForge\\logs\\setup-result.json "
+            "to the MeshForge team"
+        ]
     lines.extend(migration_lines)
     _console_access(ops, lines)
     _firewall(ops, lines)
@@ -390,7 +402,17 @@ def _roll_back(
         previous_dir = program_layout(previous).version_dir
     except ValueError:
         previous_dir = None
-    ops.stop_service(STOP_TIMEOUT_S)
+    if not ops.stop_service(STOP_TIMEOUT_S):
+        # Re-pointing a service that still runs the new version would leave the
+        # SCM, current.txt and the running process disagreeing: stop here.
+        result.outcome = SetupOutcome.FAILED
+        result.service_state = ops.service_status().state
+        lines.append(
+            f"rolling back to {previous} was not possible: the {SERVICE_NAME} "
+            f"service did not stop within {STOP_TIMEOUT_S:.0f} s; it still runs "
+            "the new version - restart the computer, then run the installer again"
+        )
+        return result
     ops.install_service(previous)
     health = _start_and_check(ops, timeout_s)
     result.service_state = health.status.state
@@ -399,8 +421,7 @@ def _roll_back(
         result.outcome = SetupOutcome.FAILED
         return result
     if previous_dir is not None:
-        ops.write_current(previous_dir)
-        ops.write_shims(previous_dir)
+        _point_at(ops, previous_dir)
     result.outcome = SetupOutcome.ROLLED_BACK
     result.running_python = previous
     result.node_id = ops.node_id()

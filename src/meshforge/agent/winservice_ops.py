@@ -21,8 +21,6 @@ import csv
 import ctypes
 import json
 import os
-import shutil
-import stat
 import subprocess
 import time
 import winreg
@@ -44,10 +42,15 @@ from meshforge.agent.wininstall import (
     SHIM_COMMANDS,
     ProgramLayout,
     console_grant_argv,
+    console_reader_sids,
     console_revoke_argv,
+    data_fix_argvs,
+    docker_remove_outcome,
     docker_users_argv,
+    netsh_delete_outcome,
     path_add,
     path_remove,
+    remove_tree_no_follow,
     schtasks_argv,
     service_python,
     shim_text,
@@ -63,6 +66,7 @@ from meshforge.agent.winservice import (
 )
 from meshforge.agent.winsetup import OpsError, ServiceStatus, log_has_agent_started
 from meshforge.common.atomic import atomic_write_bytes
+from meshforge.common.logging import get_logger
 from meshforge.common.windows_service import (
     INSTALL_MODE_ENV_VAR,
     SERVICE_NAME,
@@ -72,6 +76,8 @@ from meshforge.common.windows_service import (
 )
 
 __all__ = ["RealOps", "current_user_sid", "is_admin", "run_tool", "session_user_sid"]
+
+log = get_logger(__name__)
 
 _TOOL_TIMEOUT_S: Final = 60.0
 _STATES: Final = {
@@ -330,7 +336,15 @@ class RealOps:
 
     def sync_firewall(self, peer_serving: bool) -> None:
         rule = peer_firewall_rule(self._peer_port())
-        run_tool(firewall_delete_argv(PEER_FIREWALL_RULE), ok_codes=frozenset({0, 1}))
+        done = run_tool(
+            firewall_delete_argv(PEER_FIREWALL_RULE), ok_codes=frozenset(range(256))
+        )
+        output = (done.stdout + done.stderr).strip()
+        if netsh_delete_outcome(done.returncode, output) == "unexpected":
+            raise OpsError(
+                f"deleting the old {PEER_FIREWALL_RULE} rule failed (exit "
+                f"{done.returncode}): {output[-300:]}"
+            )
         if peer_serving:
             run_tool(firewall_add_argv(rule))
 
@@ -343,12 +357,11 @@ class RealOps:
         return DEFAULT_PEER_PORT
 
     def console_readers(self) -> list[str]:
-        readers = [current_user_sid()]
-        session = session_user_sid()
-        if session is not None:
-            readers.insert(0, session)
-        system = {service_sid(), SID_SYSTEM, SID_ADMINISTRATORS}
-        return [sid for sid in dict.fromkeys(readers) if sid not in system]
+        return console_reader_sids(
+            session_user_sid(),
+            current_user_sid(),
+            excluded=(service_sid(), SID_SYSTEM, SID_ADMINISTRATORS),
+        )
 
     def grant_console(self, sids: Sequence[str]) -> None:
         Path(self.machine.console_dir).mkdir(parents=True, exist_ok=True)
@@ -469,36 +482,38 @@ class RealOps:
 
     # --------------------------------------------------- docker, data
     def remove_docker_access(self) -> None:
-        # Non-zero = not a member, or no docker-users group (no Docker Desktop).
-        run_tool(docker_users_argv(add=False), ok_codes=frozenset(range(256)))
+        done = run_tool(docker_users_argv(add=False), ok_codes=frozenset(range(256)))
+        output = (done.stdout + done.stderr).strip()
+        outcome = docker_remove_outcome(done.returncode, output)
+        if outcome == "unexpected":
+            log.warning(
+                "agent.service.docker_access_not_removed",
+                exit_code=done.returncode,
+                output=output[-300:],
+            )
+        else:
+            log.info("agent.service.docker_access", outcome=outcome)
 
     def remove_data(self) -> list[str]:
         root = Path(self.machine.root)
-        if not root.exists():
+        if not os.path.lexists(root):
             return [f"no data folder {root}"]
+        anything = frozenset(range(256))
+
+        def fix_access(path: Path) -> None:
+            # One entry at a time, never /T, never a link (fix round 1, B1):
+            # exit codes ignored - the retried delete is the real check.
+            for argv in data_fix_argvs(path):
+                run_tool(argv, ok_codes=anything)
+
         try:
-            shutil.rmtree(root)
-        except OSError:
-            # A file the service made private to itself (or read-only job files):
-            # Administrators take ownership and full control, then delete. icacls,
-            # not takeown: takeown's "/D Y" answer is localised.
-            # Exit codes ignored: the second rmtree below is the real check.
-            admins, anything = f"*{SID_ADMINISTRATORS}", frozenset(range(256))
-            run_tool(
-                ["icacls", str(root), "/setowner", admins, "/T", "/C", "/Q"],
-                ok_codes=anything,
-            )
-            run_tool(
-                ["icacls", str(root), "/grant", f"{admins}:F", "/T", "/C", "/Q"],
-                ok_codes=anything,
-            )
-            try:
-                shutil.rmtree(root, onexc=_force_remove)
-            except OSError as exc:
-                raise OpsError(
-                    f"{exc.filename or root}: {exc.strerror or exc}"
-                ) from None
-        return [f"removed all MeshForge data: {root} (identity, cache, logs)"]
+            count = remove_tree_no_follow(root, fix_access)
+        except OSError as exc:
+            raise OpsError(f"{exc.filename or root}: {exc.strerror or exc}") from None
+        return [
+            f"removed all MeshForge data: {root} (identity, cache, logs; "
+            f"{count} entries, links removed as links)"
+        ]
 
     # ------------------------------------------------------------ time
     def monotonic(self) -> float:
@@ -506,11 +521,3 @@ class RealOps:
 
     def sleep(self, seconds: float) -> None:
         time.sleep(seconds)
-
-
-def _force_remove(func: object, path: str, exc: BaseException) -> None:
-    os.chmod(path, stat.S_IWRITE)  # Windows: only clears the read-only attribute
-    if os.path.isdir(path) and not os.path.islink(path):
-        os.rmdir(path)
-    else:
-        os.unlink(path)

@@ -396,9 +396,14 @@ def uninstall(name: str = SERVICE_NAME, *, stop_timeout_s: float = 60.0) -> bool
             raise ServiceInstallError(
                 f"removing service {name} failed: {exc.strerror} ({exc.winerror})"
             ) from exc
-    # netsh exits 1 when no rule has that name: already gone is fine.
-    _run_tool(
+    # netsh exits 1 when no rule has that name: already gone is fine (logged).
+    code = _run_tool(
         firewall_delete_argv(peer_firewall_rule().name), ok_codes=frozenset({0, 1})
+    )
+    log.info(
+        "agent.service.firewall_rule_delete",
+        rule=peer_firewall_rule().name,
+        outcome="deleted" if code == 0 else "absent",
     )
     log.info("agent.service.uninstalled", service=name, existed=existed)
     return existed
