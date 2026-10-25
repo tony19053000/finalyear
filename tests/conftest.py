@@ -330,6 +330,9 @@ EXTRA_IMPORTS: Final[Mapping[str, str]] = {
     "docker": "agent",
     "uv": "agent",
     "numpy": "agent/ml",
+    # V0.17 G4: Windows only (sys_platform == 'win32'); imported as win32* /
+    # pywintypes / servicemanager, and only by Windows-only modules.
+    "pywin32": "agent",
     # ml
     "sklearn": "ml",
     "lightgbm": "ml",

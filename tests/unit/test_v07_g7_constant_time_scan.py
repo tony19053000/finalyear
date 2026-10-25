@@ -138,9 +138,16 @@ ALLOWED: dict[tuple[str, str], str] = {
     ("agent/console/checks.py", "pwd.getpwuid(os.getuid()).pw_name in group.gr_mem"): (
         "a user name in /etc/group (world-readable), no credential"
     ),
-    ("agent/console/launcher.py", "exc.code == ExitCode.CONFIG_ERROR"): (
+    ("agent/console/launcher.py", "exc.code != ExitCode.CONFIG_ERROR"): (
         "an exit code"
     ),
+    # V0.17 G4: the Windows installer helper reads the service's exit codes
+    ("agent/winsetup.py", "code == ExitCode.CONFIG_ERROR"): "an exit code",
+    ("agent/winsetup.py", "code == ExitCode.CONFLICT"): "an exit code",
+    (
+        "agent/winsetup.py",
+        "health.status.service_exit_code in NO_RESTART_SERVICE_EXIT_CODES",
+    ): "an exit code",
     ("agent/console/supervisor.py", "int(exc.exit_code) == int(ExitCode.CONFLICT)"): (
         "an exit code"
     ),
