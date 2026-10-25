@@ -386,3 +386,26 @@ def test_windows_probe_script_has_no_placeholder_left() -> None:
     assert service_sid() in script
     assert vu.windows_service_sid() == service_sid()
     assert "verify_uninstall" in script.splitlines()[0]  # excludes itself
+
+
+# ------------------------------------- test support: an external PostgreSQL
+def test_external_postgres_is_read_from_the_environment_only_when_asked() -> None:
+    from mf_postgres import external_pg_server
+
+    assert external_pg_server({}) is None
+    assert external_pg_server({"MESHFORGE_TEST_PG": "managed"}) is None
+    server = external_pg_server(
+        {
+            "MESHFORGE_TEST_PG": "external",
+            "MESHFORGE_TEST_PG_PORT": "5433",
+            "MESHFORGE_TEST_PG_PASSWORD": "root",
+        }
+    )
+    assert server is not None
+    assert (server.host, server.port, server.user, server.admin_db) == (
+        "127.0.0.1",
+        5433,
+        "postgres",
+        "postgres",
+    )
+    assert server.password == "root"
