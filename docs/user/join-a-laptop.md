@@ -1,14 +1,15 @@
 # Join a laptop to your MeshForge fabric
 
-> Draft (V0.17 G3). Screenshots and the Windows steps come with V0.17 G4/G5.
+> Draft (V0.17 G3). Screenshots come with V0.17 G5. Windows: install with [install-windows.md](install-windows.md) first.
 
-You need: the MeshForge agent installed on the laptop (Linux: `sudo apt install ./meshforge-agent_<version>_amd64.deb`),
+You need: the MeshForge agent installed on the laptop (Linux: `sudo apt install ./meshforge-agent_<version>_amd64.deb`;
+Windows: `MeshForge-Agent-Setup-<version>.exe`, see [install-windows.md](install-windows.md)),
 and a **join code** from whoever runs the fabric's controller.
 
 1. **Get a join code.** The fabric admin opens the dashboard, goes to **Settings > Invites > New invite**, and
    either reads you the code (it starts with `mf1-`) or leaves the QR code on screen. A code works once, and only
    for a limited time (15 minutes by default).
-2. **Open MeshForge on the laptop.** Find **MeshForge** in the app menu. A browser page opens - it is served by the
+2. **Open MeshForge on the laptop.** Find **MeshForge** in the app menu (Windows: the Start menu). A browser page opens - it is served by the
    laptop itself and cannot be reached from the network.
 3. **Join.** Click *Start*, paste the code (or click *Scan QR code with the camera* and hold the dashboard's QR
    code up to the webcam), then *Join*. If something is wrong the page says what and what to do, for example

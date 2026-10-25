@@ -145,3 +145,35 @@ Details: `docs/briefs/progress/V0.17-G3.md`; architecture: ARCHITECTURE §23 "Ag
   `PKEXEC_UID`) joins `meshforge-admin`; the launcher uses `sg meshforge-admin` when that membership is newer than
   the desktop session, so no log-out is needed. The ufw app profile of D389 was not added (an `/etc` conffile
   would survive `apt remove` and fail the uninstall check); the firewall check prints a port rule instead.
+
+## Update — what V0.17 G4 built (Windows agent installer + service, 2026-10-25)
+Details and every deviation: `docs/briefs/progress/V0.17-G4.md`; architecture: ARCHITECTURE §23 "The Windows
+installer"; operator steps: OPERATIONS §3/§4; user steps: `docs/user/install-windows.md`.
+- **Service (D386, Q28):** the SP1 pywin32 host promoted (`agent/winservice*.py`): `NT SERVICE\MeshForgeAgent`,
+  Automatic (Delayed), restart ×3 / 5 s, reset 3600 s, exit 4/5 = STOPPED with the code (no restart); the child
+  gets `MESHFORGE_INSTALL_MODE=system` from the host (Q11) and runs on defaults when no `config.toml` exists.
+- **Installer (D395):** `packaging/windows/meshforge-agent.iss` (Inno Setup 6.7.3, pinned by URL + sha256 in
+  `packaging/pins.toml`, installed per user by `scripts/build_windows_installer.py`) only copies files and runs
+  `winservice setup` / `teardown`; every decision is Python (`agent/winsetup.py` against an `Ops` interface,
+  unit-tested with a fake; `agent/winservice_ops.py` is the real one). Upgrade = a new `<ver>-<rev>` folder, the
+  service re-pointed, health-checked (RUNNING + console + `agent.started` when joined, 60 s), else switched back
+  (G5 hardens the rollback matrix). Silent installs exit 0 only when healthy. Unsigned (Q2).
+- **Bundle:** `.cmd` launchers, not `.exe` (an `.exe` trampoline names its interpreter and cannot pass `-I`);
+  Start-menu entries run `pythonw.exe -I -m meshforge.agent.console.launcher`. The wheels' `Scripts\*.exe`
+  trampolines are dropped (they name the build interpreter); pywin32 needs no post-install (proven by an `-I`
+  import check at build time). PATH = `C:\Program Files\MeshForge\bin` with shims to the running version.
+- **ACLs (D385, D400, Q30):** as SP1 measured; in system mode the agent's private files are service + SYSTEM +
+  Administrators whoever writes them (an elevated admin CLI never locks the service out). The console token
+  inherits `console\`'s ACL, which adds the installing user (read); others ask through UAC.
+- **Admin CLI (Q32):** elevated = acts on the service's state in process; not elevated = refused with the two
+  ways out; `run` refused. Windows only for the agent program (the controller stays Linux-only, Q4).
+- **Migration (D387) on Windows:** profile candidates, session user first; `safe_source` gained a path backend
+  (Windows has no `openat`/`dir_fd`), unit-tested on Linux by forcing it. Accepted residual: a folder swapped
+  for a junction and back between two checks of one read (the copy lands in the service's folder, which that
+  user cannot read).
+- **Firewall (D389):** the rule follows `[agent.peer] bind` (`winservice firewall-sync`); Public networks are
+  reported with the Settings fix, never a wider rule.
+- **CI:** job `package-windows` (windows-latest): build, silent install over a seeded developer identity + dev
+  task, service/ACL/console checks, crash / exit 4 / stop, upgrade, a venv job run by the joined service
+  (CPU cap reported and proven from inside the job object), uninstall + `verify_uninstall --os windows`,
+  reinstall (same node), `/REMOVEDATA` + verify. The `.iss` is also compiled on Linux under Wine (component).
