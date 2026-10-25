@@ -7,7 +7,7 @@ import { consoleApi, consoleKeys, explain, type PolicyValues, type StatusView } 
 import { ChecksList } from "../components/ChecksList";
 import { INPUT, Problem } from "../components/fields";
 import { PolicyForm } from "../components/PolicyForm";
-import { firstStep, type WizardStep } from "../logic";
+import { firstStep, nodeNameProblem, type WizardStep } from "../logic";
 
 // jsQR is ~130 kB: loaded only when the owner opts in to scanning (Q6).
 const QrScanner = lazy(() => import("../components/QrScanner").then((m) => ({ default: m.QrScanner })));
@@ -163,6 +163,7 @@ function PolicyStep({ status, next }: { status: StatusView; next: () => void }) 
   const client = useQueryClient();
   const policy = useQuery({ queryKey: consoleKeys.policy, queryFn: consoleApi.policy });
   const [name, setName] = useState(status.node_name);
+  const nameProblem = nodeNameProblem(name);
   const save = useMutation({
     mutationFn: async (values: PolicyValues) => {
       if (name.trim() !== status.node_name) await consoleApi.saveNodeName(name);
@@ -196,14 +197,28 @@ function PolicyStep({ status, next }: { status: StatusView; next: () => void }) 
         <input
           id="node-name"
           className={`${INPUT} mt-1 max-w-md`}
-          maxLength={64}
           value={name}
+          aria-invalid={nameProblem !== null || undefined}
+          aria-describedby={nameProblem !== null ? "node-name-error" : undefined}
           onChange={(e) => {
             setName(e.target.value);
           }}
         />
+        {nameProblem !== null && (
+          <p id="node-name-error" role="alert" className="mt-1 text-sm text-status-failed">
+            {nameProblem}
+          </p>
+        )}
       </div>
-      <PolicyForm view={policy.data} wizard saving={save.isPending} submitLabel="Save and continue" onSubmit={save.mutate} />
+      <PolicyForm
+        view={policy.data}
+        wizard
+        saving={save.isPending}
+        submitLabel="Save and continue"
+        onSubmit={(values) => {
+          if (nameProblem === null) save.mutate(values);
+        }}
+      />
       {save.isError && <Problem title="The settings were not saved" {...explain(save.error)} />}
     </div>
   );

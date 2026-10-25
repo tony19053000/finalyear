@@ -1267,15 +1267,24 @@ meshforge-agent run  (console on)
        WAITING_FOR_JOIN --enrolled--> STARTING --> RUNNING --restart--> (in process) STARTING
        RUNNING --leave--> identity reset --> WAITING_FOR_JOIN
        RUNNING --typed stop (revoked / conflict / config)--> STOPPED (reason shown; restart or leave)
+       serve() ends on its own (no stop asked) --> STOPPED ("ended") until the owner restarts it
        unexpected crash --> process exits FAILURE (the service manager restarts it)
 ```
 
+Leaving `WAITING_FOR_JOIN` re-reads the configuration first (fix round 1, G3-D2), so a `config.toml` written
+after the install and before the join is what the fabric part starts with; a broken one leaves it `STOPPED`
+(`config_reload`) with the reason shown. A `STOPPED` fabric part is never restarted automatically inside the
+process - the console's Restart (or a service restart) does it.
+
 - **Access** (no passwords): the token file is readable by the service and `meshforge-admin` only (the
   installing user is added by the package). `meshforge-console-open` (app menu entry `MeshForge`) trades it for a
-  60-s single-use **launch code** and opens `http://127.0.0.1:47130/#c=<code>`; the page trades the code for an
+  60-s single-use **launch code** and opens `http://127.0.0.1:47130/#c=<code>`; the page trades the code (never the
+token - it only buys codes) for an
   `HttpOnly; SameSite=Strict` session cookie and drops the fragment. Only the short-lived code is ever in a
   command line. Every request must say `Host: 127.0.0.1:47130` (DNS rebinding -> 421), every write
-  `Origin: http://127.0.0.1:47130` (CSRF -> 403); wrong tries are throttled.
+  `Origin: http://127.0.0.1:47130` (CSRF -> 403, checked before the session and before the body is read). The
+credential is checked first and only failed tries are throttled, so a stranger's guesses never lock the owner out.
+`/setup-complete` is refused until the owner's policy was saved (the wizard's policy step cannot be skipped).
 - **Join** = `enrollment.join` (the CLI's code path) with errors mapped to plain words (`expired`, `used`,
   `ca_mismatch`, `unreachable`, ...); the owner may pick a controller found by mDNS, which replaces only the code's
   host - the CA pin still decides. A CLI `sudo meshforge-agent join` is noticed by the supervisor's poll.

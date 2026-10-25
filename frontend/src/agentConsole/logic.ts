@@ -28,3 +28,17 @@ export function connectionSummary(status: StatusView): { tone: StatusTone; label
   return { tone: "busy", label: "Connecting…" };
 }
 
+
+/** The server's rule (agent/settings.py `check_node_name`): at most 64 characters
+ * counted as Unicode code points after trimming - not UTF-16 units, which is what
+ * the HTML `maxLength` attribute would count (an emoji is 2 of those). */
+export const NODE_NAME_MAX = 64;
+
+export function nodeNameProblem(name: string): string | null {
+  // Code points on purpose: the server counts Python `len` (code points), not
+  // grapheme clusters.
+  const length = Array.from(name.trim()).length;
+  return length > NODE_NAME_MAX
+    ? `The name is ${String(length)} characters; at most ${String(NODE_NAME_MAX)}.`
+    : null;
+}

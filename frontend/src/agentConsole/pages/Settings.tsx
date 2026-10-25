@@ -6,6 +6,7 @@ import { Card } from "../../components/Card";
 import { useToast } from "../../components/toastContext";
 import { consoleApi, consoleKeys, explain, type PolicyValues } from "../api";
 import { INPUT, Problem } from "../components/fields";
+import { nodeNameProblem } from "../logic";
 import { PolicyForm } from "../components/PolicyForm";
 
 const RESTART_WHY: Record<string, string> = {
@@ -18,44 +19,71 @@ function NodeName() {
   const toast = useToast();
   const current = useQuery({ queryKey: consoleKeys.nodeName, queryFn: consoleApi.nodeName });
   const [draft, setDraft] = useState<string | null>(null);
+  const [pendingRestart, setPendingRestart] = useState(false);
   const save = useMutation({
     mutationFn: (name: string) => consoleApi.saveNodeName(name),
     onSuccess: (view) => {
       client.setQueryData(consoleKeys.nodeName, view);
       void client.invalidateQueries({ queryKey: consoleKeys.status });
       setDraft(null);
-      toast({
-        title: "Name saved",
-        description: view.applies_after_restart ? "The dashboard shows it after MeshForge reconnects (Restart on the Home page)." : undefined,
-        tone: "ok",
-      });
+      setPendingRestart(view.applies_after_restart);
+      toast({ title: "Name saved", tone: "ok" });
+    },
+  });
+  const restart = useMutation({
+    mutationFn: consoleApi.restart,
+    onSuccess: () => {
+      setPendingRestart(false);
+      toast({ title: "Restarting MeshForge's connection", tone: "ok" });
     },
   });
   if (current.isPending) return <p role="status" className="text-sm text-fg-muted">Loading…</p>;
   if (current.isError) return <Problem title="Could not load the name" {...explain(current.error)} />;
   const value = draft ?? current.data.name;
+  const problem = draft === null ? null : nodeNameProblem(value);
   const submit = (e: FormEvent) => {
     e.preventDefault();
-    save.mutate(value);
+    if (problem === null) save.mutate(value);
   };
   return (
     <form onSubmit={submit} className="flex flex-col gap-2" aria-label="Name of this laptop">
       <label htmlFor="settings-node-name" className="text-sm font-medium text-fg">
         Name of this laptop
       </label>
-      <p className="text-sm text-fg-muted">Shown in the fabric&apos;s dashboard next to its hostname ({current.data.hostname}). Empty = the hostname only.</p>
+      <p id="settings-node-name-hint" className="text-sm text-fg-muted">
+        Shown in the fabric&apos;s dashboard next to its hostname ({current.data.hostname}). Empty = the hostname only.
+        {current.data.applies_after_restart && " A new name reaches the dashboard after MeshForge restarts its connection."}
+      </p>
       <div className="flex max-w-md flex-wrap gap-2">
         <input
           id="settings-node-name"
           className={`${INPUT} min-w-0 flex-1`}
-          maxLength={64}
           value={value}
+          aria-invalid={problem !== null || undefined}
+          aria-describedby={problem !== null ? "settings-node-name-error" : "settings-node-name-hint"}
           onChange={(e) => { setDraft(e.target.value); }}
         />
-        <Button type="submit" loading={save.isPending} disabled={draft === null}>
+        <Button type="submit" loading={save.isPending} disabled={draft === null || problem !== null}>
           Save name
         </Button>
       </div>
+      {problem !== null && (
+        <p id="settings-node-name-error" role="alert" className="text-sm text-status-failed">
+          {problem}
+        </p>
+      )}
+      {pendingRestart && (
+        <div role="status" className="flex flex-col gap-2 rounded-lg border border-status-degraded bg-status-degraded-soft px-4 py-3">
+          <p className="text-sm text-fg">
+            Saved. The dashboard still shows the old name until MeshForge restarts its connection to the fabric.
+          </p>
+          <div>
+            <Button size="sm" variant="primary" loading={restart.isPending} onClick={() => { restart.mutate(); }}>
+              Restart now
+            </Button>
+          </div>
+        </div>
+      )}
       {save.isError && <Problem title="The name was not saved" {...explain(save.error)} />}
     </form>
   );

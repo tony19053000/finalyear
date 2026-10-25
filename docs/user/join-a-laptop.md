@@ -20,4 +20,8 @@ and a **join code** from whoever runs the fabric's controller.
    Nothing here blocks joining; a missing item only means fewer kinds of jobs run here.
 6. **Done.** The laptop appears in the fabric's dashboard within a few seconds, under the name you gave it.
 
+A join code works **once**. If two laptops use the same code at the same moment, only one joins; the other gets
+"This code was already used" and needs a new code. The same happens if the join reached the controller but the
+answer was lost on the way back (for example the network dropped): ask the admin for a new code.
+
 To open the page again later, use the same app-menu entry. To leave the fabric: **Leave** in the page's menu.

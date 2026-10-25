@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PolicyView, StatusView } from "../agentConsole/api";
 import { clearFragment, readCredential } from "../agentConsole/bootstrap";
 import { ConsoleApp } from "../agentConsole/ConsoleApp";
-import { connectionSummary, firstStep, joinCodeIn } from "../agentConsole/logic";
+import { connectionSummary, firstStep, joinCodeIn, nodeNameProblem } from "../agentConsole/logic";
 import { SAFE_DEFAULTS, initialState, toValues } from "../agentConsole/policyLogic";
 
 const POLICY: PolicyView = {
@@ -84,6 +84,12 @@ describe("logic", () => {
     expect(joinCodeIn("  mf1-abcd-efgh-1234 ")).toBe("mf1-abcd-efgh-1234");
     expect(joinCodeIn("join with mf1-xyz please")).toBe("mf1-xyz");
     expect(joinCodeIn("https://example.org")).toBeNull();
+  });
+
+  it("counts the node name in code points, like the server", () => {
+    expect(nodeNameProblem("😀".repeat(64))).toBeNull(); // 128 UTF-16 units, 64 code points
+    expect(nodeNameProblem("😀".repeat(65))).toMatch(/65 characters/);
+    expect(nodeNameProblem(`  ${"a".repeat(64)}  `)).toBeNull(); // trimmed first
   });
 
   it("says plainly whether the laptop is connected", () => {
