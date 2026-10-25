@@ -94,8 +94,10 @@ from meshforge.controller.calibration_store import CalibrationSource, Calibratio
 from meshforge.controller.db_managed.backup import (
     UpgradeBackup,
     clear_marker,
+    clear_rollback_failed,
     take_upgrade_backup,
     write_marker,
+    write_rollback_failed,
 )
 from meshforge.controller.db_managed.cluster import ManagedCluster
 from meshforge.controller.db_managed.errors import ManagedDbError, ManagedDbReason
@@ -1365,9 +1367,10 @@ class ControllerRuntime:
         )
         return ManagedDbError(
             f"the controller did not start after upgrading to {backup.to_version} "
-            f"({type(exc).__name__}: {str(exc)[:200]}); the database is restored "
-            f"from the pre-upgrade backup {backup.path} - start the previous "
-            "version, or fix the problem and start again",
+            f"({type(exc).__name__}: {str(exc)[:200]}); the database is being "
+            f"restored from the pre-upgrade backup {backup.path} (`meshforge-"
+            "controller db status` reports it if that fails too) - start the "
+            "previous version, or fix the problem and start again",
             reason=ManagedDbReason.UPGRADE_ROLLED_BACK,
             details={
                 "backup": str(backup.path),
@@ -1389,14 +1392,40 @@ class ControllerRuntime:
             version=__version__,
             revision=revision,
         )
+        # A good start supersedes an earlier failed rollback's record.
+        await asyncio.to_thread(clear_rollback_failed, self.managed_db.layout.root)
 
     async def _restore_after_failed_upgrade(self) -> None:
+        """Restore the pre-upgrade backup (D393). If that fails too, leave a
+        persistent ``rollback-failed.json`` (``db status`` and the package's
+        postinst report it) - the database is then *not* the pre-upgrade one."""
         backup, self._rollback = self._rollback, None
-        if backup is None or self.managed_db is None or not self.managed_db.running:
+        if backup is None or self.managed_db is None:
             return
+        root = self.managed_db.layout.root
+        cluster = self.managed_db
+
+        async def restore() -> None:
+            if not cluster.running:  # the postmaster died: nothing to restore into
+                raise ManagedDbError(
+                    "the managed database is not running",
+                    reason=ManagedDbReason.NOT_RUNNING,
+                )
+            await cluster.restore_database(backup.path)
+
         try:
-            await self.managed_db.restore_database(backup.path)
+            await restore()
         except Exception as exc:  # noqa: BLE001 - logged loudly, stop continues
+            error = f"{type(exc).__name__}: {str(exc)[:400]}"
+            with contextlib.suppress(OSError):
+                await asyncio.to_thread(
+                    write_rollback_failed,
+                    root,
+                    backup=backup.path,
+                    from_version=backup.from_version,
+                    to_version=backup.to_version,
+                    error=error,
+                )
             log.critical(
                 "controller.db.rollback_failed",
                 backup=str(backup.path),
@@ -1405,7 +1434,8 @@ class ControllerRuntime:
                 hint="restore by hand: meshforge-controller db restore <backup> --yes",
             )
             return
-        await asyncio.to_thread(clear_marker, self.managed_db.layout.root)
+        await asyncio.to_thread(clear_marker, root)
+        await asyncio.to_thread(clear_rollback_failed, root)
         log.warning(
             "controller.db.rolled_back",
             backup=str(backup.path),

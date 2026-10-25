@@ -96,6 +96,8 @@ export function tokenFromHash(hash: string): string | null {
 /** The first-admin password rule the controller enforces (shown, pre-checked). */
 export const ADMIN_MIN_CHARS = 12;
 export const ADMIN_MIN_DISTINCT = 6;
+/** The "not containing the user name" rule applies to names this long or longer. */
+export const NAME_RULE_MIN_CHARS = 3;
 
 /** A message for a password the controller would refuse, or null. */
 export function passwordProblem(admin: string, password: string, repeat: string): string | null {
@@ -103,7 +105,8 @@ export function passwordProblem(admin: string, password: string, repeat: string)
   if (new Set(password).size < ADMIN_MIN_DISTINCT) {
     return `Use at least ${String(ADMIN_MIN_DISTINCT)} different characters.`;
   }
-  if (admin.trim() !== "" && password.toLowerCase().includes(admin.trim().toLowerCase())) {
+  const name = admin.trim().toLowerCase();
+  if (name.length >= NAME_RULE_MIN_CHARS && password.toLowerCase().includes(name)) {
     return "The password must not contain the user name.";
   }
   if (password !== repeat) return "The two passwords are not the same.";

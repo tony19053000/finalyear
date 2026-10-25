@@ -14,6 +14,11 @@ program pointer back and starts the previous version on the restored data).
 **Manual backups** (``meshforge-controller db backup``) default to
 ``<root>/backups/manual-<UTC time>.dump`` and are never deleted automatically.
 
+**Rollback that failed.** If restoring the pre-upgrade backup itself fails, the
+controller writes ``<root>/rollback-failed.json`` (which backup, why, when):
+``db status`` reports it and the package's postinst says the database was *not*
+restored. A successful ``db restore`` or a good start removes it.
+
 A fresh (empty) database is never backed up. The dump files are owner-only
 (:meth:`ManagedCluster.dump`). External mode (``[controller.db] mode =
 "external"``) has no automatic backups: whoever runs that PostgreSQL owns them.
@@ -38,18 +43,22 @@ __all__ = [
     "MANUAL_PREFIX",
     "MARKER_NAME",
     "PRE_UPGRADE_PREFIX",
+    "ROLLBACK_FAILED_NAME",
     "BackupFile",
     "SchemaMarker",
     "UpgradeBackup",
     "clear_marker",
+    "clear_rollback_failed",
     "list_backups",
     "manual_backup_path",
     "needs_upgrade_backup",
     "pre_upgrade_path",
     "read_marker",
+    "read_rollback_failed",
     "rotate",
     "take_upgrade_backup",
     "write_marker",
+    "write_rollback_failed",
 ]
 
 log = get_logger(__name__)
@@ -58,6 +67,7 @@ PRE_UPGRADE_PREFIX: Final = "pre-"
 MANUAL_PREFIX: Final = "manual-"
 DUMP_SUFFIX: Final = ".dump"
 MARKER_NAME: Final = "schema-version.json"
+ROLLBACK_FAILED_NAME: Final = "rollback-failed.json"
 _SAFE: Final = re.compile(r"[^A-Za-z0-9._+-]")
 _MAX_MARKER_BYTES: Final = 4096
 
@@ -196,6 +206,55 @@ def write_marker(root: Path, *, version: str, revision: str | None) -> None:
 def clear_marker(root: Path) -> None:
     with contextlib.suppress(FileNotFoundError):
         (root / MARKER_NAME).unlink()
+
+
+# ------------------------------------------------------ failed-rollback marker
+def write_rollback_failed(
+    root: Path,
+    *,
+    backup: Path,
+    from_version: str | None,
+    to_version: str,
+    error: str,
+) -> None:
+    """Record that the D393 rollback did not restore ``backup`` (persistent:
+    survives restarts until a restore or a good start clears it)."""
+    body = {
+        "backup": str(backup),
+        "from_version": from_version,
+        "to_version": to_version,
+        "error": error[:500],
+        "at": dt.datetime.now(dt.UTC).isoformat(),
+    }
+    atomic_write_bytes(
+        root / ROLLBACK_FAILED_NAME,
+        (json.dumps(body, sort_keys=True) + "\n").encode("utf-8"),
+        mode=0o600,
+    )
+
+
+def read_rollback_failed(root: Path) -> dict[str, object] | None:
+    """The failed-rollback record, or None. A file that exists but cannot be
+    parsed still counts (the rollback failed; only its details are lost)."""
+    path = root / ROLLBACK_FAILED_NAME
+    try:
+        raw = path.read_bytes()[:_MAX_MARKER_BYTES]
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        return {"error": f"unreadable record: {exc.strerror or exc}"}
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        return {"error": "damaged record"}
+    if not isinstance(data, dict):
+        return {"error": "damaged record"}
+    return {str(k): v for k, v in data.items()}
+
+
+def clear_rollback_failed(root: Path) -> None:
+    with contextlib.suppress(FileNotFoundError):
+        (root / ROLLBACK_FAILED_NAME).unlink()
 
 
 def needs_upgrade_backup(

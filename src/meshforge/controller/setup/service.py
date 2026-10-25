@@ -104,7 +104,9 @@ class SetupService:
         self.invites = InviteStore(engine)
         self._on_done = on_done
         self._checks = checks
-        self._sessions: set[str] = set()
+        # Insertion-ordered (dict keys): over the cap the *oldest* session is
+        # evicted, so the newest browser tab keeps working.
+        self._sessions: dict[str, None] = {}
         self._lock = asyncio.Lock()
         self._done = False
 
@@ -148,9 +150,9 @@ class SetupService:
                 failure_type=FailureType.UNAUTHORIZED,
             )
         session = secrets.token_urlsafe(SESSION_BYTES)
-        if len(self._sessions) >= _MAX_SESSIONS:
-            self._sessions.pop()
-        self._sessions.add(session)
+        while len(self._sessions) >= _MAX_SESSIONS:
+            del self._sessions[next(iter(self._sessions))]
+        self._sessions[session] = None
         log.info("controller.setup.session_opened")
         return session
 

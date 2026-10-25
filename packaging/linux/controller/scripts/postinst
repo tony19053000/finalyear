@@ -6,7 +6,10 @@
 #     the default route; managed database);
 #  3. `doctor` (a report: a failed check is printed, the install goes on);
 #  4. ufw: if it is active, allow the "MeshForge Controller" profile (D389);
-#  5. a new controller (no fabric CA): the one-time setup link (D392, Q20);
+#  5. a new controller (no fabric CA): make the one-time setup token (D392,
+#     Q20) - the link itself is never printed here: apt keeps maintainer-script
+#     output in /var/log/apt/term.log (world-readable on many systems), so the
+#     person is told to run `sudo meshforge-controller setup url` instead;
 #  6. enable + start (install) or restart (upgrade: the controller backs up its
 #     database before migrating and rolls back if it is not serving in time,
 #     D393), then say what is true: running, waiting for setup, or failed.
@@ -17,6 +20,7 @@ CTL=/opt/meshforge/controller/current/bin/meshforge-controller
 CONFIG=/etc/meshforge/controller.toml
 STATE=/var/lib/meshforge/controller
 MARKER=/var/lib/meshforge/db/schema-version.json
+ROLLBACK_FAILED=/var/lib/meshforge/db/rollback-failed.json
 say() { printf 'meshforge-controller: %s\n' "$*"; }
 as_service() {
 	runuser -u meshforge -- env MESHFORGE_INSTALL_MODE=system MESHFORGE_CONFIG="$CONFIG" "$CTL" "$@"
@@ -70,11 +74,15 @@ if [ ! -d /run/systemd/system ]; then
 fi
 systemctl daemon-reload
 
-# 5. a controller without a fabric: the setup link (made before the start, so
-#    the controller comes up in setup mode)
-setup_url=""
+# 5. a controller without a fabric: the setup token (made before the start, so
+#    the controller comes up in setup mode; its link is not printed - see above)
+needs_setup=0
 if [ ! -e "$STATE/ca/ca.crt" ]; then
-	setup_url=$(as_service setup url 2>/dev/null) || setup_url=""
+	if as_service setup url >/dev/null 2>&1; then
+		needs_setup=1
+	else
+		say "warning: could not make the setup link (run: sudo meshforge-controller setup url)"
+	fi
 fi
 
 # 6. enable and (re)start
@@ -111,8 +119,14 @@ ready)
 failed)
 	say "service $UNIT FAILED to start; see: journalctl -u meshforge-controller -n 80"
 	if [ "$fresh" -eq 0 ]; then
-		say "after an upgrade the database was restored from the backup taken before it"
-		say "(see: sudo meshforge-controller db status); start the previous version or fix the cause."
+		if [ -e "$ROLLBACK_FAILED" ] && [ "$(stat -c %Y "$ROLLBACK_FAILED")" -ge "$started_at" ]; then
+			say "after the upgrade failed, the database could NOT be restored from the backup taken before it"
+			say "(see: sudo meshforge-controller db status - it names the backup to restore by hand"
+			say " with: sudo meshforge-controller db restore <backup> --yes)."
+		else
+			say "after an upgrade the database was restored from the backup taken before it"
+			say "(see: sudo meshforge-controller db status); start the previous version or fix the cause."
+		fi
 	fi
 	exit 0
 	;;
@@ -121,13 +135,13 @@ failed)
 	;;
 esac
 
-if [ -n "$setup_url" ]; then
+if [ "$needs_setup" -eq 1 ]; then
 	say ""
-	say "Create your fabric: open this link in a browser ON THIS COMPUTER (it works once):"
+	say "Create your fabric: run this to get the one-time setup link, then open it"
+	say "in a browser ON THIS COMPUTER:"
 	say ""
-	say "    $setup_url"
+	say "    sudo meshforge-controller setup url"
 	say ""
-	say "Print it again any time: sudo meshforge-controller setup url"
 else
 	http=$(sed -n 's/^http_bind = "\(.*\)"$/\1/p' "$CONFIG" | head -n 1)
 	if [ -n "$http" ]; then

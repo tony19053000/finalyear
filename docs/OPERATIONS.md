@@ -2087,13 +2087,13 @@ sudo apt install ./meshforge-controller_<ver>_amd64.deb
 ```
 
 The install output shows: the settings file it wrote (`/etc/meshforge/controller.toml`, listeners on this
-machine's LAN address), `doctor`, the service state, and the **setup link**
-`http://127.0.0.1:47110/setup#token=...`. Open it in a browser **on the controller machine** (from another
+machine's LAN address), `doctor`, the service state, and how to get the **setup link**: run
+`sudo meshforge-controller setup url` (the package never prints the link itself - apt copies install output to
+`/var/log/apt/term.log`), which prints `http://127.0.0.1:47110/setup#token=...`. Open it in a browser **on the controller machine** (from another
 computer: `ssh -L 47110:127.0.0.1:47110 <controller>` and open the same link). The page: checks, admin name +
 password (12+ characters), **Create the fabric** → the first join code (text + QR) and the dashboard address
 `https://<LAN-IP>:47110/` (trust the CA with `meshforge-controller ca trust-helper`; compare the fingerprint).
-The controller restarts itself into TLS; the link never works again. Lost the link before using it:
-`sudo meshforge-controller setup url`.
+The controller restarts itself into TLS; the link never works again.
 
 Before the setup: if no LAN address was found, the file says so and the controller listens on 127.0.0.1 only —
 put the LAN IP in the three `*bind` lines, `sudo systemctl restart meshforge-controller`, then open the link.
@@ -2112,12 +2112,16 @@ After the setup a changed IP also needs `[controller.tls] extra_sans` (the certi
 Admin commands (run as yourself; they re-execute as `meshforge` via `sudo`): `meshforge-controller doctor
 [--json]` (exit 1 on a failed check), `user create|list|...`, `fabric invite|show`, `db status [--json]`,
 `db backup [--out FILE]` (works while running; the file is the whole fabric database - keep it private),
-`db restore FILE --yes` (only while the service is stopped).
+`db restore FILE --yes` (only while the service is stopped; the dump is checked with `pg_restore --list` and
+restored into a scratch database first, swapped in only on success - a bad or truncated file leaves the current
+database untouched; needs free disk for a second copy while it runs).
 
 **Upgrade:** `sudo apt install ./meshforge-controller_<new>_amd64.deb`. On a version change the controller
 dumps `db/backups/pre-<new>.dump` (newest 3 kept) before migrating. If it is not serving within 60 s it restores
 that dump, exits 4 and stays stopped (`journalctl` says why; start the previous version, or fix and `systemctl
-start`). **Moving the team's dev Compose database in (Q21, 🧑):** `pg_dump -Fc -h 127.0.0.1 -U meshforge
+start`). If that restore fails too, the controller writes `db/rollback-failed.json`: `db status` shows
+**ROLLBACK FAILED** with the backup to restore by hand (`db restore <backup> --yes`), and the package's install
+output says the database was *not* restored. A successful `db restore` or a good start clears it. **Moving the team's dev Compose database in (Q21, 🧑):** `pg_dump -Fc -h 127.0.0.1 -U meshforge
 meshforge > dev.dump` from the Compose DB, then `sudo systemctl stop meshforge-controller && sudo
 meshforge-controller db restore dev.dump --yes && sudo systemctl start meshforge-controller` (objects are
 re-owned by the app role; an older schema is migrated - after a backup - on start).

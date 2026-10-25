@@ -130,9 +130,10 @@ def ready(debs: Debs) -> Iterator[SystemdBox]:
     try:
         done = box.install(debs.first)
         assert done.returncode == 0, done.stdout[-4000:]
+        assert "#token=" not in done.stdout, "setup link in the install output"
         url = next(
             line.split()[-1]
-            for line in done.stdout.splitlines()
+            for line in box.ok("meshforge-controller setup url").splitlines()
             if "/setup#token=" in line
         )
         box.url = url  # type: ignore[attr-defined]
@@ -213,7 +214,10 @@ def test_01_posture_before_setup_secrets_listeners_and_the_token_gate(
     journal = box.run("journalctl -u meshforge-controller -o cat --no-pager").stdout
     assert token not in journal, "setup token leaked into the journal"
     shown = box.install_out  # type: ignore[attr-defined]
-    assert shown.count(token) == 1, "the token must appear exactly once (the link)"
+    assert token not in shown, "the token is in the install output (apt term.log)"
+    assert "sudo meshforge-controller setup url" in shown
+    term_log = box.run("cat /var/log/apt/term.log 2>/dev/null || true").stdout
+    assert token not in term_log, "setup token leaked into apt's term.log"
 
 
 def test_02_setup_through_the_page_then_the_gate_closes(ready: SystemdBox) -> None:
@@ -362,7 +366,7 @@ def test_07_same_version_reinstall_keeps_everything(
     box.copy_in(debs.first, f"/tmp/{debs.first.name}")
     done = box.apt(f"install -y --reinstall /tmp/{debs.first.name}")
     assert done.returncode == 0, done.stdout[-3000:]
-    assert "/setup#token=" not in done.stdout, "setup offered again on a set-up fabric"
+    assert "setup url" not in done.stdout, "setup offered again on a set-up fabric"
     box.wait_unit(CONTROLLER_UNIT, ["active"], within=90)
     assert box.run("test -e /var/lib/meshforge/controller/setup-token").returncode != 0
     assert box.run("meshforge-controller setup url").returncode == 5
@@ -379,7 +383,7 @@ def test_08_remove_then_reinstall_keeps_the_fabric(
     assert _pg_pids(box) == [] and not any(p == 47150 for _, p in _listeners(box))
     done = box.install(debs.first)
     assert done.returncode == 0, done.stdout[-3000:]
-    assert "/setup#token=" not in done.stdout, "setup offered after remove+reinstall"
+    assert "setup url" not in done.stdout, "setup offered after remove+reinstall"
     box.wait_unit(CONTROLLER_UNIT, ["active"], within=90)
     assert (
         box.ok("sha256sum /var/lib/meshforge/controller/ca/ca.crt").split()[0]

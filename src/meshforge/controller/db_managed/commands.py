@@ -39,6 +39,7 @@ __all__ = [
     "child_env",
     "dump_argv",
     "initdb_argv",
+    "list_argv",
     "postgres_argv",
     "restore_argv",
     "server_settings",
@@ -192,3 +193,11 @@ def restore_argv(
     if role is not None:
         argv.append(f"--role={role}")
     return [*argv, f"--dbname={database}", str(dump_file)]
+
+
+def list_argv(binaries: PgBinaries, dump_file: Path) -> list[str]:
+    """``pg_restore --list``: reads the dump's table of contents without a
+    server - a cheap check that the file is a readable custom-format dump
+    before anything is restored (it does not prove the data blocks are whole;
+    the restore into a scratch database does)."""
+    return [str(binaries.program("pg_restore")), "--list", str(dump_file)]

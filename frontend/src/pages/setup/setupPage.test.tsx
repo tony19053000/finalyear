@@ -78,6 +78,10 @@ describe("setup helpers", () => {
     expect(passwordProblem("asha", "short", "short")).toMatch(/12/);
     expect(passwordProblem("asha", "aaaaaaaaaaaaaa", "aaaaaaaaaaaaaa")).toMatch(/different/);
     expect(passwordProblem("asha", "asha-is-admin-2026", "asha-is-admin-2026")).toMatch(/user name/);
+    expect(passwordProblem("ASHA", "my-asha-pass-2026", "my-asha-pass-2026")).toMatch(/user name/);
+    // 1-2 letter names are inside almost every passphrase: the rule needs 3+
+    expect(passwordProblem("a", "correct horse battery 42", "correct horse battery 42")).toBeNull();
+    expect(passwordProblem("ab", "abacus-drawing-2026", "abacus-drawing-2026")).toBeNull();
     expect(passwordProblem("asha", PASSWORD, "other")).toMatch(/same/);
     expect(passwordProblem("asha", PASSWORD, PASSWORD)).toBeNull();
   });

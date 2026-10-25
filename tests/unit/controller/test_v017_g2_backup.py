@@ -12,15 +12,19 @@ from pathlib import Path
 import pytest
 
 from meshforge.controller.db_managed.backup import (
+    ROLLBACK_FAILED_NAME,
     SchemaMarker,
     clear_marker,
+    clear_rollback_failed,
     list_backups,
     manual_backup_path,
     needs_upgrade_backup,
     pre_upgrade_path,
     read_marker,
+    read_rollback_failed,
     rotate,
     write_marker,
+    write_rollback_failed,
 )
 
 pytestmark = pytest.mark.unit
@@ -112,3 +116,29 @@ def test_marker_round_trip_and_damage(tmp_path: Path) -> None:
     clear_marker(tmp_path)
     clear_marker(tmp_path)  # idempotent
     assert read_marker(tmp_path) is None
+
+
+def test_rollback_failed_record_round_trip_and_damage(tmp_path: Path) -> None:
+    assert read_rollback_failed(tmp_path) is None
+    write_rollback_failed(
+        tmp_path,
+        backup=tmp_path / "backups" / "pre-0.18.0.dump",
+        from_version="0.17.0",
+        to_version="0.18.0",
+        error="ManagedDbError: " + "x" * 2000,
+    )
+    path = tmp_path / ROLLBACK_FAILED_NAME
+    assert path.stat().st_mode & 0o777 == 0o600
+    record = read_rollback_failed(tmp_path)
+    assert record is not None
+    assert record["backup"] == str(tmp_path / "backups" / "pre-0.18.0.dump")
+    assert (record["from_version"], record["to_version"]) == ("0.17.0", "0.18.0")
+    assert len(str(record["error"])) == 500 and record["at"]
+    # A damaged record still says "the rollback failed" (details lost only).
+    path.write_text("{not json")
+    assert read_rollback_failed(tmp_path) == {"error": "damaged record"}
+    path.write_text("[1, 2]")
+    assert read_rollback_failed(tmp_path) == {"error": "damaged record"}
+    clear_rollback_failed(tmp_path)
+    clear_rollback_failed(tmp_path)  # idempotent
+    assert read_rollback_failed(tmp_path) is None

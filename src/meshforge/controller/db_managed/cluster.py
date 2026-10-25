@@ -63,6 +63,7 @@ from meshforge.controller.db_managed.commands import (
     child_env,
     dump_argv,
     initdb_argv,
+    list_argv,
     postgres_argv,
     restore_argv,
     with_death_signal,
@@ -117,6 +118,7 @@ _IDENT: Final = re.compile(r"^[a-z_][a-z0-9_]{0,62}$")
 _LOG_TAIL_BYTES: Final = 2000
 _POLL_S: Final = 0.02
 _TOOL_TIMEOUT_S: Final = 600.0
+_SWAP_WAIT_S: Final = 10.0
 _INITDB_TIMEOUT_S: Final = 300.0
 
 
@@ -815,13 +817,22 @@ class ManagedCluster:
 
     async def restore_database(self, dump_file: Path) -> float:
         """Replace the application database with ``dump_file`` (D393 rollback,
-        ``db restore``); returns seconds.
+        ``db restore``); returns seconds. A failed restore leaves the current
+        database exactly as it was.
 
-        Drops the database (``WITH (FORCE)`` - every connection is cut), creates
-        it empty and owned by the application role exactly as :meth:`start`
-        does, then restores into it as that role (objects owned by it, Q18;
-        dumps of the dev Compose database too, Q21). On a failed restore the
-        database is left empty, never half-restored (one transaction).
+        1. ``pg_restore --list`` reads the dump's table of contents (an empty,
+           garbage or foreign file stops here, before any database is touched);
+        2. the dump is restored, as the application role (objects owned by it,
+           Q18; dumps of the dev Compose database too, Q21) and in one
+           transaction, into a scratch database ``<name>__restore`` created
+           empty and owned by that role - a truncated dump fails here and only
+           the scratch database is dropped;
+        3. only then, in one transaction: connections to the current database
+           are cut, it is renamed ``<name>__previous`` and the scratch database
+           takes its name; the previous one is dropped last (a drop that fails
+           only leaves it for the next restore to drop).
+
+        Needs room for a second copy of the database while it runs.
         """
         if not await asyncio.to_thread(dump_file.is_file):
             raise ManagedDbError(
@@ -830,9 +841,41 @@ class ManagedCluster:
                 details={"path": str(dump_file)},
             )
         started = time.monotonic()
-        await self.drop_database(self.database)
-        await self._ensure_database()
-        await self.restore(dump_file, database=self.database)
+        await self._check_dump(dump_file)
+        name = self.database
+        # <= 63 bytes whatever the configured name's length
+        scratch, previous = f"{name[:50]}__restore", f"{name[:50]}__previous"
+        await self.drop_database(scratch)  # a leftover of an interrupted restore
+        await self.create_database(scratch)
+        try:
+            await self.restore(dump_file, database=scratch)
+        except BaseException:
+            with contextlib.suppress(Exception):
+                await self.drop_database(scratch)
+            raise
+        try:
+            await self.drop_database(previous)
+            await self._swap_in(scratch, name, previous)
+        except Exception as exc:
+            with contextlib.suppress(Exception):
+                await self.drop_database(scratch)
+            if isinstance(exc, ManagedDbError):
+                raise
+            raise ManagedDbError(
+                f"could not swap the restored database in ({type(exc).__name__}: "
+                f"{_tail(str(exc), 300)}); the current database was not changed",
+                reason=ManagedDbReason.RESTORE_FAILED,
+                details={"cause": type(exc).__name__},
+            ) from exc
+        try:
+            await self.drop_database(previous)
+        except Exception as exc:  # noqa: BLE001 - the restore itself succeeded
+            log.warning(
+                "controller.db.managed.previous_not_dropped",
+                database=previous,
+                cause=type(exc).__name__,
+            )
+        await self._ensure_database()  # owner, grants, role password as on start
         elapsed = time.monotonic() - started
         log.warning(
             "controller.db.managed.restored",
@@ -840,6 +883,73 @@ class ManagedCluster:
             duration_ms=round(elapsed * 1000),
         )
         return elapsed
+
+    async def _check_dump(self, dump_file: Path) -> None:
+        """``pg_restore --list``: a readable custom-format dump, or
+        ``RESTORE_FAILED`` before any database is touched."""
+        code, output = await _run(
+            list_argv(self.binaries, dump_file), timeout_s=_TOOL_TIMEOUT_S
+        )
+        if code != 0:
+            raise ManagedDbError(
+                f"{dump_file} is not a readable PostgreSQL dump "
+                f"(pg_restore --list exit {code}): {_tail(output)}; "
+                "the current database was not changed",
+                reason=ManagedDbReason.RESTORE_FAILED,
+                details={
+                    "path": str(dump_file),
+                    "exit_code": code,
+                    "output_tail": _tail(output),
+                },
+            )
+
+    async def _swap_in(self, scratch: str, name: str, previous: str) -> None:
+        """Rename ``name`` -> ``previous`` and ``scratch`` -> ``name`` in one
+        transaction (``ALTER DATABASE ... RENAME`` is transactional), after
+        cutting every other connection to either."""
+        import asyncpg
+
+        for ident in (scratch, name, previous):
+            if not _IDENT.match(ident):
+                raise ValueError(f"database must be a lower-case identifier: {ident!r}")
+        conn = await asyncpg.connect(
+            host=str(self.layout.socket_dir),
+            port=self.port,
+            user=self.superuser,
+            password=self._require_password().get_secret_value(),
+            database="postgres",
+            timeout=10,
+        )
+        try:
+            # pg_terminate_backend only signals; a backend that has not exited
+            # yet makes RENAME fail with "being accessed by other users".
+            deadline = time.monotonic() + _SWAP_WAIT_S
+            while True:
+                await conn.execute(
+                    "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+                    "WHERE datname = ANY($1::text[]) AND pid <> pg_backend_pid()",
+                    [name, scratch],
+                )
+                try:
+                    async with conn.transaction():
+                        exists = await conn.fetchval(
+                            "SELECT 1 FROM pg_database WHERE datname = $1", name
+                        )
+                        if exists:
+                            await conn.execute(
+                                f'ALTER DATABASE "{name}" RENAME TO "{previous}"'
+                            )
+                        await conn.execute(
+                            f'ALTER DATABASE "{scratch}" RENAME TO "{name}"'
+                        )
+                except asyncpg.ObjectInUseError:
+                    if time.monotonic() >= deadline:
+                        raise
+                    await asyncio.sleep(_POLL_S * 5)
+                else:
+                    return
+        finally:
+            await conn.close()
 
     async def _admin_sql(self, name: str, template: str) -> None:
         import asyncpg

@@ -3,8 +3,10 @@
 The first admin of a fabric can run code on every laptop in it, so the setup
 page asks more than the general user rule (8+ characters,
 :func:`~meshforge.controller.auth.passwords.check_password_policy`): at least 12
-characters, at least 6 different characters, not containing the user name, and
-not one of the commonest passwords. Pure; the message never echoes the password.
+characters, at least 6 different characters, not containing the user name
+(case-insensitive, for names of 3+ characters - a 1-2 letter name is inside
+almost every passphrase), and not one of the commonest passwords. Pure; the
+message never echoes the password.
 """
 
 from __future__ import annotations
@@ -15,10 +17,17 @@ from pydantic import SecretStr
 
 from meshforge.controller.auth.passwords import PasswordError, check_password_policy
 
-__all__ = ["ADMIN_MIN_CHARS", "ADMIN_MIN_DISTINCT", "check_admin_password"]
+__all__ = [
+    "ADMIN_MIN_CHARS",
+    "ADMIN_MIN_DISTINCT",
+    "NAME_RULE_MIN_CHARS",
+    "check_admin_password",
+]
 
 ADMIN_MIN_CHARS: Final = 12
 ADMIN_MIN_DISTINCT: Final = 6
+NAME_RULE_MIN_CHARS: Final = 3
+"""The "not containing the user name" rule applies to names this long or longer."""
 _COMMON: Final = frozenset(
     {
         "password1234",
@@ -52,7 +61,8 @@ def check_admin_password(name: str, password: SecretStr) -> None:
             "characters"
         )
     lowered = value.lower()
-    if name and name.lower() in lowered:
+    folded = name.strip().lower()
+    if len(folded) >= NAME_RULE_MIN_CHARS and folded in lowered:
         raise PasswordError("the admin password must not contain the user name")
     if lowered in _COMMON:
         raise PasswordError("this password is too common; choose another")

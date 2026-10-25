@@ -9,12 +9,15 @@ Admin operations on the managed cluster, for a person at the controller host
 ``restore``
     only while the controller is stopped (it would otherwise lose its database
     under it): start the cluster, replace the database with the dump (one
-    transaction; objects owned by the application role, so a dump of the dev
-    Compose database imports too - Q21), forget the schema marker (the next
-    start backs up again before migrating an older dump), stop.
+    transaction into a scratch database swapped in only on success - a bad
+    dump never touches the current data; objects owned by the application
+    role, so a dump of the dev Compose database imports too - Q21), forget the
+    schema marker (the next start backs up again before migrating an older
+    dump) and any failed-rollback record, stop.
 ``status``
-    mode, paths, port, running or not, data major, the last good start, the
-    backups and the free disk - read-only, works whether or not it runs.
+    mode, paths, port, running or not, data major, the last good start, a
+    failed upgrade rollback (if any), the backups and the free disk -
+    read-only, works whether or not it runs.
 
 External mode (``[controller.db] mode = "external"``) refuses backup/restore:
 whoever runs that PostgreSQL owns its backups.
@@ -30,9 +33,11 @@ from typing import TYPE_CHECKING, Any
 from meshforge.common.errors import ConfigError
 from meshforge.controller.db_managed.backup import (
     clear_marker,
+    clear_rollback_failed,
     list_backups,
     manual_backup_path,
     read_marker,
+    read_rollback_failed,
 )
 from meshforge.controller.db_managed.binaries import BUNDLED_MAJOR
 from meshforge.controller.db_managed.cluster import ManagedCluster
@@ -110,6 +115,7 @@ def restore(settings: ControllerSettings, dump: Path) -> dict[str, Any]:
         )
     seconds = asyncio.run(_restore_started(cluster, dump))
     clear_marker(cluster.layout.root)
+    clear_rollback_failed(cluster.layout.root)
     return {"restored_from": str(dump), "seconds": round(seconds, 3)}
 
 
@@ -154,6 +160,7 @@ def status(settings: ControllerSettings) -> dict[str, Any]:
         "last_good_start": None
         if marker is None
         else {"version": marker.version, "revision": marker.revision, "at": marker.at},
+        "rollback_failed": read_rollback_failed(layout.root),
         "backups": [b.as_dict() for b in list_backups(layout.backups_dir)],
         "backups_keep": db.backups_keep,
         "disk_free_bytes": disk_free,

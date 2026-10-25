@@ -106,11 +106,6 @@ def test_password_length_cap_and_error_never_echoes_the_secret() -> None:
     assert "hunter2" not in short.value.message
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="DEFECT G2-T1 (minor): a 1-2 character admin name makes the 'must not "
-    "contain the user name' rule reject nearly every passphrase",
-)
 def test_single_letter_admin_name_does_not_make_every_password_unusable() -> None:
     # An admin called "a" must still be able to pick a normal passphrase.
     # (Observed behaviour is reported in the tester report if this fails.)

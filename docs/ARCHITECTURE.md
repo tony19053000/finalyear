@@ -1269,22 +1269,30 @@ that dies under a running controller stops it with `FAILURE` (systemd restarts b
 orphans/stale pid files). Two roles (Q18): `meshforge_admin` (initdb superuser) is used only for role/database
 creation, backup, restore and the migrations, which run as it *acting as* the app role (`role` startup
 setting) so every table is owned by `meshforge` — a non-superuser that owns only its database and is what the
-engine and the admin CLI connect as (`app.password`, `0600`). `doctor` checks binaries, glibc, port, password
+engine and the admin CLI connect as (`app.password`, `0600`). The split guards against a **SQL-level**
+compromise (an injected query runs as a non-superuser, so no `COPY ... PROGRAM`, no other database, no role
+changes), not an OS-level one: both password files belong to the same `meshforge` OS user, so code running as
+that user can read `admin.password` too. `doctor` checks binaries, glibc, port, password
 files, data major, disk, CA and dashboard.
 
 *Upgrade backup (D393, controller half).* Before migrating, when the controller version differs from the last
 good start (`db/schema-version.json`, written after each start's health check) or the database is not at head,
 the controller dumps `db/backups/pre-<ver>.dump` (keep 3). If the start then fails or is not serving within
 `[controller.db] health_timeout_s` (60 s), the backup is restored in `stop()` (once nothing uses the database)
-and the controller exits 4 (`upgrade_rolled_back`; not restarted). `meshforge-controller db
+and the controller exits 4 (`upgrade_rolled_back`; not restarted); if that restore fails too it writes
+`db/rollback-failed.json`, which `db status` and the postinst report (cleared by a restore or a good start).
+A restore (rollback or `db restore`) never touches the current database until it has succeeded: `pg_restore
+--list` checks the file, the dump goes into a scratch database `<name>__restore`, and only then the two are
+swapped by rename in one transaction (the old one dropped last). `meshforge-controller db
 status|backup|restore`: backup attaches to a running controller; restore refuses while it runs.
 
 *Setup mode (D392, Q20).* `mtls`, no fabric CA, no users and a setup token (`controller/setup-token`, `0600`,
-made by `meshforge-controller setup url`, which the postinst runs and prints): the controller runs only the
+made by `meshforge-controller setup url`, which the postinst runs but does not print - apt logs maintainer
+output to `/var/log/apt/term.log`; it tells the person to run `sudo meshforge-controller setup url`): the controller runs only the
 setup page — plain HTTP on **loopback only** (`[controller.setup] bind`, default `127.0.0.1:47110`), behind the
 loopback Host guard; the token from the URL fragment is exchanged for an HttpOnly `SameSite=Strict` cookie;
 POSTs must be JSON with a loopback `Origin`. "Create the fabric" = admin name + password (first-admin rule:
-12+ chars, 6+ distinct, not the name, not common) → fabric CA + server cert (CA removed again if the admin
+12+ chars, 6+ distinct, not containing the name when it has 3+ characters, not common) → fabric CA + server cert (CA removed again if the admin
 cannot be created) → admin user → first invite (code + QR). The token is deleted, `/v1/setup/*` answers 410 for
 good (also in the normal app), and `_serve` starts a new runtime in-process — now with TLS, gRPC and enrolment.
 

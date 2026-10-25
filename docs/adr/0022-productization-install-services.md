@@ -89,7 +89,9 @@ Implemented as decided (D390, D392, D393 controller half, D398; Q18-Q22), detail
 - **Managed PostgreSQL wired in:** `[controller.db]` (mode/port 47150/root/socket_dir/bin_dir/timeouts/backups),
   `db_managed/runtime.py`, started first / stopped last by `ControllerRuntime`, postmaster death = controller
   `FAILURE`. Q18 roles: superuser `meshforge_admin` for migrations (acting as the app role) / backup /
-  restore; non-superuser app role `meshforge` owns every table. The dev default password check no longer
+  restore; non-superuser app role `meshforge` owns every table. The split guards against SQL-level
+  compromise (an injected query is not a superuser), not OS-level: both password files belong to the one
+  `meshforge` OS user. The dev default password check no longer
   applies in managed mode (the generated passwords are used).
 - **Bundle:** `build_bundle.py --role controller` adds `<bundle>/pgsql` (`scripts/pg_bundle.py`, pin in
   `packaging/pins.toml [postgresql]`, Q19 mirror URL first — the release asset still has to be uploaded).

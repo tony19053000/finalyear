@@ -128,7 +128,18 @@ def test_controller_package_lifecycle_with_an_agent_next_to_it(
     assert "all checks passed" in out
     assert "is running" in out, out[-3000:]
     assert "Create your fabric" in out
-    url = next(line.split()[-1] for line in out.splitlines() if "/setup#token=" in line)
+    # The link (a secret) is never in the install output (apt's term.log)...
+    assert "#token=" not in out, out[-3000:]
+    assert "sudo meshforge-controller setup url" in out
+    # ...the person prints it with the admin command.
+    printed = box.ok("meshforge-controller setup url")
+    url = next(
+        line.split()[-1] for line in printed.splitlines() if "/setup#token=" in line
+    )
+    assert (
+        box.run("grep -rqs 'setup#token=' /var/log/apt /var/log/dpkg.log").returncode
+        != 0
+    )
     facts = box.show(CONTROLLER_UNIT, "ActiveState", "User", "MainPID")
     assert facts["ActiveState"] == "active" and facts["User"] == "meshforge"
     owner = box.ok("stat -c %U /var/lib/meshforge/db/data").strip()

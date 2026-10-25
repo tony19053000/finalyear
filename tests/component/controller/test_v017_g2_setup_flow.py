@@ -220,6 +220,32 @@ async def test_no_ca_and_no_token_still_refuses_to_start(
             pytest.fail("must not start")
 
 
+async def test_session_cap_evicts_the_oldest_session(
+    pg_settings: DatabaseSettings, tmp_path: Path
+) -> None:
+    """Reviewer #5: over the cap the oldest session goes, never a random one
+    (the newest tab - the one the person is using - keeps working)."""
+    from meshforge.controller.setup import service as setup_service
+    from meshforge.controller.store.engine import create_engine
+    from meshforge.controller.store.migrate import upgrade_to_head
+
+    settings = _settings(pg_settings, tmp_path)
+    token = _token(settings)
+    await asyncio.to_thread(upgrade_to_head, pg_settings)
+    engine = create_engine(pg_settings)
+    try:
+        svc = setup_service.SetupService(settings, engine, on_done=lambda: None)
+        cap = setup_service._MAX_SESSIONS
+        opened = [await svc.open_session(token) for _ in range(cap + 3)]
+        assert len(set(opened)) == cap + 3
+        for old in opened[:3]:
+            assert not svc.session_valid(old), "an old session survived the cap"
+        for kept in opened[3:]:
+            assert svc.session_valid(kept), "a newer session was evicted"
+    finally:
+        await engine.dispose()
+
+
 # ------------------------------------------------- the real process restarts
 def _get_json(url: str, **kw: Any) -> tuple[int, dict[str, Any]]:
     try:

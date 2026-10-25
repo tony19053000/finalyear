@@ -994,6 +994,17 @@ def db_status(config: ConfigOption = None, json_out: JsonOption = False) -> None
             f"{'last good start:':<17} {last['version']} (revision "
             f"{last['revision']}, {last['at']})"
         )
+    failed = facts.get("rollback_failed")
+    if isinstance(failed, dict):
+        typer.echo(
+            f"{'ROLLBACK FAILED:':<17} the upgrade to {failed.get('to_version', '?')} "
+            "failed and its pre-upgrade backup could NOT be restored "
+            f"({failed.get('at', '?')}): {failed.get('error', '?')}"
+        )
+        typer.echo(
+            f"{'':<17} restore by hand (controller stopped): "
+            f"{PROG_NAME} db restore {failed.get('backup', '<backup>')} --yes"
+        )
     backups = facts.get("backups")
     if isinstance(backups, list):
         typer.echo(f"{'backups:':<17} {len(backups)}")

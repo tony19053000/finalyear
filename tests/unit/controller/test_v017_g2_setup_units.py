@@ -86,6 +86,27 @@ def test_admin_password_rule_accepts_a_passphrase() -> None:
     check_admin_password("asha", SecretStr("correct horse battery staple 42"))
 
 
+@pytest.mark.parametrize(
+    ("name", "password", "refused"),
+    [
+        ("a", "correct horse battery 42", False),  # 1-2 letters: rule off
+        ("ab", "abacus-drawing-2026", False),
+        ("abc", "abcdef-drawing-2026", True),  # 3+: rule on
+        ("ASHA", "my-asha-pass-2026", True),  # case-insensitive
+        ("  asha  ", "my-AsHa-pass-2026", True),  # name trimmed
+        ("   ", "correct horse battery 42", False),
+    ],
+)
+def test_admin_name_rule_needs_three_characters(
+    name: str, password: str, refused: bool
+) -> None:
+    if refused:
+        with pytest.raises(PasswordError, match="user name"):
+            check_admin_password(name, SecretStr(password))
+    else:
+        check_admin_password(name, SecretStr(password))
+
+
 def test_setup_settings(tmp_path: Path) -> None:
     default = ControllerSettings(data_dir=tmp_path, database=DatabaseSettings())
     assert default.setup_bind == "127.0.0.1:47110"

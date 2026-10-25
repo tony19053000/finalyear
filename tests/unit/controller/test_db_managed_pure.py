@@ -33,6 +33,7 @@ from meshforge.controller.db_managed.commands import (
     child_env,
     dump_argv,
     initdb_argv,
+    list_argv,
     postgres_argv,
     restore_argv,
     server_settings,
@@ -330,6 +331,14 @@ def test_dump_and_restore_argv() -> None:
     assert restore[0].endswith("/pg_restore")
     assert {"--no-password", "--exit-on-error", "--single-transaction"} <= set(restore)
     assert restore[-1] == "/b/x.dump" and "--dbname=target" in restore
+
+
+@POSIX_LAYOUT
+def test_list_argv_reads_the_toc_without_a_server() -> None:
+    argv = list_argv(BINS, Path("/b/x.dump"))
+    assert argv[0].endswith("/pg_restore")
+    assert argv[1:] == ["--list", "/b/x.dump"]
+    assert not any(a.startswith(("--host", "--dbname")) for a in argv)
 
 
 # --------------------------------------------------------------------- secret

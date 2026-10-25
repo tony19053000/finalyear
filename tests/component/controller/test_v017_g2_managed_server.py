@@ -394,6 +394,60 @@ async def test_failed_start_after_upgrade_restores_the_backup_and_exits_4(
         assert await _user_count(settings, root) == 2  # the data is back
 
 
+async def test_rollback_that_fails_leaves_a_record_db_status_reports(
+    tmp_path: Path,
+    pg_bin: Path,
+    db_dirs: tuple[Path, Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Reviewer #3: the pre-upgrade backup cannot be restored (damaged after it
+    was taken) -> ``rollback-failed.json``, ``db status`` reports it, the data
+    is left as it was (never emptied), and a manual restore clears the record."""
+    from meshforge.controller.db_managed import ManagedDbError, admin
+
+    root, sock = db_dirs
+    settings = _managed_settings(tmp_path, pg_bin, root, sock, free_port())
+    seed_ca_dir(settings.ca_dir)
+    monkeypatch.setattr("meshforge.controller.server.__version__", "0.17.0")
+    async with ControllerRuntime.start(settings) as runtime:
+        await _add_user(runtime, "asha")
+    good = Path((await asyncio.to_thread(admin.backup, settings, None))["path"])
+
+    real = ControllerRuntime._start_services
+
+    async def broken(self: ControllerRuntime, *args: Any) -> None:
+        await real(self, *args)
+        (root / "backups" / "pre-0.18.0.dump").write_bytes(b"not a dump\n" * 50)
+        raise RuntimeError("the new version cannot start")
+
+    monkeypatch.setattr("meshforge.controller.server.__version__", "0.18.0")
+    monkeypatch.setattr(ControllerRuntime, "_start_services", broken)
+    with (
+        structlog.testing.capture_logs() as logs,
+        pytest.raises(ManagedDbError),
+    ):
+        async with ControllerRuntime.start(settings):
+            pytest.fail("must not start")
+    events = [e["event"] for e in logs]
+    assert "controller.db.rollback_failed" in events
+    assert "controller.db.rolled_back" not in events
+    record = json.loads((root / "rollback-failed.json").read_text())
+    assert record["backup"].endswith("pre-0.18.0.dump")
+    assert record["to_version"] == "0.18.0" and record["from_version"] == "0.17.0"
+    assert "not a readable PostgreSQL dump" in record["error"]
+    assert (root / "rollback-failed.json").stat().st_mode & 0o777 == 0o600
+    facts = await asyncio.to_thread(admin.status, settings)
+    assert facts["rollback_failed"]["backup"] == record["backup"]
+    # The failed restore did not empty the database (it never got that far).
+    monkeypatch.setattr(ControllerRuntime, "_start_services", real)
+    await asyncio.to_thread(admin.restore, settings, good)
+    assert not (root / "rollback-failed.json").exists()
+    assert (await asyncio.to_thread(admin.status, settings))["rollback_failed"] is None
+    monkeypatch.setattr("meshforge.controller.server.__version__", "0.17.0")
+    async with ControllerRuntime.start(settings):
+        assert await _user_count(settings, root) == 1
+
+
 async def test_upgrade_not_serving_in_time_is_rolled_back(
     tmp_path: Path,
     pg_bin: Path,
