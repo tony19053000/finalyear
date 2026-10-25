@@ -2,7 +2,7 @@
 
 > Concise current state. Long-term plan: [`DEVELOPMENT_ROADMAP.md`](DEVELOPMENT_ROADMAP.md). Update at the end of every work session.
 
-**Last updated:** 2026-10-25 (session 4: CI green merged, G0 agent-side done (D400); G2, G3 implementers running)
+**Last updated:** 2026-10-25 (session 4 STOPPED by user: CI green merged (D400); G3 fix round 1 and G2 gates wip in worktrees — see SESSION_HANDOFF)
 
 ```
 TOTAL   ██████████████▒▒░░░░  71%  113/158 done, 16 in progress
