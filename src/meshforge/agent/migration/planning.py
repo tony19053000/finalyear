@@ -5,11 +5,13 @@ from __future__ import annotations
 import dataclasses
 import json
 import os
+import re
 import sys
 import tempfile
 import tomllib
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from pathlib import Path
+from typing import Final
 
 from meshforge.agent.identity import (
     JSON_FILE_NAME,
@@ -21,14 +23,15 @@ from meshforge.agent.identity import (
 )
 from meshforge.agent.migration.model import (
     _HOME_PREFIXES,
-    _USER_CONFIG,
-    _USER_IDENTITY,
     IDENTITY_FILES,
     ConfigPlan,
     MigrationOutcome,
     MigrationPlan,
     Paths,
     PolicyPlan,
+    example_identity_dir,
+    rerun_hint,
+    start_hint,
 )
 from meshforge.agent.migration.safe_source import (
     ReadFile,
@@ -39,7 +42,13 @@ from meshforge.agent.migration.safe_source import (
     read_files,
 )
 from meshforge.agent.policy import POLICY_FILE_NAME
+from meshforge.common.config import InstallMode, platform_dirs
 from meshforge.common.errors import IdentityError, MeshForgeError
+
+_WINDOWS_HOME: Final = re.compile(
+    r"^[A-Za-z]:[\\/]+(users|documents and settings)[\\/]", re.I
+)
+"""V0.17 G4: a Windows profile path (the virtual service account cannot read it)."""
 
 
 def _has_identity_files(directory: Path) -> bool:
@@ -62,7 +71,13 @@ def _peek_node_id(directory: Path, home_root: Path) -> str | None:
 
 
 def _home_of(user: str) -> Path | None:
-    if sys.platform == "win32":  # pragma: no cover - the Windows path is G4
+    if sys.platform == "win32":  # pragma: no cover - Windows (V0.17 G4)
+        # The installer runs elevated as the user who started it (the common
+        # case): that user's profile is %USERPROFILE%. Any other name: unknown
+        # here, the profiles are then searched one by one.
+        if user and user.lower() == os.environ.get("USERNAME", "").lower():
+            profile = os.environ.get("USERPROFILE", "").strip()
+            return Path(profile) if profile else None
         return None
     import pwd
 
@@ -73,7 +88,7 @@ def _home_of(user: str) -> Path | None:
 
 
 def _user_of(path: Path) -> str | None:
-    if sys.platform == "win32":  # pragma: no cover - the Windows path is G4
+    if sys.platform == "win32":  # pragma: no cover - Windows: profile_name()
         return None
     import pwd
 
@@ -89,11 +104,13 @@ def identity_from(files: Mapping[str, ReadFile], source: Path) -> NodeIdentity:
     with tempfile.TemporaryDirectory(prefix="meshforge-migrate-") as tmp:
         scratch = Path(tmp)
         scratch.chmod(0o700)
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0)
         for name, found in files.items():
-            fd = os.open(scratch / name, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            fd = os.open(scratch / name, flags, 0o600)
             try:
                 os.write(fd, found.data)
-                os.fchmod(fd, found.mode)  # the loader checks the source's modes
+                if hasattr(os, "fchmod"):  # POSIX: the loader checks the modes
+                    os.fchmod(fd, found.mode)
             finally:
                 os.close(fd)
         try:
@@ -146,20 +163,40 @@ def find_candidates(
     home_of: Callable[[str], Path | None] = _home_of,
 ) -> list[Path]:
     """Identity folders that hold identity files: ``explicit`` only when given;
-    else ``$SUDO_USER``'s if it has one; else every
-    ``<home_root>/*/.local/share/meshforge/identity``."""
+    else ``$SUDO_USER``'s (Windows: the installing user's) if it has one; else
+    every ``<home_root>/*/<paths.user_identity>`` (Linux
+    ``.local/share/meshforge/identity``, Windows
+    ``AppData/Local/MeshForge/identity`` under ``C:\\Users``)."""
     if explicit is not None:
         return [explicit]
+    rel = paths.user_identity
     if sudo_user and sudo_user != "root":
         home = home_of(sudo_user)
-        if home is not None and _has_identity_files(home / _USER_IDENTITY):
-            return [home / _USER_IDENTITY]
+        if home is not None and _has_identity_files(home / rel):
+            return [home / rel]
     found = sorted(
         d
-        for d in paths.home_root.glob(f"*/{_USER_IDENTITY.as_posix()}")
+        for d in paths.home_root.glob(f"*/{rel.as_posix()}")
         if d.is_dir() and _has_identity_files(d)
     )
     return found
+
+
+def profile_name(path: Path, home_root: Path) -> str | None:
+    """The home (profile) folder name ``path`` is in, below ``home_root``."""
+    try:
+        rel = Path(os.path.abspath(path)).relative_to(os.path.abspath(home_root))
+    except ValueError:
+        return None
+    return rel.parts[0] if rel.parts else None
+
+
+def _is_under(path: Path, folder: Path) -> bool:
+    try:
+        Path(os.path.abspath(path)).relative_to(os.path.abspath(folder))
+    except ValueError:
+        return False
+    return True
 
 
 def _strings(value: object) -> Iterable[str]:
@@ -200,9 +237,16 @@ def check_config_bytes(raw: bytes, path: Path) -> str | None:
     if "data_dir" in data:
         return (
             f"{path} sets data_dir; the service keeps its state in "
-            "/var/lib/meshforge - remove the key, then re-run"
+            f"{platform_dirs(mode=InstallMode.SYSTEM).data_dir} - remove the key, "
+            "then re-run"
         )
-    homes = sorted({s for s in _strings(data) if s.startswith(_HOME_PREFIXES)})
+    homes = sorted(
+        {
+            s
+            for s in _strings(data)
+            if s.startswith(_HOME_PREFIXES) or _WINDOWS_HOME.match(s)
+        }
+    )
     if homes:
         return (
             f"{path} names paths in a home directory ({', '.join(homes)}), "
@@ -277,7 +321,7 @@ def plan(
                 paths,
                 [f"--from {explicit}: {refusal}"],
                 "give the identity folder (it holds node.key and node.json), e.g. "
-                "/home/<user>/.local/share/meshforge/identity",
+                f"{example_identity_dir()}",
             )
     if not candidates:
         result = MigrationPlan(MigrationOutcome.NOTHING_TO_MIGRATE, paths)
@@ -292,10 +336,11 @@ def plan(
         return _blocked(
             paths,
             ["more than one per-user identity found:", *listed],
-            "choose the one this laptop should keep: `sudo meshforge-agent "
-            "migrate-identity --from <folder>` (or rename the others, e.g. to "
-            "identity.unused, and re-run); then `sudo systemctl enable --now "
-            "meshforge-agent`",
+            "choose the one this laptop should keep: `"
+            + ("" if sys.platform == "win32" else "sudo ")
+            + "meshforge-agent migrate-identity --from <folder>` (or rename the "
+            f"others, e.g. to identity.unused, and re-run {rerun_hint()}); then "
+            f"{start_hint()}",
         )
     source = candidates[0]
     try:
@@ -308,18 +353,30 @@ def plan(
             f"make {source} a plain folder (no symbolic links) of the user it "
             "belongs to, with plain files of that user and no group/other write "
             "access - or move it aside if this laptop should start as a NEW node - "
-            "then re-run `sudo meshforge-agent migrate-identity`",
+            f"then re-run {rerun_hint()}",
         )
     except IdentityError as exc:
         return _blocked(
             paths,
             [f"the identity in {source} cannot be used: {exc.problem} ({exc.path})"],
             f"repair it, or move {source} aside if this laptop should start as a "
-            "NEW node, then re-run `sudo meshforge-agent migrate-identity`",
+            f"NEW node, then re-run {rerun_hint()}",
         )
     result = MigrationPlan(MigrationOutcome.MIGRATED, paths, source, identity)
     result.source_uid = uid
-    result.user = sudo_user if explicit is None and sudo_user else user_of(source)
+    sudo_home = home_of(sudo_user) if sudo_user else None
+    if explicit is None and sudo_user and sudo_home is not None:
+        # Only when the identity really is in that user's home (another user's
+        # found by the search is *that* user's).
+        result.user = (
+            sudo_user
+            if _is_under(source, sudo_home)
+            else (user_of(source) or profile_name(source, paths.home_root))
+        )
+    elif explicit is None and sudo_user:
+        result.user = sudo_user
+    else:
+        result.user = user_of(source) or profile_name(source, paths.home_root)
     result.config = _plan_config(paths, config_from, source, sudo_user, home_of)
     if result.config.action == "refused":
         return _blocked_config(result)
@@ -362,7 +419,7 @@ def _blocked_config(result: MigrationPlan) -> MigrationPlan:
     blocked.problems.append(result.config.problem or "config refused")
     blocked.notes.append(
         "fix: correct the file named above (or move it aside to start from "
-        "defaults) and re-run `sudo meshforge-agent migrate-identity`"
+        f"defaults) and re-run {rerun_hint()}"
     )
     return blocked
 
@@ -375,17 +432,19 @@ def _plan_config(
     home_of: Callable[[str], Path | None],
 ) -> ConfigPlan:
     source = config_from
+    user_identity, user_config = paths.user_identity, paths.user_config
     if source is None and identity_source is not None:
         # <home>/.local/share/meshforge/identity -> <home>/.config/meshforge/config.toml
+        # (Windows: <profile>/AppData/Local/... -> <profile>/AppData/Roaming/...)
         parts = identity_source.parts
-        if len(parts) > len(_USER_IDENTITY.parts) and identity_source.match(
-            f"*/{_USER_IDENTITY.as_posix()}"
+        if len(parts) > len(user_identity.parts) and identity_source.match(
+            f"*/{user_identity.as_posix()}"
         ):
-            home = Path(*parts[: -len(_USER_IDENTITY.parts)])
-            source = home / _USER_CONFIG
+            home = Path(*parts[: -len(user_identity.parts)])
+            source = home / user_config
     if source is None and sudo_user and sudo_user != "root":
         sudo_home = home_of(sudo_user)
-        source = sudo_home / _USER_CONFIG if sudo_home is not None else None
+        source = sudo_home / user_config if sudo_home is not None else None
     if source is None or not os.path.lexists(source):
         if config_from is not None:
             return ConfigPlan(

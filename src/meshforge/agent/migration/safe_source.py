@@ -21,7 +21,20 @@ anything that user could not reach themselves. So, for every source:
   put back and reported.
 
 Any violation is an :class:`UnsafeSourceError`; the planner turns it into a
-``blocked`` migration with the reason. POSIX only (the migration is Linux-only).
+``blocked`` migration with the reason.
+
+**Windows (V0.17 G4): the path backend.** Windows has no ``openat``/``dir_fd``,
+so there the same functions work by path (:data:`PATH_BACKEND`): every
+component of the walk is ``lstat``-ed and refused when it is a symbolic link or
+a junction (any reparse point); a file must be regular with one hard link; the
+file is opened and the **opened** handle's ``(st_dev, st_ino)`` must equal the
+``lstat`` - what was checked is what is read - and the folder's own identity is
+checked again after each read; renames are verified by inode the same way.
+Ownership and "writable by others" are not checked there (no portable owner
+query without pywin32; a user's own profile is theirs). Accepted residual: a
+folder swapped for a junction and back *between* two checks of one read (the
+copy then lands in the service's folder, which that user cannot read). Tests
+run the path backend on Linux too.
 """
 
 from __future__ import annotations
@@ -29,6 +42,7 @@ from __future__ import annotations
 import errno
 import os
 import stat
+import sys
 import time
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
@@ -46,6 +60,11 @@ _DIR_FLAGS: Final = os.O_RDONLY | _O_DIRECTORY | _O_NOFOLLOW | _O_CLOEXEC
 MAX_FILE_BYTES: Final = 1 << 20
 """Identity files and a config are a few KiB; anything bigger is not ours."""
 LOCK_FILE_NAME: Final = "identity.lock"
+PATH_BACKEND: bool = sys.platform == "win32"
+"""Use the path backend (module docstring). Module-level so tests can force it."""
+_FILE_ATTRIBUTE_REPARSE_POINT: Final = 0x400
+_O_BINARY: Final = getattr(os, "O_BINARY", 0)
+_O_NOINHERIT: Final = getattr(os, "O_NOINHERIT", 0)
 
 
 class UnsafeSourceError(Exception):
@@ -59,12 +78,15 @@ class UnsafeSourceError(Exception):
 
 @dataclass(slots=True)
 class OpenDir:
-    """A checked folder held open, and its (held) parent."""
+    """A checked folder held open, and its (held) parent. Path backend: no
+    descriptors (``fd`` / ``parent_fd`` are ``-1``); ``key`` is what pins it."""
 
     path: Path
     fd: int
     parent_fd: int
     uid: int
+    key: tuple[int, int] = (0, 0)
+    """``(st_dev, st_ino)`` of the folder as it was checked."""
 
     def close(self) -> None:
         for fd in (self.fd, self.parent_fd):
@@ -167,8 +189,59 @@ def _open_error(
     return UnsafeSourceError(path, f"could not read {path}: {exc.strerror or exc}")
 
 
+def _link_like(st: os.stat_result) -> bool:
+    """A symbolic link, or (Windows) any reparse point: a junction, a mount point."""
+    attributes = getattr(st, "st_file_attributes", 0)
+    return stat.S_ISLNK(st.st_mode) or bool(attributes & _FILE_ATTRIBUTE_REPARSE_POINT)
+
+
+def _lstat_checked(path: Path, *, folder: bool) -> os.stat_result:
+    try:
+        st = os.lstat(path)
+    except FileNotFoundError:
+        raise UnsafeSourceError(path, f"{path} does not exist") from None
+    except OSError as exc:
+        raise UnsafeSourceError(
+            path, f"could not read {path}: {exc.strerror or exc}"
+        ) from None
+    if _link_like(st):
+        raise UnsafeSourceError(path, f"{path} is a symbolic link or junction")
+    if folder and not stat.S_ISDIR(st.st_mode):
+        raise UnsafeSourceError(path, f"{path} is not a plain folder or file")
+    return st
+
+
+def _open_dir_by_path(path: Path, uid: int) -> OpenDir:
+    """Path backend of :func:`open_dir`: no link or junction on the way."""
+    path = Path(os.path.abspath(path))
+    if len(path.parts) < 2:
+        raise UnsafeSourceError(path, "not a user folder")
+    current = Path(path.parts[0])
+    st = _lstat_checked(current, folder=True)
+    for part in path.parts[1:]:
+        current = current / part
+        st = _lstat_checked(current, folder=True)
+    return OpenDir(path, -1, -1, uid, (st.st_dev, st.st_ino))
+
+
+def _recheck(folder: OpenDir) -> None:
+    """Path backend: the folder is still the one that was checked."""
+    st = _lstat_checked(folder.path, folder=True)
+    if (st.st_dev, st.st_ino) != folder.key:
+        raise UnsafeSourceError(
+            folder.path, f"{folder.path} was replaced while it was being read"
+        )
+
+
+def held_key(folder: OpenDir) -> tuple[int, int]:
+    """``(st_dev, st_ino)`` of the held folder (what :func:`rename_aside` expects)."""
+    return folder.key
+
+
 def open_dir(path: Path, uid: int) -> OpenDir:
     """Walk ``path`` from ``/`` without following links (module docstring)."""
+    if PATH_BACKEND:
+        return _open_dir_by_path(path, uid)
     path = Path(os.path.abspath(path))
     if len(path.parts) < 2:
         raise UnsafeSourceError(path, "not a user folder")
@@ -188,12 +261,13 @@ def open_dir(path: Path, uid: int) -> OpenDir:
                 os.close(parent)
             parent, fd = fd, child
             _check_dir(fd, current, uid, final=i == last)
+        held = os.fstat(fd)
     except BaseException:
         os.close(fd)
         if parent >= 0:
             os.close(parent)
         raise
-    return OpenDir(path, fd, parent, uid)
+    return OpenDir(path, fd, parent, uid, (held.st_dev, held.st_ino))
 
 
 @contextmanager
@@ -205,8 +279,64 @@ def opened_dir(path: Path, uid: int) -> Iterator[OpenDir]:
         held.close()
 
 
+def _read_fd(fd: int, path: Path) -> bytes:
+    chunks: list[bytes] = []
+    total = 0
+    while chunk := os.read(fd, 65536):
+        total += len(chunk)
+        if total > MAX_FILE_BYTES:
+            raise UnsafeSourceError(path, f"{path} is too large")
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+def _read_file_by_path(folder: OpenDir, name: str) -> ReadFile | None:
+    """Path backend of :func:`read_file` (module docstring)."""
+    path = folder.path / name
+    _recheck(folder)
+    try:
+        st = os.lstat(path)
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        raise UnsafeSourceError(
+            path, f"could not read {path}: {exc.strerror or exc}"
+        ) from None
+    if _link_like(st):
+        raise UnsafeSourceError(path, f"{path} is a symbolic link or junction")
+    if not stat.S_ISREG(st.st_mode):
+        raise UnsafeSourceError(path, f"{path} is not a regular file")
+    if st.st_nlink > 1:
+        raise UnsafeSourceError(path, f"{path} has other hard links")
+    if st.st_size > MAX_FILE_BYTES:
+        raise UnsafeSourceError(path, f"{path} is too large ({st.st_size} bytes)")
+    try:
+        fd = os.open(path, os.O_RDONLY | _O_BINARY | _O_NOINHERIT | _O_NOFOLLOW)
+    except OSError as exc:
+        raise UnsafeSourceError(
+            path, f"could not read {path}: {exc.strerror or exc}"
+        ) from None
+    try:
+        opened = os.fstat(fd)
+        if (opened.st_dev, opened.st_ino) != (st.st_dev, st.st_ino):
+            raise UnsafeSourceError(
+                path, f"{path} was replaced while it was being read"
+            )
+        data = _read_fd(fd, path)
+    except OSError as exc:
+        raise UnsafeSourceError(
+            path, f"could not read {path}: {exc.strerror or exc}"
+        ) from None
+    finally:
+        os.close(fd)
+    _recheck(folder)
+    return ReadFile(data, stat.S_IMODE(st.st_mode), st.st_dev, st.st_ino)
+
+
 def read_file(folder: OpenDir, name: str) -> ReadFile | None:
     """``name`` in ``folder``, checked on its opened fd; ``None`` if absent."""
+    if PATH_BACKEND:
+        return _read_file_by_path(folder, name)
     path = folder.path / name
     try:
         fd = os.open(
@@ -231,20 +361,14 @@ def read_file(folder: OpenDir, name: str) -> ReadFile | None:
             raise UnsafeSourceError(path, f"{path}: {problem}")
         if st.st_size > MAX_FILE_BYTES:
             raise UnsafeSourceError(path, f"{path} is too large ({st.st_size} bytes)")
-        chunks: list[bytes] = []
-        total = 0
-        while chunk := os.read(fd, 65536):
-            total += len(chunk)
-            if total > MAX_FILE_BYTES:
-                raise UnsafeSourceError(path, f"{path} is too large")
-            chunks.append(chunk)
+        data = _read_fd(fd, path)
     except OSError as exc:
         raise UnsafeSourceError(
             path, f"could not read {path}: {exc.strerror or exc}"
         ) from None
     finally:
         os.close(fd)
-    return ReadFile(b"".join(chunks), stat.S_IMODE(st.st_mode), st.st_dev, st.st_ino)
+    return ReadFile(data, stat.S_IMODE(st.st_mode), st.st_dev, st.st_ino)
 
 
 def read_files(folder: OpenDir, names: Iterable[str]) -> dict[str, ReadFile]:
@@ -258,6 +382,8 @@ def read_files(folder: OpenDir, names: Iterable[str]) -> dict[str, ReadFile]:
 
 
 def has_entry(folder: OpenDir, name: str) -> bool:
+    if PATH_BACKEND:
+        return os.path.lexists(folder.path / name)
     try:
         os.stat(name, dir_fd=folder.fd, follow_symlinks=False)
     except FileNotFoundError:
@@ -270,7 +396,12 @@ def locked(
     folder: OpenDir, *, timeout_s: float, poll_s: float = 0.01
 ) -> Iterator[None]:
     """Hold the folder's ``identity.lock`` (as the agent does), opened through the
-    folder fd without following links; a lock root creates is handed to the user."""
+    folder fd without following links; a lock root creates is handed to the user.
+    Path backend: opened by path, checked like :func:`read_file`, never chowned."""
+    if PATH_BACKEND:
+        with _locked_by_path(folder, timeout_s=timeout_s, poll_s=poll_s):
+            yield
+        return
     path = folder.path / LOCK_FILE_NAME
     flags = os.O_RDWR | _O_NOFOLLOW | _O_CLOEXEC
     try:
@@ -311,6 +442,51 @@ def locked(
             unlock(fh)
 
 
+@contextmanager
+def _locked_by_path(
+    folder: OpenDir, *, timeout_s: float, poll_s: float
+) -> Iterator[None]:
+    path = folder.path / LOCK_FILE_NAME
+    _recheck(folder)
+    try:
+        before: os.stat_result | None = os.lstat(path)
+    except FileNotFoundError:
+        before = None
+    except OSError as exc:
+        raise UnsafeSourceError(
+            path, f"could not read {path}: {exc.strerror or exc}"
+        ) from None
+    if before is not None and (_link_like(before) or not stat.S_ISREG(before.st_mode)):
+        raise UnsafeSourceError(path, f"{path} is not a plain file")
+    flags = os.O_RDWR | os.O_CREAT | _O_BINARY | _O_NOINHERIT | _O_NOFOLLOW
+    try:
+        fd = os.open(path, flags, 0o600)
+    except OSError as exc:
+        raise UnsafeSourceError(
+            path, f"could not open {path}: {exc.strerror or exc}"
+        ) from None
+    with os.fdopen(fd, "r+b", buffering=0) as fh:
+        opened = os.fstat(fh.fileno())
+        if before is not None and (opened.st_dev, opened.st_ino) != (
+            before.st_dev,
+            before.st_ino,
+        ):
+            raise UnsafeSourceError(path, f"{path} was replaced while it was opened")
+        deadline = time.monotonic() + timeout_s
+        while not try_lock(fh):
+            if time.monotonic() >= deadline:
+                raise UnsafeSourceError(
+                    path,
+                    "the identity is locked by another process (a running user "
+                    "agent?); stop it and re-run",
+                )
+            time.sleep(poll_s)
+        try:
+            yield
+        finally:
+            unlock(fh)
+
+
 def _primary_gid(uid: int) -> int | None:
     """``uid``'s primary group (``None`` if the account is unknown)."""
     import pwd
@@ -331,7 +507,10 @@ def rename_aside(
     parent_fd: int, parent: Path, name: str, today: str, expect: tuple[int, int]
 ) -> Path:
     """Rename ``name`` -> ``name.migrated-<today>[-N]`` inside the held
-    ``parent_fd``; if the entry is not the inode that was read, undo and refuse."""
+    ``parent_fd``; if the entry is not the inode that was read, undo and refuse.
+    ``parent_fd < 0`` (path backend): the same by path."""
+    if parent_fd < 0:
+        return _rename_aside_by_path(parent, name, today, expect)
     base = f"{name}.migrated-{today}"
     candidate, n = base, 2
     while True:
@@ -352,6 +531,33 @@ def rename_aside(
         except OSError as exc:
             # G1 follow-up d: both facts, never only the second one - the
             # unknown entry now sits under the .migrated name
+            raise UnsafeSourceError(
+                parent / name,
+                f"{swapped}; putting it back failed too ({exc.strerror or exc}): "
+                f"it is now {parent / candidate} - check that entry and rename it "
+                "back by hand",
+            ) from None
+        raise UnsafeSourceError(parent / name, f"{swapped}; left as is")
+    return parent / candidate
+
+
+def _rename_aside_by_path(
+    parent: Path, name: str, today: str, expect: tuple[int, int]
+) -> Path:
+    base = f"{name}.migrated-{today}"
+    candidate, n = base, 2
+    while os.path.lexists(parent / candidate):
+        candidate, n = f"{base}-{n}", n + 1
+    os.rename(parent / name, parent / candidate)
+    moved = os.lstat(parent / candidate)
+    if (moved.st_dev, moved.st_ino) != expect or _link_like(moved):
+        swapped = (
+            f"{parent / name} was replaced while it was being migrated (the "
+            "entry renamed is not the one that was read)"
+        )
+        try:
+            os.rename(parent / candidate, parent / name)
+        except OSError as exc:
             raise UnsafeSourceError(
                 parent / name,
                 f"{swapped}; putting it back failed too ({exc.strerror or exc}): "

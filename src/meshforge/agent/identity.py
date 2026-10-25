@@ -240,9 +240,18 @@ def _refuse_pending_migration(directory: Path) -> None:
             "an identity migration into this directory is unfinished or was "
             "refused, so no identity is loaded or minted here",
             marker,
-            "run `sudo meshforge-agent migrate-identity` and follow what it prints "
+            f"run {_migrate_command()} and follow what it prints "
             "(it names the identity to keep, or why it stopped)",
         )
+
+
+def _migrate_command() -> str:
+    if sys.platform == "win32":
+        return (
+            "the MeshForge installer again (or, as administrator, "
+            "`meshforge-agent migrate-identity`)"
+        )
+    return "`sudo meshforge-agent migrate-identity`"
 
 
 def next_epoch(
