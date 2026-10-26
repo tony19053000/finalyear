@@ -40,7 +40,6 @@ LIB: Final = REPO / "packaging" / "linux" / "common" / "upgrade.sh"
 sys.path.insert(0, str(REPO / "scripts"))
 
 import build_deb  # noqa: E402
-from bundle_lib import BundleError  # noqa: E402
 
 OLD: Final = "0.17.0"
 NEW: Final = "0.17.1"
@@ -421,7 +420,9 @@ def test_expand_refuses_holes(tmp_path: Path, text: str, match: str) -> None:
     common = tmp_path / "common"
     common.mkdir()
     (common / "nested.sh").write_text("# @meshforge-include other.sh\n")
-    with pytest.raises(BundleError, match=match):
+    # build_deb's own BundleError: other tests may load scripts/ under other
+    # module names, so the class imported here can be a different object
+    with pytest.raises(build_deb.BundleError, match=match):
         build_deb.expand_script(text, {"MF_VERSION": "1"}, common=common)
 
 

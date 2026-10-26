@@ -115,10 +115,16 @@ def test_the_api_row_carries_the_live_list() -> None:
     )
     policy = dataclasses.replace(OPEN_POLICY, not_enforced=(VRAM, CPU))
     live: Any = SimpleNamespace(
-        policy=policy, last_rtt_ms=None, rtt_ewma_ms=None, policy_refused=None
+        policy=policy,
+        last_rtt_ms=None,
+        rtt_ewma_ms=None,
+        policy_refused=None,
+        agent_version="",  # V0.17 G5: the Nodes page's version column
     )
     row = node_summary(node, live=live, sample=None, now=0.0)
     assert row.not_enforced == (VRAM, CPU)
     assert node_summary(node, live=None, sample=None, now=0.0).not_enforced is None
-    no_policy: Any = SimpleNamespace(policy=None, last_rtt_ms=None, rtt_ewma_ms=None)
+    no_policy: Any = SimpleNamespace(
+        policy=None, last_rtt_ms=None, rtt_ewma_ms=None, agent_version=""
+    )
     assert node_summary(node, live=no_policy, sample=None, now=0.0).not_enforced is None
