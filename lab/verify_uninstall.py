@@ -33,6 +33,14 @@ developer's migrated ``identity.migrated-*`` folders in user profiles. Needs an
 elevated prompt for a complete answer (firewall rules and other users'
 profiles); without it the result says "not elevated" and is never "clean".
 
+**One package of two** (``--package agent|controller``, V0.17 G5): the agent
+and the controller ``.deb`` can share a machine (and ``/opt/meshforge``,
+``/var/lib/meshforge``, the ``meshforge`` user). After removing one of them,
+``--package <that one>`` checks only what that package owns; the shared folders
+and the service user must be gone only when no MeshForge package is left.
+``all`` (the default) checks both packages. Upgrade leftovers are program
+files too: ``/opt/meshforge/.previous`` (the rollback copy) and ``.upgrade``.
+
 Usage::
 
     python3 lab/verify_uninstall.py --os linux                  # after apt remove
@@ -65,8 +73,12 @@ EXIT_USAGE: Final = 2
 EXIT_NOT_IMPLEMENTED: Final = 3
 
 PACKAGE: Final = "meshforge-agent"
+CONTROLLER_PACKAGE: Final = "meshforge-controller"
+PACKAGE_SCOPES: Final = ("all", "agent", "controller")
 PROGRAM_PATHS: Final = (
     "/opt/meshforge",
+    # V0.17 G2: the controller package's own command
+    "/usr/bin/meshforge-controller",
     "/usr/bin/meshforge-agent",
     "/usr/bin/compute",
     # V0.17 G3: the local console's launcher, menu entry, icon, helper, token folder
@@ -86,7 +98,16 @@ UNIT_PATHS: Final = (
     "/etc/systemd/system/meshforge-agent.service",
     "/etc/systemd/system/meshforge-agent.path",
     "/etc/systemd/system/meshforge-agent.service.d",
+    # V0.17 G2/G5: the controller package's unit
+    "/usr/lib/systemd/system/meshforge-controller.service",
+    "/lib/systemd/system/meshforge-controller.service",
+    "/etc/systemd/system/meshforge-controller.service",
+    "/etc/systemd/system/meshforge-controller.service.d",
 )
+SHARED_PATHS: Final = frozenset(
+    {"/opt/meshforge", "/usr/lib/meshforge", "/var/lib/meshforge", "/etc/meshforge"}
+)
+"""Folders both packages use: gone only when neither package is left."""
 DATA_PATHS: Final = ("/var/lib/meshforge", "/etc/meshforge")
 
 # One probe, POSIX sh + coreutils + systemctl/dpkg-query when present. Each line
@@ -106,6 +127,18 @@ for path in /etc/systemd/system/*.wants/meshforge* /usr/lib/systemd/system/*.wan
 	[ -e "$path" ] || [ -L "$path" ] && p unit_file "$path"
 done
 for path in __DATA__; do [ -e "$path" ] && p data "$path"; done
+# V0.17 G5: what is inside the shared folders, so one package can be checked
+# while the other stays (incl. .previous / .upgrade, the upgrade leftovers)
+for dir in /opt/meshforge /usr/lib/meshforge; do
+	for entry in "$dir"/* "$dir"/.[!.]*; do
+		[ -e "$entry" ] || [ -L "$entry" ] && p program_entry "$entry"
+	done
+done
+for dir in /var/lib/meshforge /etc/meshforge; do
+	for entry in "$dir"/* "$dir"/.[!.]*; do
+		[ -e "$entry" ] || [ -L "$entry" ] && p data_entry "$entry"
+	done
+done
 for path in /etc/ufw/applications.d/*; do
 	[ -f "$path" ] && grep -qi meshforge "$path" 2>/dev/null && p ufw_profile "$path"
 done
@@ -121,6 +154,8 @@ fi
 if command -v dpkg-query >/dev/null 2>&1; then
 	status=$(dpkg-query -W -f='${db:Status-Status}' __PACKAGE__ 2>/dev/null || true)
 	p dpkg "${status:-absent}"
+	status=$(dpkg-query -W -f='${db:Status-Status}' __CONTROLLER_PACKAGE__ 2>/dev/null || true)
+	p dpkg_controller "${status:-absent}"
 else
 	p dpkg no-dpkg
 fi
@@ -250,6 +285,7 @@ def probe_script() -> str:
         PROBE.replace("__PROGRAM__", " ".join(PROGRAM_PATHS))
         .replace("__UNITS__", " ".join(UNIT_PATHS))
         .replace("__DATA__", " ".join(DATA_PATHS))
+        .replace("__CONTROLLER_PACKAGE__", CONTROLLER_PACKAGE)
         .replace("__PACKAGE__", PACKAGE)
     )
 
@@ -258,6 +294,7 @@ def probe_script() -> str:
 class Verdict:
     os: str
     data_removed: bool
+    package: str = "all"
     leftovers: list[str] = field(default_factory=list)
     kept: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
@@ -276,10 +313,78 @@ def parse_probe(text: str) -> list[tuple[str, str]]:
     return facts
 
 
-def evaluate(facts: Sequence[tuple[str, str]], *, data_removed: bool) -> Verdict:
-    """The verdict on a probe's facts (pure; unit-tested)."""
-    verdict = Verdict(os="linux", data_removed=data_removed)
+_GONE: Final = frozenset({"absent", "not-installed", "no-dpkg"})
+
+
+def owner_of(kind: str, value: str) -> str:
+    """``agent`` | ``controller`` | ``shared`` | ``note`` (what was not checked:
+    always reported): which package a fact belongs to."""
+    if kind in ("ufw", "systemd"):
+        return "note"
+    if kind in ("program", "data") and value in SHARED_PATHS:
+        return "shared"
+    if kind == "account":
+        return "agent" if value.endswith("meshforge-admin") else "shared"
+    if kind in ("ufw_profile", "ufw_rule"):
+        return "controller"  # D389: only the controller has a ufw profile
+    if kind == "program_entry":
+        name = value.rsplit("/", 1)[-1]
+        return "controller" if name.startswith("controller") else "agent"
+    if kind == "data_entry":
+        name = value.rsplit("/", 1)[-1]
+        return (
+            "controller" if name in ("controller", "db", "controller.toml") else "agent"
+        )
+    if kind == "process":
+        if "/opt/meshforge/controller/" in value or "meshforge-controller" in value:
+            return "controller"
+        return "agent"
+    return "controller" if "controller" in value else "agent"
+
+
+def evaluate(
+    facts: Sequence[tuple[str, str]], *, data_removed: bool, package: str = "all"
+) -> Verdict:
+    """The verdict on a probe's facts (pure; unit-tested). ``package``: which
+    package was removed (``all`` = both / the only one)."""
+    verdict = Verdict(os="linux", data_removed=data_removed, package=package)
+    states = {
+        kind: value for kind, value in facts if kind in ("dpkg", "dpkg_controller")
+    }
+    others_left = False
+    if package == "agent":
+        others_left = states.get("dpkg_controller", "absent") not in (
+            *_GONE,
+            "config-files",
+        )
+    elif package == "controller":
+        others_left = states.get("dpkg", "absent") not in (*_GONE, "config-files")
     for kind, value in facts:
+        if package != "all":
+            belongs = owner_of(kind, value)
+            if kind in ("dpkg", "dpkg_controller"):
+                belongs = "agent" if kind == "dpkg" else "controller"
+            if belongs == "note":
+                pass
+            elif belongs == "shared" and others_left:
+                continue  # the other package still uses it
+            elif belongs not in ("shared", package):
+                continue
+            if kind in ("program_entry", "data_entry") and not others_left:
+                continue  # the shared folder itself is reported
+        elif kind in ("program_entry", "data_entry"):
+            continue  # the shared folder itself is reported
+        if kind == "program_entry":
+            verdict.leftovers.append(f"program file left: {value}")
+            continue
+        if kind == "data_entry":
+            if data_removed:
+                verdict.leftovers.append(f"data left after purge: {value}")
+            else:
+                verdict.kept.append(f"data kept (remove keeps data): {value}")
+            continue
+        if kind == "dpkg_controller":
+            kind = "dpkg"  # same rules, the controller package's state
         if kind == "program":
             verdict.leftovers.append(f"program file left: {value}")
         elif kind == "unit_file":
@@ -345,8 +450,9 @@ def run_probe(docker: str | None) -> str:
 
 
 def render(verdict: Verdict) -> str:
+    scope = "" if verdict.package == "all" else f", package {verdict.package}"
     lines = [
-        f"MeshForge uninstall check ({verdict.os}, "
+        f"MeshForge uninstall check ({verdict.os}{scope}, "
         f"{'purge: data must be gone' if verdict.data_removed else 'remove: data may stay'})"
     ]
     lines += [f"  LEFT   {item}" for item in verdict.leftovers]
@@ -374,6 +480,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--docker", metavar="CONTAINER", help="check inside this container"
     )
     parser.add_argument("--json", action="store_true", help="machine-readable output")
+    parser.add_argument(
+        "--package",
+        choices=PACKAGE_SCOPES,
+        default="all",
+        help="Linux: which package was removed (agent/controller share a machine); "
+        "default all",
+    )
     try:
         args = parser.parse_args(argv)
     except SystemExit as exc:
@@ -393,7 +506,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         return EXIT_USAGE
     else:
         verdict = evaluate(
-            parse_probe(run_probe(args.docker)), data_removed=args.data_removed
+            parse_probe(run_probe(args.docker)),
+            data_removed=args.data_removed,
+            package=args.package,
         )
     if args.json:
         print(json.dumps({**asdict(verdict), "clean": verdict.clean}, indent=1))
