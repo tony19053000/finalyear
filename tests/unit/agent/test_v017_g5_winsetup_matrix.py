@@ -270,7 +270,7 @@ def test_journal_file_format_is_the_linux_one(records: FileRecords) -> None:
     assert f"from={OLD_PY}\n" in text and "phase=checking\n" in text
     notice = upgrade_notice(records.folder.parent, windows=True, require_root=False)
     assert notice is not None and notice.kind == "in_progress"
-    assert "run the installer again" in notice.message
+    assert "installer again" in notice.fix and notice.fix in notice.message
 
 
 # ---------------------------- fix round 1: the journal names only {app} pythons
