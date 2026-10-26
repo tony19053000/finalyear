@@ -70,6 +70,13 @@ ROLLED_BACK_NAME: Final = "rolled-back.json"
 INTERRUPTED_NAME: Final = "interrupted.json"
 FORCED_FAILURE_NAME: Final = "fail-upgrade-to"
 _MAX_READ: Final = 64 * 1024
+FINISH_UNPACK: Final = (
+    "finish it by installing the new package again: sudo apt install --reinstall "
+    "./<the {to} .deb> (or sudo apt --fix-broken install)"
+)
+"""A cut-off unpack leaves dpkg's ``half-installed`` state, which
+``dpkg --configure -a`` does not repair (reviewer fix round 1)."""
+FINISH_CONFIGURE: Final = "finish it with sudo dpkg --configure -a"
 
 
 def program_dir(bundle_root: Path) -> Path:
@@ -134,6 +141,10 @@ class UpgradeNotice:
     kind: NoticeKind
     message: str
     details: dict[str, str]
+    fix: str = ""
+    """What the owner runs to finish or retry (fix round 1: depends on the
+    phase - a cut-off unpack needs the package installed again, a cut-off
+    configure needs ``dpkg --configure -a``)."""
 
 
 def _json(path: Path, require_root: bool) -> dict[str, str] | None:
@@ -177,33 +188,52 @@ def upgrade_notice(
             f"({why}); the new version is installed but not used - install it "
             "again after fixing the cause (see troubleshooting: rollback)",
             rolled,
+            "fix the cause the installer named, then install the new version again "
+            "(Linux: sudo apt install --reinstall ./<new .deb>; Windows: its installer)",
         )
     interrupted = _json(folder / INTERRUPTED_NAME, require_root)
     if interrupted is not None:
         action = interrupted.get("action", "")
         to = interrupted.get("to", "?")
         frm = interrupted.get("from", "?")
-        if action == "reverted":
-            text = (
-                f"an upgrade to {to} was interrupted (power loss or a killed "
-                f"installer); the previous version {frm} runs - finish it with "
-                "`sudo dpkg --configure -a` (Linux) or run the installer again"
-            )
-        else:
+        if action == "finishing":
+            # cut off after the switch: the package is unpacked, only its
+            # configure step (health check) is missing
             text = (
                 f"an upgrade to {to} was interrupted after it was switched on; "
-                f"version {to} runs but its final check did not happen - finish "
-                "it with `sudo dpkg --configure -a` (Linux) or run the installer again"
+                f"version {to} runs but its final check did not happen"
             )
-        return UpgradeNotice("interrupted", text, interrupted)
+            fix = FINISH_CONFIGURE
+        else:
+            # cut off in the unpack ("reverted" / "incomplete"): dpkg marks the
+            # package half-installed, which only installing it again repairs
+            runs = (
+                f"the previous version {frm} runs"
+                if action == "reverted"
+                else "no previous version was kept, so what is installed runs"
+            )
+            text = (
+                f"an upgrade to {to} was interrupted while it was being unpacked "
+                f"(power loss or a killed installer); {runs}"
+            )
+            fix = FINISH_UNPACK.format(to=to)
+        return UpgradeNotice("interrupted", f"{text} - {fix}", interrupted, fix)
     state = _state(folder / STATE_NAME, require_root)
     if state is not None:
+        phase = state.get("phase", "?")
+        to = state.get("to", "?")
+        if phase in ("switching", "checking"):  # the Windows setup journal
+            fix = "run the MeshForge installer again"
+        elif phase == "configuring":
+            fix = FINISH_CONFIGURE
+        else:
+            fix = FINISH_UNPACK.format(to=to)
         return UpgradeNotice(
             "in_progress",
-            f"an upgrade from {state.get('from', '?')} to {state.get('to', '?')} "
-            f"is in progress (phase {state.get('phase', '?')}); if no installer or "
-            "apt is running now, it was cut off - finish it with `sudo dpkg "
-            "--configure -a` (Linux) or run the installer again (Windows)",
+            f"an upgrade from {state.get('from', '?')} to {to} is in progress "
+            f"(phase {phase}); if no installer or apt is running now, it was cut "
+            f"off - {fix}",
             state,
+            fix,
         )
     return None

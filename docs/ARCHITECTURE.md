@@ -1417,7 +1417,10 @@ Linux .deb (both packages; packaging/linux/common/upgrade.sh, inlined into the m
                      not      -> stop, `current` -> .previous/<old>, start, check again; rolled-back.json
   ExecStartPre=-+    (root, before every start) state from ANOTHER boot: phase unpacking -> back to
                      .previous (interrupted.json "reverted"); phase configuring -> let the new one start
-                     ("finishing"); `dpkg --configure -a` later finishes either way
+                     ("finishing"). Repair: a cut-off unpack leaves dpkg's half-installed
+                     state -> install the new package again (`apt install --reinstall`
+                     / `apt --fix-broken install`); a cut-off configure -> `dpkg
+                     --configure -a`. doctor / the console name the right one
 Windows (agent/winsetup.py + agent/winupgrade.py; Program Files\MeshForge\upgrade)
   journal state (from python, to, phase) before anything changes; a journal left by a cut-off run makes the
   next run finish it, or revert to the journal's interpreter when the new version is not healthy
@@ -1430,8 +1433,12 @@ Windows (agent/winsetup.py + agent/winupgrade.py; Program Files\MeshForge\upgrad
 | new version will not stop during the rollback | `failed`, honest message, the service not re-pointed; `current.txt` follows the binPath (the new version) | matrix row 3 |
 | controller migration / start fails after an upgrade | backup restored (G2), previous version running on it, agents reconnect | `test_v017_g5_upgrade_rollback.py` controller test (forced, with a real job and agent) |
 | controller rollback itself fails | `rollback-failed.json` + `db status` ROLLBACK FAILED; the previous version is **not** started on a database in an unknown state | G2 tests (`test_db_managed_cluster.py`, controller .deb tests) |
-| power loss mid-upgrade | next start reverts (Linux, unpack phase) or the repair run finishes / reverts (Linux `dpkg --configure -a`, Windows: the installer again); never two versions half-pointed | Linux: `test_agent_power_loss_during_unpack_reverts_then_repair_finishes` (real dpkg) + `test_v017_g5_upgrade_lib.py`; Windows: matrix power-loss rows (fake SCM only) |
+| power loss mid-upgrade | next start reverts (Linux, unpack phase) or the repair run finishes / reverts (Linux: the package installed again after a cut-off unpack, `dpkg --configure -a` after a cut-off configure; Windows: the installer again); never two versions half-pointed | Linux: `test_agent_power_loss_during_unpack_reverts_then_repair_finishes` (real dpkg) + `test_v017_g5_upgrade_lib.py`; Windows: matrix power-loss rows (fake SCM only) |
 
+- **The agent's health rule is weak in one case (known, fix round 1):** with `[agent.console] enabled = false`
+  on a laptop that has not joined, nothing can be asked: "healthy" is then only "active for a few seconds without
+  restarts". A new version that starts and idles but would fail on the first join passes the upgrade check; the
+  first real check is the join itself. Installs use the console (the default), so this is a developer/edge setup.
 - **Forced failure (Q38):** a root/Administrators-only file `fail-upgrade-to` (one line: a version, a Windows
   version folder, or `*`) in the program folder's `.upgrade` / `upgrade` folder fails that version's health check
   so the real rollback runs; one-shot. Deviation from Q38's wording ("under the admin-only data dir"): on Linux the

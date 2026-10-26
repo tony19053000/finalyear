@@ -849,6 +849,11 @@
         "additionalProperties": false,
         "description": "V0.17 G5: the last upgrade was rolled back or interrupted (or runs).",
         "properties": {
+          "fix": {
+            "default": "",
+            "title": "Fix",
+            "type": "string"
+          },
           "kind": {
             "enum": [
               "rolled_back",

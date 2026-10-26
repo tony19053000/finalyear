@@ -2078,8 +2078,10 @@ hard-link copy in `/opt/meshforge/.previous/<ver>`; `postinst` checks the new on
 restarts it and prints `UPGRADE FAILED ... ROLLED BACK` (record:
 `/opt/meshforge/.upgrade/rolled-back.json`, shown by `meshforge-agent doctor` and the
 console until an upgrade succeeds). A power loss during the unpack: the next start runs
-`.previous` (`/usr/lib/meshforge/agent-upgrade-recover`, `ExecStartPre=-+`), and
-`sudo dpkg --configure -a` finishes. **Forced rollback for tests/lab (Q38):**
+`.previous` (`/usr/lib/meshforge/agent-upgrade-recover`, `ExecStartPre=-+`); dpkg
+leaves the package `half-installed`, so finish with `sudo apt install --reinstall
+./<new .deb>` (or `apt --fix-broken install`) - `dpkg --configure -a` only finishes
+an upgrade cut off after the switch (phase `configuring`). **Forced rollback for tests/lab (Q38):**
 `echo <ver> | sudo tee /opt/meshforge/.upgrade/fail-upgrade-to` (one-shot; the
 controller's is `/opt/meshforge/controller/.upgrade/fail-upgrade-to`). Version rule:
 a controller accepts agents of its own and the previous minor (`[controller]

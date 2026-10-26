@@ -80,6 +80,8 @@ class UpgradeNoticeView(_Model):
 
     kind: Literal["rolled_back", "interrupted", "in_progress"]
     message: str
+    fix: str = ""
+    """What to run to finish or retry the upgrade (depends on where it stopped)."""
 
 
 class StatusView(_Model):

@@ -296,7 +296,7 @@ describe("ConsoleApp", () => {
     let kind: "rolled_back" | "in_progress" = "rolled_back";
     fakeAgent({
       "GET /status": () => ({
-        json: status({ joined: true, setup_complete: true, phase: "running", upgrade: { kind, message } }),
+        json: status({ joined: true, setup_complete: true, phase: "running", upgrade: { kind, message, fix: "" } }),
       }),
       "GET /checks": () => ({ json: { checks: [] } }),
       "GET /docker-access": () => ({ json: { supported: true, menu_action: "x", command: "y", explanation: "z" } }),
@@ -310,5 +310,22 @@ describe("ConsoleApp", () => {
     render(<ConsoleApp client={client()} />);
     expect(await screen.findByText("This laptop")).toBeTruthy();
     expect(screen.queryByText("The last upgrade was rolled back")).toBeNull();
+  });
+});
+
+describe("V0.17 G5 fix round 1", () => {
+  it("an interrupted upgrade shows the fix the agent names for where it stopped", async () => {
+    const fix = "finish it by installing the new package again: sudo apt install --reinstall ./<the 0.17.1 .deb>";
+    fakeAgent({
+      "GET /status": () => ({
+        json: status({ joined: true, setup_complete: true, phase: "running", upgrade: { kind: "interrupted", message: "cut off", fix } }),
+      }),
+      "GET /checks": () => ({ json: { checks: [] } }),
+      "GET /docker-access": () => ({ json: { supported: true, menu_action: "x", command: "y", explanation: "z" } }),
+    });
+    render(<ConsoleApp client={client()} />);
+    expect(await screen.findByText("An upgrade was interrupted")).toBeTruthy();
+    expect(screen.getByText(fix)).toBeTruthy();
+    expect(screen.queryByText(/dpkg --configure -a/)).toBeNull();
   });
 });

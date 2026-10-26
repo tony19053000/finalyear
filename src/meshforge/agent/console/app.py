@@ -374,7 +374,7 @@ def _upgrade_view() -> UpgradeNoticeView | None:
     notice = upgrade_notice(program_dir(root))
     if notice is None:
         return None
-    return UpgradeNoticeView(kind=notice.kind, message=notice.message)
+    return UpgradeNoticeView(kind=notice.kind, message=notice.message, fix=notice.fix)
 
 
 def _policy_view(ctx: ConsoleContext, restart: tuple[str, ...] = ()) -> PolicyView:

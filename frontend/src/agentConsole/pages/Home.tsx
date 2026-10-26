@@ -23,7 +23,7 @@ const STOP_HELP: Record<string, string> = {
 
 const UPGRADE_HELP: Record<string, string> = {
   rolled_back: "MeshForge keeps working on the previous version. Fix the cause the installer named, then install the new version again.",
-  interrupted: "Finish the upgrade: on Linux run `sudo dpkg --configure -a`, on Windows run the installer again.",
+  interrupted: "Finish the upgrade: on Linux install the new package again (sudo apt install --reinstall ./<new .deb>), on Windows run the installer again.",
 };
 
 function Row({ label, children }: { label: string; children: ReactNode }) {
@@ -71,7 +71,7 @@ export function Home({ status }: { status: StatusView }) {
         <Problem
           title={status.upgrade.kind === "rolled_back" ? "The last upgrade was rolled back" : "An upgrade was interrupted"}
           message={status.upgrade.message}
-          fix={UPGRADE_HELP[status.upgrade.kind]}
+          fix={status.upgrade.fix !== "" ? status.upgrade.fix : UPGRADE_HELP[status.upgrade.kind]}
           code={status.upgrade.kind}
         />
       )}

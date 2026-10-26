@@ -100,7 +100,6 @@ def test_notice_order_rolled_back_then_interrupted_then_in_progress(
     notice = upgrade_notice(tmp_path, windows=False, require_root=False)
     assert notice is not None and notice.kind == "interrupted"
     assert "previous version 0.17.0 runs" in notice.message
-    assert "dpkg --configure -a" in notice.message
     (upg / "interrupted.json").write_text(_record("finishing"))
     notice = upgrade_notice(tmp_path, windows=False, require_root=False)
     assert notice is not None and "version 0.17.1 runs" in notice.message
@@ -202,3 +201,55 @@ def test_controller_forced_failure_only_for_installed_bundles(
     with pytest.raises(ConfigError, match="forced upgrade failure"):
         server._raise_forced_upgrade_failure("0.17.1")
     assert calls == [(tmp_path / "controller", "0.17.1")]
+
+
+# ------------------------------------------- fix round 1: the fix per phase
+@pytest.mark.parametrize(
+    ("action", "fix_has", "fix_lacks"),
+    [
+        ("reverted", "apt install --reinstall", "dpkg --configure -a"),
+        ("incomplete", "apt install --reinstall", "dpkg --configure -a"),
+        ("finishing", "dpkg --configure -a", "--reinstall"),
+    ],
+)
+def test_interrupted_fix_depends_on_where_it_stopped(
+    tmp_path: Path, action: str, fix_has: str, fix_lacks: str
+) -> None:
+    """A cut-off unpack leaves dpkg half-installed: only installing the
+    package again repairs it; `dpkg --configure -a` only finishes a cut-off
+    configure."""
+    (_upg(tmp_path) / "interrupted.json").write_text(_record(action))
+    notice = upgrade_notice(tmp_path, windows=False, require_root=False)
+    assert notice is not None and notice.kind == "interrupted"
+    assert fix_has in notice.fix and fix_lacks not in notice.fix
+    assert notice.fix in notice.message
+    if action != "finishing":
+        assert "apt --fix-broken install" in notice.fix
+        assert "0.17.1" in notice.fix  # names the version to install again
+
+
+@pytest.mark.parametrize(
+    ("phase", "fix_has"),
+    [
+        ("unpacking", "apt install --reinstall"),
+        ("configuring", "dpkg --configure -a"),
+        ("switching", "installer again"),
+        ("checking", "installer again"),
+    ],
+)
+def test_in_progress_fix_depends_on_the_phase(
+    tmp_path: Path, phase: str, fix_has: str
+) -> None:
+    (_upg(tmp_path) / "state").write_text(f"from=a\nto=0.17.1\nphase={phase}\n")
+    notice = upgrade_notice(tmp_path, windows=False, require_root=False)
+    assert notice is not None and notice.kind == "in_progress"
+    assert fix_has in notice.fix and notice.fix in notice.message
+
+
+def test_doctor_names_the_phase_fix(tmp_path: Path) -> None:
+    pytest.importorskip("meshforge.agent.doctor", reason="needs the agent extra")
+    from meshforge.agent.doctor import upgrade_item
+    from meshforge.common.upgrade_state import UpgradeNotice
+
+    item = upgrade_item(UpgradeNotice("interrupted", "m", {}, "FIX-TEXT"))
+    assert item.fix == "FIX-TEXT"

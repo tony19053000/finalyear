@@ -70,13 +70,7 @@ def upgrade_item(notice: UpgradeNotice | None) -> DoctorItem:
         return DoctorItem("upgrade", ItemStatus.OK, "no unfinished or failed upgrade")
     if notice.kind == "in_progress":
         return DoctorItem("upgrade", ItemStatus.WARN, notice.message)
-    fix = (
-        "fix the cause (the installer's output says why), then install the new "
-        "version again"
-        if notice.kind == "rolled_back"
-        else "Linux: sudo dpkg --configure -a; Windows: run the installer again"
-    )
-    return DoctorItem("upgrade", ItemStatus.FAIL, notice.message, fix)
+    return DoctorItem("upgrade", ItemStatus.FAIL, notice.message, notice.fix)
 
 
 def gather(

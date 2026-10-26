@@ -329,6 +329,9 @@ def test_power_loss_during_the_unpack_reverts_at_the_next_boot(box: Box) -> None
     assert box.running_version() == OLD  # complete, though dpkg deleted the originals
     record = box.record("interrupted.json")
     assert record["action"] == "reverted" and record["to"] == NEW
+    # fix round 1: dpkg is half-installed here; only installing again repairs it
+    assert "apt install --reinstall" in out.stderr
+    assert "dpkg --configure -a" not in out.stderr
     assert box.state()["phase"] == "recovered-unpacking"
     # a later boot never acts twice
     box.boot.write_text("boot-C\n")
@@ -347,7 +350,9 @@ def test_power_loss_after_the_switch_lets_the_new_version_finish(box: Box) -> No
     _dpkg_unpacks_new(box)
     box.ok("mf_upgrade_switch")
     box.boot.write_text("boot-B\n")
-    box.ok("mf_upgrade_recover")
+    out = box.sh("mf_upgrade_recover")
+    assert out.returncode == 0
+    assert "dpkg --configure -a" in out.stderr  # configure is all that is missing
     assert box.current() == NEW
     assert box.record("interrupted.json")["action"] == "finishing"
     assert box.state()["phase"] == "recovered-configuring"
@@ -368,9 +373,10 @@ def test_power_loss_without_a_kept_version_starts_what_is_installed(box: Box) ->
     box.version(NEW)
     box.point(NEW)
     box.boot.write_text("boot-B\n")
-    box.ok("mf_upgrade_recover")
+    out = box.sh("mf_upgrade_recover")
+    assert "apt install --reinstall" in out.stderr
     assert box.current() == NEW
-    assert box.record("interrupted.json")["action"] == "finishing"
+    assert box.record("interrupted.json")["action"] == "incomplete"
 
 
 def test_recover_without_a_record_does_nothing(box: Box) -> None:

@@ -67,7 +67,11 @@ def assert_invariant(ops: Windows) -> None:
 
 @pytest.fixture
 def records(tmp_path: Path) -> FileRecords:
-    return FileRecords(tmp_path / "MeshForge")
+    # the fake SCM's interpreters are Windows paths that do not exist here; the
+    # real "inside {app} and exists" rule has its own tests below
+    return FileRecords(
+        tmp_path / "MeshForge", python_ok=lambda p: p in (OLD_PY, NEW_PY)
+    )
 
 
 def _rolled_back(records: FileRecords) -> dict[str, str]:
@@ -267,3 +271,28 @@ def test_journal_file_format_is_the_linux_one(records: FileRecords) -> None:
     notice = upgrade_notice(records.folder.parent, windows=True, require_root=False)
     assert notice is not None and notice.kind == "in_progress"
     assert "run the installer again" in notice.message
+
+
+# ---------------------------- fix round 1: the journal names only {app} pythons
+def test_a_journalled_python_must_exist_inside_the_program_folder(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "MeshForge"
+    good = root / "0.17.0-1" / "python" / "python.exe"
+    good.parent.mkdir(parents=True)
+    good.write_bytes(b"")
+    outside = tmp_path / "elsewhere" / "python.exe"
+    outside.parent.mkdir()
+    outside.write_bytes(b"")
+    records = FileRecords(root)
+    for python, kept in (
+        (str(good), True),
+        (str(outside), False),  # a foreign binary
+        (str(root / "0.17.0-9" / "python" / "python.exe"), False),  # missing
+        (str(root / "0.17.0-1" / "python" / "evil.exe"), False),  # not python.exe
+        (str(root / ".." / "elsewhere" / "python.exe"), False),  # escapes {app}
+    ):
+        records.write_journal(Journal(python, "0.17.0-2", "checking"))
+        journal = records.read_journal()
+        assert journal is not None
+        assert (journal.from_python == python) is kept, python

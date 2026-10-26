@@ -37,12 +37,15 @@ __all__ = [
     "check_agent_version",
     "default_min_agent",
     "parse_minor",
+    "reason_is_version_unsupported",
 ]
 
 VERSION_UNSUPPORTED: Final = "version_unsupported"
 """The reason word of a version refusal (``reject_reason`` prefix, console
 stop code, troubleshooting entry)."""
 
+_MAX_NODE_CHARS: Final = 64
+"""The node name in a refusal is capped (it comes from the agent's Hello)."""
 _LEADING: Final = re.compile(r"^\s*v?(\d{1,6})\.(\d{1,6})(?:[.\-+~a-zA-Z0-9]*)\s*$")
 
 
@@ -101,6 +104,7 @@ class VersionVerdict:
         """The ``reject_reason`` (and log/console text) of a refusal: the reason
         word, both versions and the fix. Never a secret (versions and a node
         name only)."""
+        node = "".join(c for c in node if c.isprintable())[:_MAX_NODE_CHARS]
         where = f" on {node}" if node else ""
         agent, ctl = self.agent_version, self.controller_version
         if self.compatibility is Compatibility.TOO_OLD:
@@ -159,6 +163,3 @@ def check_agent_version(
 def reason_is_version_unsupported(reason: str) -> bool:
     """A ``reject_reason`` / stream detail whose reason word is ours."""
     return reason.strip().split(":", 1)[0].strip() == VERSION_UNSUPPORTED
-
-
-__all__ += ["reason_is_version_unsupported"]

@@ -56,9 +56,15 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       sha: ${{ steps.version.outputs.sha }}
     steps:
+      - name: a release tag (v<major>.<minor>.<patch>), nothing else
+        run: |
+          if ! printf '%s' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::'$TAG' is not a release tag (vX.Y.Z)"
+            exit 1
+          fi
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ env.TAG }}
+          ref: refs/tags/${{ env.TAG }}
           persist-credentials: false
       - id: version
         name: the tag names the project version
@@ -76,8 +82,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           SHA: ${{ steps.version.outputs.sha }}
         run: |
+          # Only GitHub Actions' own ci-ok (any app can post a check named ci-ok).
           conclusion=$(gh api "repos/$GITHUB_REPOSITORY/commits/$SHA/check-runs?check_name=ci-ok" \
-            --jq '[.check_runs[] | .conclusion] | if length == 0 then "missing" else (if all(. == "success") then "success" else "failure" end) end')
+            --jq '[.check_runs[] | select(.app.slug == "github-actions") | .conclusion] | if length == 0 then "missing" else (if all(. == "success") then "success" else "failure" end) end')
           echo "ci-ok for $SHA: $conclusion"
           if [ "$conclusion" != "success" ]; then
             echo "::error::the CI workflow's ci-ok check is '$conclusion' for $SHA - release only a commit whose CI is green"
@@ -92,7 +99,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ env.TAG }}
+          ref: refs/tags/${{ env.TAG }}
           persist-credentials: false
           fetch-depth: 0
       - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
@@ -138,7 +145,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ env.TAG }}
+          ref: refs/tags/${{ env.TAG }}
           persist-credentials: false
           fetch-depth: 0
       - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
