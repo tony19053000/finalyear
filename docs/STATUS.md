@@ -2,7 +2,7 @@
 
 > Concise current state. Long-term plan: [`DEVELOPMENT_ROADMAP.md`](DEVELOPMENT_ROADMAP.md). Update at the end of every work session.
 
-**Last updated:** 2026-10-25 (session 6: G2 + G3 merged to main 191c2fe4, 0.17.3–0.17.5 [~], D401/D402; next G4 Windows brief)
+**Last updated:** 2026-10-26 (session 7: G4 merged to main e41f1031, 0.17.1 [~]; next G5)
 
 ```
 TOTAL   ██████████████▒▒▒░░░  71%  113/159 done, 21 in progress
@@ -24,8 +24,29 @@ V1.0    ░░░░░░░░░░░░░░░░░░░░   0%   0/8 
 ```
 █ done `[x]` · ▒ in progress or waiting on a 🧑 lab step `[~]` · ░ not started
 
+## Progress
+```
+TOTAL   ██████████████▒▒▒░░░  71%  113/159 done, 22 in progress
+
+V0.1    █████████████████▒▒▒  83%  10/12  Foundations & engineering system
+V0.2    ██▒▒▒▒▒▒▒▒▒▒▒▒▒░░░░░   9%   1/11  Lab setup & feasibility validation
+V0.3    ███████████████▒▒▒▒░  73%  11/15  Fabric core: controller ⇄ agent
+V0.4    ███████████████▒▒▒▒░  76%  13/17  Remote execution core (Mode 1 foundation)
+V0.5    ██████████████████░░  90%  10/11  Data plane & environments
+V0.6    ███████████████████░  92%  13/14  Scheduling & reliability — Mode 1 complete
+V0.7    ██████████████████░░  91%  11/12  Security & pairing
+V0.8    ██████████████████░░  90%   9/10  Dashboard & CLI v1
+V0.9    ██████████████████░░  90%   9/10  Benchmark & telemetry system v1
+V0.10   ██████████████████░░  90%   9/10  Mode 3 Task Splitting
+V0.14   ██████████████████▒▒  87%   7/8   Unified planner v2
+V0.15   █████████████████░░░  83%  10/12  ML planner
+V0.17   ▒▒▒▒▒▒▒▒▒▒▒▒▒░░░░░░░   0%   0/9   Productization
+V1.0    ░░░░░░░░░░░░░░░░░░░░   0%   0/8   Release hardening & final evaluation
+```
+█ done `[x]` · ▒ in progress or waiting on a 🧑 lab step `[~]` · ░ not started
+
 ## Current Version
-**V0.17 — Productization** · brief `docs/briefs/V0.17-productization.md` (APPROVED, D384–D402) · G0 [~] (CI green, SP1–SP3 merged) · **G1 merged** (0.17.2 [~]) · **G2 merged** (0.17.3 [~], D401) · **G3 merged** (0.17.4/0.17.5 [~], D402) · next **G4** Windows service + installer (0.17.1), then G5 · all lab steps 🧑 open
+**V0.17 — Productization** · brief `docs/briefs/V0.17-productization.md` (APPROVED, D384–D402) · G0 [~] (CI green, SP1–SP3 merged) · **G1 merged** (0.17.2 [~]) · **G2 merged** (0.17.3 [~], D401) · **G3 merged** (0.17.4/0.17.5 [~], D402) · **G4 merged** (0.17.1 [~], e41f1031; needs `package-windows` CI + 🧑 lab) · next **G5** · all lab steps 🧑 open
 **V0.15 — ML planner** · started 2026-10-22 (team: approve all, start G1) · brief `docs/briefs/V0.15-ml-planner.md` (D333–D344, APPROVED) · ADR-0021 Proposed · 0.15.11 🧑 lab added (D344) · **G1 CLOSED** (0.15.1–0.15.3 `[x]`, merge `420a3a24`, D345/D346) · **G2 CLOSED** (0.15.4/0.15.5 `[x]`, merge `43aeec43`, D347–D357) · **G3 + G4 CLOSED** (0.15.6 `[x]` merge `80767722`, 0.15.7 `[x]` merge `2eb065b2`, D362–D367; ML now live in the controller via `server.ml_source`) · **G5 CLOSED** (0.15.8 `[x]` merge `193e008d`, 0.15.9 `[x]` merge `086a1b4b`, D368–D374) · **G6 brief APPROVED** (§5h, D375–D380); G6a ∥ G6b implementers STOPPED by user (wip committed in worktrees)
 **V0.14 — Unified planner v2** · started 2026-10-21 (team: "start V0.14", §7 on Lead recommendations) · brief `docs/briefs/V0.14-unified-planner-v2.md` (D290–D303) · ADR-0020 Proposed · **G1 CLOSED** (0.14.1 `[x]`, merge `f72681c0`) · **G2 CLOSED** (0.14.3 `[x]`, merge `092b60c7`, 2026-10-22) · **G3 CLOSED** (0.14.2/0.14.4/0.14.5 `[x]`, merge `3392fe49`, REPLAY_VERSION 2, D309–D312) · **G4+G5 CLOSED** (0.14.6/0.14.7 `[x]`, D321–D323) · **G6 MERGED** (`dbfe3a59`, D324–D331; 0.14.8 `[~]`) · **agent-side complete** · closes on 🧑 0.14.8 (`lab/checklists/V0.14-planner.md`)
 **V0.10 — Mode 3 Task Splitting** · started 2026-10-19 (team: proceed while away) · brief `docs/briefs/V0.10-task-splitting.md` (DRAFT, D259–D276) · ADR-0019 Proposed · **G1–G9 CLOSED** (D277–D288; 0.10.1–0.10.9 `[x]`) · **agent-side complete** · closes on 🧑 0.10.10 (`lab/checklists/V0.10-mode3.md`)
@@ -45,6 +66,8 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 > V0.10. 129 tasks vs 140–180 capacity → **~1.5 tasks/session**. Needs the other three team members' approval.
 
 ## Current Task
+
+- **2026-10-26 (latest):** **V0.17 G4 MERGED** `e41f1031` (Windows bundle, service, Inno Setup installer, firewall, checks, console). Fix r1 (B1 no-follow data removal — icacls never /T, junctions unlinked; rollback stop check; migration-raise handling; console reader = session user; `-- run` refusal G4-T1) + fix r2 (netsh exit-code-only, locale-safe). Tester r2 PASS (646 G4 tests), reviewer APPROVE. Worktree unit 26425 passed. Windows behaviour UNPROVEN until `package-windows` CI runs (needs push) + 🧑 Q34 lab.
 
 - **2026-10-25 (latest):** **V0.17 G2 + G3 MERGED** to main `191c2fe4`. Gates on the merged tree: ruff/format/mypy clean; unit 25779 passed (exit 0); packaging `--run-slow` 76 passed (both .debs, purge in both orders); G3 console component 349 passed; vitest 948, check:api, check:console-api green. D401 (G2), D402 (G3) recorded; 0.17.3/0.17.4/0.17.5 `[~]` (🧑 labs open).
 
@@ -279,7 +302,9 @@ Reviewer non-blocking follow-ups (carry into G2/G3): (1) `mint` should carry `pe
 - Windows: not yet run (first real CI run will cover unit + fresh-clone on windows-latest)
 
 ## Next Recommended Task
-**V0.17 G4 APPROVED** (§5d, Q28–Q34 as recommended) — implementer STOPPED by user, wip @3f3fd0b6 in worktree agent-a92fb795dc545626f. (Windows service + Inno Setup installer + firewall + Docker/GPU checks, 0.17.1; reuses G1/G3; SP1 verdict pywin32 D386) — Lead drafts, team approves. 🧑 labs: G1, G2 (Q19 mirror upload, Q21 pg_dump import), G3, SP1, SP3, icacls (D400).
+**Push (ask user) → `package-windows` CI green → fix first-run issues; then V0.17 G5 brief** (upgrade/rollback matrix incl. G4 migrate-failure pointer, uninstall verifier, user docs; 0.17.6/0.17.7). G4 non-blocking follow-ups: winservice_host.install log delete outcome; drop unused `output` param of netsh_delete_outcome; `-h` as option value matches help shortcut. 🧑 G4 lab (progress note steps 1–9).
+
+_Older:_ **V0.17 G4 APPROVED** (§5d, Q28–Q34 as recommended) — implementer STOPPED by user, wip @3f3fd0b6 in worktree agent-a92fb795dc545626f. (Windows service + Inno Setup installer + firewall + Docker/GPU checks, 0.17.1; reuses G1/G3; SP1 verdict pywin32 D386) — Lead drafts, team approves. 🧑 labs: G1, G2 (Q19 mirror upload, Q21 pg_dump import), G3, SP1, SP3, icacls (D400).
 
 _Older:_ **V0.17 brief DRAFTED** (`docs/briefs/V0.17-productization.md`, D384–D397) — team to answer **Q1–Q10** (§7); Q1 (GitHub repo + Windows CI) is a hard prerequisite. Then G0 spikes SP1–SP3.
 
