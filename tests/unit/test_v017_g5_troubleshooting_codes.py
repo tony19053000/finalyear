@@ -103,21 +103,34 @@ _IMAGE: Final = re.compile(r"!\[[^\]]*\]\((img/[^)]+)\)")
 _TODO: Final = re.compile(r"<!-- TODO-SCREENSHOT: ([\w.-]+\.png) - (.+?) -->")
 
 
+LAB_SCREENSHOTS: Final = {
+    ("create-a-fabric.md", "controller-setup.png"),
+    ("install-windows.md", "windows-smartscreen.png"),
+    ("install-windows.md", "windows-installer-share.png"),
+    ("install-windows.md", "windows-installer-finished.png"),
+    ("install-windows.md", "windows-uninstall-data.png"),
+    ("troubleshooting.md", "windows-smartscreen.png"),
+}
+"""Screenshots still to be taken in the 🧑 0.17.8 lab (TODO-SCREENSHOT); update
+this list when one lands in docs/user/img."""
+
+
 def screenshot_todos() -> list[tuple[str, str, str]]:
     """(page, file, what) of every placeholder still to be filled."""
-    found = []
-    for page in sorted(USER_DOCS.glob("*.md")):
-        for name, what in _TODO.findall(page.read_text(encoding="utf-8")):
-            found.append((page.name, name, what))
-    return found
+    return [
+        (page.name, name, what)
+        for page in sorted(USER_DOCS.glob("*.md"))
+        for name, what in _TODO.findall(page.read_text(encoding="utf-8"))
+    ]
 
 
 def test_every_shown_image_exists() -> None:
-    missing = []
-    for page in sorted(USER_DOCS.glob("*.md")):
-        for rel in _IMAGE.findall(page.read_text(encoding="utf-8")):
-            if not (USER_DOCS / rel).is_file():
-                missing.append(f"{page.name}: {rel}")
+    missing = [
+        f"{page.name}: {rel}"
+        for page in sorted(USER_DOCS.glob("*.md"))
+        for rel in _IMAGE.findall(page.read_text(encoding="utf-8"))
+        if not (USER_DOCS / rel).is_file()
+    ]
     assert missing == [], "images referenced but not in docs/user/img (or a TODO)"
 
 
@@ -130,6 +143,4 @@ def test_screenshot_placeholders_are_listed_and_owned() -> None:
     for page, name, what in todos:
         assert name.startswith(("windows-", "controller-")), (page, name)
         assert "🧑" in what, (page, name, "say who provides it")
-    print(
-        "TODO-SCREENSHOT placeholders:", *(f"{p}: {n}" for p, n, _ in todos), sep="\n  "
-    )
+    assert {(page, name) for page, name, _ in todos} == LAB_SCREENSHOTS
