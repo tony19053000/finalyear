@@ -743,8 +743,8 @@ A version is **complete** only when all apply:
 - [~] **0.17.3** Controller install incl. managed PostgreSQL — agent-side DONE: G2 merged (tester r2 PASS, reviewer APPROVE, D401; controller .deb 145.4 MB, safe restore). Open: 🧑 Q21 pg_dump import of the dev DB on the controller machine; Q19 PostgreSQL mirror upload (GitHub release)
 - [~] **0.17.4** First-run wizard (create fabric / join fabric with code or QR) — agent-side DONE: G3 console join (code/QR) merged 7fa5fd98 + G2 controller setup page (D401/D402; tester r2 PASS, reviewer APPROVE). Open: 🧑 G3 lab (install .deb, console from app menu, QR join, screenshots + journalctl)
 - [~] **0.17.5** Settings UI: resource caps, GPU sharing, node name — agent-side DONE: G3 console Settings merged 7fa5fd98 (D402). Open: 🧑 G3 lab screenshots of Settings + "Give Docker access"
-- [ ] **0.17.6** Upgrade path and clean uninstall
-- [ ] **0.17.7** User documentation (install, pairing, running workloads, SDK)
+- [~] **0.17.6** Upgrade path and clean uninstall — *G5 implemented (docs/briefs/progress/V0.17-G5.md); awaiting tester, reviewer, CI on a pushed branch and 🧑 0.17.8*
+- [~] **0.17.7** User documentation (install, pairing, running workloads, SDK) — *G5: docs/user complete; Windows + packaged-setup screenshots from the 🧑 0.17.8 lab*
 - [ ] **0.17.8** 🧑 Fresh-machine install tests
 
 **Success criteria**
