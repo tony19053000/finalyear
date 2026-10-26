@@ -550,13 +550,23 @@ def _graceful_stop(p: Phase) -> None:
     })  # fmt: skip
 
 
+def _started_since(agent_log: Path, offset: int) -> bool:
+    """``agent.started`` was logged after ``offset`` (V0.17 G4: the old "last 5
+    lines" wait missed it behind later lines and always ran into its timeout)."""
+    try:
+        with agent_log.open("rb") as fh:
+            size = fh.seek(0, os.SEEK_END)
+            fh.seek(offset if offset <= size else 0)
+            return b'"agent.started"' in fh.read()
+    except OSError:
+        return False
+
+
 def _crash_restart(p: Phase) -> None:
+    agent_log = Path(LAYOUT.logs_dir, ws.AGENT_LOG_NAME)
+    offset = agent_log.stat().st_size if agent_log.exists() else 0
     _start()
-    _wait(
-        lambda: '"agent.started"' in "\n".join(_log_tail(ws.AGENT_LOG_NAME, 5)),
-        120,
-        1.0,
-    )
+    _wait(lambda: _started_since(agent_log, offset), 120, 1.0)
     pid1 = int((_status() or {}).get("ProcessId") or 0)
     tree1 = [t["pid"] for t in _tree(pid1)]
     kill = _run(["taskkill", "/F", "/PID", str(pid1)])

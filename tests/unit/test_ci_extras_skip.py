@@ -16,6 +16,7 @@ from pathlib import Path
 from types import ModuleType
 
 import pytest
+from packaging.requirements import Requirement
 
 pytest_plugins = ["pytester"]
 pytestmark = pytest.mark.unit
@@ -29,6 +30,7 @@ DIST_IMPORT_NAMES = {
     "nvidia-ml-py": "pynvml",
     "scikit-learn": "sklearn",
     "xgboost-cpu": "xgboost",
+    "pywin32": "win32service",
 }
 
 #: Extras requirements that a plain ``uv sync`` installs anyway (base or dev
@@ -54,6 +56,9 @@ def _extras_import_names() -> set[str]:
         for req in reqs:
             match = re.match(r"[A-Za-z0-9_.-]+", req)
             assert match, req
+            marker = Requirement(req).marker
+            if marker is not None and not marker.evaluate():
+                continue  # e.g. pywin32 off Windows (V0.17 G4): never installed here
             dist = match.group(0).lower()
             names.add(DIST_IMPORT_NAMES.get(dist, dist.replace("-", "_")))
     return names - ALSO_IN_BASE

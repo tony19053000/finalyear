@@ -21,7 +21,17 @@ directory (the migration disables it but never deletes files in a home, D387).
 
 Everything is read by one POSIX ``sh`` probe (no Python needed on the target), run
 here or inside a container (``--docker NAME``, used by the package tests and CI).
-Windows checks come with the Windows installer (G4/G5): ``--os windows`` says so.
+
+**Windows** (``--os windows``, V0.17 G4): one PowerShell probe, the same
+verdict rules. Always: no ``*MeshForge*`` service, no MeshForge process, no
+``*MeshForge*`` scheduled task (the development task included), no
+``*MeshForge*`` firewall rule, no ``%ProgramFiles%\\MeshForge``, no Start-menu
+shortcut, no uninstall entry, no MeshForge PATH entry, the service account not
+left in ``docker-users``. With ``--data-removed``: no ``%ProgramData%\\MeshForge``.
+Kept on purpose and only reported: the data after a default uninstall, and a
+developer's migrated ``identity.migrated-*`` folders in user profiles. Needs an
+elevated prompt for a complete answer (firewall rules and other users'
+profiles); without it the result says "not elevated" and is never "clean".
 
 Usage::
 
@@ -32,18 +42,21 @@ Usage::
 Run it with ``sudo`` for a complete answer: ``ufw status`` needs root. Without
 root the ufw rules are reported as "not checked", never as clean.
 
-Exit codes: 0 nothing left; 1 something left (each item printed); 2 usage error;
-3 the checks for this OS do not exist yet.
+Exit codes: 0 nothing left; 1 something left (each item printed); 2 usage error
+(also ``--os windows`` off Windows); 3 is no longer returned (it meant "no
+Windows checks yet" before V0.17 G4).
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import platform
 import subprocess
 import sys
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field
+from pathlib import Path
 from typing import Final
 
 EXIT_CLEAN: Final = 0
@@ -139,6 +152,97 @@ else
 	p ufw absent
 fi
 """
+
+
+WINDOWS_APP_ID: Final = "{A8774C05-C367-491D-833B-4979498B0BEE}"
+"""packaging/windows/meshforge-agent.iss AppId (its uninstall key is <id>_is1)."""
+WINDOWS_SERVICE: Final = "MeshForgeAgent"
+
+
+def windows_service_sid(name: str = WINDOWS_SERVICE) -> str:
+    """``NT SERVICE\\<name>``'s SID (same derivation as
+    ``meshforge.common.windows_service``; stdlib only here)."""
+    import hashlib
+    import struct
+
+    digest = hashlib.sha1(name.upper().encode("utf-16-le")).digest()  # noqa: S324
+    return "S-1-5-80-" + "-".join(str(s) for s in struct.unpack("<5I", digest))
+
+
+WINDOWS_PROBE_FILE: Final = Path(__file__).with_name("verify_uninstall_windows.ps1")
+"""The PowerShell probe (a file: PowerShell lines are long); placeholders
+``__APPID__`` / ``__SERVICE__`` / ``__SID__`` are filled in here."""
+
+
+def windows_probe_script() -> str:
+    return (
+        WINDOWS_PROBE_FILE.read_text(encoding="utf-8")
+        .replace("__APPID__", WINDOWS_APP_ID)
+        .replace("__SERVICE__", WINDOWS_SERVICE)
+        .replace("__SID__", windows_service_sid())
+    )
+
+
+def evaluate_windows(
+    facts: Sequence[tuple[str, str]], *, data_removed: bool
+) -> Verdict:
+    """The Windows verdict on a probe's facts (pure; unit-tested)."""
+    verdict = Verdict(os="windows", data_removed=data_removed)
+    seen = {kind for kind, _ in facts}
+    if "done" not in seen:
+        verdict.leftovers.append("the probe did not finish: nothing was checked")
+    labels = {
+        "service": "service still installed",
+        "process": "process still running",
+        "task": "scheduled task left",
+        "firewall": "firewall rule left",
+        "program": "program file left",
+        "uninstall_entry": "uninstall entry left",
+        "path": "PATH entry left",
+        "docker_member": "service account still in docker-users",
+    }
+    for kind, value in facts:
+        if kind in labels:
+            verdict.leftovers.append(f"{labels[kind]}: {value[:200]}")
+        elif kind == "elevated" and value.strip().lower() != "true":
+            verdict.leftovers.append(
+                "not elevated: firewall rules were not checked (run it as "
+                "administrator)"
+            )
+        elif kind == "data":
+            if data_removed:
+                verdict.leftovers.append(f"data left after remove-all-data: {value}")
+            else:
+                verdict.kept.append(
+                    f"data kept (the default uninstall keeps it): {value}"
+                )
+        elif kind == "user_identity":
+            verdict.kept.append(
+                f"migrated developer identity (kept on purpose, never used): {value}"
+            )
+    return verdict
+
+
+def run_windows_probe() -> str:
+    try:
+        done = subprocess.run(
+            [  # noqa: S607 - Windows built-in
+                "powershell",
+                "-NoProfile",
+                "-NonInteractive",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                windows_probe_script(),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=180,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise SystemExit(f"verify_uninstall: the probe could not run: {exc}") from None
+    return done.stdout
 
 
 def probe_script() -> str:
@@ -275,21 +379,22 @@ def main(argv: Sequence[str] | None = None) -> int:
     except SystemExit as exc:
         return EXIT_USAGE if exc.code else EXIT_CLEAN
     if args.os_name == "windows":
-        print(
-            "verify_uninstall: the Windows checks come with the Windows installer "
-            "(V0.17 G4/G5)",
-            file=sys.stderr,
+        if platform.system() != "Windows":  # not sys.platform: mypy reachability
+            print("verify_uninstall: --os windows runs on Windows", file=sys.stderr)
+            return EXIT_USAGE
+        verdict = evaluate_windows(
+            parse_probe(run_windows_probe()), data_removed=args.data_removed
         )
-        return EXIT_NOT_IMPLEMENTED
-    if args.docker is None and sys.platform != "linux":
+    elif args.docker is None and sys.platform != "linux":
         print(
             "verify_uninstall: --os linux runs on Linux (or use --docker)",
             file=sys.stderr,
         )
         return EXIT_USAGE
-    verdict = evaluate(
-        parse_probe(run_probe(args.docker)), data_removed=args.data_removed
-    )
+    else:
+        verdict = evaluate(
+            parse_probe(run_probe(args.docker)), data_removed=args.data_removed
+        )
     if args.json:
         print(json.dumps({**asdict(verdict), "clean": verdict.clean}, indent=1))
     else:

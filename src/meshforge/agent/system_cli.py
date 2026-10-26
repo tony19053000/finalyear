@@ -66,6 +66,16 @@ AGENT_PROGRAM: Final = SystemProgram(
     prog="meshforge-agent",
     program_dir=SYSTEM_PROGRAM_DIR,
     anyone=frozenset({"migrate-identity"}),  # runs as root by design
+    windows=True,
+    windows_refused={
+        # V0.17 G4: a second agent with the service's identity would replace the
+        # service at the controller (which then stops it with exit 5).
+        "run": (
+            "the agent already runs as the MeshForgeAgent service on this computer; "
+            "start or stop it with `sc.exe start MeshForgeAgent` / `sc.exe stop "
+            "MeshForgeAgent` (administrator), or open MeshForge from the Start menu"
+        ),
+    },
 )
 SYSTEM_LAUNCHER: Final = AGENT_PROGRAM.launcher
 
@@ -112,8 +122,10 @@ def apply(
     """Act on :func:`decide` for this process; returns only when the command
     should run here (``none`` / ``warn``). Exits ``CONFIG_ERROR`` when the
     re-execution is needed but ``sudo`` is missing."""
-    if sys.platform != "linux" or not system_install_present():
+    if sys.platform == "linux" and not system_install_present():
         return  # the common case, decided with two stat calls
+    if sys.platform not in ("linux", "win32"):
+        return
     # Looked up at call time (module globals), so tests can replace them.
     _common.apply(
         args,

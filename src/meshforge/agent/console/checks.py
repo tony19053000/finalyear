@@ -20,8 +20,14 @@ Checks (each bounded; the slow ones in threads, all at once):
   version (torch is not in the agent: jobs bring their own);
 * ``disk`` - free space where job environments and caches live;
 * ``firewall`` - Linux: ``ufw`` on/off (``/etc/ufw/ufw.conf``, readable without
-  root); other firewalls and Windows are said to be not checked;
+  root); Windows: the ``MeshForge-Agent-Peer`` rule and Public networks
+  (:mod:`~meshforge.agent.console.checks_windows`); other firewalls are said
+  to be not checked;
 * ``peer`` - the peer file server is off, or answers on its address.
+
+On Windows (V0.17 G4) the Docker check reads Docker Desktop's pipe as the
+service account and names the ``docker-users`` fix (Q31); the GPU check's
+advice names the Windows driver.
 """
 
 from __future__ import annotations
@@ -68,6 +74,20 @@ SERVICE_USER: Final = "meshforge"
 DOCKER_ACCESS_COMMAND: Final = (
     "sudo usermod -aG docker meshforge && sudo systemctl restart meshforge-agent"
 )
+WINDOWS_DOCKER_ACCESS_COMMAND: Final = (
+    'net localgroup docker-users "NT SERVICE\\MeshForgeAgent" /add; '
+    "Restart-Service MeshForgeAgent"
+)
+"""Q31, for an administrator PowerShell (the Start-menu entry runs the same)."""
+WINDOWS_DOCKER_DESKTOP: Final = Path("C:/Program Files/Docker/Docker")
+
+
+def docker_access_command() -> str:
+    return (
+        WINDOWS_DOCKER_ACCESS_COMMAND
+        if sys.platform == "win32"
+        else DOCKER_ACCESS_COMMAND
+    )
 
 
 class CheckStatus(StrEnum):
@@ -118,10 +138,89 @@ def _in_docker_group_on_disk() -> bool | None:
     return False
 
 
+def _check_docker_windows(reason: str | None, version: str | None) -> Check:
+    """Windows (Docker Desktop, Q31). ``reason`` None = it works."""
+    from meshforge.agent.console.checks_windows import (
+        DOCKER_ACCESS_MENU,
+        service_in_docker_users,
+    )
+
+    title = "Docker"
+    if reason is None:
+        shown = f" {version}" if version else ""
+        return Check(
+            "docker",
+            title,
+            CheckStatus.OK,
+            f"Docker{shown} works for MeshForge: jobs run in containers.",
+        )
+    if reason == "docker_permission_denied":
+        if service_in_docker_users():
+            return Check(
+                "docker",
+                title,
+                CheckStatus.WARN,
+                "MeshForge was given Docker access, but its service has not "
+                "restarted since (Windows gives a service its groups at start).",
+                f"{DOCKER_ACCESS_MENU} again (it restarts the service), or restart "
+                "the computer.",
+            )
+        return Check(
+            "docker",
+            title,
+            CheckStatus.WARN,
+            "Docker Desktop is installed, but MeshForge may not use it. Docker "
+            "access is the same as full admin rights on this computer, so it is "
+            "off until you turn it on.",
+            f"{DOCKER_ACCESS_MENU} (asks for an administrator's OK), or in an "
+            f"administrator PowerShell: {WINDOWS_DOCKER_ACCESS_COMMAND}",
+            DOCKER_ACCESS_ACTION,
+        )
+    return Check(
+        "docker",
+        title,
+        CheckStatus.WARN,
+        "Docker Desktop is installed but not running. Docker Desktop only runs "
+        "while someone is signed in to this computer.",
+        "Start Docker Desktop and turn on 'Start Docker Desktop when you sign in' "
+        "(Settings > General).",
+    )
+
+
 def check_docker(settings: AgentSettings) -> Check:
     from meshforge.agent.execution.docker_support import probe_docker
 
     title = "Docker"
+    if sys.platform == "win32":
+        if which("docker") is None and not WINDOWS_DOCKER_DESKTOP.exists():
+            return Check(
+                "docker",
+                title,
+                CheckStatus.MISSING,
+                "Docker Desktop is not installed. Jobs run without containers, only "
+                "if you allow unsandboxed jobs in Settings.",
+                "Install Docker Desktop (docs.docker.com/desktop/setup/install/"
+                "windows-install), then come back here.",
+            )
+        found = probe_docker(
+            timeout_s=5.0,
+            host_has_nvidia_gpu=False,
+            gpu_probe_image=None,
+            agent_label="",
+        )
+        if found.reason == "docker_sdk_missing":
+            return Check(
+                "docker",
+                title,
+                CheckStatus.WARN,
+                "This MeshForge installation has no Docker library.",
+                "Reinstall MeshForge.",
+            )
+        if found.reason is not None and found.reason.startswith("docker_seccomp"):
+            reason: str | None = "docker_daemon_unreachable"
+        else:
+            reason = None if found.available else (found.reason or "unknown")
+        return _check_docker_windows(reason, found.version)
     socket_path = Path("/var/run/docker.sock")
     if which("docker") is None and not socket_path.exists():
         return Check(
@@ -223,6 +322,19 @@ def check_gpu() -> tuple[Check, Check]:
         "GPU jobs need an NVIDIA GPU with its driver.",
     )
     if which("nvidia-smi") is None:
+        if sys.platform == "win32":
+            return (
+                Check(
+                    "gpu",
+                    title,
+                    CheckStatus.MISSING,
+                    "No NVIDIA GPU driver found (nvidia-smi is not on the service's "
+                    "PATH). This computer shares its CPU only.",
+                    "If it has an NVIDIA GPU, install the NVIDIA driver (nvidia.com/"
+                    "drivers or Windows Update), then restart the computer.",
+                ),
+                no_cuda,
+            )
         if NVIDIA_PROC.exists():
             return (
                 Check(
@@ -358,6 +470,25 @@ def _ufw_enabled(conf: Path = UFW_CONF) -> bool | None:
 def check_firewall(settings: AgentSettings, *, ufw_conf: Path = UFW_CONF) -> Check:
     title = "Firewall"
     peer_on = settings.agent.peer.bind is not None
+    if sys.platform == "win32":
+        from meshforge.agent.console.checks_windows import (
+            firewall_verdict,
+            windows_firewall_facts,
+        )
+
+        verdict = firewall_verdict(
+            windows_firewall_facts(),
+            peer_on=peer_on,
+            port=settings.agent.peer.port,
+            python_exe=sys.executable,
+        )
+        return Check(
+            "firewall",
+            title,
+            CheckStatus.OK if verdict.status == "ok" else CheckStatus.WARN,
+            verdict.why,
+            verdict.fix,
+        )
     if sys.platform != "linux":
         return Check(
             "firewall",

@@ -1240,7 +1240,7 @@ A packaged laptop runs the agent as a system service in **system** mode, chosen 
 | config | `~/.config/meshforge/config.toml` | `/etc/meshforge/config.toml` (`root:meshforge 0640`) | `%PROGRAMDATA%\MeshForge\config\` |
 | data (identity, cas, envs, policy, scores) | `~/.local/share/meshforge/` | `/var/lib/meshforge/` (`meshforge 0750`, `identity/` `0700`) | `%PROGRAMDATA%\MeshForge\` |
 | runs as | the person | system user `meshforge` (unit `meshforge-agent.service`, hardened: `ProtectSystem=strict`, only `/var/lib/meshforge` writable, `Delegate=yes`) | `NT SERVICE\MeshForgeAgent` |
-| logs | stderr / user journal | `journalctl -u meshforge-agent` | Event Log / file (G4) |
+| logs | stderr / user journal | `journalctl -u meshforge-agent` | `%PROGRAMDATA%\MeshForge\logs\{service,agent}.log` (G4) |
 
 The bundle (`scripts/build_bundle.py`) is a relocatable python-build-standalone CPython 3.12 with the
 `meshforge` wheel and the locked dependencies of one role; launchers find the interpreter relative to themselves,
@@ -1251,6 +1251,53 @@ starts its fabric part by itself (the G1 `ConditionPathExists=` + `meshforge-age
 `meshforge` via `sudo` (Q15), so there is one identity per laptop. Installing the package migrates an existing
 per-user identity + config (`meshforge-agent migrate-identity`, D387; never mints while one is undecided).
 Operator steps: OPERATIONS §2 and §4.
+
+**The Windows installer** (V0.17 G4, D385-D389/D395, Q28-Q33 — [ADR-0022](adr/0022-productization-install-services.md) update)
+
+```
+MeshForge-Agent-Setup-<ver>-<rev>.exe   (Inno Setup, per machine, admin, x64, Windows 10 22H2+/11, unsigned)
+  copies the bundle to C:\Program Files\MeshForge\<ver>-<rev>\   (side by side; never over running files)
+  runs  <ver>-<rev>\python\python.exe -I -m meshforge.agent.winservice setup   (elevated)
+        └─ winsetup.setup(RealOps): legacy dev task stopped+disabled -> running service stopped ->
+           service created / binPath re-pointed + state folders + ACLs -> identity migrated (D387) ->
+           console access for the session user (Q30) -> peer firewall rule follows [agent.peer] bind ->
+           start + health (RUNNING, console /health, agent.started when joined; 60 s) ->
+           ok: current.txt + PATH shims (C:\Program Files\MeshForge\bin) name this version
+           upgrade not healthy: service back on the previous python.exe, started again (rolled_back)
+  finish page = the helper's own lines ("never done over a stopped service"); silent: exit 100+code
+  uninstall: winservice teardown (Docker access, PATH, service + firewall rule by name, legacy task;
+             data only with "remove all data" / /REMOVEDATA, Q9) + Inno deletes C:\Program Files\MeshForge
+```
+
+- **Service** (D386, SP1): `MeshForgeAgent`, pywin32 `ServiceFramework` hosted by the bundle's `python.exe -I`
+  (no wrapper), runs as `NT SERVICE\MeshForgeAgent` (SID type unrestricted, so ACLs can name it), Automatic
+  (Delayed), recovery restart x3 / 5 s, reset 3600 s, `FailureActionsOnNonCrashFailures` off. The host
+  supervises `winservice child -- run` (with `MESHFORGE_INSTALL_MODE=system`) in a kill-on-close job object;
+  stop = the child's stdin closes (unbuffered watcher -> the agent's own graceful stop). `classify_exit` is the
+  one exit contract: 4/5 -> STOPPED with the code as service-specific exit code (no restart, like systemd's
+  `RestartPreventExitStatus=4 5`), anything else unrequested -> exit without STOPPED = a crash -> SCM restart.
+  Logs: `logs\service.log` (host) and `logs\agent.log` (agent JSON).
+- **ACLs** (D385, D400): every state folder has inheritance removed and only SYSTEM + Administrators (full) +
+  the service SID — root/cache/logs/console modify (policy and node name live in the root), config read,
+  identity full and owned by the service. In system mode every private file the agent (or an elevated admin
+  CLI) writes gets exactly service + SYSTEM + Administrators (`common.windows_service.windows_private_sids`).
+  The console token inherits `console\`'s ACL, which also lets the installing user read (Q30; others: the
+  launcher's "request access" asks UAC and runs `winservice console-access add --sid <theirs>`).
+- **Admin CLI** (Q32): with the installer's files present a packaged `meshforge-agent` acts on the service's
+  state *in process* when elevated (`MESHFORGE_INSTALL_MODE=system` set first), is refused with "run as
+  administrator, or use the MeshForge console" when not, and `run` is always refused (a second agent with the
+  service's identity). No `sudo -u` exists for a virtual account.
+- **Launchers**: the bundle's `bin\*.cmd` (not `.exe` trampolines, which name their interpreter and cannot pass
+  `-I`); the Start-menu entries run `pythonw.exe -I -m meshforge.agent.console.launcher [--docker-access]`
+  (message boxes, UAC for the two admin actions: Docker access Q31, console access Q30).
+- **Checks on Windows** (measured by the service in session 0): Docker Desktop's pipe as the service account
+  (`docker-users` membership named, and "given but not restarted yet"), `nvidia-smi` on the service's PATH,
+  the `MeshForge-Agent-Peer` rule (Private + Domain only, D389) and Public networks (fix = the network profile,
+  never a wider rule), free disk.
+- **Migration on Windows** (D387): candidates `<profile>\AppData\Local\MeshForge\identity` (the session
+  user's profile first, else every profile under `C:\Users`), config from `AppData\Roaming`; same rule matrix
+  as Linux. Windows has no `openat`, so `safe_source` uses a path backend (no link/junction on the way, one
+  hard link, the opened handle = the checked file, folder identity re-checked after each read).
 
 **The controller package** (V0.17 G2, D390/D392/D393/D398 — [ADR-0022](adr/0022-productization-install-services.md))
 

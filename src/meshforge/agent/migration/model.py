@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import sys
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
@@ -32,9 +34,54 @@ IDENTITY_FILES: Final = (
 )
 """What moves: the key, its metadata, the enrolment (cert + pinned CA) and a key
 staged by ``rotate-key``. Not the lock (each directory has its own)."""
-_USER_IDENTITY: Final = Path(".local/share/meshforge") / IDENTITY_DIR_NAME
-_USER_CONFIG: Final = Path(".config/meshforge") / CONFIG_FILE_NAME
+POSIX_USER_IDENTITY: Final = Path(".local/share/meshforge") / IDENTITY_DIR_NAME
+POSIX_USER_CONFIG: Final = Path(".config/meshforge") / CONFIG_FILE_NAME
+WINDOWS_USER_IDENTITY: Final = Path("AppData/Local/MeshForge") / IDENTITY_DIR_NAME
+"""V0.17 G4: a developer's Windows agent (``%LOCALAPPDATA%\\MeshForge``), relative
+to the profile folder (``C:\\Users\\<name>``)."""
+WINDOWS_USER_CONFIG: Final = Path("AppData/Roaming/MeshForge") / CONFIG_FILE_NAME
+_WINDOWS: Final = sys.platform == "win32"
+_USER_IDENTITY: Final = WINDOWS_USER_IDENTITY if _WINDOWS else POSIX_USER_IDENTITY
+_USER_CONFIG: Final = WINDOWS_USER_CONFIG if _WINDOWS else POSIX_USER_CONFIG
 _HOME_PREFIXES: Final = ("/home/", "/root/", "~")
+
+
+def windows_profiles_root(environ: dict[str, str] | None = None) -> Path:
+    """``C:\\Users`` (the parent of ``%PUBLIC%``, else ``%SystemDrive%\\Users``)."""
+    env = os.environ if environ is None else environ
+    public = env.get("PUBLIC", "").strip()
+    if public:
+        return Path(public).parent
+    return Path((env.get("SystemDrive") or "C:") + "\\") / "Users"
+
+
+def rerun_hint() -> str:
+    """How to run the migration again, for this OS's messages."""
+    if _WINDOWS:
+        return (
+            "the MeshForge installer again (or `meshforge-agent migrate-identity` "
+            "in an administrator prompt)"
+        )
+    return "`sudo meshforge-agent migrate-identity`"
+
+
+def admin_prefix() -> str:
+    """What goes before an admin command in this OS's messages (Windows: an
+    elevated prompt instead, said separately)."""
+    return "" if _WINDOWS else "sudo "
+
+
+def start_hint() -> str:
+    """How to start the service once a blocked migration is resolved."""
+    if _WINDOWS:
+        return "`sc.exe start MeshForgeAgent` (administrator prompt)"
+    return "`sudo systemctl enable --now meshforge-agent`"
+
+
+def example_identity_dir() -> str:
+    if _WINDOWS:
+        return r"C:\Users\<user>\AppData\Local\MeshForge\identity"
+    return "/home/<user>/.local/share/meshforge/identity"
 
 
 class MigrationOutcome(StrEnum):
@@ -51,6 +98,9 @@ class Paths:
     target_identity: Path
     target_config: Path
     home_root: Path = Path("/home")
+    user_identity: Path = _USER_IDENTITY
+    """A user's identity folder relative to their home (Windows: profile)."""
+    user_config: Path = _USER_CONFIG
 
     @property
     def target_policy(self) -> Path:
@@ -64,6 +114,7 @@ def system_paths() -> Paths:
     return Paths(
         target_identity=Path(dirs.data_dir) / IDENTITY_DIR_NAME,
         target_config=Path(dirs.config_dir) / CONFIG_FILE_NAME,
+        home_root=windows_profiles_root() if _WINDOWS else Path("/home"),
     )
 
 

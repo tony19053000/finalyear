@@ -34,6 +34,7 @@ import servicemanager
 import win32service
 import win32serviceutil
 
+from meshforge.agent.wininstall import netsh_delete_outcome
 from meshforge.agent.winservice import (
     AGENT_LOG_NAME,
     SERVICE_LOG_NAME,
@@ -46,6 +47,7 @@ from meshforge.agent.winservice import (
     acl_plan,
     agent_child_argv,
     build_service_spec,
+    child_env,
     firewall_add_argv,
     firewall_delete_argv,
     icacls_argv,
@@ -95,6 +97,7 @@ class HostOptions:
     log_path: Path
     cwd: Path
     grace_s: float
+    env: dict[str, str] | None = None
 
 
 class MeshForgeAgentService(win32serviceutil.ServiceFramework):
@@ -114,6 +117,7 @@ class MeshForgeAgentService(win32serviceutil.ServiceFramework):
             opts.argv,
             log_path=opts.log_path,
             grace_s=opts.grace_s,
+            env=opts.env,
             cwd=opts.cwd,
             on_progress=self._stop_progress,
         )
@@ -187,12 +191,16 @@ def run_host(
     # A service has no console: anything printed must land in the log, not vanish.
     sys.stdout = sys.stderr = stream
     configure_logging("INFO", fmt="json", component="agent-service", stream=stream)
-    argv = tuple(child_argv) or tuple(agent_child_argv(sys.executable, config))
+    # The config file only when it exists (a fresh install runs on defaults).
+    argv = tuple(child_argv) or tuple(
+        agent_child_argv(sys.executable, config if Path(config).is_file() else None)
+    )
     MeshForgeAgentService.options = HostOptions(
         argv=argv,
         log_path=logs / AGENT_LOG_NAME,
         cwd=logs.parent,
         grace_s=grace_s,
+        env=child_env(os.environ),
     )
     log.info(
         "agent.service.host_starting",
@@ -330,13 +338,7 @@ def install(
 ) -> None:
     """Create (or re-configure) the service, the state folders and their ACLs, and -
     only with peer serving on - the named firewall rule. Idempotent."""
-    for folder in (
-        layout.root,
-        layout.config_dir,
-        layout.identity_dir,
-        layout.cache_dir,
-        layout.logs_dir,
-    ):
+    for folder in layout.folders:
         Path(folder).mkdir(parents=True, exist_ok=True)
     try:
         _create_or_update(spec)
@@ -350,7 +352,8 @@ def install(
             _run_tool(argv)
     if peer_firewall:
         rule = peer_firewall_rule()
-        _run_tool(firewall_delete_argv(rule.name), ok_codes=frozenset({0, 1}))
+        # Delete by name first (any exit: the add below is what matters).
+        _run_tool(firewall_delete_argv(rule.name), ok_codes=frozenset(range(256)))
         _run_tool(firewall_add_argv(rule))
     log.info(
         "agent.service.installed",
@@ -395,9 +398,18 @@ def uninstall(name: str = SERVICE_NAME, *, stop_timeout_s: float = 60.0) -> bool
             raise ServiceInstallError(
                 f"removing service {name} failed: {exc.strerror} ({exc.winerror})"
             ) from exc
-    # netsh exits 1 when no rule has that name: already gone is fine.
-    _run_tool(
-        firewall_delete_argv(peer_firewall_rule().name), ok_codes=frozenset({0, 1})
+    # netsh exits 1 when no rule has that name: already gone is fine (logged).
+    # By the exit code alone (netsh's text is localised); a failed delete is
+    # logged, never fatal: the service itself is already gone.
+    code = _run_tool(
+        firewall_delete_argv(peer_firewall_rule().name), ok_codes=frozenset(range(256))
+    )
+    outcome = netsh_delete_outcome(code, "")
+    (log.warning if outcome == "unexpected" else log.info)(
+        "agent.service.firewall_rule_delete",
+        rule=peer_firewall_rule().name,
+        outcome=outcome,
+        exit_code=code,
     )
     log.info("agent.service.uninstalled", service=name, existed=existed)
     return existed

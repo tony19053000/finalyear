@@ -2155,11 +2155,113 @@ folder; set `[controller.db] mode = "managed"`, `bin_dir = "<that>"`, and a shor
 root is deep (unix socket paths are limited to 107 bytes). `MESHFORGE_TEST_PG=managed` runs the shared
 test PostgreSQL fixture on the bundled server instead of Docker.
 
-## 3. Windows — Task Scheduler
+## 3. Windows — the MeshForge installer (system service)
 
-The agent runs **natively on Windows**, not inside WSL
-([ADR-0009](adr/0009-native-windows-agent.md)), and V0.3 uses **Task Scheduler** —
-no third-party service wrapper. In `cmd.exe`:
+Since V0.17 G4 a Windows 10 (22H2) / 11 x64 laptop installs the agent with
+**`MeshForge-Agent-Setup-<ver>-<rev>.exe`** ([ADR-0022](adr/0022-productization-install-services.md),
+D385-D389, D395). No checkout, no system Python, no WSL, no terminal: the
+installer brings the bundle (CPython 3.12 + the locked wheels + pywin32) and runs
+the agent as the Windows service **`MeshForgeAgent`** under the virtual account
+`NT SERVICE\MeshForgeAgent` (ADR-0009: still a native Windows process).
+
+```powershell
+# build (on Windows; CI's package-windows job uploads the same files)
+uv sync --extra agent
+uv run python scripts/build_bundle.py --role agent --os windows --out dist/
+uv run python scripts/build_windows_installer.py --bundle dist\meshforge-<ver>-windows-x86_64 --out dist/
+```
+
+The installer is **unsigned** (Q2): Windows SmartScreen says "Windows protected
+your PC" — click **More info → Run anyway**. Then: welcome → licence → folder
+(keep `C:\Program Files\MeshForge`) → "what this computer will share" → install →
+**Open MeshForge** (checked; the console's wizard: join by code or QR, owner
+settings with accept-jobs **off** until you say yes, checks).
+
+What the install does (`packaging/windows/meshforge-agent.iss` copies files; the
+decisions are `python -I -m meshforge.agent.winservice setup`, `agent/winsetup.py`):
+
+| Step | Result |
+|---|---|
+| program | `C:\Program Files\MeshForge\<ver>-<rev>\` (side by side with the previous version), `current.txt`, PATH shims `C:\Program Files\MeshForge\bin\{meshforge-agent,compute}.cmd` (machine PATH) |
+| development task | the dev scheduled task `\MeshForgeAgent` (below) is stopped and **disabled** (uninstall deletes it); a *task*, not the service — the messages say which |
+| service | `MeshForgeAgent`, Automatic (Delayed), recovery restart ×3 / 5 s (reset after 1 h), exit 4/5 = stopped, not restarted |
+| state folders | `C:\ProgramData\MeshForge\{config,identity,cache,logs,console}` + the root (envs, policy, node name): inheritance removed; SYSTEM + Administrators full, the service modify (config: read; identity: full, owned by the service) |
+| migration (D387) | a developer identity in `%LOCALAPPDATA%\MeshForge\identity` (yours first, else any profile's) moves with its `node_id`, the source renamed `identity.migrated-<date>`; config from `%APPDATA%\MeshForge\config.toml` |
+| console | the user who ran the installer may read `console\token` (Q30); Start menu **MeshForge** and **MeshForge - give Docker access** |
+| firewall | `MeshForge-Agent-Peer` TCP 47120 in, Private + Domain only — only when `[agent.peer] bind` is set (D389) |
+| start + check | the service must be RUNNING, its console answer, and (joined laptops) `agent.started` be logged within 60 s; else an upgrade switches back to the previous version (`rolled_back`) and the finish page says why |
+
+Silent (CI, lab): `MeshForge-Agent-Setup-….exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /LOG=install.log`.
+Exit code 0 = installed **and healthy**; 100 + the helper's code otherwise (104 =
+needs attention, e.g. a blocked migration; 101 = failed or rolled back); 99 = the
+helper could not run. The helper's own result: `C:\ProgramData\MeshForge\logs\setup-result.json`.
+
+**Where things are** (`MESHFORGE_INSTALL_MODE=system`, set by the service for its child):
+
+| What | Path |
+|---|---|
+| program (read-only) | `C:\Program Files\MeshForge\<ver>-<rev>\` (`python\python.exe`, `bin\*.cmd`) |
+| config | `C:\ProgramData\MeshForge\config\config.toml` (optional; administrators write it) |
+| identity, envs, caches, policy, node name | `C:\ProgramData\MeshForge\` |
+| logs | `C:\ProgramData\MeshForge\logs\service.log` (the host) and `agent.log` (the agent, JSON lines) |
+| console | `http://127.0.0.1:47130/` (loopback only), token `C:\ProgramData\MeshForge\console\token` |
+
+### Joining, and admin commands on Windows
+
+Open **MeshForge** from the Start menu; the wizard is the same as on Linux
+([docs/user/install-windows.md](user/install-windows.md)). Another Windows user
+of the laptop gets "request access" (asks an administrator through UAC). From a
+terminal, the admin commands act on the service's state only in an **elevated**
+prompt (Q32 — there is no `sudo -u` for a virtual account):
+
+```powershell
+# "Terminal (Admin)" / "Run as administrator"
+meshforge-agent join                 # paste the mf1-... code
+meshforge-agent identity show        # the service's node
+meshforge-agent policy set accept_jobs=true
+```
+
+Not elevated, they refuse with "run as administrator, or use the MeshForge
+console" (never a second identity in `%LOCALAPPDATA%`). `meshforge-agent run` is
+always refused on an installed laptop (it would push the service off the fabric).
+Administrator tools of the service itself (`python.exe -I -m meshforge.agent.winservice …`,
+from `C:\Program Files\MeshForge\<ver>-<rev>\python\`):
+
+| Command | What |
+|---|---|
+| `health` | is the running service healthy (the upgrade check alone) |
+| `console-access add --user NAME` / `--sid S-1-…` / `remove …` | who may open the console |
+| `docker-access` | `NT SERVICE\MeshForgeAgent` joins `docker-users`, the service restarts (Q31; what the Start-menu entry runs) |
+| `firewall-sync` | the peer rule follows `[agent.peer] bind` (after editing it) |
+| `update-path --python-exe …` | point the service at another version's `python.exe` |
+
+**Docker Desktop** only runs while someone is signed in, and gives a service its
+groups only when the *service* restarts: after "give Docker access" the console's
+Docker check turns ok; if it says "given but not restarted", run the entry again
+or restart the computer. **A blocked migration** (two profiles with an identity, a
+damaged one): the install completes, the service stays **stopped**, and the finish
+page and `setup-result.json` name the folders; choose one, then (elevated)
+`meshforge-agent migrate-identity --from C:\Users\<user>\AppData\Local\MeshForge\identity`
+and `sc.exe start MeshForgeAgent`.
+
+### Day-to-day (Windows)
+
+```powershell
+sc.exe query MeshForgeAgent          # STATE, and SERVICE_EXIT_CODE 4/5 when it stopped itself
+Restart-Service MeshForgeAgent       # elevated
+Get-Content C:\ProgramData\MeshForge\logs\agent.log -Tail 20 -Wait
+```
+
+Upgrade = run the newer installer (same AppId): a new version folder, the service
+re-pointed and checked, the old folder kept until uninstall.
+
+### Development only — Task Scheduler
+
+The pre-V0.17 developer setup, kept for working from a checkout. The agent runs
+**natively on Windows**, not inside WSL
+([ADR-0009](adr/0009-native-windows-agent.md)), as a **Task Scheduler** task —
+no third-party service wrapper. Do not combine it with the installed service:
+the installer stops and disables this task and migrates its identity. In `cmd.exe`:
 
 ```bat
 if not exist "%LOCALAPPDATA%\MeshForge" mkdir "%LOCALAPPDATA%\MeshForge"
@@ -2189,7 +2291,10 @@ schtasks /end   /tn MeshForgeAgent          :: stop the running instance
   (`Get-Content f.xml | Set-Content -Encoding Unicode f-u16.xml`).
 - Use `/rl LIMITED`: the agent needs no elevation in V0.3.
 
-### Does it survive logoff?
+#### Does it survive logoff?
+
+(The installed **service** does — it is not tied to a logon; checked in the G4
+lab step. This section is about the development task.)
 
 **Unverified — 🧑 needs a lab check.** An `/sc onlogon` task runs inside the
 interactive logon session with an `InteractiveToken` principal, and the expectation
@@ -2220,8 +2325,7 @@ forbids.
   `meshforge-agent identity show` under that account before relying on it.
 
 Either way the agent stays a **native Windows process** (ADR-0009); nothing here
-moves it into WSL. Real installation and service registration is V0.17
-productization.
+moves it into WSL. Real installation is the installer above (V0.17 G4).
 
 ---
 
@@ -2247,6 +2351,26 @@ a MeshForge process, program files, ufw rule/profile, dpkg state; after purge al
 data and accounts) and exits 1 if there is one. Run it with `sudo` (ufw needs
 root; without it ufw is reported "not checked", never "clean"). A developer's old
 user unit file in a home directory is listed as *kept*: it is yours to delete.
+
+**The Windows installer:** Settings → Apps → Installed apps → **MeshForge Agent**
+→ Uninstall (or `C:\Program Files\MeshForge\unins000.exe [/VERYSILENT] [/REMOVEDATA]`).
+It asks "Also remove all MeshForge data?" (default **No**, Q9): the service, its
+firewall rule, the Start-menu entries, the PATH entry, Docker access and the dev
+scheduled task go; `C:\ProgramData\MeshForge` (identity, caches, logs) stays, so
+installing again brings the **same** node back. Check (elevated PowerShell, from a
+checkout or with any Python 3):
+
+```powershell
+python lab\verify_uninstall.py --os windows                  # after a default uninstall
+python lab\verify_uninstall.py --os windows --data-removed   # after "remove all data"
+```
+
+It lists every leftover (a `*MeshForge*` service, process, scheduled task or
+firewall rule, `C:\Program Files\MeshForge`, Start-menu entry, uninstall entry,
+PATH entry, the service account in `docker-users`; with `--data-removed` also
+`C:\ProgramData\MeshForge`) and exits 1 if there is one. Not elevated it says so
+and is never "clean". A developer's migrated `identity.migrated-*` folders in user
+profiles are listed as *kept*: they are yours to delete.
 
 **A development setup:**
 

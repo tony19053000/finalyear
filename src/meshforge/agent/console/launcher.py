@@ -20,6 +20,15 @@ progress note decision 4): the service cannot do it itself.
 
 Messages go to stderr and, when there is a desktop notifier (``notify-send``),
 to a notification - a menu click has no terminal.
+
+**Windows (V0.17 G4).** The Start-menu shortcut runs this module with
+``pythonw.exe`` (no console): messages are message boxes
+(:mod:`~meshforge.agent.console.launcher_windows`). The token is
+``C:\\ProgramData\\MeshForge\\console\\token``, readable by the user who ran the
+installer and the users an administrator added (Q30); anyone else is offered
+"request access", which asks Windows for an administrator (UAC) and runs
+``winservice console-access add --sid <their SID>``. ``--docker-access`` runs
+``winservice docker-access`` the same way (Q31).
 """
 
 from __future__ import annotations
@@ -33,6 +42,7 @@ import subprocess
 import sys
 import time
 import webbrowser
+from collections.abc import Callable
 from pathlib import Path
 from typing import Final
 
@@ -53,8 +63,15 @@ class LaunchError(Exception):
         self.code = code
 
 
-def _tell(message: str) -> None:
-    sys.stderr.write(f"{PROG}: {message}\n")
+def _tell(message: str, *, warning: bool = False) -> None:
+    if sys.stderr is not None:  # pythonw.exe (the Windows shortcut) has none
+        sys.stderr.write(f"{PROG}: {message}\n")
+    if sys.platform == "win32":
+        if sys.stderr is None or os.environ.get("MESHFORGE_CONSOLE_OPEN_GUI"):
+            from meshforge.agent.console.launcher_windows import message_box
+
+            message_box(message, warning=warning)
+        return
     notifier = shutil.which("notify-send")
     desktop = os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")
     if notifier and desktop:
@@ -72,6 +89,13 @@ def read_token(path: Path) -> str:
     try:
         text = path.read_text(encoding="ascii").strip()
     except PermissionError:
+        if sys.platform == "win32":
+            raise LaunchError(
+                "your Windows user may not open the MeshForge console on this "
+                "computer yet (only the user who installed it and the users an "
+                "administrator added may).",
+                ExitCode.CONFIG_ERROR,
+            ) from None
         raise LaunchError(
             "your user may not open the MeshForge console on this laptop (it is "
             f"not in the {_ADMIN_GROUP} group). Ask an admin to run: sudo usermod "
@@ -80,9 +104,15 @@ def read_token(path: Path) -> str:
             ExitCode.CONFIG_ERROR,
         ) from None
     except FileNotFoundError:
+        start = (
+            "sc.exe start MeshForgeAgent (in an administrator prompt), or restart "
+            "the computer"
+            if sys.platform == "win32"
+            else "sudo systemctl start meshforge-agent"
+        )
         raise LaunchError(
             "MeshForge is not running on this laptop (no console token). Start it: "
-            "sudo systemctl start meshforge-agent",
+            + start,
             ExitCode.UNAVAILABLE,
         ) from None
     except (OSError, UnicodeDecodeError) as exc:
@@ -101,22 +131,34 @@ def _settings_paths(config: Path | None) -> tuple[Path, int]:
         SYSTEM_CONSOLE_TOKEN_DIR,
         AgentSettings,
     )
-    from meshforge.common.config import INSTALL_MODE_ENV_VAR, InstallMode, install_mode
+    from meshforge.common.config import (
+        INSTALL_MODE_ENV_VAR,
+        InstallMode,
+        install_mode,
+        platform_dirs,
+    )
     from meshforge.common.errors import MeshForgeError
+    from meshforge.common.system_cli import windows_installed
 
     if (
         config is None
-        and sys.platform == "linux"
         and not os.environ.get(INSTALL_MODE_ENV_VAR)
-        and SYSTEM_CONSOLE_TOKEN_DIR.is_dir()
+        and (
+            (sys.platform == "linux" and SYSTEM_CONSOLE_TOKEN_DIR.is_dir())
+            or (sys.platform == "win32" and windows_installed())
+        )
     ):
-        # Typed in a terminal (the menu entry sets the mode itself): the system
-        # service's token folder exists, so that is the agent to open.
+        # Typed in a terminal or clicked in the Start menu: the system service
+        # is installed here, so that is the agent to open.
         os.environ[INSTALL_MODE_ENV_VAR] = InstallMode.SYSTEM.value
     try:
         settings = AgentSettings.load(config, agent={"discovery": {"enabled": True}})
     except (MeshForgeError, OSError) as exc:
         if config is None and install_mode() is InstallMode.SYSTEM:
+            # A desktop user may not read the service's config: package defaults.
+            if sys.platform == "win32":
+                system = platform_dirs(mode=InstallMode.SYSTEM).data_dir
+                return Path(system) / "console" / "token", DEFAULT_CONSOLE_PORT
             return SYSTEM_CONSOLE_TOKEN_DIR / "token", DEFAULT_CONSOLE_PORT
         message = exc.message if isinstance(exc, MeshForgeError) else str(exc)
         raise LaunchError(f"cannot read the agent settings: {message}") from None
@@ -167,9 +209,14 @@ def _wait_healthy(client: httpx.Client, base: str, wait_s: float) -> None:
         except httpx.HTTPError as exc:
             last = type(exc).__name__
         if time.monotonic() >= deadline:
+            see = (
+                "C:\\ProgramData\\MeshForge\\logs\\agent.log"
+                if sys.platform == "win32"
+                else "journalctl -u meshforge-agent -n 50"
+            )
             raise LaunchError(
                 f"MeshForge did not answer at {base} within {wait_s:.0f} s ({last}). "
-                "See: journalctl -u meshforge-agent -n 50",
+                f"See: {see}",
                 ExitCode.UNAVAILABLE,
             )
         time.sleep(0.5)
@@ -199,6 +246,8 @@ def launch_url(token_path: Path, port: int, *, wait_s: float) -> str:
 
 
 def docker_access() -> int:
+    if sys.platform == "win32":
+        return _docker_access_windows()
     pkexec = shutil.which("pkexec")
     if pkexec is None or not DOCKER_ACCESS_HELPER.is_file():
         _tell(
@@ -215,6 +264,69 @@ def docker_access() -> int:
     else:
         _tell(f"giving Docker access failed (exit {result.returncode}).")
     return int(ExitCode.FAILURE)
+
+
+if sys.platform == "win32":  # pragma: no cover - Windows only
+
+    def _docker_access_windows() -> int:  # pragma: no cover - Windows only
+        from meshforge.agent.console.launcher_windows import (
+            ElevationCancelledError,
+            run_elevated,
+        )
+
+        try:
+            code = run_elevated(["docker-access"])
+        except ElevationCancelledError:
+            _tell(
+                "Docker access was not given (Windows did not get an administrator's OK)."
+            )
+            return int(ExitCode.FAILURE)
+        if code == 0:
+            _tell(
+                "Docker access given; MeshForge restarted. Open MeshForge again from the "
+                "Start menu (if Docker still says no access, restart Docker Desktop)."
+            )
+            return int(ExitCode.OK)
+        _tell(
+            f"giving Docker access failed (exit {code}); is Docker Desktop installed? "
+            "See C:\\ProgramData\\MeshForge\\logs\\service.log",
+            warning=True,
+        )
+        return int(ExitCode.FAILURE)
+
+    def _request_access_windows() -> bool:  # pragma: no cover - Windows only
+        """Q30: offer to ask an administrator for console access; True when granted."""
+        from meshforge.agent.console.launcher_windows import (
+            ElevationCancelledError,
+            ask_yes_no,
+            current_user_sid,
+            run_elevated,
+        )
+
+        if not ask_yes_no(
+            "Your Windows user may not open the MeshForge console on this computer "
+            "yet.\n\nAsk Windows for an administrator's OK to allow it now?"
+        ):
+            return False
+        try:
+            code = run_elevated(["console-access", "add", "--sid", current_user_sid()])
+        except ElevationCancelledError:
+            return False
+        return code == 0
+
+    def _retry_with_access(exc: LaunchError, retry: Callable[[], str]) -> str:
+        if not _request_access_windows():
+            raise exc
+        return retry()
+
+else:
+
+    def _docker_access_windows() -> int:
+        raise AssertionError("Windows only")
+
+    def _retry_with_access(exc: LaunchError, retry: Callable[[], str]) -> str:
+        _reexec_with_group(sys.argv[1:])
+        raise exc
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -241,11 +353,14 @@ def main(argv: list[str] | None = None) -> None:
         try:
             url = launch_url(token_path, port, wait_s=max(0.0, args.wait))
         except LaunchError as exc:
-            if exc.code == ExitCode.CONFIG_ERROR:  # token not readable
-                _reexec_with_group(sys.argv[1:] if argv is None else argv)
-            raise
+            if exc.code != ExitCode.CONFIG_ERROR:  # token readable: another problem
+                raise
+            # Linux: `sg meshforge-admin` re-run; Windows: offer "request access".
+            url = _retry_with_access(
+                exc, lambda: launch_url(token_path, port, wait_s=max(0.0, args.wait))
+            )
     except LaunchError as exc:
-        _tell(str(exc))
+        _tell(str(exc), warning=True)
         raise SystemExit(int(exc.code)) from None
     if args.print_url:
         sys.stdout.write(url + "\n")

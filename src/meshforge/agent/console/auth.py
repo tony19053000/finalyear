@@ -5,7 +5,11 @@
   ``/run/meshforge-console`` (``2750 meshforge:meshforge-admin``, made by
   systemd-tmpfiles), so the file is ``0640`` and readable by the service user and
   the ``meshforge-admin`` group only; in a folder without the set-group-id bit
-  (a developer's ``<data_dir>/console``) it is ``0600``. Being able to read it
+  (a developer's ``<data_dir>/console``) it is ``0600``. On the Windows service
+  (V0.17 G4, Q30) the file inherits the ACL of ``C:\\ProgramData\\MeshForge\\console``,
+  which the installer sets: SYSTEM, Administrators, the service (modify) and the
+  user who installed (read) - the Windows twin of ``meshforge-admin``; a
+  developer's Windows agent keeps it private to its user. Being able to read it
   *is* the permission: there is no password.
 * **Launch code** - the launcher trades the token (``Authorization: Bearer``) for
   a single-use code valid ``launch_code_ttl_s`` and opens the browser on
@@ -32,13 +36,14 @@ import stat
 import sys
 import time
 from collections import OrderedDict
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
 
 from meshforge.common.atomic import atomic_write_bytes
 from meshforge.common.private_files import protect_private
+from meshforge.common.windows_service import system_mode
 
 __all__ = [
     "COOKIE_NAME",
@@ -94,9 +99,16 @@ def write_token_file(directory: Path, token: str) -> Path:
     atomic_write_bytes(path, (token + "\n").encode("ascii"), mode=mode)
     if os.name == "posix":
         os.chmod(path, mode)  # the service's UMask=0077 would have taken g+r away
-    elif sys.platform == "win32":  # pragma: no cover - G4 sets the folder's ACL
+    elif sys.platform == "win32" and not windows_folder_acl():  # pragma: no cover
         protect_private(path)
     return path
+
+
+def windows_folder_acl(environ: Mapping[str, str] | None = None) -> bool:
+    """The token file keeps the ACL it inherits from its folder (Windows system
+    mode, V0.17 G4): the installer gave that folder the readers (Q30); a private
+    ACL here would lock out the very user the installer granted."""
+    return system_mode(environ)
 
 
 @dataclass(slots=True)

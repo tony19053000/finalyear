@@ -83,8 +83,9 @@ from meshforge.common.logging import get_logger
 from meshforge.common.private_files import (
     WINDOWS_TOOL_TIMEOUT_S,
     current_logon_sid,
-    owner_only_icacls_argvs,
+    private_icacls_argvs,
 )
+from meshforge.common.windows_service import system_mode, windows_private_sids
 
 __all__ = [
     "CA_CERT_FILE_NAME",
@@ -239,9 +240,18 @@ def _refuse_pending_migration(directory: Path) -> None:
             "an identity migration into this directory is unfinished or was "
             "refused, so no identity is loaded or minted here",
             marker,
-            "run `sudo meshforge-agent migrate-identity` and follow what it prints "
+            f"run {_migrate_command()} and follow what it prints "
             "(it names the identity to keep, or why it stopped)",
         )
+
+
+def _migrate_command() -> str:
+    if sys.platform == "win32":
+        return (
+            "the MeshForge installer again (or, as administrator, "
+            "`meshforge-agent migrate-identity`)"
+        )
+    return "`sudo meshforge-agent migrate-identity`"
 
 
 def next_epoch(
@@ -810,12 +820,15 @@ def _protect(path: Path) -> None:
 
 
 def _protect_windows(path: Path) -> None:
-    sid = _current_user_sid()
+    # V0.17 G4: on the installed service (system mode) the identity is for the
+    # service SID + SYSTEM + Administrators, whoever writes it (an elevated
+    # `meshforge-agent identity show` must not lock the service out, Q32).
+    sids = windows_private_sids(_current_user_sid(), system=system_mode())
     # Argument list, no shell; icacls resolves via PATH (system32). Also removes
     # the explicit ACEs CPython's mkdir(mode=0o700) and the logon session's
     # default DACL add on Windows.
-    argvs = owner_only_icacls_argvs(
-        path, sid, current_logon_sid(), directory=path.is_dir()
+    argvs = private_icacls_argvs(
+        path, sids, current_logon_sid(), directory=path.is_dir()
     )
     for argv in argvs:
         _run_icacls(argv, path)

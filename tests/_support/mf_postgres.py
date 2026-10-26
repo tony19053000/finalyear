@@ -15,7 +15,8 @@ from __future__ import annotations
 
 import asyncio
 import concurrent.futures
-from collections.abc import Iterator
+import os
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final
 from uuid import uuid4
@@ -109,6 +110,12 @@ def postgres_server(request: pytest.FixtureRequest) -> Iterator[PostgresServer]:
         # the controller's bundled PostgreSQL instead of the Docker image.
         yield from _managed_server()
         return
+    external = external_pg_server()
+    if external is not None:
+        # V0.17 G4: the Windows runner has no Linux containers; its preinstalled
+        # PostgreSQL serves the package-windows fabric test.
+        yield external
+        return
     request.getfixturevalue("docker_available")
     pytest.importorskip("testcontainers", reason="needs the dev dependency group")
     from testcontainers.community.postgres import PostgresContainer
@@ -137,6 +144,32 @@ def postgres_server(request: pytest.FixtureRequest) -> Iterator[PostgresServer]:
         )
     finally:
         cleanup()
+
+
+EXTERNAL_PG_PREFIX: Final = "MESHFORGE_TEST_PG_"
+"""``MESHFORGE_TEST_PG=external`` + ``MESHFORGE_TEST_PG_{HOST,PORT,USER,PASSWORD,DB}``:
+an already running server (superuser credentials; test databases are created
+and dropped in it like in the container)."""
+
+
+def external_pg_server(
+    environ: Mapping[str, str] | None = None,
+) -> PostgresServer | None:
+    """The ``external`` server named by the environment, or None (not asked)."""
+    env = os.environ if environ is None else environ
+    if env.get("MESHFORGE_TEST_PG", "").strip().lower() != "external":
+        return None
+
+    def get(key: str, default: str) -> str:
+        return env.get(EXTERNAL_PG_PREFIX + key) or default
+
+    return PostgresServer(
+        host=get("HOST", "127.0.0.1"),
+        port=int(get("PORT", "5432")),
+        user=get("USER", "postgres"),
+        password=get("PASSWORD", ""),
+        admin_db=get("DB", "postgres"),
+    )
 
 
 def _managed_server() -> Iterator[PostgresServer]:

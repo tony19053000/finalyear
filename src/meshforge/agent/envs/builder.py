@@ -144,6 +144,22 @@ def bundled_interpreter(executable: str | None = None) -> Path | None:
     return stable_root(root) / exe.relative_to(root)
 
 
+def venv_home_missing(venv: Path) -> bool:
+    """``pyvenv.cfg`` names a ``home`` (the base interpreter's folder) that no
+    longer exists. Unreadable or no ``home`` key: ``False`` (the summary check
+    already covers a damaged tree)."""
+    try:
+        text = (venv / "pyvenv.cfg").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    for line in text.splitlines():
+        key, sep, value = line.partition("=")
+        if sep and key.strip().lower() == "home":
+            home = value.strip()
+            return bool(home) and not Path(home).is_dir()
+    return False
+
+
 ONLY_BINARY_OPTIONS: Final = ("--only-binary", ":all:")
 """Installer options for a wheels-only build (pip and uv spell it the same)."""
 
@@ -416,6 +432,11 @@ class EnvBuilder:
         if kind == "venv" and python.is_symlink() and not python.exists():
             # SP3 F2: the venv links an interpreter that is gone (an upgrade
             # removed the bundle folder it was built from). Same files, unusable.
+            return "damaged"
+        if kind == "venv" and venv_home_missing(final):
+            # V0.17 G4, F2 on Windows: no symlink there - the venv's python.exe
+            # is a launcher that reads `home` from pyvenv.cfg, and the versioned
+            # bundle folder it names is gone after an upgrade removed it.
             return "damaged"
         return "ready"
 

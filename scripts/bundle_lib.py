@@ -98,7 +98,7 @@ def layout_for(system: str, machine: str, *, experimental_windows: bool) -> Layo
             posix=False,
         )
     raise BundleError(
-        f"no bundle layout for {system} (Windows: --experimental-windows, untested)",
+        f"no bundle layout for {system} (Windows: build with --os windows there)",
         reason="unsupported",
     )
 
@@ -120,6 +120,24 @@ class EntryPoint:
     name: str
     module: str
     function: str
+
+
+def script_names(text: str) -> set[str]:
+    """Every ``console_scripts`` and ``gui_scripts`` name of an
+    ``entry_points.txt`` (V0.17 G4: the Windows ``Scripts\\<name>.exe``
+    trampolines an installer wrote for them name the build interpreter)."""
+    names: set[str] = set()
+    section = ""
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith(("#", ";")):
+            continue
+        if line.startswith("["):
+            section = line.strip("[]").strip()
+            continue
+        if section in ("console_scripts", "gui_scripts") and "=" in line:
+            names.add(line.partition("=")[0].strip())
+    return names
 
 
 def parse_entry_points(text: str) -> dict[str, EntryPoint]:
@@ -184,9 +202,12 @@ def launcher_posix(entry: EntryPoint, layout: Layout) -> str:
 
 
 def launcher_windows(entry: EntryPoint, layout: Layout) -> str:
-    """A ``.cmd`` launcher (UNTESTED until the Windows runner: SP1). ``%~dp0`` is
-    the launcher's own folder; the code uses only ``'`` quotes so cmd's ``"``
-    quoting stays simple."""
+    """A ``.cmd`` launcher (V0.17 G4; run on the ``package-windows`` CI job).
+    ``%~dp0`` is the launcher's own folder; the code uses only ``'`` quotes so
+    cmd's ``"`` quoting stays simple. ``.cmd``, not ``.exe``: an ``.exe`` would
+    have to be a trampoline (uv's or distlib's), which names its interpreter in
+    a binary trailer and cannot pass ``-I`` (G4 progress note, decision 2); the
+    Start-menu entries run ``pythonw.exe`` directly."""
     python = "..\\" + layout.python_exe.replace("/", "\\")
     code = _launch_code(entry, quote="'")
     return (
@@ -278,15 +299,29 @@ _TOO_GENERIC: Final = frozenset({"/home", "/root", "/usr", "/tmp"})  # noqa: S10
 """Paths too common to flag (``HOME=/root`` on CI would hit unrelated text)."""
 
 
+def _windows_forms(path: str) -> set[str]:
+    """A Windows path as tools write it: ``\\`` and ``/`` separators, either case
+    of the drive letter (``C:\\x`` / ``c:/x``). Nothing for a POSIX path."""
+    if len(path) < 3 or path[1] != ":" or not path[0].isalpha():
+        return {path}
+    forms: set[str] = set()
+    for drive in (path[0].upper(), path[0].lower()):
+        body = drive + path[1:]
+        forms |= {body, body.replace("\\", "/"), body.replace("/", "\\")}
+    return forms
+
+
 def leak_needles(paths: Iterable[Path | str]) -> list[bytes]:
     """Byte strings that must not appear in a bundle: each path as given and
-    resolved, longest first, ignoring ones too short to be meaningful."""
+    resolved (Windows: in every separator/drive-case form), longest first,
+    ignoring ones too short to be meaningful."""
     needles: set[str] = set()
     for item in paths:
         text = str(item).rstrip("/\\")
         for form in (text, os.path.realpath(text)):
-            if len(form) >= 8 and form not in _TOO_GENERIC:
-                needles.add(form)
+            for variant in _windows_forms(form):
+                if len(variant) >= 8 and variant not in _TOO_GENERIC:
+                    needles.add(variant)
     return sorted((n.encode("utf-8", "surrogateescape") for n in needles), key=len)[
         ::-1
     ]

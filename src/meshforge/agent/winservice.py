@@ -45,20 +45,26 @@ restart); any other unrequested exit -> the host exits without reporting STOPPED
 from __future__ import annotations
 
 import argparse
-import hashlib
 import signal
-import struct
 import subprocess
 import sys
 import threading
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import PureWindowsPath
 from typing import Final, Literal, Protocol
 
 from meshforge.common.exit_codes import ExitCode
+from meshforge.common.windows_service import (
+    INSTALL_MODE_ENV_VAR,
+    SERVICE_ACCOUNT,
+    SERVICE_NAME,
+    SID_ADMINISTRATORS,
+    SID_SYSTEM,
+    service_sid,
+)
 
 __all__ = [
     "AGENT_LOG_NAME",
@@ -103,15 +109,11 @@ __all__ = [
     "watch_for_stop",
 ]
 
-SERVICE_NAME: Final = "MeshForgeAgent"
 DISPLAY_NAME: Final = "MeshForge Agent"
 DESCRIPTION: Final = (
     "MeshForge compute-fabric node agent: shares this computer's CPU/GPU with the "
     "fabric, within the owner's policy."
 )
-SERVICE_ACCOUNT: Final = rf"NT SERVICE\{SERVICE_NAME}"
-"""Virtual account (D386): no password, no rights beyond what install grants."""
-
 RESTART_DELAY_MS: Final = 5_000
 RESTART_ATTEMPTS: Final = 3
 FAILURE_RESET_S: Final = 3_600
@@ -132,9 +134,6 @@ the identity) - OPERATIONS §2's ``RestartPreventExitStatus=4 5``."""
 ERROR_SERVICE_SPECIFIC_ERROR: Final = 1066
 """``dwWin32ExitCode`` meaning "see ``dwServiceSpecificExitCode``"."""
 
-SID_SYSTEM: Final = "S-1-5-18"
-SID_ADMINISTRATORS: Final = "S-1-5-32-544"
-
 AGENT_LOG_NAME: Final = "agent.log"
 SERVICE_LOG_NAME: Final = "service.log"
 
@@ -147,7 +146,7 @@ FIREWALL_PROFILES: Final = "private,domain"
 # ------------------------------------------------------------------ layout
 @dataclass(frozen=True)
 class MachineLayout:
-    """D385 machine state: ``C:\\ProgramData\\MeshForge\\{config,identity,cache,logs}``.
+    """D385 machine state: ``C:\\ProgramData\\MeshForge\\{config,identity,cache,logs,console}``.
 
     ``root`` is the agent's ``data_dir`` (so ``identity`` is ``data_dir/identity``,
     ADR-0013); environments and caches go under ``cache`` via the config file.
@@ -174,6 +173,24 @@ class MachineLayout:
     @property
     def logs_dir(self) -> PureWindowsPath:
         return self.root / "logs"
+
+    @property
+    def console_dir(self) -> PureWindowsPath:
+        """The local console's token folder (V0.17 G4, D391): the agent's own
+        default ``<data_dir>/console`` (``settings.console_token_dir``)."""
+        return self.root / "console"
+
+    @property
+    def folders(self) -> tuple[PureWindowsPath, ...]:
+        """Every state folder, root first (creation and ACL order)."""
+        return (
+            self.root,
+            self.config_dir,
+            self.identity_dir,
+            self.cache_dir,
+            self.logs_dir,
+            self.console_dir,
+        )
 
 
 def machine_layout(program_data: str | PureWindowsPath) -> MachineLayout:
@@ -238,9 +255,13 @@ def host_argv(
     return argv
 
 
-def agent_child_argv(python_exe: str, config_file: str) -> list[str]:
-    """The supervised agent: the normal ``run`` command behind the stdin stop watcher."""
-    return [
+def agent_child_argv(python_exe: str, config_file: str | None) -> list[str]:
+    """The supervised agent: the normal ``run`` command behind the stdin stop watcher.
+
+    ``config_file`` only when it exists: like the Linux unit, a fresh install has
+    no ``config.toml`` and runs on the system-mode defaults (an explicit
+    ``--config`` must exist, ``common.config.resolve_config_file``)."""
+    argv = [
         python_exe,
         "-I",
         "-m",
@@ -248,9 +269,15 @@ def agent_child_argv(python_exe: str, config_file: str) -> list[str]:
         "child",
         "--",
         "run",
-        "--config",
-        config_file,
     ]
+    return [*argv, "--config", config_file] if config_file else argv
+
+
+def child_env(environ: Mapping[str, str]) -> dict[str, str]:
+    """The agent child's environment: the service's own, plus
+    ``MESHFORGE_INSTALL_MODE=system`` (D385, Q11: set by the service, never
+    guessed) - the Windows twin of the systemd unit's ``Environment=``."""
+    return {**environ, INSTALL_MODE_ENV_VAR: "system"}
 
 
 def recovery_actions() -> tuple[FailureAction, ...]:
@@ -348,25 +375,29 @@ class DirAcl:
     owner_sid: str | None = None
 
 
-def service_sid(name: str = SERVICE_NAME) -> str:
-    """The per-service SID ``NT SERVICE\\<name>``: ``S-1-5-80-`` + the SHA-1 of the
-    upper-cased name in UTF-16LE, as five little-endian 32-bit sub-authorities.
-    Deterministic, so the ACL can be computed before (and checked against
-    ``sc showsid``) without a name lookup that depends on the system language."""
-    digest = hashlib.sha1(name.upper().encode("utf-16-le")).digest()  # noqa: S324
-    subs = struct.unpack("<5I", digest)
-    return "S-1-5-80-" + "-".join(str(s) for s in subs)
-
-
-def acl_plan(layout: MachineLayout, svc_sid: str) -> tuple[DirAcl, ...]:
+def acl_plan(
+    layout: MachineLayout, svc_sid: str, console_readers: Sequence[str] = ()
+) -> tuple[DirAcl, ...]:
     """D385: SYSTEM + Administrators + the service SID only, nothing inherited.
 
     The root holds the agent's own state files (``scores.json``, ``policy.toml``,
-    ``work``), so the service may modify it; ``config`` is read-only to the service
-    (the owner/installer writes it); ``identity`` is owned by the service account
-    (ADR-0013 owner-only rule; the agent then restricts the key file to itself).
+    ``node_name``, ``work``), so the service may modify it - the files the console
+    edits (owner policy, node name) live there, not in ``config``; ``config`` is
+    read-only to the service (the owner/installer writes it); ``identity`` is
+    owned by the service account (ADR-0013; the agent then restricts each file,
+    ``common.windows_service.windows_private_sids``).
+
+    ``console`` (V0.17 G4, Q30) also lets ``console_readers`` - the user who ran
+    the installer and anyone an administrator added - **read**: its token file
+    inherits that ACL, which is the whole permission to open the console (the
+    Windows twin of the Linux ``meshforge-admin`` group).
     """
     admin = (Grant(SID_SYSTEM, Access.FULL), Grant(SID_ADMINISTRATORS, Access.FULL))
+    readers = tuple(
+        Grant(sid, Access.READ)
+        for sid in dict.fromkeys(console_readers)
+        if sid not in (svc_sid, SID_SYSTEM, SID_ADMINISTRATORS)
+    )
     return (
         DirAcl(layout.root, (*admin, Grant(svc_sid, Access.MODIFY))),
         DirAcl(layout.config_dir, (*admin, Grant(svc_sid, Access.READ))),
@@ -377,6 +408,7 @@ def acl_plan(layout: MachineLayout, svc_sid: str) -> tuple[DirAcl, ...]:
         ),
         DirAcl(layout.cache_dir, (*admin, Grant(svc_sid, Access.MODIFY))),
         DirAcl(layout.logs_dir, (*admin, Grant(svc_sid, Access.MODIFY))),
+        DirAcl(layout.console_dir, (*admin, Grant(svc_sid, Access.MODIFY), *readers)),
     )
 
 
@@ -498,7 +530,10 @@ def _child_main(agent_args: Sequence[str]) -> int:
 def _parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="python -m meshforge.agent.winservice",
-        description="MeshForge agent Windows service (host, install, uninstall).",
+        description=(
+            "MeshForge agent Windows service: the service host, and the installer's "
+            "and administrators' commands (all but host/child need an elevated prompt)."
+        ),
     )
     sub = p.add_subparsers(dest="command", required=True)
     host = sub.add_parser("host", help="Run as the service (started by the SCM).")
@@ -519,7 +554,64 @@ def _parser() -> argparse.ArgumentParser:
     )
     inst.add_argument("--start", action="store_true", help="Start after install.")
     sub.add_parser("uninstall", help="Stop and delete the service and its rules.")
+    # V0.17 G4: the installer's steps and the administrators' tools.
+    setup = sub.add_parser(
+        "setup",
+        help="Installer: install/upgrade with this bundle, migrate, start, check.",
+    )
+    setup.add_argument("--result-file", default=None, help="JSON result (tests).")
+    setup.add_argument(
+        "--message-file", default=None, help="Text for the installer's last page."
+    )
+    setup.add_argument("--health-timeout", type=float, default=60.0)
+    teardown = sub.add_parser(
+        "teardown", help="Uninstaller: remove the service, rules, task, PATH entry."
+    )
+    teardown.add_argument(
+        "--remove-data",
+        action="store_true",
+        help="Also delete C:\\ProgramData\\MeshForge (identity, cache, logs).",
+    )
+    teardown.add_argument("--result-file", default=None)
+    teardown.add_argument("--message-file", default=None)
+    update = sub.add_parser(
+        "update-path", help="Point the service at another version's python.exe."
+    )
+    update.add_argument("--python-exe", default=sys.executable)
+    health = sub.add_parser("health", help="Is the running service healthy?")
+    health.add_argument("--timeout", type=float, default=60.0)
+    access = sub.add_parser(
+        "console-access", help="Who may open the local MeshForge console (Q30)."
+    )
+    access.add_argument("action", choices=["add", "remove"])
+    access.add_argument("--user", action="append", help="DOMAIN\\name or name")
+    access.add_argument("--sid", action="append", help="S-1-5-21-...")
+    access.add_argument(
+        "--session-user",
+        action="store_true",
+        help="The user signed in to this Windows session (the installer uses it).",
+    )
+    sub.add_parser(
+        "docker-access",
+        help="Add the service account to docker-users and restart it (Q31).",
+    )
+    sub.add_parser(
+        "firewall-sync", help="Make the peer firewall rule follow [agent.peer] bind."
+    )
     return p
+
+
+ADMIN_COMMANDS: Final = frozenset(
+    {
+        "setup",
+        "teardown",
+        "update-path",
+        "health",
+        "console-access",
+        "docker-access",
+        "firewall-sync",
+    }
+)
 
 
 def _strip_dashdash(argv: Sequence[str]) -> list[str]:
@@ -547,6 +639,10 @@ if sys.platform == "win32":
                 peer_firewall=args.peer_firewall,
                 start=args.start,
             )
+        if args.command in ADMIN_COMMANDS:
+            from meshforge.agent.winservice_admin import run_admin_command
+
+            return run_admin_command(args)
         return host.uninstall_cli()
 
 

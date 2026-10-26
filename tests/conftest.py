@@ -337,6 +337,10 @@ EXTRA_IMPORTS: Final[Mapping[str, str]] = {
     "threadpoolctl": "ml",
     # gpu
     "torch": "gpu",
+    # V0.17 G4: pywin32 (`sys_platform == 'win32'`) exists only on Windows, so
+    # it counts for `extras("agent")` only there (elsewhere it is never
+    # installed nor imported - listing it would skip every agent test).
+    **({"win32service": "agent"} if sys.platform == "win32" else {}),
 }
 
 #: Packages of this repository: pure Python, so their modules left behind by an

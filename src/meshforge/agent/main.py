@@ -433,8 +433,9 @@ def migrate_identity(
         Path | None,
         typer.Option(
             "--from",
-            help="The per-user identity folder to move (default: $SUDO_USER's, "
-            "else the only one under /home). Use it when several were found.",
+            help="The per-user identity folder to move (default: $SUDO_USER's - "
+            "Windows: the installing user's - else the only one under /home or "
+            "C:\\Users). Use it when several were found.",
             parser=_nonempty_path,
             metavar="DIR",
         ),
@@ -471,19 +472,33 @@ def migrate_identity(
     import sys
 
     from meshforge.agent.migration import Paths, migrate
-    from meshforge.common.config import CONFIG_FILE_NAME
+    from meshforge.common.config import CONFIG_FILE_NAME, INSTALL_MODE_ENV_VAR
     from meshforge.common.errors import MeshForgeError
     from meshforge.common.logging import configure_logging
 
     configure_logging("WARNING", fmt="console", component="agent")
-    if sys.platform != "linux":
+    windows = sys.platform == "win32"
+    if sys.platform not in ("linux", "win32"):
         typer.echo(
-            f"{PROG_NAME}: migrate-identity is Linux-only for now (the Windows "
-            "installer migrates on its own)",
-            err=True,
+            f"{PROG_NAME}: migrate-identity runs on Linux and Windows only", err=True
         )
         raise typer.Exit(ExitCode.USAGE_ERROR)
-    if not dry_run and service_user and os.geteuid() != 0:
+    if sys.platform == "win32":
+        # V0.17 G4: the installer runs it (winservice setup); by hand it needs an
+        # elevated prompt. No service user to chown to: the ACLs do it.
+        service_user = ""
+        if not dry_run and not _windows_elevated():
+            typer.echo(
+                f"{PROG_NAME}: migrate-identity changes machine-wide files: run it "
+                "in an elevated prompt (Run as administrator), or add --dry-run",
+                err=True,
+            )
+            raise typer.Exit(ExitCode.FAILURE)
+        # It writes the service's files: any private file it makes must stay
+        # the service's (common.windows_service.windows_private_sids), as when
+        # the installer (RealOps) runs it.
+        os.environ[INSTALL_MODE_ENV_VAR] = "system"
+    elif not dry_run and service_user and os.geteuid() != 0:
         typer.echo(
             f"{PROG_NAME}: migrate-identity changes machine-wide files: run it with "
             "sudo (or add --dry-run to only see the plan)",
@@ -504,7 +519,7 @@ def migrate_identity(
             dry_run=dry_run,
             paths=paths,
             service_user=service_user or None,
-            sudo_user=os.environ.get("SUDO_USER"),
+            sudo_user=os.environ.get("USERNAME" if windows else "SUDO_USER"),
         )
     except MeshForgeError as exc:
         typer.echo(f"{PROG_NAME}: {exc}", err=True)
@@ -522,6 +537,16 @@ def migrate_identity(
         for line in report.lines():
             typer.echo(line)
     raise typer.Exit(report.exit_code)
+
+
+def _windows_elevated() -> bool:
+    """An elevated (administrator) process on Windows."""
+    import ctypes
+
+    try:
+        return bool(ctypes.windll.shell32.IsUserAnAdmin())  # type: ignore[attr-defined,unused-ignore]
+    except (AttributeError, OSError):
+        return False
 
 
 def _discover_facts(settings: AgentSettings) -> HardwareFacts:

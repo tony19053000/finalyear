@@ -136,7 +136,9 @@ def test_probe_runs_here_and_never_lists_itself() -> None:
     )
 
 
-def test_windows_is_not_implemented_yet(capsys: pytest.CaptureFixture[str]) -> None:
-    assert vu.main(["--os", "windows"]) == vu.EXIT_NOT_IMPLEMENTED
-    assert "G4" in capsys.readouterr().err
+@pytest.mark.skipif(sys.platform == "win32", reason="the probe runs for real there")
+def test_windows_checks_run_only_on_windows(capsys: pytest.CaptureFixture[str]) -> None:
+    # V0.17 G4: the Windows checks exist; elsewhere --os windows is a usage error
+    assert vu.main(["--os", "windows"]) == vu.EXIT_USAGE
+    assert "runs on Windows" in capsys.readouterr().err
     assert vu.main(["--os", "plan9"]) == vu.EXIT_USAGE

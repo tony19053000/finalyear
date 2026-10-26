@@ -17,6 +17,7 @@ from meshforge.agent.identity import (
     locked_identity,
     read_identity,
 )
+from meshforge.agent.migration import safe_source as _safe
 from meshforge.agent.migration.model import (
     IDENTITY_FILES,
     SERVICE_USER,
@@ -26,6 +27,7 @@ from meshforge.agent.migration.model import (
     MigrationReport,
     Owner,
     Paths,
+    rerun_hint,
     system_paths,
 )
 from meshforge.agent.migration.planning import (
@@ -39,7 +41,7 @@ from meshforge.agent.migration.safe_source import (
     OpenDir,
     ReadFile,
     UnsafeSourceError,
-    identity_of,
+    held_key,
     locked,
     opened_dir,
     read_file,
@@ -155,8 +157,7 @@ def execute(
             except (UnsafeSourceError, IdentityError) as exc:
                 chosen.problems.append(f"the identity was not migrated: {exc}")
                 chosen.notes.append(
-                    "fix: resolve the problem above, then re-run `sudo "
-                    "meshforge-agent migrate-identity`"
+                    f"fix: resolve the problem above, then re-run {rerun_hint()}"
                 )
                 return _block(chosen, owner, report)
             _copy_policy(chosen, owner, today, report)
@@ -206,7 +207,7 @@ def _reread_config(
     chosen.problems.append(problem)
     chosen.notes.append(
         "fix: correct the file named above (or move it aside to start from "
-        "defaults) and re-run `sudo meshforge-agent migrate-identity`"
+        f"defaults) and re-run {rerun_hint()}"
     )
     return None, True
 
@@ -224,7 +225,7 @@ def _rename_leftover(
                 leftover.parent,
                 leftover.name,
                 today,
-                identity_of(held.fd),
+                held_key(held),
             )
     except (UnsafeSourceError, OSError) as exc:
         chosen.notes.append(f"{leftover} was not renamed: {exc}")
@@ -260,7 +261,9 @@ def _copy_identity(
     _ensure_target_dir(target, owner)
     with ExitStack() as stack:
         held = stack.enter_context(opened_dir(source, uid))
-        stack.enter_context(locked(held, timeout_s=DEFAULT_LOCK_TIMEOUT_S))
+        source_lock = ExitStack()
+        stack.enter_context(source_lock)
+        source_lock.enter_context(locked(held, timeout_s=DEFAULT_LOCK_TIMEOUT_S))
         stack.enter_context(locked_identity(target))
         # Re-read under the lock, through the checked fds: the lock holder may
         # have just finished a key rotation (the same node with a new key).
@@ -270,7 +273,7 @@ def _copy_identity(
             raise IdentityError(
                 "the identity changed while it was being migrated",
                 source,
-                "re-run `sudo meshforge-agent migrate-identity`",
+                f"re-run {rerun_hint()}",
             )
         _write_marker(target, "copying", f"from {source}")
         try:
@@ -292,7 +295,11 @@ def _copy_identity(
                 _chown(path, owner)
         (target / MIGRATION_PENDING_FILE_NAME).unlink()  # the commit point
         _fsync_dir(target)
-        source_inode = identity_of(held.fd)
+        source_inode = held_key(held)
+        if _safe.PATH_BACKEND:
+            # Windows cannot rename a folder while a file in it (its lock) is
+            # open; the copy is committed, so the source lock is done with.
+            source_lock.close()
         try:
             renamed: Path | str = rename_aside(
                 held.parent_fd, source.parent, source.name, today, source_inode
@@ -321,7 +328,7 @@ def _verify_copy(target: Path, current: NodeIdentity) -> None:
             "the copied identity does not match its source (node_id or key "
             "fingerprint differs); nothing was committed",
             target,
-            "re-run `sudo meshforge-agent migrate-identity`",
+            f"re-run {rerun_hint()}",
         )
 
 

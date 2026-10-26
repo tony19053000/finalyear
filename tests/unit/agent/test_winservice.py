@@ -74,6 +74,8 @@ def test_agent_child_runs_the_normal_run_command_behind_the_watcher() -> None:
     argv = ws.agent_child_argv(PY, r"C:\cfg.toml")
     assert argv[:5] == [PY, "-I", "-m", "meshforge.agent.winservice", "child"]
     assert argv[5:] == ["--", "run", "--config", r"C:\cfg.toml"]
+    # V0.17 G4: no config file yet (fresh install) -> the system-mode defaults
+    assert ws.agent_child_argv(PY, None)[5:] == ["--", "run"]
 
 
 # --------------------------------------------------------------- exit codes
@@ -124,6 +126,7 @@ def test_acl_plan_grants_only_system_admins_and_the_service() -> None:
         LAYOUT.identity_dir,
         LAYOUT.cache_dir,
         LAYOUT.logs_dir,
+        LAYOUT.console_dir,  # V0.17 G4: the console token folder
     }
     for acl in plan:
         assert {g.sid for g in acl.grants} == {

@@ -132,7 +132,9 @@ def _precheck_unix_socket(docker: Any, timeout_s: float) -> None:
 
 def _unreachable_reason(exc: BaseException) -> str:
     text = str(exc).lower()
-    if "permission denied" in text:
+    # Windows (V0.17 G4): Docker Desktop's npipe answers a non-member of
+    # docker-users with "(5, 'CreateFile', 'Access is denied.')".
+    if "permission denied" in text or "access is denied" in text:
         return "docker_permission_denied"
     return "docker_daemon_unreachable"
 

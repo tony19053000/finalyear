@@ -1,4 +1,4 @@
-"""A human's admin command acts on the system service's state (V0.17 G1/G2, Q15).
+r"""A human's admin command acts on the system service's state (V0.17 G1/G2, Q15).
 
 On a machine with a MeshForge ``.deb`` installed, the state of the packaged
 services (agent identity, controller database passwords, CA) belongs to the
@@ -23,6 +23,21 @@ Then:
 
 ``MESHFORGE_INSTALL_MODE=user`` is the explicit opt-out (a developer who wants
 their own state on a machine that also has the package).
+
+**Windows (V0.17 G4, Q32).** The service runs as the virtual account
+``NT SERVICE\MeshForgeAgent``, which no one can ``sudo`` into. With the
+installer's files present (``%ProgramData%\MeshForge`` **and**
+``%ProgramFiles%\MeshForge\current.txt``), :func:`decide_windows`:
+
+* an **elevated** packaged CLI acts on the service's state *in this process*
+  (``MESHFORGE_INSTALL_MODE=system`` is set before the command runs; files it
+  writes stay readable by the service, ``common.windows_service``), saying so;
+* a non-elevated one is refused with "run as administrator, or use the
+  MeshForge console" (never a silent second identity in ``%LOCALAPPDATA%``);
+* commands in ``SystemProgram.windows_refused`` (the agent's ``run``: a second
+  agent with the service's identity would push the service off the fabric)
+  are refused with what to do instead;
+* a developer checkout warns, as on Linux.
 
 Light on purpose: this module runs before every command, ``--version``
 included, so it imports neither ``common.config`` (pydantic) nor anything else
@@ -84,6 +99,13 @@ class SystemProgram:
     argument; a value after an option in ``value_options`` is skipped). None:
     every command except the ``anyone`` ones (the agent)."""
     value_options: frozenset[str] = frozenset({"--config"})
+    windows: bool = False
+    """The program has a Windows install to act on (V0.17 G4: the agent; the
+    controller is Linux-only, Q4, so a Windows controller command never looks
+    at the agent installer's files)."""
+    windows_refused: Mapping[str, str] = field(default_factory=dict)
+    """Windows: sub-command -> why it is refused on the installed system, and
+    what to do instead (V0.17 G4)."""
 
     @property
     def launcher(self) -> Path:
@@ -95,9 +117,101 @@ class SystemProgram:
 
 @dataclass(frozen=True, slots=True)
 class Decision:
-    action: Literal["none", "reexec", "warn"]
+    action: Literal["none", "reexec", "warn", "inplace", "refuse"]
     argv: tuple[str, ...] = ()
     message: str = ""
+
+
+def windows_system_dirs(
+    environ: Mapping[str, str],
+) -> tuple[Path, Path]:
+    """``(%ProgramData%\\MeshForge, %ProgramFiles%\\MeshForge)`` (D385)."""
+    data = environ.get("PROGRAMDATA") or "C:\\ProgramData"
+    program = environ.get("PROGRAMFILES") or "C:\\Program Files"
+    return Path(data) / "MeshForge", Path(program) / "MeshForge"
+
+
+def windows_installed(environ: Mapping[str, str] | None = None) -> bool:
+    """The Windows installer's files are present (module docstring).
+
+    Only what **any** local user can see: ``current.txt`` (Program Files is
+    readable by Users) and the data root itself (its parent ``ProgramData`` is
+    listable, which is what lets a user read a folder's attributes). Never a
+    folder *inside* the data root - those are SYSTEM/Administrators/service
+    only, so a normal user's console launcher would think nothing is installed
+    and look for a token in its own profile."""
+    data, program = windows_system_dirs(os.environ if environ is None else environ)
+    return data.is_dir() and (program / "current.txt").is_file()
+
+
+def windows_elevated() -> bool:  # pragma: no cover - Windows only
+    import ctypes
+
+    try:
+        return bool(ctypes.windll.shell32.IsUserAnAdmin())  # type: ignore[attr-defined,unused-ignore]
+    except (AttributeError, OSError):
+        return False
+
+
+def decide_windows(
+    args: Sequence[str],
+    *,
+    program: SystemProgram,
+    environ: Mapping[str, str],
+    installed: bool,
+    bundled: bool,
+    elevated: bool,
+) -> Decision:
+    """The Windows twin of :func:`decide` (module docstring). Pure."""
+    if not installed or environ.get(INSTALL_MODE_ENV_VAR, "").strip():
+        return Decision("none")
+    if not args:
+        if program.run_in_place_without_args:
+            return Decision("none")
+    elif (
+        args[0] in _ALWAYS_ANYONE
+        or args[0] in program.anyone
+        or any(a in ("--help", "-h") for a in args)
+    ):
+        return Decision("none")
+    command = first_command(args, program.value_options)
+    if program.reexec_commands is not None and (
+        command is None or command not in program.reexec_commands
+    ):
+        return Decision("none")
+    data, _program_dir = windows_system_dirs(environ)
+    if not bundled:
+        return Decision(
+            "warn",
+            message=(
+                f"{program.prog}: note: MeshForge is installed on this computer; this "
+                "development command uses YOUR user-mode state, not the service's "
+                f"({data}). Use {program.prog} from the installed version for the "
+                f"service, or set {INSTALL_MODE_ENV_VAR}=user to silence this."
+            ),
+        )
+    if command is not None and command in program.windows_refused:
+        return Decision(
+            "refuse",
+            message=f"{program.prog} {command}: {program.windows_refused[command]}",
+        )
+    if not elevated:
+        return Decision(
+            "refuse",
+            message=(
+                f"{program.prog}: this command acts on the MeshForge service's state "
+                f"({data}), which only administrators may change: run it in an "
+                "elevated prompt (Run as administrator), or use the MeshForge "
+                "console (Start menu -> MeshForge)"
+            ),
+        )
+    return Decision(
+        "inplace",
+        message=(
+            f"{program.prog}: acting on the MeshForge service's state ({data}) as "
+            "administrator"
+        ),
+    )
 
 
 def current_user() -> str | None:
@@ -114,14 +228,17 @@ def current_user() -> str | None:
 
 def first_command(args: Sequence[str], value_options: frozenset[str]) -> str | None:
     """The first positional argument (the sub-command), skipping options and
-    the value of an option in ``value_options`` (``--config FILE``)."""
+    the value of an option in ``value_options`` (``--config FILE``). After
+    ``--`` the next argument is positional whatever it looks like - the CLI
+    (Click) runs it as the sub-command, so ``meshforge-agent -- run`` is ``run``
+    (V0.17 G4 fix round 1, G4-T1: it used to bypass the Windows refusal)."""
     skip = False
-    for arg in args:
+    for i, arg in enumerate(args):
         if skip:
             skip = False
             continue
         if arg == "--":
-            return None
+            return args[i + 1] if i + 1 < len(args) else None
         if arg.startswith("-"):
             skip = arg in value_options
             continue
@@ -204,6 +321,10 @@ def apply(
     should run here (``none`` / ``warn``). Exits ``CONFIG_ERROR`` when the
     re-execution is needed but ``sudo`` is missing."""
     say = stderr or (lambda text: sys.stderr.write(text + "\n"))
+    if sys.platform == "win32":
+        if program.windows:
+            _apply_windows(args, program=program, bundled=bundled, say=say)
+        return
     if sys.platform != "linux" or not installed():
         return  # the common case, decided with two stat calls
     decision = decide(
@@ -232,3 +353,29 @@ def apply(
     sys.stdout.flush()
     sys.stderr.flush()
     execvp("sudo", list(decision.argv))
+
+
+def _apply_windows(
+    args: Sequence[str],
+    *,
+    program: SystemProgram,
+    bundled: Callable[[], bool],
+    say: Callable[[str], object],
+) -> None:  # pragma: no cover - Windows only (decide_windows is the tested part)
+    if not windows_installed():
+        return
+    decision = decide_windows(
+        args,
+        program=program,
+        environ=os.environ,
+        installed=True,
+        bundled=bundled(),
+        elevated=windows_elevated(),
+    )
+    if decision.action in ("warn", "inplace"):
+        say(decision.message)
+    if decision.action == "inplace":
+        os.environ[INSTALL_MODE_ENV_VAR] = "system"
+    elif decision.action == "refuse":
+        say(decision.message)
+        raise SystemExit(int(ExitCode.CONFIG_ERROR))
