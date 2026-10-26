@@ -71,11 +71,13 @@ INTERRUPTED_NAME: Final = "interrupted.json"
 FORCED_FAILURE_NAME: Final = "fail-upgrade-to"
 _MAX_READ: Final = 64 * 1024
 FINISH_UNPACK: Final = (
-    "finish it by installing the new package again: sudo apt install --reinstall "
-    "./<the {to} .deb> (or sudo apt --fix-broken install)"
+    "finish it by installing the new package again: sudo dpkg -i ./<the {to} .deb> "
+    "(then sudo apt --fix-broken install if apt asks)"
 )
-"""A cut-off unpack leaves dpkg's ``half-installed`` state, which
-``dpkg --configure -a`` does not repair (reviewer fix round 1)."""
+"""A cut-off unpack leaves dpkg's ``half-installed`` (or ``unpacked``) state,
+which ``dpkg --configure -a`` does not repair (reviewer fix round 1) and which
+``apt install --reinstall ./x.deb`` refuses ("Internal Error, No file name",
+measured in the package test); ``dpkg -i`` of the file repairs both."""
 FINISH_CONFIGURE: Final = "finish it with sudo dpkg --configure -a"
 
 

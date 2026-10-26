@@ -45,7 +45,7 @@ node, same settings, same jobs. The message says what was wrong. Fix that, then 
 Code: `interrupted`
 The computer lost power (or the installer was stopped) in the middle of an upgrade. MeshForge runs the version it
 kept aside, or the new one if it was already complete. Finish the upgrade the way the message says - Ubuntu:
-install the new package again (`sudo apt install --reinstall ./<new>.deb` or `sudo apt --fix-broken install`)
+install the new package again (`sudo dpkg -i ./<new>.deb`, then `sudo apt --fix-broken install` if apt asks)
 when it was cut off while unpacking, `sudo dpkg --configure -a` when it was cut off after the switch; Windows:
 run the installer again.
 

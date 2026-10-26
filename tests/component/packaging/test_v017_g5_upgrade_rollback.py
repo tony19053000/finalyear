@@ -13,7 +13,8 @@ the health check also needs ``agent.started``):
 * **power loss in the unpack** (``dpkg --unpack`` + another boot id in the
   upgrade record): the next start runs the kept previous version
   (``interrupted.json``); dpkg has the package half-way, so the repair is to
-  install the new package again (``apt install --reinstall``), as doctor says;
+  install the new package again (``dpkg -i``; ``apt install --reinstall`` refuses
+  that state), as doctor says;
 * **rollback -> purge** and **upgrade -> remove**: the uninstall verifier is
   clean (``.previous`` / ``.upgrade`` are the likely leak).
 
@@ -196,10 +197,10 @@ def test_agent_power_loss_during_unpack_reverts_then_repair_finishes(
     assert "interrupted" in box.journal(UNIT)
     doctor = box.run("meshforge-agent doctor")
     assert doctor.returncode == 1, doctor.stdout
-    assert "apt install --reinstall" in doctor.stdout, doctor.stdout
+    assert "sudo dpkg -i" in doctor.stdout, doctor.stdout
     assert "dpkg --configure -a" not in doctor.stdout
     # the repair the owner is told: install the new package again
-    done = box.apt(f"install -y --reinstall /tmp/{debs.second.name}")
+    done = box.run(f"DEBIAN_FRONTEND=noninteractive dpkg -i /tmp/{debs.second.name} 2>&1")
     assert done.returncode == 0, done.stdout[-3000:]
     assert f"is running version {version}" in done.stdout, done.stdout[-3000:]
     assert box.ok(f"readlink {AGENT_OPT}/current").strip() == version

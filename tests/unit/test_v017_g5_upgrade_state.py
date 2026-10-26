@@ -207,9 +207,9 @@ def test_controller_forced_failure_only_for_installed_bundles(
 @pytest.mark.parametrize(
     ("action", "fix_has", "fix_lacks"),
     [
-        ("reverted", "apt install --reinstall", "dpkg --configure -a"),
-        ("incomplete", "apt install --reinstall", "dpkg --configure -a"),
-        ("finishing", "dpkg --configure -a", "--reinstall"),
+        ("reverted", "sudo dpkg -i", "dpkg --configure -a"),
+        ("incomplete", "sudo dpkg -i", "dpkg --configure -a"),
+        ("finishing", "dpkg --configure -a", "dpkg -i"),
     ],
 )
 def test_interrupted_fix_depends_on_where_it_stopped(
@@ -224,14 +224,14 @@ def test_interrupted_fix_depends_on_where_it_stopped(
     assert fix_has in notice.fix and fix_lacks not in notice.fix
     assert notice.fix in notice.message
     if action != "finishing":
-        assert "apt --fix-broken install" in notice.fix
+        assert "apt install --reinstall" not in notice.fix  # apt refuses that state
         assert "0.17.1" in notice.fix  # names the version to install again
 
 
 @pytest.mark.parametrize(
     ("phase", "fix_has"),
     [
-        ("unpacking", "apt install --reinstall"),
+        ("unpacking", "sudo dpkg -i"),
         ("configuring", "dpkg --configure -a"),
         ("switching", "installer again"),
         ("checking", "installer again"),

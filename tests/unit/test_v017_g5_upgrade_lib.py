@@ -330,7 +330,7 @@ def test_power_loss_during_the_unpack_reverts_at_the_next_boot(box: Box) -> None
     record = box.record("interrupted.json")
     assert record["action"] == "reverted" and record["to"] == NEW
     # fix round 1: dpkg is half-installed here; only installing again repairs it
-    assert "apt install --reinstall" in out.stderr
+    assert "sudo dpkg -i" in out.stderr
     assert "dpkg --configure -a" not in out.stderr
     assert box.state()["phase"] == "recovered-unpacking"
     # a later boot never acts twice
@@ -374,7 +374,7 @@ def test_power_loss_without_a_kept_version_starts_what_is_installed(box: Box) ->
     box.point(NEW)
     box.boot.write_text("boot-B\n")
     out = box.sh("mf_upgrade_recover")
-    assert "apt install --reinstall" in out.stderr
+    assert "sudo dpkg -i" in out.stderr
     assert box.current() == NEW
     assert box.record("interrupted.json")["action"] == "incomplete"
 

@@ -51,8 +51,8 @@ new version again (Ubuntu: `sudo apt install --reinstall ./<new>.deb`).
 
 - **Ubuntu:** at the next start MeshForge runs the version kept aside, and `doctor` says the upgrade was
   interrupted and how to finish it. Cut off while the new files were being unpacked (the usual case):
-  install the new package again, `sudo apt install --reinstall ./meshforge-agent_<new>_amd64.deb` (or
-  `sudo apt --fix-broken install`). Cut off after the new version was already switched on: `sudo dpkg
+  install the new package again, `sudo dpkg -i ./meshforge-agent_<new>_amd64.deb` (then
+  `sudo apt --fix-broken install` if apt asks). Cut off after the new version was already switched on: `sudo dpkg
   --configure -a`.
 - **Windows:** run the installer again. It finishes the upgrade, or goes back to the previous version if the new
   one is not healthy.

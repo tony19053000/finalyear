@@ -1418,8 +1418,8 @@ Linux .deb (both packages; packaging/linux/common/upgrade.sh, inlined into the m
   ExecStartPre=-+    (root, before every start) state from ANOTHER boot: phase unpacking -> back to
                      .previous (interrupted.json "reverted"); phase configuring -> let the new one start
                      ("finishing"). Repair: a cut-off unpack leaves dpkg's half-installed
-                     state -> install the new package again (`apt install --reinstall`
-                     / `apt --fix-broken install`); a cut-off configure -> `dpkg
+                     state -> install the new package again (`dpkg -i ./<new .deb>`;
+                     apt --reinstall refuses that state); a cut-off configure -> `dpkg
                      --configure -a`. doctor / the console name the right one
 Windows (agent/winsetup.py + agent/winupgrade.py; Program Files\MeshForge\upgrade)
   journal state (from python, to, phase) before anything changes; a journal left by a cut-off run makes the

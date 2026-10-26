@@ -228,8 +228,9 @@ mf_upgrade_rolled_back_ok() {
 #                        the package half-installed, which `dpkg --configure -a`
 #                        cannot fix: run the kept previous version (reverted)
 #                        and tell the owner to install the new package again
-#                        (`apt install --reinstall ./<new .deb>` or
-#                        `apt --fix-broken install`), whose postinst switches
+#                        (`dpkg -i ./<new .deb>`, which repairs a half-installed
+#                        or unpacked package - `apt install --reinstall` refuses
+#                        it, measured), whose postinst switches
 #                        `current` to the new version and checks it.
 #   phase configuring -> the new version was completely unpacked and switched
 #                        on: let it start (finishing); the confirmation comes
@@ -251,10 +252,10 @@ mf_upgrade_recover() {
 				mf_point_at "$previous"
 			fi
 			mf_write_record interrupted.json reverted "$from" "$to" "power loss or killed installer during the unpack"
-			mf_say "an upgrade to $to was interrupted; running the previous version $from (finish it: sudo apt install --reinstall ./<the $to .deb>, or sudo apt --fix-broken install)" >&2
+			mf_say "an upgrade to $to was interrupted; running the previous version $from (finish it: sudo dpkg -i ./<the $to .deb>, then sudo apt --fix-broken install if apt asks)" >&2
 		else
 			mf_write_record interrupted.json incomplete "$from" "$to" "no previous version kept"
-			mf_say "an upgrade to $to was interrupted and no previous version was kept; starting what is installed (finish it: sudo apt install --reinstall ./<the $to .deb>, or sudo apt --fix-broken install)" >&2
+			mf_say "an upgrade to $to was interrupted and no previous version was kept; starting what is installed (finish it: sudo dpkg -i ./<the $to .deb>, then sudo apt --fix-broken install if apt asks)" >&2
 		fi
 		;;
 	configuring)

@@ -23,7 +23,7 @@ const STOP_HELP: Record<string, string> = {
 
 const UPGRADE_HELP: Record<string, string> = {
   rolled_back: "MeshForge keeps working on the previous version. Fix the cause the installer named, then install the new version again.",
-  interrupted: "Finish the upgrade: on Linux install the new package again (sudo apt install --reinstall ./<new .deb>), on Windows run the installer again.",
+  interrupted: "Finish the upgrade: on Linux install the new package again (sudo dpkg -i ./<new .deb>), on Windows run the installer again.",
 };
 
 function Row({ label, children }: { label: string; children: ReactNode }) {

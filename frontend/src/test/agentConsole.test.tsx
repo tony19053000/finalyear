@@ -315,7 +315,7 @@ describe("ConsoleApp", () => {
 
 describe("V0.17 G5 fix round 1", () => {
   it("an interrupted upgrade shows the fix the agent names for where it stopped", async () => {
-    const fix = "finish it by installing the new package again: sudo apt install --reinstall ./<the 0.17.1 .deb>";
+    const fix = "finish it by installing the new package again: sudo dpkg -i ./<the 0.17.1 .deb>";
     fakeAgent({
       "GET /status": () => ({
         json: status({ joined: true, setup_complete: true, phase: "running", upgrade: { kind: "interrupted", message: "cut off", fix } }),
