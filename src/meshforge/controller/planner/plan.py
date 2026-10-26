@@ -125,6 +125,10 @@ _G3_CONFIG_DEFAULTS: dict[str, Any] = {
 }
 
 
+# --- V1.0 G2 (D418): likewise, an empty disabled_modes never enters the digest
+_V10_CONFIG_DEFAULTS: dict[str, Any] = {"disabled_modes": []}
+
+
 def _without_unset_g3(data: dict[str, Any]) -> dict[str, Any]:
     if data["request"].get("objective") is None:
         data["request"].pop("objective", None)
@@ -133,7 +137,7 @@ def _without_unset_g3(data: dict[str, Any]) -> dict[str, Any]:
         if node.get("reliability") is None:
             node.pop("reliability", None)
     config = snapshot["config"]
-    for name, default in _G3_CONFIG_DEFAULTS.items():
+    for name, default in (*_G3_CONFIG_DEFAULTS.items(), *_V10_CONFIG_DEFAULTS.items()):
         if config.get(name) == default:
             config.pop(name, None)
     return data

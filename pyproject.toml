@@ -156,6 +156,13 @@ dev = [
     "pytest-timeout>=2.4",
     "pytest-playwright>=0.7",
 ]
+# V1.0 G2 (D419): the evaluation report's figures (scripts/eval/make_report.py).
+# A separate group - not installed by a plain `uv sync`, never in a package:
+# `uv sync --group evaluation`. Pinned below the next major: figure bytes (the
+# CI eval-repro hashes) hold for one matplotlib version, like D352's reports.
+evaluation = [
+    "matplotlib>=3.10,<4",
+]
 
 # ---------------------------------------------------------------------------
 # pytest (roadmap 0.1.8, "Test tiers" in DEVELOPMENT_ROADMAP quality gates).
