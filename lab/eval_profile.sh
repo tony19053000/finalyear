@@ -13,6 +13,11 @@
 # variables override /etc/meshforge/controller.toml, which is never edited.
 # Exit 0 only when the service is active again (the runner then waits for
 # every node to be ONLINE).
+#
+# The source file is owned by the (unprivileged) campaign user, so it is
+# copied first into a root-owned temporary file in the drop-in directory and
+# the COPY is validated and moved into place: changing the source after the
+# check cannot change what is installed.
 set -eu
 
 UNIT=meshforge-controller.service
@@ -20,37 +25,52 @@ DIR=/etc/systemd/system/${UNIT}.d
 ENV_FILE=$DIR/eval-profile.env
 CONF=$DIR/eval-profile.conf
 
+# The only keys evaluation profiles set: scripts/eval/evalkit/arms.py
+# (PROFILES -> profile_env); a unit test keeps the two in step.
+KEYS='CALIBRATION|DISABLED_MODES|ML'
+
+usage() {
+    echo "usage: $0 <profile> <profile.env> | --clear | --check <profile.env>" >&2
+    exit 2
+}
+
 restart() {
     systemctl daemon-reload
     systemctl restart "$UNIT"
     systemctl is-active --quiet "$UNIT"
 }
 
+# check <file> <name shown in messages>
+check() {
+    if [ ! -f "$1" ]; then
+        echo "no such file: $2" >&2
+        exit 2
+    fi
+    # only the profile's planner assignments, single-quoted, and comments; a
+    # comment ending in a backslash would continue onto the next line in
+    # systemd, so it is refused too. Only the line number is reported (the
+    # file is read as root; its content is never echoed).
+    bad=$(grep -n -v -E "^(#|#.*[^\\]|MESHFORGE_CONTROLLER__PLANNER__($KEYS)='[^']*')?\$" -- "$1" | head -n 1 | cut -d: -f1) || true
+    if [ -n "$bad" ]; then
+        echo "refusing $2: not an evaluation profile file (line $bad)" >&2
+        exit 2
+    fi
+}
+
 if [ "${1:-}" = "--clear" ]; then
-    rm -f "$ENV_FILE" "$CONF"
+    [ "$#" -eq 1 ] || usage
+    rm -f -- "$ENV_FILE" "$CONF"
     restart
     echo "evaluation profile cleared"
     exit 0
 fi
 
-check() {
-    if [ ! -f "$1" ]; then
-        echo "no such file: $1" >&2
-        exit 2
-    fi
-    # only MESHFORGE_CONTROLLER__PLANNER__* assignments (and comments) may go in
-    if grep -v -E "^(#.*|MESHFORGE_CONTROLLER__PLANNER__[A-Z_]+='[^']*')?$" "$1" >/dev/null; then
-        echo "refusing $1: not an evaluation profile file" >&2
-        exit 2
-    fi
-}
-
-if [ "$#" -ne 2 ]; then
-    echo "usage: $0 <profile> <profile.env> | --clear | --check <profile.env>" >&2
-    exit 2
-fi
+[ "$#" -eq 2 ] || usage
+case "$2" in
+    -*) echo "refusing file name starting with '-': $2" >&2; exit 2 ;;
+esac
 if [ "$1" = "--check" ]; then
-    check "$2"
+    check "$2" "$2"
     echo "ok: $2"
     exit 0
 fi
@@ -59,9 +79,16 @@ source_env=$2
 case "$profile" in
     *[!a-z0-9_]*|"") echo "bad profile name: $profile" >&2; exit 2 ;;
 esac
-check "$source_env"
+# early refusal before anything is touched (the authoritative check is on the copy)
+check "$source_env" "$source_env"
 install -d -m 0755 "$DIR"
-install -m 0644 "$source_env" "$ENV_FILE"
+tmp=$(mktemp "$DIR/.eval-profile.XXXXXX")
+trap 'rm -f -- "$tmp"' EXIT
+trap 'exit 1' HUP INT TERM
+cat -- "$source_env" > "$tmp"
+check "$tmp" "$source_env"
+chmod 0644 "$tmp"
+mv -f -- "$tmp" "$ENV_FILE"
 printf '[Service]\nEnvironmentFile=%s\n' "$ENV_FILE" > "$CONF"
 chmod 0644 "$CONF"
 restart

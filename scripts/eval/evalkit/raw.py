@@ -19,6 +19,13 @@ idempotency keys - no duplicate job is submitted). Before it appends, the
 runner cuts that unfinished tail off (:func:`cut_partial_tail`; the bytes go
 to ``<file>.cut`` for the record) - otherwise the next line would be glued to
 it and the file would no longer parse.
+
+**Retrying submission errors.** ``run_campaign.py --retry-errors`` does a run
+recorded ``submit_error`` again on resume (its copies that were accepted are
+found again by their idempotency keys). The new line carries ``"retried":
+true`` and *replaces* the ``submit_error`` line it retries; the old line stays
+in the append-only file for the record. Any other repeated run id is a
+duplicate: the first line is kept and the id is reported.
 """
 
 from __future__ import annotations
@@ -64,6 +71,8 @@ class RawData:
     """Lines cut short by a crash (ignored)."""
     duplicates: tuple[str, ...] = field(default=())
     """Run ids found more than once (the first is kept)."""
+    retried: tuple[str, ...] = field(default=())
+    """Run ids whose ``submit_error`` line a ``retried`` line replaced."""
 
 
 def append_line(path: Path, record: Mapping[str, Any]) -> None:
@@ -138,9 +147,14 @@ def read_raw(folder: Path) -> RawData:
     sessions, partial_s = _lines(folder / SESSIONS_FILE)
     seen: dict[str, Mapping[str, Any]] = {}
     duplicates: list[str] = []
+    retried: set[str] = set()
     for run in runs:
         run_id = str(run.get("run_id"))
         if run_id in seen:
+            if seen[run_id].get("status") == "submit_error" and run.get("retried"):
+                seen[run_id] = run
+                retried.add(run_id)
+                continue
             duplicates.append(run_id)
             continue
         seen[run_id] = run
@@ -150,4 +164,5 @@ def read_raw(folder: Path) -> RawData:
         sessions=tuple(sessions),
         partial_lines=partial + partial_s,
         duplicates=tuple(sorted(duplicates)),
+        retried=tuple(sorted(retried)),
     )

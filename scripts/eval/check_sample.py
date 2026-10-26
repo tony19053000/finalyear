@@ -65,6 +65,15 @@ def _read_expected() -> dict[str, str]:
     return out
 
 
+def _matplotlib_version() -> str:
+    """The installed matplotlib version (figure bytes depend on it)."""
+    try:
+        import matplotlib
+    except ModuleNotFoundError:
+        return "not installed"
+    return str(matplotlib.__version__)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     p = argparse.ArgumentParser(
         prog="check_sample.py", description=__doc__.split("\n")[0]
@@ -104,6 +113,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         print("sample analysis is NOT reproducible:", file=sys.stderr)
         for line in problems:
             print(f"  {line}", file=sys.stderr)
+        if figures:
+            print(
+                f"  (matplotlib {_matplotlib_version()}; figure bytes hold for "
+                "the version in uv.lock only)",
+                file=sys.stderr,
+            )
         return 1
     print(f"sample reproduces: {len(expected)} files match")
     return 0

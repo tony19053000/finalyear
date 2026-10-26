@@ -16,7 +16,10 @@ For each planned run (:mod:`.schedule`), in order, skipping the runs
    append the run's line to ``runs.jsonl``.
 
 A run whose submission fails is recorded ``submit_error`` with the error -
-never silently dropped. A profile hook that fails, or a fabric that does not
+never silently dropped. With ``retry_errors`` (``--retry-errors``) a resumed
+campaign does those runs again: the idempotency keys find the copies that
+were accepted, the rest are submitted, and the new line (``"retried": true``)
+replaces the error line (:mod:`.raw`). A profile hook that fails, or a fabric that does not
 come back, stops the campaign (exit code 3); starting it again resumes.
 """
 
@@ -73,6 +76,8 @@ class Options:
     ready_timeout_s: float = 600.0
     max_runs: int | None = None
     """Stop after this many runs this session (tests; a partial campaign)."""
+    retry_errors: bool = False
+    """Do the runs recorded ``submit_error`` again (module docstring)."""
     log: Callable[[str], None] = field(
         default=lambda text: print(text, file=sys.stderr)
     )
@@ -111,8 +116,8 @@ def _build(spec: CampaignSpec, run: PlannedRun, dest: Path) -> Any:
 
 def _prepare_folder(
     spec: CampaignSpec, runs: list[PlannedRun], options: Options
-) -> set[str]:
-    """Create or check the raw folder; the run ids already done."""
+) -> tuple[set[str], set[str]]:
+    """Create or check the raw folder; ``(run ids done, run ids to retry)``."""
     folder = options.raw_dir
     folder.mkdir(parents=True, exist_ok=True)
     digest = spec_digest(spec)
@@ -153,7 +158,12 @@ def _prepare_folder(
         options.log(f"ignoring {data.partial_lines} line(s) cut short by a crash")
         for name in (RUNS_FILE, SESSIONS_FILE):
             cut_partial_tail(folder / name)
-    return {str(r["run_id"]) for r in data.runs}
+    retry = (
+        {str(r["run_id"]) for r in data.runs if r.get("status") == "submit_error"}
+        if options.retry_errors
+        else set()
+    )
+    return {str(r["run_id"]) for r in data.runs} - retry, retry
 
 
 def _wait_terminal(
@@ -281,7 +291,7 @@ def run_campaign(
             f"the arms need controller profiles {needed}; give --profile-hook "
             "(or run one profile's arms per campaign)",
         )
-    done = _prepare_folder(spec, runs, options)
+    done, retry = _prepare_folder(spec, runs, options)
     environment = fabric.describe()
     expected = {
         str(n["node_id"])
@@ -296,6 +306,7 @@ def run_campaign(
         "platform": platform.platform(),
         "profile_switching": options.switcher is not None,
         "already_done": len(done),
+        "retry_errors": len(retry) if options.retry_errors else None,
     }
     append_line(options.raw_dir / SESSIONS_FILE, session)
     current: str | None = None
@@ -310,6 +321,8 @@ def run_campaign(
             _apply_profile(fabric, run.profile, options, expected)
             current = run.profile
         record = _execute(fabric, spec, run, options)
+        if run.run_id in retry:
+            record["retried"] = True
         record["recorded_at"] = options.now().isoformat()
         append_line(options.raw_dir / RUNS_FILE, record)
         executed += 1

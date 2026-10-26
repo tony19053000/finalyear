@@ -2,7 +2,8 @@
 
     uv run python scripts/eval/run_campaign.py --spec CAMPAIGN.yaml --raw DIR \\
         [--profile-hook "sudo lab/eval_profile.sh {profile} {env}"] \\
-        [--origin NODE_ID] [--no-seed] [--poll-s 1] [--max-runs N] [--plan]
+        [--origin NODE_ID] [--no-seed] [--poll-s 1] [--max-runs N] \\
+        [--retry-errors] [--plan]
 
 Talks to the controller exactly like ``compute`` does (the same settings,
 login and fabric CA: ``compute login`` first). Run it on the **origin**
@@ -17,6 +18,10 @@ command must make the controller run with it and exit 0; the runner then
 waits until every node is back ONLINE. On the installed Linux controller
 ``lab/eval_profile.sh`` does that (a systemd drop-in + restart; ``sudo
 lab/eval_profile.sh --clear`` removes it after the campaign).
+
+``--retry-errors`` does the runs recorded ``submit_error`` (e.g. the
+controller was briefly unreachable) again when resuming; their accepted
+copies are found again by their idempotency keys, so no job is duplicated.
 
 ``--plan`` prints the schedule (block order) and exits without contacting the
 controller. Interrupt with Ctrl-C at any time; the same command resumes.
@@ -59,6 +64,11 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--poll-s", type=float, default=1.0)
     p.add_argument("--ready-timeout-s", type=float, default=600.0)
     p.add_argument("--max-runs", type=int, default=None)
+    p.add_argument(
+        "--retry-errors",
+        action="store_true",
+        help="redo the runs recorded submit_error when resuming",
+    )
     p.add_argument("--plan", action="store_true", help="print the schedule only")
     return p
 
@@ -101,6 +111,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         poll_s=args.poll_s,
         ready_timeout_s=args.ready_timeout_s,
         max_runs=args.max_runs,
+        retry_errors=args.retry_errors,
     )
     try:
         summary = run_campaign(fabric, spec, options)
