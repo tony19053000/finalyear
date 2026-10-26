@@ -1031,7 +1031,12 @@ message HelloAck {
     REJECT_CODE_UNSPECIFIED = 0;
     // Hello.session_epoch <= the live session's epoch for this node_id.
     REJECT_CODE_STALE_EPOCH = 1;
-    // Hello.protocol_version outside the controller's supported range.
+    // Hello.protocol_version outside the controller's supported range, or
+    // (V0.17 G5, D393) Hello.agent_version outside the accepted window - same
+    // and previous minor of the controller: reject_reason then starts with
+    // "version_unsupported:" and names both versions and the fix. The code is
+    // reused on purpose: agents too old to know a new code are the ones refused,
+    // and every agent stops (never retries) on PROTOCOL_VERSION.
     REJECT_CODE_PROTOCOL_VERSION = 2;
     // Another stream for this node_id won a concurrent Hello race.
     REJECT_CODE_DUPLICATE_SESSION = 3;

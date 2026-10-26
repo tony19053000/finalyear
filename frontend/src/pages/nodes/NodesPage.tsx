@@ -21,6 +21,7 @@ import { cn } from "../../lib/cn";
 import { formatAgo, formatBytes, formatDateTime, formatPercent, percentOf, secondsSince, shortId } from "../../lib/format";
 import { useServerNow } from "../../lib/serverClock";
 import { PageHeader } from "../PageHeader";
+import { AgentVersion } from "./AgentVersion";
 import { NodeStatus } from "./NodeStatus";
 import { countByState, sortNodes, type NodeSortKey } from "./nodeView";
 
@@ -139,6 +140,11 @@ export function NodesPage() {
           <span className="text-2xs text-fg-muted">{n.platform}</span>
         </span>
       ),
+    },
+    {
+      id: "version",
+      header: "Agent",
+      cell: (n) => <AgentVersion node={n} />,
     },
     {
       id: "cpu",

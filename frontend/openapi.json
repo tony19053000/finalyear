@@ -7075,8 +7075,25 @@
                 "type": "null"
               }
             ],
-            "description": "From the node's most recent session row (live when connected).",
+            "description": "The agent's version: its live session's (the list), or its most recent session's (one node). Null = unknown (offline in the list).",
             "title": "Agent Version"
+          },
+          "agent_version_status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "same",
+                  "behind",
+                  "unsupported"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "V0.17 G5 (Q37), against this controller's version: `same` minor, `behind` (one minor older - still accepted, upgrade soon) or `unsupported` (refused with version_unsupported). Null = no version.",
+            "title": "Agent Version Status"
           },
           "cache": {
             "additionalProperties": {
@@ -7553,6 +7570,35 @@
         "additionalProperties": false,
         "description": "One row of ``GET /v1/nodes``. See the module docstring for D16.",
         "properties": {
+          "agent_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The agent's version: its live session's (the list), or its most recent session's (one node). Null = unknown (offline in the list).",
+            "title": "Agent Version"
+          },
+          "agent_version_status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "same",
+                  "behind",
+                  "unsupported"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "V0.17 G5 (Q37), against this controller's version: `same` minor, `behind` (one minor older - still accepted, upgrade soon) or `unsupported` (refused with version_unsupported). Null = no version.",
+            "title": "Agent Version Status"
+          },
           "certificate": {
             "anyOf": [
               {

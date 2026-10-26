@@ -24,6 +24,7 @@ from typing import Any, Final
 
 from pydantic import Field, ValidationError, field_validator, model_validator
 
+from meshforge import __version__
 from meshforge.common.cas import DEFAULT_MAX_RESUMABLE, DEFAULT_MAX_RESUMABLE_PER_OWNER
 from meshforge.common.config import (
     InstallMode,
@@ -42,6 +43,7 @@ from meshforge.common.manifest import (
 from meshforge.common.ml_eval import DEFAULT_ML_EVAL_TIMEOUT_S
 from meshforge.common.netaddr import is_loopback_host, parse_bind
 from meshforge.common.pki import PkiError, validate_san_host
+from meshforge.common.versioning import parse_minor
 from meshforge.controller.fabric_ca import (
     CA_DIR_NAME,
     TLS_DIR_NAME,
@@ -2126,6 +2128,15 @@ class ControllerSection(SectionModel):
             "anything else (and UNSPECIFIED=0) is rejected with PROTOCOL_VERSION."
         ),
     )
+    min_agent_version: str = Field(
+        default="",
+        max_length=32,
+        description=(
+            "Oldest agent minor version accepted (X.Y). Empty = the previous minor "
+            "of this controller (V0.17 G5, Q37); agents newer than the controller "
+            "are always refused. Refused agents get version_unsupported and stop."
+        ),
+    )
     liveness: LivenessSettings = Field(default_factory=LivenessSettings)
     discovery: DiscoverySettings = Field(default_factory=DiscoverySettings)
     resources: ResourceHistorySettings = Field(default_factory=ResourceHistorySettings)
@@ -2252,6 +2263,25 @@ class ControllerSection(SectionModel):
         if hi < lo:
             raise ValueError("max protocol version must be >= min")
         return value
+
+    @field_validator("min_agent_version")
+    @classmethod
+    def _min_agent_version(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            return ""
+        floor = parse_minor(value)
+        if floor is None:
+            raise ValueError(
+                f"min_agent_version {value!r} is not <major>.<minor> (e.g. 0.16)"
+            )
+        own = parse_minor(__version__)
+        if own is not None and floor > own:
+            raise ValueError(
+                f"min_agent_version {value} is above this controller's version "
+                f"{__version__}: no agent could connect"
+            )
+        return str(floor)
 
     @model_validator(mode="before")
     @classmethod

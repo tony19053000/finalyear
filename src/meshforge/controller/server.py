@@ -625,6 +625,7 @@ class ControllerRuntime:
             cfg.liveness.to_config(),
             clock=loop.time,
             accepted_protocol_versions=cfg.accepted_protocol_versions,
+            min_agent_version=cfg.min_agent_version,
             outbound_queue_size=cfg.outbound_queue_size,
             dedupe_window=cfg.dedupe_window,
             resources=resources,

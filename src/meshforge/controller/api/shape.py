@@ -12,9 +12,12 @@ import datetime as dt
 from collections.abc import Mapping
 from typing import Any, TypedDict
 
+from meshforge import __version__
 from meshforge.common.capabilities import HARDWARE_SCORES_CAPABILITY
 from meshforge.common.clock_offset import ClockOffset, round_up
+from meshforge.common.versioning import Compatibility, check_agent_version
 from meshforge.controller.api.models import (
+    AgentVersionStatus,
     CacheCount,
     DiskUsage,
     GpuUsage,
@@ -131,6 +134,8 @@ class _SummaryFields(TypedDict):
     certificate: NodeCertificate | None
     not_enforced: tuple[str, ...] | None
     display_name: str
+    agent_version: str | None
+    agent_version_status: AgentVersionStatus | None
 
 
 def _certificate(node: NodeRecord) -> NodeCertificate | None:
@@ -181,7 +186,23 @@ def _summary_fields(
             else None
         ),
         "display_name": node.display_name,
+        "agent_version": live.agent_version or None if live is not None else None,
+        "agent_version_status": version_status(
+            live.agent_version if live is not None else None
+        ),
     }
+
+
+def version_status(agent_version: str | None) -> AgentVersionStatus | None:
+    """V0.17 G5 (Q37): how ``agent_version`` stands against this controller."""
+    if not agent_version:
+        return None
+    verdict = check_agent_version(agent_version, __version__)
+    if verdict.compatibility is Compatibility.SAME:
+        return "same"
+    if verdict.compatibility is Compatibility.BEHIND:
+        return "behind"
+    return "unsupported"
 
 
 def node_summary(
@@ -205,12 +226,15 @@ def node_detail(
 ) -> NodeDetail:
     """``session`` is the node's most recent session row (``last_session_id``);
     ``cache`` is ``kind -> (count, bytes)`` from the location index."""
+    fields = _summary_fields(node, live=live, sample=sample, now=now)
+    if session is not None:
+        fields["agent_version"] = session.agent_version or None
+        fields["agent_version_status"] = version_status(session.agent_version)
     return NodeDetail(
-        **_summary_fields(node, live=live, sample=sample, now=now),
+        **fields,
         first_seen_at=node.first_seen_at,
         session_epoch=node.session_epoch,
         last_session_id=node.last_session_id,
-        agent_version=session.agent_version if session is not None else None,
         protocol_version=session.protocol_version if session is not None else None,
         peer_address=(
             live.peer_address

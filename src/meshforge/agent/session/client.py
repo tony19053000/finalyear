@@ -110,6 +110,7 @@ from meshforge.agent.session.errors import (
     AgentContractError,
     NodeRevokedError,
     SupersededError,
+    VersionUnsupportedError,
 )
 from meshforge.agent.session.hello import build_hello
 from meshforge.agent.session.policy import (
@@ -130,6 +131,7 @@ from meshforge.common import owner_policy
 from meshforge.common.ids import new_command_id
 from meshforge.common.logging import get_logger
 from meshforge.common.proto.meshforge.v1 import agent_pb2, agent_pb2_grpc
+from meshforge.common.versioning import reason_is_version_unsupported
 
 __all__ = ["AgentSessionClient", "SessionStats", "StreamEnd", "grpc_channel_options"]
 
@@ -679,6 +681,8 @@ class AgentSessionClient:
         call.cancel()
         if action is HelloRejectAction.FATAL_CONFIG:
             self._transition(AgentEvent.FATAL, reason=code_name)
+            if reason_is_version_unsupported(ack.reject_reason):
+                raise VersionUnsupportedError(self.node_id, ack.reject_reason)
             raise AgentContractError(
                 f"the controller rejected this agent's Hello ({code_name}): "
                 f"{ack.reject_reason or 'no reason given'}. Upgrade the agent or the "

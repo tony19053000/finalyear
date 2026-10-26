@@ -14,6 +14,7 @@ import pytest
 import structlog
 from test_session_manager import FakeClock, FakeRegistry, QueueStream, drain, hello
 
+from meshforge import __version__
 from meshforge.common.errors import InvalidIdError
 from meshforge.common.ids import (
     new_attempt_id,
@@ -218,7 +219,12 @@ async def test_over_long_hello_string_is_invalid_argument_before_any_db_call(
     assert reg.calls == [] and reg.nodes == {} and reg.sessions == {}
     assert len(manager) == 0
 
-    # Exactly at the cap is fine.
+    # Exactly at the cap is fine. V0.17 G5 (Q37): an agent_version must also
+    # read as this controller's <major>.<minor>, so pad a real one to the cap.
     h2 = hello(new_node_id())
-    setattr(h2, field, "Z" * limit)
+    at_cap = "Z" * limit
+    if field == "agent_version":
+        prefix = ".".join(__version__.split(".")[:2]) + "."
+        at_cap = prefix + "0" * (limit - len(prefix))
+    setattr(h2, field, at_cap)
     assert isinstance(await manager.admit(h2, "p"), Accepted)

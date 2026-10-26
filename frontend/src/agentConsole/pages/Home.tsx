@@ -17,6 +17,8 @@ const STOP_HELP: Record<string, string> = {
   config: "Fix the setting named above (or ask whoever installed MeshForge), then restart.",
   config_reload: "Fix the configuration file, then restart.",
   identity: "See the Logs page for details.",
+  version_unsupported:
+    "The controller does not accept this MeshForge version. If the message says the agent is too old, install the newer MeshForge on this laptop; if it says the agent is newer, ask the fabric admin to upgrade the controller first. Then press Restart.",
 };
 
 function Row({ label, children }: { label: string; children: ReactNode }) {

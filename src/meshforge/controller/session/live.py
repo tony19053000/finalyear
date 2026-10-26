@@ -174,6 +174,9 @@ class LiveSession:
     resource_updates: int = 0
     resource_updates_clamped: int = 0
     """Reports that broke a D12 cap; logged once, counted always."""
+    agent_version: str = ""
+    """V0.17 G5: ``Hello.agent_version`` (already checked against Q37); the
+    Nodes page shows it and marks an agent one minor behind."""
     peer_endpoint: str = ""
     """V0.5 D99: validated ``host:port`` of the node's peer blob server ("" =
     none or refused). Only live (ONLINE) sessions are listed as blob sources."""
