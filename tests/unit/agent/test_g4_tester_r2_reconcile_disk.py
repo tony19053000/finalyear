@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import os
+import sys
 import threading
 import time
 from pathlib import Path
@@ -124,7 +125,11 @@ async def _stall_during(inv: CacheInventory) -> tuple[float, float]:
     return max(stalls), took
 
 
-N = 40_000
+N = 40_000 if sys.platform != "win32" else 8_000
+"""Blobs for the cost tests. Windows (NTFS + Defender) creates and unlinks small
+files ~10x slower: 40k blobs ran past the 120 s timeout on the first CI run
+(40280010136) and the thread-method timeout then killed the whole session. 8k
+blobs still make the re-listing long enough to expose a blocked event loop."""
 
 
 @pytest.mark.asyncio
