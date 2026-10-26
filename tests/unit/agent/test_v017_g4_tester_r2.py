@@ -311,3 +311,71 @@ def test_double_dash_is_not_a_way_to_skip_the_elevation_rule_for_migrate_identit
 
 def test_controller_style_reading_after_double_dash_is_the_command() -> None:
     assert first_command(["--", "db"], frozenset({"--config"})) == "db"
+
+
+# ---------------------------------------------------------- sync_peer_rule (D389)
+def _sync(
+    code: int, output: str, *, serving: bool, add_raises: bool = False
+) -> tuple[str, list]:  # type: ignore[type-arg]
+    events: list[tuple[str, object]] = []
+
+    def delete() -> tuple[int, str]:
+        events.append(("delete", None))
+        return code, output
+
+    def add() -> None:
+        events.append(("add", None))
+        if add_raises:
+            raise RuntimeError("netsh add failed")
+
+    def warn(c: int, tail: str) -> None:
+        events.append(("warn", (c, tail)))
+
+    outcome = wi.sync_peer_rule(delete, add, peer_serving=serving, warn=warn)
+    return outcome, events
+
+
+@pytest.mark.parametrize("serving", [True, False])
+@pytest.mark.parametrize(
+    ("code", "outcome"),
+    [
+        (0, "deleted"),
+        (1, "absent"),
+        (2, "unexpected"),
+        (5, "unexpected"),
+        (-1, "unexpected"),
+    ],
+)
+def test_sync_peer_rule_matrix(code: int, outcome: str, serving: bool) -> None:
+    got, events = _sync(code, "whatever text", serving=serving)
+    assert got == outcome
+    names = [e[0] for e in events]
+    assert names[0] == "delete"  # always delete first (by name), never add first
+    assert ("add" in names) is serving  # off: the rule stays deleted
+    assert ("warn" in names) is (outcome == "unexpected")
+    if "warn" in names and "add" in names:
+        assert names.index("warn") < names.index(
+            "add"
+        )  # a failed delete never blocks add
+
+
+def test_sync_peer_rule_localised_output_does_not_change_the_outcome() -> None:
+    for text in ("Es gibt keine Regeln", "Aucune règle", "日本語のメッセージ", ""):
+        assert _sync(1, text, serving=True)[0] == "absent"
+
+
+def test_sync_peer_rule_warning_carries_code_and_bounded_tail() -> None:
+    _, events = _sync(5, "x" * 5000 + "  END  ", serving=False)
+    (_, (code, tail)) = next(e for e in events if e[0] == "warn")
+    assert code == 5 and len(tail) <= 300 and tail.endswith("END")
+
+
+def test_sync_peer_rule_add_error_propagates_so_setup_can_report_it() -> None:
+    with pytest.raises(RuntimeError):
+        _sync(0, "", serving=True, add_raises=True)
+
+
+def test_sync_peer_rule_is_idempotent_over_repeated_runs() -> None:
+    for _ in range(3):
+        outcome, events = _sync(0, "Deleted 1 rule(s).", serving=True)
+        assert outcome == "deleted" and [e[0] for e in events] == ["delete", "add"]
