@@ -6,8 +6,8 @@ the release workflow's tag check.
   imported off Windows (it asserts the platform and needs pywin32), so its
   source is extracted and run against fakes: the REAL function body, fake
   elevation / SCM / account lookup.
-* ``release.yml``: the tag check's own ``grep`` is lifted out of the workflow
-  and run against hostile tag names.
+* ``release.yml``: the tag check's own regex is lifted out of the workflow and
+  run, the way the workflow runs it (bash ``[[ =~ ]]``), against hostile tags.
 """
 
 from __future__ import annotations
@@ -108,6 +108,18 @@ ACCOUNTS: Final = {"alice": "S-1-5-21-1-2-3-1001", "bob": "S-1-5-21-1-2-3-1002",
                    "NT SERVICE\\MeshForgeAgent": "S-1-5-80-9"}  # fmt: skip
 
 
+def _admin_constant(name: str) -> Any:
+    """A module-level constant of winservice_admin, evaluated from its source."""
+    tree = ast.parse(ADMIN_SRC.read_text(encoding="utf-8"))
+    node = next(
+        n
+        for n in tree.body
+        if isinstance(n, ast.Assign)
+        and any(isinstance(t, ast.Name) and t.id == name for t in n.targets)
+    )
+    return eval(compile(ast.Expression(node.value), "x", "eval"), {"re": re})  # noqa: S307
+
+
 def load(admin: bool = True, ops: FakeOps | None = None) -> tuple[Any, FakeOps]:
     tree = ast.parse(ADMIN_SRC.read_text(encoding="utf-8"))
     func = next(
@@ -140,6 +152,7 @@ def load(admin: bool = True, ops: FakeOps | None = None) -> tuple[Any, FakeOps]:
         "_ops": lambda: ops,
         "account_sid": account_sid,
         "_PROTECTED": frozenset({"S-1-5-18", "S-1-5-32-544"}),
+        "_SID": _admin_constant("_SID"),
         "service_sid": lambda: "S-1-5-80-9",
         "print": lambda *a, **k: None,
     }
@@ -216,16 +229,20 @@ def test_a_failing_icacls_is_a_failure_exit_not_a_traceback() -> None:
     assert run("add", ["alice"], [], False) == 1
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="G5-T5 (minor, admin-only): any string starting 'S-1-' is accepted as "
-    "a SID, so '--sid S-1-1-0:(OI)(CI)F' reaches icacls as a grant with the "
-    "caller's own permission text; validate ^S-1(-\\d+)+$",
-)
 @pytest.mark.parametrize(
-    "sid", ["S-1-1-0:(OI)(CI)F", "S-1-5-21-1-2-3-1001,*S-1-1-0", "S-1-x"]
+    "sid",
+    [
+        "S-1-1-0:(OI)(CI)F",
+        "S-1-5-21-1-2-3-1001,*S-1-1-0",
+        "S-1-x",
+        "S-1-",
+        "S-1",
+        "S-1-5-21-1001\n",
+        "S-1-5- 21",
+        "S-1-5-\u0661",
+    ],
 )
-def test_defect_g5_t5_a_malformed_sid_is_refused_before_icacls(sid: str) -> None:
+def test_g5_t5_a_malformed_sid_is_refused_before_icacls(sid: str) -> None:
     run, ops = load()
     assert run("add", [], [sid], False) == 2
     assert ops.granted == []
@@ -246,24 +263,25 @@ def test_the_icacls_argv_builders_never_join_sids_into_one_string() -> None:
 
 
 # ------------------------------------------------------------ release.yml
-def _tag_grep() -> str:
+def _tag_regex() -> str:
     text = RELEASE.read_text(encoding="utf-8")
-    match = re.search(r"grep -Eq '([^']+)'", text)
-    assert match, "the release workflow no longer checks the tag with grep -Eq"
+    assert "export LC_ALL=C" in text
+    match = re.search(r'\[\[ "\$TAG" =~ (\S+) \]\]', text)
+    assert match, "the release workflow no longer checks the tag with [[ =~ ]]"
     return match.group(1)
 
 
 def _accepts(tag: str) -> bool:
     done = subprocess.run(
-        ["sh", "-c", 'printf "%s" "$TAG" | grep -Eq "$RE"'],
-        env={"TAG": tag, "RE": _tag_grep(), "PATH": "/usr/bin:/bin"},
+        ["bash", "-c", 'export LC_ALL=C; [[ "$TAG" =~ $RE ]]'],
+        env={"TAG": tag, "RE": _tag_regex(), "PATH": "/usr/bin:/bin"},
         capture_output=True,
         check=False,
     )
     return done.returncode == 0
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="POSIX grep")
+@pytest.mark.skipif(sys.platform == "win32", reason="bash")
 @pytest.mark.parametrize(
     ("tag", "ok"),
     [
@@ -292,15 +310,12 @@ def test_the_release_tag_check(tag: str, ok: bool) -> None:
     assert _accepts(tag) is ok
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="POSIX grep")
-@pytest.mark.xfail(
-    strict=True,
-    reason="G5-T6 (minor): grep -Eq matches per LINE, so a workflow_dispatch tag "
-    "input 'v0.17.0<newline>anything' passes the check (and then flows into "
-    "'::error::' lines); anchor with a case/[[ ]] on the whole string",
+@pytest.mark.skipif(sys.platform == "win32", reason="bash")
+@pytest.mark.parametrize(
+    "tag", ["v0.17.0\nv9.9.9\nevil", "v0.17.0\n", "\nv0.17.0", "evil\nv0.17.0"]
 )
-def test_defect_g5_t6_a_multiline_tag_is_refused() -> None:
-    assert _accepts("v0.17.0\nv9.9.9\nevil") is False
+def test_g5_t6_a_multiline_tag_is_refused(tag: str) -> None:
+    assert _accepts(tag) is False
 
 
 def test_the_push_trigger_is_a_release_tag_glob_only() -> None:
@@ -316,13 +331,7 @@ def test_the_tag_must_equal_the_project_version_check_is_exact() -> None:
     assert '[ "$TAG" != "v$version" ]' in text
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="G5-T7 (minor): the Linux 'remove' advice is 'usermod -rG ...'; "
-    "usermod --remove does not exist on Ubuntu 22.04 (shadow 4.8.1), a "
-    "supported agent platform; gpasswd -d works everywhere",
-)
-def test_defect_g5_t7_linux_remove_advice_works_on_ubuntu_22_04() -> None:
+def test_g5_t7_linux_remove_advice_works_on_ubuntu_22_04() -> None:
     pytest.importorskip("cryptography", reason="needs the agent extra")
     from typer.testing import CliRunner
 

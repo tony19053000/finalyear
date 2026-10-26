@@ -801,11 +801,16 @@ def console_access(
         typer.echo(f"{PROG_NAME} console-access: ACTION is add or remove", err=True)
         raise typer.Exit(ExitCode.USAGE_ERROR)
     if platform.system() != "Windows":  # not sys.platform: mypy reachability
-        verb = "-aG meshforge-admin" if action == "add" else "-rG meshforge-admin"
+        # gpasswd -d, not usermod -rG: usermod has no --remove before shadow 4.9
+        # (Ubuntu 22.04 ships 4.8.1)
+        how = (
+            "sudo usermod -aG meshforge-admin <user>"
+            if action == "add"
+            else "sudo gpasswd -d <user> meshforge-admin"
+        )
         typer.echo(
             f"{PROG_NAME} console-access is for Windows. On Linux the console is for "
-            f"members of meshforge-admin: sudo usermod {verb} <user> "
-            "(gpasswd -d <user> meshforge-admin to remove)",
+            f"members of meshforge-admin: {how}",
             err=True,
         )
         raise typer.Exit(ExitCode.USAGE_ERROR)

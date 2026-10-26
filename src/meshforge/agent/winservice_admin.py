@@ -26,6 +26,7 @@ assert sys.platform == "win32"  # noqa: S101 - tells mypy this module is Windows
 
 import json
 import os
+import re
 from collections.abc import Sequence
 from pathlib import Path, PureWindowsPath
 
@@ -175,6 +176,7 @@ def cmd_health(timeout_s: float) -> int:
 
 
 _PROTECTED = frozenset({SID_SYSTEM, SID_ADMINISTRATORS})
+_SID = re.compile(r"S-1(-[0-9]+)+", re.ASCII)
 
 
 def cmd_console_access(
@@ -190,7 +192,16 @@ def cmd_console_access(
     except OpsError as exc:
         print(f"console-access: {exc}", file=sys.stderr)
         return int(ExitCode.USAGE_ERROR)
-    wanted = [s for s in dict.fromkeys(wanted) if s.startswith("S-1-")]
+    wanted = list(dict.fromkeys(wanted))
+    # a whole, strict SID: anything else (e.g. "S-1-1-0:(OI)(CI)F") would reach
+    # icacls as the caller's own permission text
+    malformed = [s for s in wanted if not _SID.fullmatch(s)]
+    if malformed:
+        print(
+            f"console-access: not a SID (S-1-N-N...): {', '.join(map(repr, malformed))}",
+            file=sys.stderr,
+        )
+        return int(ExitCode.USAGE_ERROR)
     blocked = [s for s in wanted if s in _PROTECTED or s == service_sid()]
     if blocked or not wanted:
         print(

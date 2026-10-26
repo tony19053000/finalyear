@@ -57,9 +57,13 @@ jobs:
       sha: ${{ steps.version.outputs.sha }}
     steps:
       - name: a release tag (v<major>.<minor>.<patch>), nothing else
+        shell: bash
         run: |
-          if ! printf '%s' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
-            echo "::error::'$TAG' is not a release tag (vX.Y.Z)"
+          # [[ =~ ]] anchors the WHOLE string (grep would match per line, so a
+          # multi-line workflow_dispatch input could pass); C locale: ASCII digits
+          export LC_ALL=C
+          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::the tag is not a release tag (vX.Y.Z)"
             exit 1
           fi
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
