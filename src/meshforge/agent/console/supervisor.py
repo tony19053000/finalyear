@@ -53,6 +53,7 @@ from meshforge.common.logging import get_logger
 from meshforge.common.versioning import VERSION_UNSUPPORTED
 
 __all__ = [
+    "STOP_CODES",
     "FabricPhase",
     "ServeFn",
     "StopReason",
@@ -73,6 +74,20 @@ class FabricPhase(StrEnum):
     RUNNING = "running"
     STOPPING = "stopping"
     STOPPED = "stopped"
+
+
+STOP_CODES: Final = (
+    "revoked",
+    VERSION_UNSUPPORTED,
+    "conflict",
+    "config",
+    "config_reload",
+    "identity",
+    "error",
+    "ended",
+)
+"""Every :attr:`StopReason.code` (V0.17 G5: docs/user/troubleshooting.md has an
+entry for each; a unit test keeps the two in step)."""
 
 
 @dataclass(frozen=True, slots=True)

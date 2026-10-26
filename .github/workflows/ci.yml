@@ -2,7 +2,7 @@
 #
 # Jobs:  lint · types · unit (Linux + Windows) · component (Linux, 8 shards) ·
 #        cluster (Linux) · fresh-clone (Linux + Windows) · package-linux ·
-#        package-windows · ci-ok
+#        package-windows · upgrade-from-release-linux · upgrade-windows · ci-ok
 # Branch protection on `main` should require ONLY the `ci-ok` check: it passes
 # iff every other job passed, so adding/renaming jobs never needs a settings change.
 #
@@ -115,6 +115,11 @@ jobs:
           src/meshforge/agent/winservice_supervisor.py src/meshforge/agent/wininstall.py
           src/meshforge/agent/winsetup.py src/meshforge/agent/console/launcher_windows.py
           src/meshforge/agent/console/checks_windows.py src/meshforge/common/windows_service.py
+      # V0.17 G5: the Windows installer's upgrade records, as Windows code too.
+      - name: mypy --platform win32 (G5 upgrade records)
+        run: >-
+          uv run mypy --platform win32 --follow-imports=silent
+          src/meshforge/agent/winupgrade.py src/meshforge/common/upgrade_state.py
       # Each lab workload is a standalone container entrypoint named main.py, so
       # they cannot share one mypy run (duplicate module `main`); one run each.
       - name: mypy lab workloads (one run per entrypoint)
@@ -547,11 +552,180 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  # V0.17 G5 (brief §5e item 1, Q36): upgrade from the PREVIOUS RELEASE (the
+  # assets pinned in packaging/previous-release.toml) to the packages
+  # package-linux built from this commit: agent .deb on 22.04 + 24.04 (same
+  # node_id, config, owner settings), controller + agent on 24.04 with a real
+  # job in the database (rows kept, migrations applied, a job runs after the
+  # upgrade). Until v0.17.0 is published nothing is pinned: the tests SKIP
+  # with that reason (printed with -rs) and a warning annotation says so -
+  # never a silent pass. The rollback matrix itself runs in package-linux.
+  upgrade-from-release-linux:
+    name: upgrade-from-release (Linux .deb, previous release -> this build)
+    needs: package-linux
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: ${{ env.UV_PYTHON }}
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - run: uv sync --locked --extra controller --extra agent
+      - name: the previous release is pinned?
+        run: |
+          version=$(python3 -c "import tomllib; print(tomllib.load(open('packaging/previous-release.toml','rb'))['version'])")
+          if [ -z "$version" ]; then
+            echo "::warning title=upgrade-from-release::no previous release is pinned in packaging/previous-release.toml (no GitHub Release yet, Q36) - the upgrade-from-release tests are SKIPPED, not passed. Publish v0.17.0 (release.yml) and pin its assets."
+          else
+            echo "upgrading from the previous release $version"
+          fi
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: package-linux
+          path: .
+      - name: upgrade tests (systemd containers)
+        env:
+          MESHFORGE_TEST_UPGRADE_FROM_RELEASE: "1"
+          MESHFORGE_TEST_DEB_DIR: dist
+          MESHFORGE_TEST_CONTROLLER_DEB_DIR: dist/controller
+          MESHFORGE_TEST_REPORT_DIR: reports/verify-uninstall
+        run: >-
+          uv run python scripts/pytest_exit_guard.py --run-slow -rs
+          tests/component/packaging/test_v017_g5_upgrade_from_release.py
+          -o junit_family=xunit1 --junitxml=reports/junit-upgrade-from-release-linux.xml
+      - name: upload reports
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: upgrade-from-release-linux
+          path: reports/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # V0.17 G5 (rollback matrix, Windows rows that need a real SCM; Q38): on a
+  # fresh runner with the installers package-windows built: install revision
+  # 1 -> forced-failure trigger -> revision 2 must roll back (outcome
+  # rolled_back, binPath AND current.txt on revision 1, same node, RUNNING) ->
+  # revision 2 again works -> uninstall -> verify (JSON kept). Then, when a
+  # previous release is pinned, previous release -> this build -> uninstall
+  # -> verify; otherwise a warning says the step was skipped. The cut-off
+  # (power loss) rows are unit-tested against the fake SCM
+  # (tests/unit/agent/test_v017_g5_winsetup_matrix.py).
+  upgrade-windows:
+    name: upgrade-windows (forced rollback, previous release -> this build)
+    needs: package-windows
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      SETUP_ARGS: /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: ${{ env.UV_PYTHON }}
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - run: uv sync --locked --extra agent
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: package-windows
+          path: .
+      - name: install revision 1
+        run: |
+          New-Item -ItemType Directory -Force reports\verify-uninstall | Out-Null
+          $info = Get-ChildItem dist -Recurse -Filter BUILDINFO.json | Select-Object -First 1
+          $version = (Get-Content $info.FullName | ConvertFrom-Json).version
+          "MF_VERSION=$version" >> $env:GITHUB_ENV
+          uv run meshforge-agent identity show
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          uv run python lab/windows/package_check.py seed --state reports/windows-state.json
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $p = Start-Process "dist\MeshForge-Agent-Setup-$version-1.exe" -ArgumentList "$env:SETUP_ARGS /LOG=`"$pwd\reports\g5-install-1.log`"" -Wait -PassThru
+          "installer exit code: $($p.ExitCode)"
+          if ($p.ExitCode -ne 0) { exit 1 }
+          uv run python lab/windows/package_check.py installed --state reports/windows-state.json --version-dir "$version-1"
+      - name: forced failure -> revision 2 rolls back to revision 1
+        run: |
+          uv run python lab/windows/package_check.py trigger --version-dir "$env:MF_VERSION-2"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $p = Start-Process "dist\MeshForge-Agent-Setup-$env:MF_VERSION-2.exe" -ArgumentList "$env:SETUP_ARGS /LOG=`"$pwd\reports\g5-install-2-forced.log`"" -Wait -PassThru
+          # 100 + the setup step's exit code: rolled_back exits 1 -> 101
+          "installer exit code: $($p.ExitCode) (expected 101: rolled back)"
+          if ($p.ExitCode -ne 101) { exit 1 }
+          uv run python lab/windows/package_check.py rolled-back --state reports/windows-state.json --version-dir "$env:MF_VERSION-1"
+      - name: revision 2 again (trigger consumed) -> upgraded
+        run: |
+          $p = Start-Process "dist\MeshForge-Agent-Setup-$env:MF_VERSION-2.exe" -ArgumentList "$env:SETUP_ARGS /LOG=`"$pwd\reports\g5-install-2.log`"" -Wait -PassThru
+          "installer exit code: $($p.ExitCode)"
+          if ($p.ExitCode -ne 0) { exit 1 }
+          uv run python lab/windows/package_check.py upgraded --state reports/windows-state.json --version-dir "$env:MF_VERSION-2"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          if (Test-Path "$env:ProgramFiles\MeshForge\upgrade\rolled-back.json") { 'rolled-back.json still there after a good upgrade'; exit 1 }
+      - name: uninstall after rollback + upgrade -> verify (JSON kept)
+        run: |
+          $p = Start-Process "$env:ProgramFiles\MeshForge\unins000.exe" -ArgumentList "$env:SETUP_ARGS /REMOVEDATA /LOG=`"$pwd\reports\g5-uninstall.log`"" -Wait -PassThru
+          "uninstaller exit code: $($p.ExitCode)"
+          $deadline = (Get-Date).AddSeconds(120)
+          while ((Test-Path "$env:ProgramFiles\MeshForge") -and ((Get-Date) -lt $deadline)) { Start-Sleep 1 }
+          uv run python lab/verify_uninstall.py --os windows --data-removed --json | Tee-Object reports\verify-uninstall\windows-rollback-upgrade.json
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: previous release -> this build (when pinned)
+        run: |
+          $pins = uv run python -c "import tomllib,json; print(json.dumps(tomllib.load(open('packaging/previous-release.toml','rb'))))" | ConvertFrom-Json
+          if (-not $pins.version) {
+            "::warning title=upgrade-from-release::no previous release is pinned in packaging/previous-release.toml (Q36) - the Windows previous-release upgrade is SKIPPED, not passed"
+            exit 0
+          }
+          $old = "$env:RUNNER_TEMP\previous-setup.exe"
+          Invoke-WebRequest -Uri $pins.windows_exe.url -OutFile $old
+          $sha = (Get-FileHash -Algorithm SHA256 $old).Hash.ToLower()
+          if ($sha -ne $pins.windows_exe.sha256) { "sha256 $sha is not the pinned $($pins.windows_exe.sha256)"; exit 1 }
+          uv run meshforge-agent identity show
+          uv run python lab/windows/package_check.py seed --state reports/windows-state-release.json
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $p = Start-Process $old -ArgumentList "$env:SETUP_ARGS /LOG=`"$pwd\reports\g5-release-old.log`"" -Wait -PassThru
+          "previous release installer exit code: $($p.ExitCode)"
+          if ($p.ExitCode -ne 0) { exit 1 }
+          $p = Start-Process "dist\MeshForge-Agent-Setup-$env:MF_VERSION-1.exe" -ArgumentList "$env:SETUP_ARGS /LOG=`"$pwd\reports\g5-release-new.log`"" -Wait -PassThru
+          "this build's installer exit code: $($p.ExitCode)"
+          if ($p.ExitCode -ne 0) { exit 1 }
+          uv run python lab/windows/package_check.py upgraded --state reports/windows-state-release.json --version-dir "$env:MF_VERSION-1"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $p = Start-Process "$env:ProgramFiles\MeshForge\unins000.exe" -ArgumentList "$env:SETUP_ARGS /REMOVEDATA" -Wait -PassThru
+          $deadline = (Get-Date).AddSeconds(120)
+          while ((Test-Path "$env:ProgramFiles\MeshForge") -and ((Get-Date) -lt $deadline)) { Start-Sleep 1 }
+          uv run python lab/verify_uninstall.py --os windows --data-removed --json | Tee-Object reports\verify-uninstall\windows-release-upgrade.json
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: collect logs
+        if: ${{ !cancelled() }}
+        run: |
+          New-Item -ItemType Directory -Force reports\service | Out-Null
+          Copy-Item "$env:ProgramData\MeshForge\logs\*" reports\service -ErrorAction SilentlyContinue
+      - name: upload reports
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: upgrade-windows
+          path: reports/
+          if-no-files-found: ignore
+          retention-days: 14
+
   # Single required status check for branch protection.
   ci-ok:
     name: ci-ok
     if: ${{ always() }}
-    needs: [lint, types, unit, component, cluster, fresh-clone, package-linux, package-windows]
+    needs: [lint, types, unit, component, cluster, fresh-clone, package-linux, package-windows, upgrade-from-release-linux, upgrade-windows]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

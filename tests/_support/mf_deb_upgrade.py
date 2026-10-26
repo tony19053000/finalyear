@@ -82,9 +82,20 @@ def invariant(box: SystemdBox, unit: str, opt: str) -> str:
     return target.removeprefix(opt + "/")
 
 
-def save_report(name: str, text: str) -> None:
+def report_dir() -> Path | None:
+    """``$MESHFORGE_TEST_REPORT_DIR``; on GitHub Actions ``reports/verify-uninstall``
+    (the package jobs upload ``reports/``); else ``None`` (not kept)."""
     folder = os.environ.get(REPORTS_ENV)
     if folder:
+        return Path(folder)
+    if os.environ.get("GITHUB_ACTIONS") == "true":
+        return Path(__file__).resolve().parents[2] / "reports" / "verify-uninstall"
+    return None
+
+
+def save_report(name: str, text: str) -> None:
+    folder = report_dir()
+    if folder is not None:
         Path(folder).mkdir(parents=True, exist_ok=True)
         (Path(folder) / name).write_text(text, encoding="utf-8")
 
