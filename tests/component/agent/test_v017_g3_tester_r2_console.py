@@ -389,10 +389,16 @@ async def test_r2_token_in_session_body_or_query_never_signs_in(live: Live) -> N
 @pytest.mark.asyncio
 async def test_r2_served_page_has_no_token_signin_path(live: Live) -> None:
     """The built UI reads only '#c=' from the fragment; '#t=' (token) is gone."""
+    from mf_dashboard import require_fresh_dist
+
     from meshforge.agent.console.app import DEFAULT_DIST
 
+    # The build is git-ignored: skip (with the rebuild command) when this
+    # checkout has none or a stale one, as every built-UI test does (D206). CI's
+    # component shards do not run npm; package-linux ships a fresh build.
+    dist = require_fresh_dist(DEFAULT_DIST)
     js = "\n".join(
-        p.read_text(errors="ignore") for p in (DEFAULT_DIST / "assets").rglob("*.js")
+        p.read_text(errors="ignore") for p in (dist / "assets").rglob("*.js")
     )
     assert js, "built console UI missing"
     assert "/session" in js

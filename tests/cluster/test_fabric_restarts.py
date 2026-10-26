@@ -41,6 +41,12 @@ def test_h_agent_restart_keeps_node_id_with_higher_epoch(
     assert before is not None
     baseline = fabric.transition_counts()
 
+    if not graceful:
+        # A crash, then a restart after the lease ran out: the sequence asserted
+        # below. Restarting at once raced the lease (CI run 40280010136: the new
+        # process reconnected while still SUSPECT); wait for OFFLINE explicitly.
+        victim.kill()
+        fabric.wait_state(victim, "offline", within=START_TIMEOUT_S)
     t0 = victim.restart(graceful=graceful)
     started = fabric.wait_log(victim.process, "agent.started", within=START_TIMEOUT_S)
     assert started["node_id"] == node_id  # same data dir -> same identity
