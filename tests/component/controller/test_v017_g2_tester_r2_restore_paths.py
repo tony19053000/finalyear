@@ -12,7 +12,6 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import resource
 import subprocess
 import sys
 from collections.abc import Iterator
@@ -288,6 +287,8 @@ async def test_disk_write_failure_during_restore_keeps_live_data(
 ) -> None:
     """RLIMIT_FSIZE in the restoring process (and the postgres it starts) makes
     writing the second copy fail like a full disk does."""
+    # POSIX-only; imported here so the module still collects on Windows (CI).
+    resource = pytest.importorskip("resource", reason="RLIMIT_FSIZE is POSIX-only")
     root, sock = db_dirs
     settings = _settings(tmp_path, pg_bin, root, sock)
     async with ControllerRuntime.start(settings) as rt:

@@ -255,9 +255,9 @@ def _ca(settings: ControllerSettings) -> Check:
 
 
 def _spa(dist: Path | None) -> Check:
-    from meshforge.controller.web.spa import DEFAULT_DIST
+    from meshforge.controller.web import DIST_DIR  # starlette-free (no extra)
 
-    index = (dist or DEFAULT_DIST) / "index.html"
+    index = (dist or DIST_DIR) / "index.html"
     if index.is_file():
         return Check("dashboard", CheckStatus.OK, "built and installed")
     return Check(

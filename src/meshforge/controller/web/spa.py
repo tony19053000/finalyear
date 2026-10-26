@@ -40,6 +40,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from meshforge.common.errors import FailureType
 from meshforge.common.web_security import CSP, SECURITY_HEADERS
 from meshforge.controller.api.errors import error_response
+from meshforge.controller.web import DIST_DIR
 
 __all__ = [
     "CSP",
@@ -50,7 +51,7 @@ __all__ = [
     "SpaMiddleware",
 ]
 
-DEFAULT_DIST: Final = Path(__file__).resolve().parent / "dist"
+DEFAULT_DIST: Final = DIST_DIR
 IMMUTABLE: Final = "public, max-age=31536000, immutable"
 NO_CACHE: Final = "no-cache"
 NOT_BUILT_HTML: Final = """<!doctype html>
