@@ -85,7 +85,8 @@ install -d -m 0755 "$DIR"
 tmp=$(mktemp "$DIR/.eval-profile.XXXXXX")
 trap 'rm -f -- "$tmp"' EXIT
 trap 'exit 1' HUP INT TERM
-cat -- "$source_env" > "$tmp"
+# size cap: a source swapped for /dev/zero or a huge file cannot fill the root fs
+head -c 65536 -- "$source_env" > "$tmp"
 check "$tmp" "$source_env"
 chmod 0644 "$tmp"
 mv -f -- "$tmp" "$ENV_FILE"
