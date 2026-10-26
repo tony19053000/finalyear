@@ -783,6 +783,28 @@ def prepare(
     raise typer.Exit(ExitCode.OK if report.ok else ExitCode.FAILURE)
 
 
+@app.command()
+def doctor(
+    config: ConfigOption = None,
+    as_json: Annotated[
+        bool, typer.Option("--json", help="Machine-readable output.")
+    ] = False,
+) -> None:
+    """Report what is true about this agent: version, joined or not, the last
+    upgrade (rolled back / interrupted) and the Docker/GPU/disk checks.
+    Changes nothing. Exit 1 when something needs attention."""
+    from meshforge.agent.doctor import gather, render
+
+    settings = _load_settings(config, **_LOCAL_ONLY)
+    _quiet_logging(settings)
+    report = gather(settings)
+    if as_json:
+        typer.echo(json.dumps(report.as_dict(), sort_keys=True))
+    else:
+        typer.echo(render(report))
+    raise typer.Exit(1 if report.failed else 0)
+
+
 def _print_scores(as_json: bool, payload: dict[str, object], lines: list[str]) -> None:
     if as_json:
         typer.echo(json.dumps(payload, sort_keys=True))

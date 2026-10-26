@@ -10,7 +10,10 @@
 #     installing user in meshforge-admin (so the app-menu entry works for them);
 #  5. enable and start (install) or restart (upgrade) the service - it always
 #     runs; a laptop that has not joined yet joins from its console - then check
-#     that it really is running before saying so.
+#     that it really is healthy before saying so (V0.17 G5: active without
+#     restarts, the local console answers with THIS version, and a joined laptop
+#     logged agent.started); an upgrade that is not healthy switches back to the
+#     previous version kept by preinst (Q35) and says so.
 set -eu
 
 UNIT=meshforge-agent.service
@@ -18,6 +21,89 @@ ENROLMENT=/var/lib/meshforge/identity/node.crt
 ADMIN_GROUP=meshforge-admin
 AGENT=/opt/meshforge/current/bin/meshforge-agent
 say() { printf 'meshforge-agent: %s\n' "$*"; }
+
+MF_OPT=/opt/meshforge
+MF_UNIT=$UNIT
+MF_VERSION=@MF_VERSION@
+export MF_OPT MF_UNIT MF_VERSION
+# @meshforge-include upgrade.sh
+HEALTH_TIMEOUT_S=60
+
+# The console's own answer: "off" (disabled in config.toml), its version, or
+# "down". Run with the interpreter `current` names, so it is the version that
+# should be running; stdlib only; never prints a token.
+console_version() {
+	"$MF_OPT/current/python/bin/python3.12" -I - <<'PY' 2>/dev/null || echo down
+import json, sys, tomllib, urllib.request
+port, enabled = 47130, True
+try:
+    with open("/etc/meshforge/config.toml", "rb") as fh:
+        section = tomllib.load(fh).get("agent", {}).get("console", {})
+    port = int(section.get("port", port))
+    enabled = section.get("enabled", True) is not False
+except FileNotFoundError:
+    pass
+if not enabled:
+    print("off")
+    sys.exit(0)
+opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+with opener.open(f"http://127.0.0.1:{port}/console/v1/health", timeout=2) as resp:
+    print(json.load(resp).get("version", "?"))
+PY
+}
+
+# healthy <version> <since-epoch>: the service runs <version> and stays up.
+# Sets $why when it is not.
+healthy() {
+	want=$1
+	since=$2
+	why=""
+	if mf_forced_failure; then
+		why="forced failure for this test ($MF_OPT/.upgrade/fail-upgrade-to)"
+		return 1
+	fi
+	restarts=$(systemctl show -p NRestarts --value "$UNIT" 2>/dev/null || echo 0)
+	waited=0
+	console=""
+	while [ "$waited" -lt "$HEALTH_TIMEOUT_S" ]; do
+		state=$(systemctl is-active "$UNIT" 2>/dev/null || true)
+		case "$state" in
+		failed | inactive)
+			status=$(systemctl show -p ExecMainStatus --value "$UNIT" 2>/dev/null || true)
+			why="the service stopped (exit ${status:-?}; see journalctl -u meshforge-agent -n 50)"
+			return 1
+			;;
+		esac
+		if [ "$state" = active ]; then
+			console=$(console_version)
+			started=yes
+			if [ -e "$ENROLMENT" ] && ! journalctl -u "$UNIT" --since "@$since" -o cat 2>/dev/null |
+				grep -q 'agent\.started'; then
+				started=no
+			fi
+			if { [ "$console" = off ] || [ "$console" = "$want" ]; } && [ "$started" = yes ]; then
+				sleep 3 # still up, and not by a restart?
+				now=$(systemctl show -p NRestarts --value "$UNIT" 2>/dev/null || echo 0)
+				if [ "$(systemctl is-active "$UNIT" 2>/dev/null || true)" = active ] &&
+					[ "$now" = "$restarts" ]; then
+					return 0
+				fi
+				why="the service restarted by itself (crash loop; see journalctl -u meshforge-agent -n 50)"
+				return 1
+			fi
+		fi
+		sleep 1
+		waited=$((waited + 1))
+	done
+	if [ "$console" = down ] || [ -z "$console" ]; then
+		why="the local console did not answer on 127.0.0.1 within $HEALTH_TIMEOUT_S s"
+	elif [ "$console" != off ] && [ "$console" != "$want" ]; then
+		why="the console reports version $console, not $want"
+	else
+		why="the agent did not log agent.started within $HEALTH_TIMEOUT_S s"
+	fi
+	return 1
+}
 
 case "${1:-}" in
 configure) ;;
@@ -34,6 +120,9 @@ if [ -z "$previous" ] || [ -e "$REMOVED_MARK" ]; then
 	fresh=1
 fi
 rm -f "$REMOVED_MARK"
+# V0.17 G5: `current` names this version from here on (a power loss after this
+# point lets the new version finish at the next boot, Q39)
+mf_upgrade_switch
 
 # 1. state folders (never loosened if an admin tightened them further)
 if [ ! -d /etc/meshforge ]; then
@@ -79,6 +168,13 @@ if [ "$rc" -ne 0 ]; then
 		else
 			say "$why. A service that is running now keeps running the PREVIOUS version until it"
 			say "restarts (reboot, crash or systemctl restart); it then stays stopped until this is fixed."
+			# V0.17 G5: point `current` back at the version that runs (no
+			# restart), so the program path and the running service agree.
+			if mf_upgrade_rollback "identity migration: $why" norestart; then
+				mf_upgrade_rolled_back_ok
+				say "the previous version is selected again ($MF_OPT/current -> $(mf_current_target));"
+				say "after fixing it, install this package again: sudo apt install --reinstall ./<this .deb>"
+			fi
 		fi
 		say "after fixing it: sudo meshforge-agent migrate-identity && sudo systemctl enable --now $UNIT"
 		exit 0
@@ -107,6 +203,7 @@ fi
 
 if [ "$systemd_running" -ne 1 ]; then
 	say "systemd is not running here (container/chroot): service not started"
+	mf_upgrade_done # nothing to check here, so nothing to switch back to
 	exit 0
 fi
 
@@ -116,28 +213,44 @@ if [ "$fresh" -eq 1 ]; then
 	systemctl enable "$UNIT" >/dev/null 2>&1 || systemctl enable "$UNIT"
 elif ! systemctl is-enabled --quiet "$UNIT"; then
 	say "upgraded; $UNIT is disabled, so it was left stopped (enable: sudo systemctl enable --now $UNIT)"
+	mf_upgrade_done # a stopped service cannot be checked: no automatic switch back
 	exit 0
 fi
 
+started_at=$(date +%s)
 systemctl restart "$UNIT" || true
 
-# say what is true: active for a few seconds, or not running (with why)
-state=inactive
-i=0
-while [ "$i" -lt 5 ]; do
-	sleep 1
-	state=$(systemctl is-active "$UNIT" 2>/dev/null || true)
-	[ "$state" = active ] || break
-	i=$((i + 1))
-done
-if [ "$state" = active ]; then
-	say "service $UNIT is running (logs: journalctl -u meshforge-agent)"
+# say what is true (V0.17 G5): healthy, rolled back, or not running - with why
+if healthy "$MF_VERSION" "$started_at"; then
+	mf_upgrade_done
+	say "service $UNIT is running version $MF_VERSION (logs: journalctl -u meshforge-agent)"
 	if [ ! -e "$ENROLMENT" ]; then
 		say "this laptop has not joined a fabric yet: open \"MeshForge\" from the app menu"
 		say "(or run meshforge-console-open), or join from a terminal: sudo meshforge-agent join <code>"
 	fi
 else
-	say "service $UNIT is NOT running (state: $state); see: journalctl -u meshforge-agent -n 50"
+	failed_why=$why
+	from=$(mf_state_get from)
+	if [ "$fresh" -eq 0 ] && mf_upgrade_rollback "$failed_why"; then
+		started_at=$(date +%s)
+		if healthy "$from" "$started_at"; then
+			mf_upgrade_rolled_back_ok
+			say "UPGRADE FAILED: version $MF_VERSION did not become healthy: $failed_why."
+			say "ROLLED BACK: the previous version $from runs again ($MF_OPT/current -> $(mf_current_target));"
+			say "the identity, settings and jobs are unchanged. \`meshforge-agent doctor\` shows this until"
+			say "an upgrade succeeds. Send the log above to the MeshForge team."
+		else
+			say "UPGRADE FAILED: version $MF_VERSION did not become healthy: $failed_why."
+			say "the rollback to $from did not help either: $why"
+			say "see: journalctl -u meshforge-agent -n 80"
+		fi
+	else
+		say "service $UNIT is NOT healthy: $failed_why"
+		if [ "$fresh" -eq 0 ]; then
+			say "no previous version was kept, so it could not switch back (see the warning above)"
+		fi
+		say "see: journalctl -u meshforge-agent -n 50"
+	fi
 fi
 
 if getent group docker >/dev/null && ! id -nG meshforge | tr ' ' '\n' | grep -qx docker; then

@@ -21,6 +21,11 @@ const STOP_HELP: Record<string, string> = {
     "The controller does not accept this MeshForge version. If the message says the agent is too old, install the newer MeshForge on this laptop; if it says the agent is newer, ask the fabric admin to upgrade the controller first. Then press Restart.",
 };
 
+const UPGRADE_HELP: Record<string, string> = {
+  rolled_back: "MeshForge keeps working on the previous version. Fix the cause the installer named, then install the new version again.",
+  interrupted: "Finish the upgrade: on Linux run `sudo dpkg --configure -a`, on Windows run the installer again.",
+};
+
 function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="grid grid-cols-1 gap-0.5 py-1.5 sm:grid-cols-[10rem_1fr] sm:gap-3">
@@ -61,6 +66,14 @@ export function Home({ status }: { status: StatusView }) {
             )}
           </div>
         </div>
+      )}
+      {status.upgrade !== null && status.upgrade !== undefined && status.upgrade.kind !== "in_progress" && (
+        <Problem
+          title={status.upgrade.kind === "rolled_back" ? "The last upgrade was rolled back" : "An upgrade was interrupted"}
+          message={status.upgrade.message}
+          fix={UPGRADE_HELP[status.upgrade.kind]}
+          code={status.upgrade.kind}
+        />
       )}
       <Card title="This laptop" actions={<StatusDot tone={summary.tone} label={summary.label} />}>
         <dl className="divide-y divide-border">

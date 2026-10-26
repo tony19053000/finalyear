@@ -21,6 +21,10 @@ Group=meshforge
 # Q11: the install mode is set here, explicitly - never guessed from the disk.
 Environment=MESHFORGE_INSTALL_MODE=system
 Environment=MESHFORGE_CONFIG=/etc/meshforge/controller.toml
+# V0.17 G5 (Q39): as root ("+"), before every start: an upgrade a power loss
+# interrupted is reverted to the kept previous version (or let finish). "-": it
+# can never keep the service from starting.
+ExecStartPre=-+/usr/lib/meshforge/controller-upgrade-recover
 ExecStart=/opt/meshforge/controller/current/bin/meshforge-controller
 Restart=always
 RestartSec=5

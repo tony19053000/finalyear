@@ -74,6 +74,7 @@ from meshforge.agent.console.models import (
     PolicyView,
     StatusView,
     StopReasonView,
+    UpgradeNoticeView,
 )
 from meshforge.agent.console.node_name import (
     node_name_path,
@@ -358,7 +359,22 @@ def _status(ctx: ConsoleContext, facts: dict[str, Any]) -> StatusView:
         controller=controller or None,
         session_id=None if client is None else (client.session_id or None),
         dashboard_url=_dashboard_url(controller),
+        upgrade=_upgrade_view(),
     )
+
+
+def _upgrade_view() -> UpgradeNoticeView | None:
+    """V0.17 G5: the installed bundle's upgrade records (none in a checkout)."""
+    from meshforge.common.buildinfo import bundle_root
+    from meshforge.common.upgrade_state import program_dir, upgrade_notice
+
+    root = bundle_root()
+    if root is None:
+        return None
+    notice = upgrade_notice(program_dir(root))
+    if notice is None:
+        return None
+    return UpgradeNoticeView(kind=notice.kind, message=notice.message)
 
 
 def _policy_view(ctx: ConsoleContext, restart: tuple[str, ...] = ()) -> PolicyView:

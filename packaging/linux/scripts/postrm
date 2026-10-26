@@ -15,6 +15,15 @@ controller_known() {
 }
 
 case "${1:-}" in
+purge | remove)
+	# V0.17 G5: the rollback copy and the upgrade records (not dpkg's files)
+	rm -rf /opt/meshforge/.previous /opt/meshforge/.upgrade
+	rm -f /opt/meshforge/.current.*
+	rmdir /opt/meshforge 2>/dev/null || true
+	;;
+esac
+
+case "${1:-}" in
 purge)
 	# the console token folder (V0.17 G3) is the agent's alone
 	rm -rf /run/meshforge-console
@@ -64,7 +73,16 @@ remove)
 		systemctl reset-failed $UNITS >/dev/null 2>&1 || true
 	fi
 	;;
-upgrade | failed-upgrade | abort-install | abort-upgrade | disappear) ;;
+abort-upgrade)
+	# V0.17 G5: the new version's unpack failed and dpkg put the old files
+	# back: the upgrade that preinst began is over (keep a copy that runs).
+	rm -f /opt/meshforge/.upgrade/state
+	case "$(readlink /opt/meshforge/current 2>/dev/null || true)" in
+	.previous/*) ;;
+	*) rm -rf /opt/meshforge/.previous ;;
+	esac
+	;;
+upgrade | failed-upgrade | abort-install | disappear) ;;
 *) ;;
 esac
 
