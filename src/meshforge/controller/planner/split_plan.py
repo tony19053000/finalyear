@@ -217,10 +217,16 @@ def _objective_set(
     (rank 1 first)."""
     best_single = min(singles, key=lambda s: (s.total_s, s.node_ids), default=None)
     by_time = sets[0] if sets else None
-    time_uses_set = by_time is not None and _margin(by_time, best_single, margin).passed
+    time_uses_set = by_time is not None and (
+        _margin(by_time, best_single, margin).passed or best_single is None
+    )  # V1.0 G2: no single at all (Mode 1 disabled) -> the set is the plan
     if objective == "min_network":
         # a set must pass its own margin test, then move fewer bytes
-        eligible = [s for s in sets if _margin(s, best_single, margin).passed]
+        eligible = [
+            s
+            for s in sets
+            if best_single is None or _margin(s, best_single, margin).passed
+        ]
 
         def key(item: SetEstimate) -> tuple[float, float]:
             return (set_bytes_moved(item, request), item.total_s)
@@ -500,7 +506,12 @@ def decide_split(
     single_rows = [
         _row(by_node[r.node_id], modes[r.node_id], score=r.score) for r in ranked
     ]
-    use_set = best_set is not None and (overall.passed or forced == FORCED_SET)
+    # V1.0 G2 (D418 A6): with Mode 1 disabled and the Local lane unusable
+    # there is no single to compare with - a set is then the only plan (never
+    # reached otherwise: every lane of a set is also a single)
+    use_set = best_set is not None and (
+        overall.passed or forced == FORCED_SET or best_single is None
+    )
     chosen_set = best_set
     if reads_objective:
         time_pick = _pick_key(best_set if use_set else best_single, use_set)

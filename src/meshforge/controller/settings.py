@@ -20,7 +20,7 @@ import math
 import re
 from enum import StrEnum
 from pathlib import Path
-from typing import Any, Final
+from typing import Any, Final, Literal
 
 from pydantic import Field, ValidationError, field_validator, model_validator
 
@@ -895,6 +895,28 @@ class PlannerSettings(SectionModel):
         ),
     )
     # --- end V0.14 G3 ------------------------------------------------------------
+    # --- V1.0 G2 (D418 A5/A6): evaluation ablation switches ----------------------
+    disabled_modes: tuple[Literal["mode1", "mode3"], ...] = Field(
+        default=(),
+        description=(
+            "V1.0 D418 (evaluation ablations, not a user setting): execution "
+            "modes the planner never chooses for an automatically placed job. "
+            "mode1 = no Mode 1 offload (Local, or Mode 3 for a split job); "
+            "mode3 = no Mode 3 split (a split job runs whole on one node). "
+            "Pinned jobs are unaffected. With mode1 disabled a job submitted "
+            "without its own node (no Local candidate) cannot be placed. "
+            "Empty = every mode (the default)."
+        ),
+    )
+    # --- end V1.0 G2 -------------------------------------------------------------
+
+    @field_validator("disabled_modes")
+    @classmethod
+    def _disabled_modes(
+        cls, value: tuple[Literal["mode1", "mode3"], ...]
+    ) -> tuple[Literal["mode1", "mode3"], ...]:
+        """V1.0 G2: sorted and without repeats (one spelling per setting)."""
+        return tuple(sorted(set(value)))
 
     @field_validator("risk_prior")
     @classmethod
