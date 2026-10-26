@@ -14,6 +14,7 @@ from typing import Any, cast
 import grpc
 import pytest
 
+from meshforge import __version__
 from meshforge.common.ids import new_node_id
 from meshforge.common.proto.meshforge.v1 import agent_pb2
 from meshforge.controller.liveness import LivenessConfig
@@ -47,7 +48,7 @@ def strings(**override: str) -> dict[str, str]:
         "hostname": "lab-laptop-1",
         "os": "Linux 6.8.0",
         "platform": "x86_64",
-        "agent_version": "0.1.0.dev0",
+        "agent_version": __version__,
     }
     base.update(override)
     return base
@@ -155,7 +156,7 @@ def _hello(**override: Any) -> agent_pb2.Hello:
     fields: dict[str, Any] = {
         "node_id": new_node_id(),
         "protocol_version": 1,
-        "agent_version": "0.1.0.dev0",
+        "agent_version": __version__,
         "hostname": "laptop",
         "session_epoch": 1,
         "os": "Ubuntu 24.04",

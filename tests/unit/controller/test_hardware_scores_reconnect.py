@@ -33,6 +33,7 @@ from test_session_manager import (
     mid,
 )
 
+from meshforge import __version__
 from meshforge.agent.benchmarks.wire import to_proto
 from meshforge.common.ids import new_node_id
 from meshforge.common.proto.meshforge.v1 import agent_pb2
@@ -84,7 +85,7 @@ def _hello(node_id: str, epoch: int, *gpu_indices: int) -> agent_pb2.Hello:
     h = agent_pb2.Hello(
         node_id=node_id,
         protocol_version=1,
-        agent_version="0.1.0.dev0",
+        agent_version=__version__,
         hostname="laptop",
         session_epoch=epoch,
         os="Ubuntu 24.04",

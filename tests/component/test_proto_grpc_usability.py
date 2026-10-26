@@ -27,6 +27,7 @@ import grpc
 import pytest
 import pytest_asyncio
 
+from meshforge import __version__
 from meshforge.common.proto.meshforge.v1 import (
     agent_pb2,
     agent_pb2_grpc,
@@ -123,7 +124,7 @@ async def test_agent_control_session_bidi_hello_ack_over_real_socket(
                 hello=agent_pb2.Hello(
                     node_id=_HELLO_NODE_ID,
                     protocol_version=common_pb2.PROTOCOL_VERSION_1,
-                    agent_version="0.1.0.dev0",
+                    agent_version=__version__,
                     hostname="test-laptop",
                 ),
             )
@@ -204,7 +205,7 @@ async def test_two_concurrent_agent_sessions_are_independent(
                 hello=agent_pb2.Hello(
                     node_id=node_id,
                     protocol_version=common_pb2.PROTOCOL_VERSION_1,
-                    agent_version="0.1.0.dev0",
+                    agent_version=__version__,
                     hostname=node_id,
                 ),
             )

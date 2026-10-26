@@ -22,6 +22,7 @@ import grpc
 import pytest
 from google.protobuf.descriptor import Descriptor, EnumDescriptor, FileDescriptor
 
+from meshforge import __version__
 from meshforge.common.hashing import Digest, sha256_bytes
 from meshforge.common.proto.meshforge.v1 import (
     agent_pb2,
@@ -102,7 +103,7 @@ def test_agent_message_oneof_round_trip() -> None:
         hello=agent_pb2.Hello(
             node_id="node-1",
             protocol_version=common_pb2.PROTOCOL_VERSION_1,
-            agent_version="0.1.0.dev0",
+            agent_version=__version__,
             hostname="laptop-1",
         ),
     )

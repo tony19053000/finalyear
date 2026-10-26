@@ -15,6 +15,7 @@ import pytest
 from mf_cli_support import TransportFactory
 from typer.testing import CliRunner
 
+from meshforge import __version__
 from meshforge.cli.app import app
 from meshforge.cli.render import format_age, format_bytes, nodes_table, state_counts
 from meshforge.common.exit_codes import ExitCode
@@ -77,7 +78,7 @@ DETAIL_PAYLOAD: dict[str, Any] = {
     "first_seen_at": "2026-01-01T00:00:00+00:00",
     "session_epoch": 4,
     "last_session_id": "sess_01JQZ0000000000000000000C",
-    "agent_version": "0.1.0.dev0",
+    "agent_version": __version__,
     "protocol_version": 1,
     "peer_address": "192.168.1.77:51000",
     "hardware": {"cpu_threads": 16, "ram_total_bytes": "8589934592"},
@@ -242,7 +243,7 @@ def test_nodes_with_an_id_shows_the_detail_including_hardware(
     assert "hardware.cpu_threads" in out
     assert "16" in out
     assert "192.168.1.77:51000" in out
-    assert "0.1.0.dev0" in out
+    assert __version__ in out
 
 
 def test_nodes_with_an_id_and_json_prints_the_detail_payload(

@@ -23,6 +23,7 @@ from mf_session_client import FakeAgent, poll_until
 
 pytest.importorskip("sqlalchemy", reason="needs the controller extra")
 
+from meshforge import __version__
 from meshforge.common.ids import new_command_id, new_node_id, new_session_id
 from meshforge.common.proto.meshforge.v1 import agent_pb2
 from meshforge.controller.liveness import NodeState
@@ -475,7 +476,7 @@ async def test_the_internal_error_end_reason_is_accepted_by_the_schema(
         node_id=node_id,
         session_epoch=1,
         peer_address="ipv4:127.0.0.1:1",
-        agent_version="0.1.0.dev0",
+        agent_version=__version__,
         protocol_version=1,
     )
     assert await registry.close_session(session_id, SessionEndReason.INTERNAL_ERROR)
