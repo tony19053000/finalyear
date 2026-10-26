@@ -24,6 +24,7 @@ import asyncio
 import contextlib
 import ipaddress
 import socket
+import sys
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Final
@@ -58,7 +59,13 @@ def bind_console_socket(port: int) -> socket.socket:
     the port is taken or the result is not loopback."""
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        if sys.platform == "win32":
+            # Windows SO_REUSEADDR lets a second socket bind (and steal) a port
+            # that is already listening; exclusive use refuses that, and a
+            # restart still rebinds (TIME_WAIT does not block it on Windows).
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        else:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock.bind((CONSOLE_HOST, port))
         bound = str(sock.getsockname()[0])
         if not ipaddress.ip_address(bound).is_loopback:  # pragma: no cover - paranoia
