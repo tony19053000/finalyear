@@ -316,12 +316,6 @@ def test_a_damaged_state_file_never_breaks_a_start_or_moves_the_pointer_wildly(
     assert machine.runs() == OLD
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="G5-T2 (minor, hardening): the state file's `previous=` is not "
-    "validated, so root-written '../evil' becomes the pointer; only root can "
-    "write the folder, so this is robustness, not a privilege boundary",
-)
 def test_traversal_in_the_state_file_cannot_point_current_outside(
     machine: Machine,
 ) -> None:

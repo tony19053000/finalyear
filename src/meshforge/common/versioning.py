@@ -46,7 +46,16 @@ stop code, troubleshooting entry)."""
 
 _MAX_NODE_CHARS: Final = 64
 """The node name in a refusal is capped (it comes from the agent's Hello)."""
-_LEADING: Final = re.compile(r"^\s*v?(\d{1,6})\.(\d{1,6})(?:[.\-+~a-zA-Z0-9]*)\s*$")
+_LEADING: Final = re.compile(
+    r"^\s*v?([0-9]{1,6})\.([0-9]{1,6})"
+    r"(?:[A-Za-z][0-9A-Za-z]*)?(?:[.+~-][0-9A-Za-z]+)*\s*$",
+    re.ASCII,
+)
+"""ASCII digits only; after ``major.minor`` an optional letter part (``rc1``)
+and zero or more parts each starting with a separator (``.0``, ``.dev3``,
+``+local``) - a trailing separator (``0.17.``) is refused (tester G5-T1). Every
+repeated part starts with a mandatory separator: linear, no nested-quantifier
+backtracking."""
 
 
 @dataclass(frozen=True, slots=True, order=True)

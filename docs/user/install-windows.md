@@ -41,6 +41,8 @@ To open the page again later: **Start menu → MeshForge**.
 
 Only the person who installed MeshForge (and administrators) may open its page. Anyone else who opens **MeshForge**
 from the Start menu is asked whether to request access; an administrator approves it in the Windows prompt.
+An administrator can also do it directly, in an elevated PowerShell:
+`meshforge-agent console-access add --user <their Windows user name>` (`remove` takes it back).
 
 ## The network says "Public"
 

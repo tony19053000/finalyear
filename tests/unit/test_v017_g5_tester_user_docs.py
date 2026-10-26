@@ -113,13 +113,6 @@ def test_every_command_a_page_tells_the_reader_to_type_exists(page: Path) -> Non
     assert bad == [], f"{page.name}: {bad}"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="G5-T4 (minor, from G4): winsetup tells the Windows user to run "
-    "'meshforge-agent console-access', which is not a meshforge-agent command "
-    "(it is `python -m meshforge.agent.winservice console-access`), and "
-    "'(see the docs)' - docs/user has no such page",
-)
 def test_defect_g5_t4_messages_name_commands_that_exist() -> None:
     text = (REPO / "src/meshforge/agent/winsetup.py").read_text(encoding="utf-8")
     ok, where = _resolve("meshforge-agent", ["console-access"])

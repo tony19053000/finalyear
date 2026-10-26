@@ -397,6 +397,9 @@ class RealOps:
             return True  # the agent itself refuses a bad config: health fails anyway
         return settings.agent.console.enabled is not False
 
+    def file_exists(self, path: str) -> bool:
+        return os.path.isfile(path)
+
     def console_healthy(self) -> bool:
         import httpx
 

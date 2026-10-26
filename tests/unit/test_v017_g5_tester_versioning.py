@@ -81,11 +81,6 @@ def test_unreadable_versions_are_refused_never_guessed(agent: str) -> None:
     assert verdict.reason("n").startswith(f"{VERSION_UNSUPPORTED}: ")
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="G5-T1 (minor): parse_minor's regex uses \\d, which accepts non-ASCII "
-    "digits, and a trailing dot ('0.17.'); the brief's rule is '<int>.<int>'",
-)
 @pytest.mark.parametrize("agent", ["0.17.", "\u0660.\u0661\u0667"])
 def test_defect_g5_t1_version_text_is_read_as_ascii_digits_only(agent: str) -> None:
     assert check_agent_version(agent, "0.17.0").compatibility is Compatibility.UNKNOWN

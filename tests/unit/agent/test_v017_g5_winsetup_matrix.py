@@ -67,11 +67,7 @@ def assert_invariant(ops: Windows) -> None:
 
 @pytest.fixture
 def records(tmp_path: Path) -> FileRecords:
-    # the fake SCM's interpreters are Windows paths that do not exist here; the
-    # real "inside {app} and exists" rule has its own tests below
-    return FileRecords(
-        tmp_path / "MeshForge", python_ok=lambda p: p in (OLD_PY, NEW_PY)
-    )
+    return FileRecords(tmp_path / "MeshForge")
 
 
 def _rolled_back(records: FileRecords) -> dict[str, str]:
@@ -274,25 +270,28 @@ def test_journal_file_format_is_the_linux_one(records: FileRecords) -> None:
 
 
 # ---------------------------- fix round 1: the journal names only {app} pythons
-def test_a_journalled_python_must_exist_inside_the_program_folder(
-    tmp_path: Path,
+@pytest.mark.parametrize(
+    ("python", "exists", "kept"),
+    [
+        (OLD_PY, True, True),
+        (OLD_PY, False, False),  # deleted meanwhile
+        (r"C:\Temp\0.17.0-1\python\python.exe", True, False),  # a foreign folder
+        (r"C:\Program Files\MeshForge\0.17.0-1\python\evil.exe", True, False),
+        (r"C:\Program Files\MeshForge\..\x\python\python.exe", True, False),
+        (r"C:\Program Files\MeshForge\python.exe", True, False),  # wrong shape
+    ],
+)
+def test_a_journalled_python_must_be_an_existing_app_python(
+    records: FileRecords, python: str, exists: bool, kept: bool
 ) -> None:
-    root = tmp_path / "MeshForge"
-    good = root / "0.17.0-1" / "python" / "python.exe"
-    good.parent.mkdir(parents=True)
-    good.write_bytes(b"")
-    outside = tmp_path / "elsewhere" / "python.exe"
-    outside.parent.mkdir()
-    outside.write_bytes(b"")
-    records = FileRecords(root)
-    for python, kept in (
-        (str(good), True),
-        (str(outside), False),  # a foreign binary
-        (str(root / "0.17.0-9" / "python" / "python.exe"), False),  # missing
-        (str(root / "0.17.0-1" / "python" / "evil.exe"), False),  # not python.exe
-        (str(root / ".." / "elsewhere" / "python.exe"), False),  # escapes {app}
-    ):
-        records.write_journal(Journal(python, "0.17.0-2", "checking"))
-        journal = records.read_journal()
-        assert journal is not None
-        assert (journal.from_python == python) is kept, python
+    records.write_journal(Journal(python, NEW.version_dir, "checking"))
+    ops = Windows(
+        exists=True, state="stopped", python=NEW_PY, behaviour={NEW_PY: "no_console"}
+    )
+    ops.current = NEW.version_dir
+    present = {python} if exists else set()
+    ops.file_exists = lambda path: path in present  # type: ignore[method-assign]
+    result = wsu.setup(ops, NEW, health_timeout_s=3, records=records)
+    assert (result.previous_python == python) is kept
+    if not kept:
+        assert ops.args("install_service") == [NEW_PY]  # never re-pointed elsewhere

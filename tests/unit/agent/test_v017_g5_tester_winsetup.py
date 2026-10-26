@@ -301,16 +301,7 @@ def test_a_trigger_that_is_a_symlink_or_a_folder_is_ignored(tmp_path: Path) -> N
         ("0.17.0\n", True),
         ("  0.17.0-2  \n", True),
         ("", False),
-        pytest.param(
-            "\n\n0.17.0-2\n",
-            False,
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason="G5-T3 (minor): Python readers strip leading blank lines "
-                "before taking 'the first line'; the Linux shell library takes "
-                "the literal first line - the two platforms disagree",
-            ),
-        ),
+        pytest.param("\n\n0.17.0-2\n", False),
         ("0.17", False),
         ("0.17.0-2 # note", False),
         ("0.17.*", False),

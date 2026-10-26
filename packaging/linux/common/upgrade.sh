@@ -179,7 +179,16 @@ mf_upgrade_done() {
 # Is a previous version kept for this upgrade? (prints its path, relative)
 mf_upgrade_previous() {
 	previous=$(mf_state_get previous)
-	if [ -n "$previous" ] && [ -f "$MF_OPT/$previous/BUILDINFO.json" ]; then
+	# only `.previous/<version>`: one plain name, never `..` or a `/` that could
+	# lead `current` out of the program folder (tester G5-T2)
+	case "$previous" in
+	.previous/*) name=${previous#.previous/} ;;
+	*) return 0 ;;
+	esac
+	case "$name" in
+	"" | . | .. | */* | *[!A-Za-z0-9.+~_-]*) return 0 ;;
+	esac
+	if [ -f "$MF_OPT/$previous/BUILDINFO.json" ]; then
 		printf '%s' "$previous"
 	fi
 }

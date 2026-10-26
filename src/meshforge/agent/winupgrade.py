@@ -28,7 +28,6 @@ from __future__ import annotations
 import json
 import os
 import time
-from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final, Protocol
@@ -107,14 +106,8 @@ class NullRecords:
 class FileRecords:
     """The records as files in ``<program root>\\upgrade``."""
 
-    def __init__(
-        self,
-        program_root: Path,
-        *,
-        python_ok: Callable[[str], bool] | None = None,
-    ) -> None:
+    def __init__(self, program_root: Path) -> None:
         self.folder = program_root / WINDOWS_UPGRADE_DIR_NAME
-        self._python_ok = python_ok or self._python_in_program_folder
 
     def _write(self, name: str, text: str) -> None:
         self.folder.mkdir(parents=True, exist_ok=True)
@@ -144,30 +137,9 @@ class FileRecords:
         to = facts.get("to", "")
         if not to:
             return None
-        return Journal(
-            self._trusted_python(facts.get("from") or None), to, facts.get("phase", "")
-        )
-
-    def _trusted_python(self, python: str | None) -> str | None:
-        """Fix round 1: a journalled interpreter is re-pointed to only when it
-        is a ``python.exe`` that exists inside this program folder (``{app}``);
-        anything else is dropped (logged) - setup then has no previous version
-        to go back to, rather than a service pointed at a foreign binary."""
-        if python is None:
-            return None
-        if self._python_ok(python):
-            return python
-        log.warning("agent.service.journal_previous_refused", python=python[:300])
-        return None
-
-    def _python_in_program_folder(self, python: str) -> bool:
-        root = os.path.normcase(os.path.abspath(self.folder.parent))
-        candidate = os.path.normcase(os.path.abspath(python))
-        return (
-            candidate.startswith(root + os.sep)
-            and os.path.basename(candidate) == "python.exe"
-            and os.path.isfile(python)
-        )
+        # The interpreter is checked by winsetup (inside {app}, exists) before
+        # anything is re-pointed to it.
+        return Journal(facts.get("from") or None, to, facts.get("phase", ""))
 
     def write_journal(self, journal: Journal) -> None:
         self._write(
@@ -183,7 +155,8 @@ class FileRecords:
         text = self._read(FORCED_FAILURE_NAME)
         if text is None:
             return None
-        wanted = (text.strip().splitlines() or [""])[0].strip()
+        # the literal first line, the same rule as the Linux scripts (G5-T3)
+        wanted = (text.splitlines() or [""])[0].strip(" \t\r")
         if wanted not in ("*", version_dir, plain_version(version_dir)):
             return None
         return (

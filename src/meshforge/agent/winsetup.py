@@ -133,6 +133,7 @@ class Ops(Protocol):
     def remove_from_path(self) -> None: ...
     def remove_docker_access(self) -> None: ...
     def remove_data(self) -> list[str]: ...
+    def file_exists(self, path: str) -> bool: ...
     def monotonic(self) -> float: ...
     def sleep(self, seconds: float) -> None: ...
 
@@ -408,6 +409,7 @@ def _setup(
             previous is None
             and journal.from_python is not None
             and not _same_python(journal.from_python, new_python)
+            and _journalled_python_ok(ops, journal.from_python, layout)
         ):
             previous = journal.from_python
     result.previous_python = previous
@@ -502,6 +504,28 @@ def _setup(
             f"sc.exe start {SERVICE_NAME} (as administrator)"
         )
     return result
+
+
+def _journalled_python_ok(ops: Ops, python: str, layout: ProgramLayout) -> bool:
+    """Fix round 1: a journalled interpreter is gone back to only when it is
+    ``<{app}>\\<version>\\python\\python.exe`` of THIS program folder and
+    exists; anything else is ignored (logged) - setup then has no previous
+    version, rather than a service pointed at a foreign binary."""
+    from pathlib import PureWindowsPath
+
+    candidate = PureWindowsPath(python)
+    parts = candidate.parts
+    shaped = (
+        len(parts) >= 3
+        and candidate.name.lower() == "python.exe"
+        and candidate.parent.name.lower() == "python"
+        and str(candidate.parent.parent.parent).lower() == str(layout.root).lower()
+        and ".." not in parts
+    )
+    if shaped and ops.file_exists(python):
+        return True
+    log.warning("agent.service.journal_previous_refused", python=python[:300])
+    return False
 
 
 def _point_at(ops: Ops, version_dir: str) -> None:
@@ -612,7 +636,9 @@ def _console_access(ops: Ops, lines: list[str]) -> None:
     except OpsError as exc:
         lines.append(
             f"console access for your user could not be set: {exc}; an "
-            "administrator can grant it: meshforge-agent console-access (see the docs)"
+            "administrator can grant it in an elevated prompt: "
+            "meshforge-agent console-access add --user <name> "
+            '(docs/user/install-windows.md, "Another user of this laptop")'
         )
 
 

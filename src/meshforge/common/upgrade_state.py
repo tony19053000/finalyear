@@ -127,7 +127,9 @@ def forced_failure(
     text = _read_trusted(path, require_root)
     if text is None:
         return None
-    wanted = (text.strip().splitlines() or [""])[0].strip()
+    # the literal first line (not the first non-blank one), as the package
+    # scripts read it: `head -n 1 | tr -d ' \t\r'` (tester G5-T3)
+    wanted = (text.splitlines() or [""])[0].strip(" \t\r")
     if wanted not in (version, "*"):
         return None
     return (

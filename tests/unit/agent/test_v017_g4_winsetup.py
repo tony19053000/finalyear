@@ -196,6 +196,10 @@ class FakeOps:
             raise wsu.OpsError(self.data_error)
         return [r"removed all MeshForge data: C:\ProgramData\MeshForge"]
 
+    def file_exists(self, path: str) -> bool:
+        # V0.17 G5: the interpreters this fake Windows has installed
+        return path in (OLD_PY, NEW_PY)
+
     def monotonic(self) -> float:
         return self.now
 
