@@ -160,6 +160,10 @@ class NodeCertificate(ApiModel):
     public_key_fingerprint_sha256: str
 
 
+AgentVersionStatus = Literal["same", "behind", "unsupported"]
+"""V0.17 G5: :func:`meshforge.common.versioning.check_agent_version`, for display."""
+
+
 class NodeSummary(ApiModel):
     """One row of ``GET /v1/nodes``. See the module docstring for D16."""
 
@@ -204,6 +208,21 @@ class NodeSummary(ApiModel):
             "console; empty = none, show the hostname."
         ),
     )
+    agent_version: str | None = Field(
+        default=None,
+        description=(
+            "The agent's version: its live session's (the list), or its most "
+            "recent session's (one node). Null = unknown (offline in the list)."
+        ),
+    )
+    agent_version_status: AgentVersionStatus | None = Field(
+        default=None,
+        description=(
+            "V0.17 G5 (Q37), against this controller's version: `same` minor, "
+            "`behind` (one minor older - still accepted, upgrade soon) or "
+            "`unsupported` (refused with version_unsupported). Null = no version."
+        ),
+    )
 
 
 class CacheCount(ApiModel):
@@ -238,10 +257,6 @@ class NodeDetail(NodeSummary):
     first_seen_at: Utc
     session_epoch: int
     last_session_id: str | None = None
-    agent_version: str | None = Field(
-        default=None,
-        description="From the node's most recent session row (live when connected).",
-    )
     protocol_version: int | None = None
     peer_address: str | None = None
     peer_endpoint: str | None = Field(

@@ -63,6 +63,23 @@ OUTAGE_NOISE: Final = (
 # --------------------------------------------------------------- browser
 
 
+DOC_SHOTS_ENV: Final = "MESHFORGE_DOCS_SCREENSHOTS"
+"""V0.17 G5 (Q41): a folder (normally ``docs/user/img``) - the e2e tests that
+walk the user pages save the documentation's screenshots there. Unset: none."""
+
+
+def doc_screenshot(page: Page, name: str) -> None:
+    """Save ``page`` as ``$MESHFORGE_DOCS_SCREENSHOTS/name`` (when set)."""
+    folder = os.environ.get(DOC_SHOTS_ENV)
+    if not folder:
+        return
+    from pathlib import Path as _Path
+
+    target = _Path(folder) / name
+    target.parent.mkdir(parents=True, exist_ok=True)
+    page.screenshot(path=str(target), full_page=True, animations="disabled")
+
+
 def fill_login(page: Page, user: str, password: str) -> None:
     """Type into the login form and press Sign in (nothing awaited)."""
     page.get_by_label("User name").fill(user)

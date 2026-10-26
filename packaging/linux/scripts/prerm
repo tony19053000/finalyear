@@ -27,6 +27,11 @@ remove | deconfigure)
 		# disable works without a running systemd too (it only removes the links)
 		systemctl disable "$unit" >/dev/null 2>&1 || true
 	done
+	if [ "$1" = remove ]; then
+		# V0.17 G5: the rollback copy and the upgrade records (not dpkg's files)
+		rm -rf /opt/meshforge/.previous /opt/meshforge/.upgrade
+		rm -f /opt/meshforge/.current.*
+	fi
 	;;
 upgrade | failed-upgrade) ;;
 *) ;;

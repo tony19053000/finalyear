@@ -1,10 +1,10 @@
 # What your laptop shares - the owner settings
 
-> Draft (V0.17 G3); finished with screenshots in V0.17 G5.
-
 You, the laptop's owner, decide what other people's work may do on it - not the fabric's admin. Open
 **MeshForge** from the app menu and go to **Settings**. Changes apply within seconds; when one needs a restart the
 page says so and offers a *Restart now* button.
+
+![The owner settings](img/console-settings.png)
 
 | Setting | What it means | After install |
 |---|---|---|

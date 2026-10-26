@@ -1,0 +1,35 @@
+# The "previous release" the upgrade tests start from (V0.17 G5, Q36, D403).
+#
+# CI's upgrade-from-release jobs install these assets first, then upgrade to the
+# build under test, and check that node_id, config, owner settings and the
+# controller database survive. Every asset is a fixed URL + sha256 (same rule as
+# pins.toml): tests/_support/mf_previous_release.py downloads it into the
+# shared cache and refuses a byte that does not match.
+#
+# EMPTY UNTIL THE FIRST RELEASE EXISTS. No GitHub Release has been published
+# yet, so `version` is "" and the jobs SKIP with a warning that says so (they
+# never pass silently). After `.github/workflows/release.yml` publishes
+# v0.17.0 (tag it from main once package-windows is green, Q36), fill in the
+# version and the three assets from the release page (the release workflow
+# prints each asset's sha256 and attaches SHA256SUMS), in its own commit.
+#
+# Locally (no release needed): point the tests at any older build instead -
+#   MESHFORGE_TEST_UPGRADE_FROM_RELEASE=1
+#   MESHFORGE_TEST_PREVIOUS_AGENT_DEB=/path/meshforge-agent_<old>_amd64.deb
+#   MESHFORGE_TEST_PREVIOUS_CONTROLLER_DEB=/path/meshforge-controller_<old>_amd64.deb
+# (see docs/briefs/progress/V0.17-G5.md for how the G5 run built them).
+
+version = ""
+tag = ""
+
+[agent_deb]
+url = ""
+sha256 = ""
+
+[controller_deb]
+url = ""
+sha256 = ""
+
+[windows_exe]
+url = ""
+sha256 = ""

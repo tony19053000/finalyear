@@ -223,12 +223,16 @@ def test_changelog_is_reproducible_and_debian_shaped() -> None:
 def test_stage_fixes_modes_and_mtimes(tmp_path: Path) -> None:
     stage = tmp_path / "stage"
     stage.mkdir()
-    bd.stage(stage, PACKAGING, b"log", EPOCH)
+    values = {"MF_VERSION": "0.1.0"}
+    bd.stage(stage, PACKAGING, b"log", EPOCH, bd.STAGED, values)
     for rel, mode in bd.STAGED.items():
         st = (stage / rel).stat()
         assert st.st_mode & 0o777 == mode, rel
         assert int(st.st_mtime) == EPOCH, rel
-        assert (stage / rel).read_bytes() == (PACKAGING / rel).read_bytes()
+        source = (PACKAGING / rel).read_bytes()
+        if rel.startswith(("scripts/", "upgrade-recover")):  # V0.17 G5: inlined
+            source = bd.expand_script(source.decode(), values).encode()
+        assert (stage / rel).read_bytes() == source
     assert (stage / "changelog.Debian.gz").read_bytes() == b"log"
 
 
@@ -238,11 +242,11 @@ def test_stage_refuses_crlf_and_missing_files(tmp_path: Path) -> None:
     (packaging / "scripts" / "postinst").write_bytes(b"#!/bin/sh\r\nexit 0\r\n")
     (tmp_path / "s1").mkdir()
     with pytest.raises(lib.BundleError, match="CRLF"):
-        bd.stage(tmp_path / "s1", packaging, b"", EPOCH)
+        bd.stage(tmp_path / "s1", packaging, b"", EPOCH, bd.STAGED, {"MF_VERSION": "1"})
     (packaging / "scripts" / "postinst").unlink()
     (tmp_path / "s2").mkdir()
     with pytest.raises(lib.BundleError, match="missing packaging file"):
-        bd.stage(tmp_path / "s2", packaging, b"", EPOCH)
+        bd.stage(tmp_path / "s2", packaging, b"", EPOCH, bd.STAGED, {"MF_VERSION": "1"})
 
 
 # ---------------------------------------------------------------- inspection

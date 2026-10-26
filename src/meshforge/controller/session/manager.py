@@ -100,9 +100,11 @@ from typing import Any
 import grpc
 from google.protobuf.json_format import MessageToDict
 
+from meshforge import __version__
 from meshforge.common.ids import new_session_id
 from meshforge.common.logging import get_logger
 from meshforge.common.proto.meshforge.v1 import agent_pb2
+from meshforge.common.versioning import check_agent_version
 from meshforge.controller.liveness import (
     LeaseTracker,
     LivenessConfig,
@@ -199,6 +201,8 @@ class SessionManager:
         trust_peer_endpoints: bool = False,
         command_resend_s: float = 10.0,
         command_resend_tries: int = 5,
+        min_agent_version: str = "",
+        controller_version: str = __version__,
     ) -> None:
         if not admission_timeout_s > 0:
             raise ValueError("admission_timeout_s must be > 0")
@@ -227,6 +231,12 @@ class SessionManager:
         self._clock = clock
         self._wall_clock = wall_clock or (lambda: dt.datetime.now(dt.UTC))
         self._versions = accepted_protocol_versions
+        # V0.17 G5 (Q37): checked once here so a bad pair fails at start-up.
+        check_agent_version(
+            controller_version, controller_version, min_agent_version=min_agent_version
+        )
+        self._min_agent_version = min_agent_version
+        self._controller_version = controller_version
         self._queue_size = outbound_queue_size
         self._dedupe_window = dedupe_window
         self._write_capacity = write_capacity
@@ -329,6 +339,30 @@ class SessionManager:
 
     # -------------------------------------------------------------- admission
 
+    def _version_refusal(self, hello: agent_pb2.Hello) -> Rejected | None:
+        """V0.17 G5 (D393, Q37): same or previous minor only. A refusal is a
+        PROTOCOL_VERSION reject whose reason starts with ``version_unsupported:``
+        (see :mod:`meshforge.common.versioning` for why the code is reused):
+        every agent stops on it instead of retrying."""
+        verdict = check_agent_version(
+            hello.agent_version,
+            self._controller_version,
+            min_agent_version=self._min_agent_version,
+        )
+        if verdict.accepted:
+            return None
+        node = hello.display_name or hello.node_id
+        reason = verdict.reason(node)
+        log.warning(
+            "controller.session.version_unsupported",
+            node_id=hello.node_id,
+            agent_version=hello.agent_version,
+            controller_version=self._controller_version,
+            compatibility=verdict.compatibility.value,
+            min_agent_version=str(verdict.minimum),
+        )
+        return Rejected(RejectCode.REJECT_CODE_PROTOCOL_VERSION, reason)
+
     async def admit(
         self,
         hello: agent_pb2.Hello,
@@ -364,6 +398,9 @@ class SessionManager:
                 RejectCode.REJECT_CODE_PROTOCOL_VERSION,
                 f"protocol_version {hello.protocol_version} not in [{lo}, {hi}]",
             )
+        refused = self._version_refusal(hello)
+        if refused is not None:
+            return refused
         # D28: from here until this admission returns, the Hello claims the
         # node's state against any older session still ending (module docstring).
         # D41: and that claim is bounded - the admission (lock wait + registry
@@ -683,6 +720,7 @@ class SessionManager:
             next_ping_at=self._clock(),  # first RTT sample right away
             writer=writer,
             declared_gpus=declared_gpus(hello.hardware),
+            agent_version=hello.agent_version,
         )
         endpoint, refusal = peer_endpoint_of(
             hello, peer, trust=self._trust_peer_endpoints

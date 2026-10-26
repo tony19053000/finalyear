@@ -78,6 +78,11 @@ contents:
     dst: /usr/share/polkit-1/actions/org.meshforge.docker-access.policy
     file_info:
       mode: 0644
+  # V0.17 G5 (Q39): finishes or reverts an upgrade a power loss interrupted
+  - src: ${MF_STAGE}/upgrade-recover
+    dst: /usr/lib/meshforge/agent-upgrade-recover
+    file_info:
+      mode: 0755
   - src: ${MF_STAGE}/meshforge-agent.service
     dst: /usr/lib/systemd/system/meshforge-agent.service
     file_info:

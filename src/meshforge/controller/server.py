@@ -49,6 +49,7 @@ import uvicorn
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from meshforge import __version__
+from meshforge.common.buildinfo import bundle_root
 from meshforge.common.config import INSECURE_DEV_BANNER
 from meshforge.common.errors import ConfigError, ExitCode, MeshForgeError
 from meshforge.common.gc_index import GcIndexBusyError
@@ -56,6 +57,7 @@ from meshforge.common.logging import get_logger
 from meshforge.common.netaddr import BindAddress, parse_bind
 from meshforge.common.proto.meshforge.v1 import agent_pb2, agent_pb2_grpc
 from meshforge.common.split_items import SplitLimits
+from meshforge.common.upgrade_state import forced_failure, program_dir
 from meshforge.controller.alerts import AlertLog
 from meshforge.controller.api.auth import ApiAuth
 from meshforge.controller.api.auth_routes import AuthApi
@@ -460,6 +462,8 @@ class ControllerRuntime:
                 else:
                     await self._start_services(cfg, loop, blobs, engine)
                 await check_connection(engine, database)
+                if upgrade is not None:
+                    _raise_forced_upgrade_failure(upgrade.to_version)
         except Exception as exc:
             if upgrade is None:
                 raise
@@ -625,6 +629,7 @@ class ControllerRuntime:
             cfg.liveness.to_config(),
             clock=loop.time,
             accepted_protocol_versions=cfg.accepted_protocol_versions,
+            min_agent_version=cfg.min_agent_version,
             outbound_queue_size=cfg.outbound_queue_size,
             dedupe_window=cfg.dedupe_window,
             resources=resources,
@@ -1625,6 +1630,19 @@ class _RuntimeContext:
         tb: TracebackType | None,
     ) -> None:
         await self._runtime.stop()
+
+
+def _raise_forced_upgrade_failure(version: str) -> None:
+    """V0.17 G5 (Q38): the admin-only trigger file next to ``current`` fails
+    this upgrade's health check on purpose, so the restore + rollback path
+    runs for real (tests, the 0.17.8 lab). Only installed bundles have one."""
+    root = bundle_root()
+    if root is None:
+        return
+    reason = forced_failure(program_dir(root), version)
+    if reason is not None:
+        log.warning("controller.upgrade.forced_failure", version=version, why=reason)
+        raise ConfigError(reason, details={"version": version})
 
 
 def _setup_offered(settings: ControllerSettings) -> bool:

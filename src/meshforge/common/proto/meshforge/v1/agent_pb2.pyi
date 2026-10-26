@@ -2709,7 +2709,13 @@ class HelloAck(_message.Message):
         REJECT_CODE_STALE_EPOCH: HelloAck._RejectCode.ValueType  # 1
         """Hello.session_epoch <= the live session's epoch for this node_id."""
         REJECT_CODE_PROTOCOL_VERSION: HelloAck._RejectCode.ValueType  # 2
-        """Hello.protocol_version outside the controller's supported range."""
+        """Hello.protocol_version outside the controller's supported range, or
+        (V0.17 G5, D393) Hello.agent_version outside the accepted window - same
+        and previous minor of the controller: reject_reason then starts with
+        "version_unsupported:" and names both versions and the fix. The code is
+        reused on purpose: agents too old to know a new code are the ones refused,
+        and every agent stops (never retries) on PROTOCOL_VERSION.
+        """
         REJECT_CODE_DUPLICATE_SESSION: HelloAck._RejectCode.ValueType  # 3
         """Another stream for this node_id won a concurrent Hello race."""
         REJECT_CODE_INTERNAL: HelloAck._RejectCode.ValueType  # 4
@@ -2723,7 +2729,13 @@ class HelloAck(_message.Message):
     REJECT_CODE_STALE_EPOCH: HelloAck.RejectCode.ValueType  # 1
     """Hello.session_epoch <= the live session's epoch for this node_id."""
     REJECT_CODE_PROTOCOL_VERSION: HelloAck.RejectCode.ValueType  # 2
-    """Hello.protocol_version outside the controller's supported range."""
+    """Hello.protocol_version outside the controller's supported range, or
+    (V0.17 G5, D393) Hello.agent_version outside the accepted window - same
+    and previous minor of the controller: reject_reason then starts with
+    "version_unsupported:" and names both versions and the fix. The code is
+    reused on purpose: agents too old to know a new code are the ones refused,
+    and every agent stops (never retries) on PROTOCOL_VERSION.
+    """
     REJECT_CODE_DUPLICATE_SESSION: HelloAck.RejectCode.ValueType  # 3
     """Another stream for this node_id won a concurrent Hello race."""
     REJECT_CODE_INTERNAL: HelloAck.RejectCode.ValueType  # 4

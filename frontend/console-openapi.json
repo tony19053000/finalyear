@@ -787,6 +787,16 @@
               }
             ]
           },
+          "upgrade": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UpgradeNoticeView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "version": {
             "title": "Version",
             "type": "string"
@@ -833,6 +843,36 @@
           "message"
         ],
         "title": "StopReasonView",
+        "type": "object"
+      },
+      "UpgradeNoticeView": {
+        "additionalProperties": false,
+        "description": "V0.17 G5: the last upgrade was rolled back or interrupted (or runs).",
+        "properties": {
+          "fix": {
+            "default": "",
+            "title": "Fix",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "rolled_back",
+              "interrupted",
+              "in_progress"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "message"
+        ],
+        "title": "UpgradeNoticeView",
         "type": "object"
       },
       "ValidationError": {

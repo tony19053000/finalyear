@@ -11,6 +11,9 @@ Two of them end the process:
 * :class:`NodeRevokedError` (an ``AgentContractError``) - an admin revoked this
   node (V0.7 D138). Same exit code, but an expected stop: ``run_agent`` logs it
   as ``agent.revoked`` with no traceback (V0.8 G5).
+* :class:`VersionUnsupportedError` (an ``AgentContractError``) - the controller
+  does not accept this agent's version (V0.17 G5, Q37): too old ("upgrade the
+  agent") or newer than the controller ("upgrade the controller first").
 
 Everything else on the stream is transient and handled by the reconnect loop
 (:mod:`meshforge.agent.session.policy`).
@@ -25,6 +28,7 @@ __all__ = [
     "AgentSessionError",
     "NodeRevokedError",
     "SupersededError",
+    "VersionUnsupportedError",
 ]
 
 
@@ -67,4 +71,18 @@ class NodeRevokedError(AgentContractError):
             or "node_revoked: this node was revoked from the fabric; it can come "
             "back only under a new identity",
             details={"node_id": node_id, "reason": "node_revoked"},
+        )
+
+
+class VersionUnsupportedError(AgentContractError):
+    """The controller refused this agent's version (``version_unsupported``).
+
+    The message is the controller's reason (both versions and the fix); the
+    agent stops instead of retrying - only an upgrade can change the answer."""
+
+    def __init__(self, node_id: str, reason: str) -> None:
+        super().__init__(
+            reason.strip()
+            or "version_unsupported: the controller does not accept this agent's version",
+            details={"node_id": node_id, "reason": "version_unsupported"},
         )

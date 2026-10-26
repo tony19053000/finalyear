@@ -144,6 +144,8 @@ def test_summary_json_field_order_is_the_declaration_order() -> None:
         "certificate",  # V0.7 G2: appended
         "not_enforced",  # V0.7 G6: appended
         "display_name",  # V0.17 G3: appended
+        "agent_version",  # V0.17 G5: appended
+        "agent_version_status",  # V0.17 G5: appended
     ]
 
 

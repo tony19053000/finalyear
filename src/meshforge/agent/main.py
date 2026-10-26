@@ -30,6 +30,8 @@ of ``[agent.execution.images]`` and prints their sizes and pull times.
 from __future__ import annotations
 
 import json
+import platform
+import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated
 
@@ -294,7 +296,6 @@ def join(
     secret, then gets a node certificate for this laptop's key. Until V0.7 G3
     the agent still connects without it.
     """
-    import sys
 
     from meshforge.agent.enrollment import JoinError
     from meshforge.agent.enrollment import join as run_join
@@ -469,7 +470,6 @@ def migrate_identity(
     runs it on install. Refuses (exit 4, nothing changed) when the choice is
     not clear, and says what to do."""
     import os
-    import sys
 
     from meshforge.agent.migration import Paths, migrate
     from meshforge.common.config import CONFIG_FILE_NAME, INSTALL_MODE_ENV_VAR
@@ -783,6 +783,71 @@ def prepare(
     raise typer.Exit(ExitCode.OK if report.ok else ExitCode.FAILURE)
 
 
+@app.command("console-access")
+def console_access(
+    action: Annotated[str, typer.Argument(help="add | remove")],
+    user: Annotated[
+        list[str] | None,
+        typer.Option("--user", help="A Windows user name (repeatable)."),
+    ] = None,
+    sid: Annotated[
+        list[str] | None,
+        typer.Option("--sid", help="A Windows account SID, S-1-... (repeatable)."),
+    ] = None,
+) -> None:
+    """Windows: let another user open the MeshForge console (elevated prompt).
+    Linux: the console is for members of the meshforge-admin group."""
+    if action not in ("add", "remove"):
+        typer.echo(f"{PROG_NAME} console-access: ACTION is add or remove", err=True)
+        raise typer.Exit(ExitCode.USAGE_ERROR)
+    if platform.system() != "Windows":  # not sys.platform: mypy reachability
+        # gpasswd -d, not usermod -rG: usermod has no --remove before shadow 4.9
+        # (Ubuntu 22.04 ships 4.8.1)
+        how = (
+            "sudo usermod -aG meshforge-admin <user>"
+            if action == "add"
+            else "sudo gpasswd -d <user> meshforge-admin"
+        )
+        typer.echo(
+            f"{PROG_NAME} console-access is for Windows. On Linux the console is for "
+            f"members of meshforge-admin: {how}",
+            err=True,
+        )
+        raise typer.Exit(ExitCode.USAGE_ERROR)
+    import importlib
+
+    # Windows-only module (pywin32); resolved at run time
+    cmd_console_access = importlib.import_module(
+        "meshforge.agent.winservice_admin"
+    ).cmd_console_access
+
+    raise typer.Exit(
+        cmd_console_access(action, list(user or []), list(sid or []), False)
+    )
+
+
+@app.command()
+def doctor(
+    config: ConfigOption = None,
+    as_json: Annotated[
+        bool, typer.Option("--json", help="Machine-readable output.")
+    ] = False,
+) -> None:
+    """Report what is true about this agent: version, joined or not, the last
+    upgrade (rolled back / interrupted) and the Docker/GPU/disk checks.
+    Changes nothing. Exit 1 when something needs attention."""
+    from meshforge.agent.doctor import gather, render
+
+    settings = _load_settings(config, **_LOCAL_ONLY)
+    _quiet_logging(settings)
+    report = gather(settings)
+    if as_json:
+        typer.echo(json.dumps(report.as_dict(), sort_keys=True))
+    else:
+        typer.echo(render(report))
+    raise typer.Exit(1 if report.failed else 0)
+
+
 def _print_scores(as_json: bool, payload: dict[str, object], lines: list[str]) -> None:
     if as_json:
         typer.echo(json.dumps(payload, sort_keys=True))
@@ -793,7 +858,6 @@ def _print_scores(as_json: bool, payload: dict[str, object], lines: list[str]) -
 
 def main() -> None:
     """Console-script entry point."""
-    import sys
 
     from meshforge.agent.system_cli import apply
 

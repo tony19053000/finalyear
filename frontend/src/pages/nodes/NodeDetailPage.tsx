@@ -20,6 +20,7 @@ import { LiveMetrics } from "./LiveMetrics";
 import { NodeCaches, NodePolicy } from "./NodeCachesPolicy";
 import { NodeHardware } from "./NodeHardware";
 import { NodeNetwork } from "./NodeNetwork";
+import { AgentVersion } from "./AgentVersion";
 import { NodeStatus } from "./NodeStatus";
 import { RevokeNode } from "./RevokeNode";
 
@@ -109,7 +110,9 @@ export function NodeDetailPage() {
               </time>
             </Fact>
             <Fact label="First seen">{formatDateTime(n.first_seen_at)}</Fact>
-            <Fact label="Agent version">{n.agent_version ?? unknown}</Fact>
+            <Fact label="Agent version">
+              {n.agent_version == null ? unknown : <AgentVersion node={n} />}
+            </Fact>
             <Fact label="Protocol">{n.protocol_version ?? unknown}</Fact>
             <Fact label="Address">{n.peer_address ?? unknown}</Fact>
             <Fact label="Round trip">

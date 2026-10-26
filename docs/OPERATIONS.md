@@ -2071,7 +2071,21 @@ cap is reported `not_enforced` (`max_cpu_percent:unsandboxed_linux`), never clai
 
 **Upgrade.** `sudo apt install ./meshforge-agent_<newer>.deb`: the service keeps
 running until the new version is in place, then restarts; identity, config and
-envs stay. (Rollback and pre-upgrade backups come with V0.17 G5.)
+envs stay. **Rollback (V0.17 G5, Q35):** `preinst` keeps the running version as a
+hard-link copy in `/opt/meshforge/.previous/<ver>`; `postinst` checks the new one
+(active without restarts, console `/console/v1/health` answers the new version,
+`agent.started` when joined, 60 s) and otherwise re-points `current` to `.previous`,
+restarts it and prints `UPGRADE FAILED ... ROLLED BACK` (record:
+`/opt/meshforge/.upgrade/rolled-back.json`, shown by `meshforge-agent doctor` and the
+console until an upgrade succeeds). A power loss during the unpack: the next start runs
+`.previous` (`/usr/lib/meshforge/agent-upgrade-recover`, `ExecStartPre=-+`); dpkg
+leaves the package `half-installed`/`unpacked`, so finish with `sudo dpkg -i
+./<new .deb>` (`apt install --reinstall` refuses that state) - `dpkg --configure -a` only finishes
+an upgrade cut off after the switch (phase `configuring`). **Forced rollback for tests/lab (Q38):**
+`echo <ver> | sudo tee /opt/meshforge/.upgrade/fail-upgrade-to` (one-shot; the
+controller's is `/opt/meshforge/controller/.upgrade/fail-upgrade-to`). Version rule:
+a controller accepts agents of its own and the previous minor (`[controller]
+min_agent_version` raises the floor); others stop with `version_unsupported`.
 
 ### Development only — the systemd **user** unit
 
@@ -2136,7 +2150,9 @@ Admin commands (run as yourself; they re-execute as `meshforge` via `sudo`): `me
 restored into a scratch database first, swapped in only on success - a bad or truncated file leaves the current
 database untouched; needs free disk for a second copy while it runs).
 
-**Upgrade:** `sudo apt install ./meshforge-controller_<new>_amd64.deb`. On a version change the controller
+**Upgrade:** `sudo apt install ./meshforge-controller_<new>_amd64.deb` (V0.17 G5: the previous version is
+kept in `/opt/meshforge/controller/.previous/` and started again on the restored database when the new one
+fails, see the agent's paragraph above). On a version change the controller
 dumps `db/backups/pre-<new>.dump` (newest 3 kept) before migrating. If it is not serving within 60 s it restores
 that dump, exits 4 and stays stopped (`journalctl` says why; start the previous version, or fix and `systemctl
 start`). If that restore fails too, the controller writes `db/rollback-failed.json`: `db status` shows

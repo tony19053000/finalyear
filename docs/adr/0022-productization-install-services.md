@@ -184,3 +184,23 @@ installer"; operator steps: OPERATIONS §3/§4; user steps: `docs/user/install-w
   task, service/ACL/console checks, crash / exit 4 / stop, upgrade, a venv job run by the joined service
   (CPU cap reported and proven from inside the job object), uninstall + `verify_uninstall --os windows`,
   reinstall (same node), `/REMOVEDATA` + verify. The `.iss` is also compiled on Linux under Wine (component).
+
+## Update — what V0.17 G5 built (upgrade, rollback, compatibility, release, user docs; 2026-10-26)
+Details and every deviation: `docs/briefs/progress/V0.17-G5.md`; the rollback matrix: ARCHITECTURE §23 "Upgrade,
+rollback and version compatibility"; user steps: `docs/user/upgrade-and-uninstall.md`, `docs/user/troubleshooting.md`.
+- **Linux rollback (Q35):** `preinst` keeps the running tree as a **hard-link** copy in `.previous/<ver>` (falls
+  back to a full copy with a free-disk check, else an honest "cannot switch back" warning); `postinst` health-checks
+  (agent: console answers the new version, `agent.started`, no restarts) and re-points `current` on failure. One
+  shell library (`packaging/linux/common/upgrade.sh`) inlined into both packages' scripts by `build_deb.py`
+  (`# @meshforge-include` + `@MF_VERSION@`), unit-tested in a scratch folder and shellcheck-clean.
+- **Half-upgrade recovery (Q39):** Linux `ExecStartPre=-+` script reverts an upgrade interrupted during the unpack
+  (another boot id) to `.previous`; Windows journals each setup run and the next run finishes or reverts.
+- **Forced failure (Q38):** `fail-upgrade-to` in the root-only program folder (`.upgrade/`, Windows `upgrade\`),
+  not the data dir (deviation, ARCHITECTURE §23); the controller reads it inside its post-migration health window.
+- **Version compatibility (Q37):** same + previous minor; refusals reuse `REJECT_CODE_PROTOCOL_VERSION` with the
+  reason word `version_unsupported` so pre-G5 agents stop too (no new enum value).
+- **Releases (Q36):** `release.yml` (tag = version, `ci-ok` green, `.deb`s + `.exe` + `SHA256SUMS`);
+  `packaging/previous-release.toml` pins the previous release for the upgrade tests (empty until v0.17.0).
+- **User docs (D396, Q40/Q41):** `docs/user/` complete; examples executed by a cluster test, troubleshooting codes
+  checked against the code, console/dashboard screenshots taken from the real UI; Windows and packaged-controller
+  screenshots listed as lab TODOs.

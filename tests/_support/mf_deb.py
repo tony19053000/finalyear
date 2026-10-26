@@ -299,12 +299,17 @@ class SystemdBox:
         return dict(json.loads(out))
 
     def verify_uninstall(
-        self, *, data_removed: bool
+        self, *, data_removed: bool, package: str = "all", as_json: bool = False
     ) -> subprocess.CompletedProcess[str]:
+        """``lab/verify_uninstall.py`` against this container (V0.17 G5:
+        ``package`` = the one of two packages removed; ``as_json`` for the
+        CI artefact)."""
         argv = [sys.executable, str(REPO / "lab" / "verify_uninstall.py"), "--os", "linux",
-                "--docker", self.name]  # fmt: skip
+                "--docker", self.name, "--package", package]  # fmt: skip
         if data_removed:
             argv.append("--data-removed")
+        if as_json:
+            argv.append("--json")
         return subprocess.run(
             argv, capture_output=True, text=True, timeout=120, check=False
         )

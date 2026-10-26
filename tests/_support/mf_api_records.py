@@ -49,8 +49,10 @@ class _FakeLiveSession:
         last_rtt_ms: float | None = 4.5,
         rtt_ewma_ms: float | None = 5.5,
         peer_endpoint: str = "",
+        agent_version: str = "",
     ) -> None:
         self.session_id = session_id
+        self.agent_version = agent_version  # V0.17 G5: the Nodes page's version
         self.peer_endpoint = peer_endpoint
         self.peer_address = peer_address
         self.last_rtt_ms = last_rtt_ms

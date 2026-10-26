@@ -31,6 +31,7 @@ __all__ = [
     "PolicyView",
     "StatusView",
     "StopReasonView",
+    "UpgradeNoticeView",
 ]
 
 
@@ -74,6 +75,15 @@ class StopReasonView(_Model):
     failure_type: str | None = None
 
 
+class UpgradeNoticeView(_Model):
+    """V0.17 G5: the last upgrade was rolled back or interrupted (or runs)."""
+
+    kind: Literal["rolled_back", "interrupted", "in_progress"]
+    message: str
+    fix: str = ""
+    """What to run to finish or retry the upgrade (depends on where it stopped)."""
+
+
 class StatusView(_Model):
     version: str
     install_mode: Literal["user", "system"]
@@ -97,6 +107,9 @@ class StatusView(_Model):
     dashboard_url: str | None = None
     """The controller's dashboard (``https://<controller host>:47110/``), best
     guess from the address the agent connected to."""
+    upgrade: UpgradeNoticeView | None = None
+    """V0.17 G5 (D393): what ``meshforge-agent doctor`` says about the last
+    upgrade; null = nothing to tell."""
 
 
 class ControllerView(_Model):

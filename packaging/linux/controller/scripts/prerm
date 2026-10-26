@@ -20,6 +20,11 @@ remove | deconfigure)
 	if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q 'MeshForge Controller'; then
 		ufw delete allow 'MeshForge Controller' >/dev/null 2>&1 || true
 	fi
+	if [ "$1" = remove ]; then
+		# V0.17 G5: the rollback copy and the upgrade records (not dpkg's files)
+		rm -rf /opt/meshforge/controller/.previous /opt/meshforge/controller/.upgrade
+		rm -f /opt/meshforge/controller/.current.*
+	fi
 	;;
 upgrade | failed-upgrade) ;;
 *) ;;

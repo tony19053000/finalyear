@@ -26,6 +26,15 @@ prints what it checked and exits 1 on the first failed check (``FAIL: ...``):
                          ``current.txt`` name revision 2, same node_id, RUNNING;
 * ``reinstalled``      - after an uninstall that kept the data and a new
                          install: same node_id, RUNNING.
+* ``trigger``          - (V0.17 G5, Q38) write the forced-failure trigger
+                         ``Program Files\\MeshForge\\upgrade\\fail-upgrade-to``
+                         naming ``--version-dir``;
+* ``rolled-back``      - after an installer whose new version failed its
+                         health check: outcome ``rolled_back``, binPath AND
+                         ``current.txt`` name ``--version-dir`` (the previous
+                         one; the G5 invariant), RUNNING, same node_id, the
+                         console answers, ``rolled-back.json`` written, the
+                         trigger consumed.
 
 ``lab/verify_uninstall.py --os windows`` checks the uninstall.
 """
@@ -403,6 +412,41 @@ def cmd_reinstalled(state: Path, version_dir: str) -> None:
     wait_console()
 
 
+def cmd_trigger(version_dir: str) -> None:
+    folder = PROGRAM / "upgrade"
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / "fail-upgrade-to").write_text(version_dir + "\n", encoding="utf-8")
+    ok(f"trigger written: {folder / 'fail-upgrade-to'} -> {version_dir}")
+
+
+def cmd_rolled_back(state: Path, version_dir: str) -> None:
+    """V0.17 G5: the new version failed; the previous one runs, pointers agree."""
+    expected = json.loads(state.read_text(encoding="utf-8"))["node_id"]
+    result = _setup_result()
+    expect(
+        result.get("outcome") == "rolled_back",
+        f"setup outcome is rolled_back ({result.get('outcome')})",
+    )
+    qc = run(["sc.exe", "qc", SERVICE])
+    expect(
+        f"\\{version_dir}\\python\\python.exe".lower() in qc.lower(),
+        f"binPath = the previous version {version_dir}",
+    )
+    expect(
+        (PROGRAM / "current.txt").read_text().strip() == version_dir,
+        "current.txt = the same previous version (pointer and binPath agree)",
+    )
+    wait_state("RUNNING", 60)
+    expect(node_id_of(DATA / "identity") == expected, "same node_id after the rollback")
+    wait_console()
+    record = json.loads((PROGRAM / "upgrade" / "rolled-back.json").read_text("utf-8"))
+    expect(record.get("from") == version_dir, f"rolled-back.json from = {version_dir}")
+    expect(
+        not (PROGRAM / "upgrade" / "fail-upgrade-to").exists(),
+        "the trigger was consumed (one-shot)",
+    )
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
     parser.add_argument(
@@ -415,6 +459,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             "stop",
             "upgraded",
             "reinstalled",
+            "trigger",
+            "rolled-back",
         ],
     )
     parser.add_argument(
@@ -436,6 +482,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             cmd_stop()
         elif args.command == "upgraded":
             cmd_upgraded(args.state, args.version_dir)
+        elif args.command == "trigger":
+            cmd_trigger(args.version_dir)
+        elif args.command == "rolled-back":
+            cmd_rolled_back(args.state, args.version_dir)
         else:
             cmd_reinstalled(args.state, args.version_dir)
     except (

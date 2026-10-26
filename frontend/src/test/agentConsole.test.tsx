@@ -269,4 +269,63 @@ describe("ConsoleApp", () => {
     expect(screen.getByText(/leave the fabric here and join again/)).toBeTruthy();
     expect(screen.getByRole("navigation", { name: "Console" })).toBeTruthy();
   });
+
+  it("V0.17 G5: a version_unsupported stop says which side to upgrade", async () => {
+    const reason =
+      "version_unsupported: agent 0.15.0 is too old for controller 0.17.0 (it accepts agents 0.16 or newer); upgrade the MeshForge agent on lab-a";
+    fakeAgent({
+      "GET /status": () => ({
+        json: status({
+          joined: true,
+          setup_complete: true,
+          phase: "stopped",
+          stop_reason: { code: "version_unsupported", message: reason, failure_type: "config_error" },
+        }),
+      }),
+      "GET /checks": () => ({ json: { checks: [] } }),
+      "GET /docker-access": () => ({ json: { supported: true, menu_action: "x", command: "y", explanation: "z" } }),
+    });
+    render(<ConsoleApp client={client()} />);
+    expect(await screen.findByText(reason)).toBeTruthy();
+    expect(screen.getByText(/upgrade the controller first/)).toBeTruthy();
+    expect(screen.getByText(/install the newer MeshForge on this laptop/)).toBeTruthy();
+  });
+
+  it("V0.17 G5: a rolled-back upgrade is shown with what to do; 'in progress' is not alarming", async () => {
+    const message = "running the previous version 0.17.0: the upgrade to 0.17.1 failed (forced)";
+    let kind: "rolled_back" | "in_progress" = "rolled_back";
+    fakeAgent({
+      "GET /status": () => ({
+        json: status({ joined: true, setup_complete: true, phase: "running", upgrade: { kind, message, fix: "" } }),
+      }),
+      "GET /checks": () => ({ json: { checks: [] } }),
+      "GET /docker-access": () => ({ json: { supported: true, menu_action: "x", command: "y", explanation: "z" } }),
+    });
+    const { unmount } = render(<ConsoleApp client={client()} />);
+    expect(await screen.findByText("The last upgrade was rolled back")).toBeTruthy();
+    expect(screen.getByText(message)).toBeTruthy();
+    expect(screen.getByText(/install the new version again/)).toBeTruthy();
+    unmount();
+    kind = "in_progress";
+    render(<ConsoleApp client={client()} />);
+    expect(await screen.findByText("This laptop")).toBeTruthy();
+    expect(screen.queryByText("The last upgrade was rolled back")).toBeNull();
+  });
+});
+
+describe("V0.17 G5 fix round 1", () => {
+  it("an interrupted upgrade shows the fix the agent names for where it stopped", async () => {
+    const fix = "finish it by installing the new package again: sudo dpkg -i ./<the 0.17.1 .deb>";
+    fakeAgent({
+      "GET /status": () => ({
+        json: status({ joined: true, setup_complete: true, phase: "running", upgrade: { kind: "interrupted", message: "cut off", fix } }),
+      }),
+      "GET /checks": () => ({ json: { checks: [] } }),
+      "GET /docker-access": () => ({ json: { supported: true, menu_action: "x", command: "y", explanation: "z" } }),
+    });
+    render(<ConsoleApp client={client()} />);
+    expect(await screen.findByText("An upgrade was interrupted")).toBeTruthy();
+    expect(screen.getByText(fix)).toBeTruthy();
+    expect(screen.queryByText(/dpkg --configure -a/)).toBeNull();
+  });
 });

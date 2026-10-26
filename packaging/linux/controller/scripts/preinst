@@ -3,6 +3,14 @@
 # meshforge-agent package (one machine may run both). Idempotent.
 set -eu
 
+# V0.17 G5 (Q35): an upgrade keeps the version that runs now in
+# /opt/meshforge/controller/.previous/<ver> so a failed upgrade can switch back to it.
+MF_OPT=/opt/meshforge/controller
+MF_UNIT=meshforge-controller.service
+MF_VERSION=@MF_VERSION@
+export MF_OPT MF_UNIT MF_VERSION
+# @meshforge-include upgrade.sh
+
 case "${1:-}" in
 install | upgrade)
 	if ! getent group meshforge >/dev/null; then
@@ -17,5 +25,9 @@ install | upgrade)
 abort-upgrade) ;;
 *) ;;
 esac
+
+if [ "${1:-}" = upgrade ]; then
+	mf_upgrade_begin
+fi
 
 exit 0

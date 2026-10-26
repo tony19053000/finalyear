@@ -46,12 +46,14 @@ from meshforge.agent.enrollment import is_enrolled
 from meshforge.agent.identity import reset as reset_identity
 from meshforge.agent.runtime import install_signal_handlers, serve
 from meshforge.agent.session.client import AgentSessionClient
-from meshforge.agent.session.errors import NodeRevokedError
+from meshforge.agent.session.errors import NodeRevokedError, VersionUnsupportedError
 from meshforge.agent.settings import AgentSettings
 from meshforge.common.errors import ExitCode, MeshForgeError
 from meshforge.common.logging import get_logger
+from meshforge.common.versioning import VERSION_UNSUPPORTED
 
 __all__ = [
+    "STOP_CODES",
     "FabricPhase",
     "ServeFn",
     "StopReason",
@@ -74,13 +76,27 @@ class FabricPhase(StrEnum):
     STOPPED = "stopped"
 
 
+STOP_CODES: Final = (
+    "revoked",
+    VERSION_UNSUPPORTED,
+    "conflict",
+    "config",
+    "config_reload",
+    "identity",
+    "error",
+    "ended",
+)
+"""Every :attr:`StopReason.code` (V0.17 G5: docs/user/troubleshooting.md has an
+entry for each; a unit test keeps the two in step)."""
+
+
 @dataclass(frozen=True, slots=True)
 class StopReason:
     """Why the fabric part is not running (``STOPPED``)."""
 
     code: str
-    """``revoked`` | ``conflict`` | ``config`` | ``identity`` | ``error`` |
-    ``ended``."""
+    """``revoked`` | ``version_unsupported`` | ``conflict`` | ``config`` |
+    ``identity`` | ``error`` | ``ended``."""
     message: str
     failure_type: str | None = None
 
@@ -105,6 +121,8 @@ class ServeFn(Protocol):
 def _reason_for(exc: MeshForgeError) -> StopReason:
     if isinstance(exc, NodeRevokedError):
         code = "revoked"
+    elif isinstance(exc, VersionUnsupportedError):
+        code = VERSION_UNSUPPORTED
     elif int(exc.exit_code) == int(ExitCode.CONFLICT):
         code = "conflict"
     elif exc.failure_type.value == "config_error":

@@ -196,6 +196,10 @@ class FakeOps:
             raise wsu.OpsError(self.data_error)
         return [r"removed all MeshForge data: C:\ProgramData\MeshForge"]
 
+    def file_exists(self, path: str) -> bool:
+        # V0.17 G5: the interpreters this fake Windows has installed
+        return path in (OLD_PY, NEW_PY)
+
     def monotonic(self) -> float:
         return self.now
 
@@ -606,7 +610,9 @@ def test_rollback_stops_if_the_new_version_will_not_stop(  # N1
     assert result.outcome is wsu.SetupOutcome.FAILED
     # never re-pointed to the previous version while the new one still runs
     assert ops.args("install_service") == [NEW_PY]
-    assert "write_current" not in ops.names()
+    # V0.17 G5 invariant: current.txt follows the service's binPath (the new
+    # version), never the previous one
+    assert ops.args("write_current") == [NEW.version_dir]
     assert "did not stop" in result.lines[-1]
     assert "still runs the new version" in result.lines[-1]
 
@@ -633,18 +639,22 @@ def test_a_migration_that_raises_is_treated_as_blocked() -> None:  # N3
 
 
 @pytest.mark.parametrize("error", [RuntimeError("bug"), wsu.OpsError("icacls failed")])
-def test_a_migration_error_during_an_upgrade_says_neither_version_runs(
+def test_a_migration_error_during_an_upgrade_restores_the_previous_version(
     error: Exception,
 ) -> None:
+    # V0.17 G4 left both versions stopped here; G5 (rollback matrix row 2)
+    # restores and starts the previous one, pointer and binPath agreeing.
     class Exploding(FakeOps):
         def migrate(self) -> tuple[str, list[str]]:
             raise error
 
     ops = Exploding(exists=True, state="running", python=OLD_PY, is_enrolled=True)
     result = wsu.setup(ops, NEW)
-    assert result.outcome in (wsu.SetupOutcome.NEEDS_ATTENTION, wsu.SetupOutcome.FAILED)
-    assert "start_service" not in ops.names()
-    assert result.service_state == "stopped"
-    last = result.lines[-1]
-    assert "this was an upgrade" in last and "does NOT run either" in last
-    assert f'update-path --python-exe "{OLD_PY}"' in last
+    assert result.outcome is wsu.SetupOutcome.ROLLED_BACK
+    assert ops.args("install_service") == [NEW_PY, OLD_PY]
+    assert ops.args("start_service") == [OLD_PY]  # the new one never started
+    assert result.service_state == "running"
+    assert ops.python == OLD_PY
+    assert ops.args("write_current") == [OLD.version_dir]
+    assert any("identity migration failed" in line for line in result.lines)
+    assert "previous version" in result.lines[-1]

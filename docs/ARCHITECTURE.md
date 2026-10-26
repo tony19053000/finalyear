@@ -1395,6 +1395,70 @@ credential is checked first and only failed tries are throttled, so a stranger's
 - **Logs**: a `logging.Handler` keeps the agent's last `log_lines` records, rendered through the redaction
   processor (never job output).
 
+**Upgrade, rollback and version compatibility** (V0.17 G5, D393/D403, Q35–Q39 — ADR-0022 update)
+
+An upgrade installs the new version **next to** the running one, switches a pointer, health-checks, and switches
+back on failure. One pointer per program decides what runs: `/opt/meshforge/current` (agent),
+`/opt/meshforge/controller/current` (controller; the units' `ExecStart` go through it), `current.txt` + the
+`MeshForgeAgent` service `binPath` (Windows). **Invariant, tested after every outcome below:** the pointer and the
+binary the service runs name the same version.
+
+```
+Linux .deb (both packages; packaging/linux/common/upgrade.sh, inlined into the maintainer scripts)
+  preinst upgrade    keep the running tree: cp -al <ver> .previous/<ver> (hard links: dpkg replaces files by
+                     rename, so the copy costs no disk and survives the unpack); record .upgrade/state
+                     (from, to, phase=unpacking, previous, boot id)
+  unpack             dpkg: new <ver>/, `current` -> new, old files unlinked
+  postinst           phase=configuring; restart; health check
+                       agent: active, no restarts, console /console/v1/health answers THIS version,
+                              agent.started logged (joined laptops), Q38 trigger absent
+                       controller: G2's own check (migrations + serving in 60 s, else restore backup, exit 4)
+                     healthy  -> forget .previous + records
+                     not      -> stop, `current` -> .previous/<old>, start, check again; rolled-back.json
+  ExecStartPre=-+    (root, before every start) state from ANOTHER boot: phase unpacking -> back to
+                     .previous (interrupted.json "reverted"); phase configuring -> let the new one start
+                     ("finishing"). Repair: a cut-off unpack leaves dpkg's half-installed
+                     state -> install the new package again (`dpkg -i ./<new .deb>`;
+                     apt --reinstall refuses that state); a cut-off configure -> `dpkg
+                     --configure -a`. doctor / the console name the right one
+Windows (agent/winsetup.py + agent/winupgrade.py; Program Files\MeshForge\upgrade)
+  journal state (from python, to, phase) before anything changes; a journal left by a cut-off run makes the
+  next run finish it, or revert to the journal's interpreter when the new version is not healthy
+```
+
+| Failure point | End state | Test |
+|---|---|---|
+| new version does not start / health check fails | previous version running, data unchanged, the message says why (install output / finish page / `doctor` / console) | Linux agent: `test_v017_g5_upgrade_rollback.py` (forced); Windows: `test_v017_g5_winsetup_matrix.py` row 1 + CI `upgrade-windows` |
+| identity migration raises during an upgrade | **previous version restored and running** (G4 left both stopped); pointer = binPath | Windows: matrix row 2 + updated G4 tests; Linux: `current` re-pointed to `.previous` without a restart (the running process is the previous version) |
+| new version will not stop during the rollback | `failed`, honest message, the service not re-pointed; `current.txt` follows the binPath (the new version) | matrix row 3 |
+| controller migration / start fails after an upgrade | backup restored (G2), previous version running on it, agents reconnect | `test_v017_g5_upgrade_rollback.py` controller test (forced, with a real job and agent) |
+| controller rollback itself fails | `rollback-failed.json` + `db status` ROLLBACK FAILED; the previous version is **not** started on a database in an unknown state | G2 tests (`test_db_managed_cluster.py`, controller .deb tests) |
+| power loss mid-upgrade | next start reverts (Linux, unpack phase) or the repair run finishes / reverts (Linux: the package installed again after a cut-off unpack, `dpkg --configure -a` after a cut-off configure; Windows: the installer again); never two versions half-pointed | Linux: `test_agent_power_loss_during_unpack_reverts_then_repair_finishes` (real dpkg) + `test_v017_g5_upgrade_lib.py`; Windows: matrix power-loss rows (fake SCM only) |
+
+- **The agent's health rule is weak in one case (known, fix round 1):** with `[agent.console] enabled = false`
+  on a laptop that has not joined, nothing can be asked: "healthy" is then only "active for a few seconds without
+  restarts". A new version that starts and idles but would fail on the first join passes the upgrade check; the
+  first real check is the join itself. Installs use the console (the default), so this is a developer/edge setup.
+- **Forced failure (Q38):** a root/Administrators-only file `fail-upgrade-to` (one line: a version, a Windows
+  version folder, or `*`) in the program folder's `.upgrade` / `upgrade` folder fails that version's health check
+  so the real rollback runs; one-shot. Deviation from Q38's wording ("under the admin-only data dir"): on Linux the
+  data dir belongs to the service account, which runs job code, and root scripts must not read or write through a
+  folder job code can swap; the program folder is root-only by construction.
+- **Version compatibility (Q37, `common/versioning.py`):** a controller `X.Y` accepts agents `X.Y` and `X.(Y-1)`
+  (`(X-1).*` when `Y` = 0); `[controller] min_agent_version` raises the floor. Older, newer or unreadable agent
+  versions get `HelloAck{REJECT_CODE_PROTOCOL_VERSION}` with `reject_reason` `version_unsupported: ...` naming both
+  versions and the fix, before anything is stored. The existing code is reused on purpose: agents too old to know a
+  new code are exactly the refused ones, and every agent since V0.3 stops on PROTOCOL_VERSION (exit 4 = no restart;
+  with the console: a typed `version_unsupported` stop). `GET /v1/nodes` carries `agent_version` +
+  `agent_version_status` (`same` / `behind` / `unsupported`); the Nodes page shows a badge for `behind`.
+- **Readers:** `meshforge-agent doctor` and the console's status show rolled-back / interrupted upgrades
+  (`common/upgrade_state.py`); `lab/verify_uninstall.py` counts `.previous` / `.upgrade` as program files and
+  checks one of two packages on a shared machine (`--package agent|controller`).
+- **Releases (Q36):** `.github/workflows/release.yml` publishes a tag `vX.Y.Z` (= `[project].version`, `ci-ok`
+  green for the commit) with both `.deb`s, the Windows `.exe` and `SHA256SUMS`; the next version's
+  upgrade-from-release tests start from `packaging/previous-release.toml` (empty until the first release: those CI
+  jobs skip with a warning).
+
 ## 24. Cross-platform strategy
 
 - **Agent runs natively on Windows** (not inside WSL) — avoids WSL2 NAT/inbound problems; psutil, NVML, gRPC, PyTorch all work natively. Windows service in product; background task in dev.

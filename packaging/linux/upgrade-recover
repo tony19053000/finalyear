@@ -1,0 +1,16 @@
+#!/bin/sh
+# meshforge-agent: finish or revert an upgrade a power loss interrupted
+# (V0.17 G5, Q39). Run by systemd as root before every start of the service
+# (ExecStartPre=-+, so it can never keep the agent from starting). See
+# packaging/linux/common/upgrade.sh mf_upgrade_recover.
+set -u
+
+MF_OPT=/opt/meshforge
+MF_UNIT=meshforge-agent.service
+MF_VERSION=@MF_VERSION@
+export MF_OPT MF_UNIT MF_VERSION
+
+# @meshforge-include upgrade.sh
+
+mf_upgrade_recover || true
+exit 0

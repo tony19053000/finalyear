@@ -111,6 +111,7 @@ AGENT: Final = PackageSpec(
         "scripts/postinst": 0o755,
         "scripts/prerm": 0o755,
         "scripts/postrm": 0o755,
+        "upgrade-recover": 0o755,
     },
     required_paths=(
         ("./opt/meshforge/{v}/bin/meshforge-agent", "file"),
@@ -130,6 +131,7 @@ AGENT: Final = PackageSpec(
         ("./usr/share/polkit-1/actions/org.meshforge.docker-access.policy", "file"),
         ("./usr/share/doc/meshforge-agent/copyright", "file"),
         ("./usr/share/doc/meshforge-agent/changelog.Debian.gz", "file"),
+        ("./usr/lib/meshforge/agent-upgrade-recover", "file"),
     ),
     current_link="./opt/meshforge/current",
 )
@@ -147,6 +149,7 @@ CONTROLLER: Final = PackageSpec(
         "scripts/postinst": 0o755,
         "scripts/prerm": 0o755,
         "scripts/postrm": 0o755,
+        "upgrade-recover": 0o755,
     },
     required_paths=(
         ("./opt/meshforge/controller/{v}/bin/meshforge-controller", "file"),
@@ -162,6 +165,7 @@ CONTROLLER: Final = PackageSpec(
         ("./etc/ufw/applications.d/meshforge-controller", "file"),
         ("./usr/share/doc/meshforge-controller/copyright", "file"),
         ("./usr/share/doc/meshforge-controller/changelog.Debian.gz", "file"),
+        ("./usr/lib/meshforge/controller-upgrade-recover", "file"),
     ),
     current_link="./opt/meshforge/controller/current",
 )
@@ -232,14 +236,64 @@ def changelog_gz(
     return buffer.getvalue()
 
 
+COMMON: Final = PACKAGING / "common"
+"""Shell code shared by both packages' maintainer scripts (V0.17 G5)."""
+_INCLUDE: Final = re.compile(r"^# @meshforge-include ([A-Za-z0-9._-]+)\n", re.MULTILINE)
+_TOKEN: Final = re.compile(r"@(MF_[A-Z_]+)@")
+_EXPANDED: Final = ("scripts/", "upgrade-recover")
+"""Staged files that may carry includes and ``@MF_*@`` tokens."""
+
+
+def expand_script(
+    text: str, values: Mapping[str, str], *, common: Path = COMMON, name: str = ""
+) -> str:
+    """V0.17 G5: inline ``# @meshforge-include <file>`` lines (from
+    ``packaging/linux/common``; dpkg runs each maintainer script alone, so
+    shared code is copied in at build time) and fill ``@MF_*@`` tokens. An
+    unknown include or token fails the build - a script must never ship with
+    a hole in it."""
+
+    def include(found: re.Match[str]) -> str:
+        source = common / found.group(1)
+        if not source.is_file():
+            raise BundleError(
+                f"{name}: includes {found.group(1)}, which is not in {common}",
+                reason="no_packaging",
+            )
+        body = source.read_text(encoding="utf-8")
+        if _INCLUDE.search(body):
+            raise BundleError(
+                f"{source}: nested includes are not supported", reason="no_packaging"
+            )
+        if not body.endswith("\n"):
+            body += "\n"
+        return (
+            f"# ---- begin {found.group(1)} (inlined by scripts/build_deb.py) ----\n"
+            f"{body}# ---- end {found.group(1)} ----\n"
+        )
+
+    out = _INCLUDE.sub(include, text)
+
+    def token(found: re.Match[str]) -> str:
+        key = found.group(1)
+        if key not in values:
+            raise BundleError(f"{name}: unknown token @{key}@", reason="no_packaging")
+        return values[key]
+
+    return _TOKEN.sub(token, out)
+
+
 def stage(
     stage_dir: Path,
     packaging: Path,
     changelog: bytes,
     epoch: int,
     staged: Mapping[str, int] = STAGED,
+    values: Mapping[str, str] | None = None,
 ) -> None:
-    """Copy the packaging files into ``stage_dir`` with fixed modes + mtimes."""
+    """Copy the packaging files into ``stage_dir`` with fixed modes + mtimes;
+    maintainer scripts get their includes and ``@MF_*@`` tokens filled in
+    (``values``; ``MF_VERSION`` = the bundle version)."""
     for rel, mode in staged.items():
         source = packaging / rel
         if not source.is_file():
@@ -253,6 +307,10 @@ def stage(
                 "scripts and units must be LF",
                 reason="no_packaging",
             )
+        if rel.startswith(_EXPANDED):
+            data = expand_script(
+                data.decode("utf-8"), values or {}, name=str(source)
+            ).encode("utf-8")
         target.write_bytes(data)
         target.chmod(mode)
         os.utime(target, (epoch, epoch))
@@ -645,6 +703,7 @@ def build_deb(options: DebOptions) -> Path:
             ),
             epoch,
             spec.staged,
+            {"MF_VERSION": version},
         )
         config = Path(tmp) / "nfpm.yaml"
         config.write_text(

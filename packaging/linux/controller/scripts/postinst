@@ -12,7 +12,10 @@
 #     person is told to run `sudo meshforge-controller setup url` instead;
 #  6. enable + start (install) or restart (upgrade: the controller backs up its
 #     database before migrating and rolls back if it is not serving in time,
-#     D393), then say what is true: running, waiting for setup, or failed.
+#     D393), then say what is true: running, waiting for setup, or failed;
+#  7. (V0.17 G5, Q35) an upgrade that failed (the controller restored its
+#     database and exited 4) switches back to the previous version kept by
+#     preinst, which starts on the restored database.
 set -eu
 
 UNIT=meshforge-controller.service
@@ -24,6 +27,32 @@ ROLLBACK_FAILED=/var/lib/meshforge/db/rollback-failed.json
 say() { printf 'meshforge-controller: %s\n' "$*"; }
 as_service() {
 	runuser -u meshforge -- env MESHFORGE_INSTALL_MODE=system MESHFORGE_CONFIG="$CONFIG" "$CTL" "$@"
+}
+
+MF_OPT=/opt/meshforge/controller
+MF_UNIT=$UNIT
+MF_VERSION=@MF_VERSION@
+export MF_OPT MF_UNIT MF_VERSION
+# @meshforge-include upgrade.sh
+
+# wait_ready <since>: a good start (setup mode too) rewrites the database
+# marker after its health check (D393); a failed one exits (4 after an
+# upgrade's restore). Sets $state: ready | failed | unknown.
+wait_ready() {
+	state=unknown
+	i=0
+	while [ "$i" -lt 120 ]; do
+		if [ -e "$MARKER" ] && [ "$(stat -c %Y "$MARKER")" -ge "$1" ]; then
+			state=ready
+			return 0
+		fi
+		if [ "$(systemctl is-active "$UNIT" 2>/dev/null || true)" = failed ]; then
+			state=failed
+			return 0
+		fi
+		sleep 1
+		i=$((i + 1))
+	done
 }
 
 case "${1:-}" in
@@ -38,6 +67,8 @@ if [ -z "$previous" ] || [ -e "$REMOVED_MARK" ]; then
 	fresh=1
 fi
 rm -f "$REMOVED_MARK"
+# V0.17 G5: `current` names this version from here on (Q39)
+mf_upgrade_switch
 
 # 1. state folders (never loosened if an admin tightened them further)
 if [ ! -d /etc/meshforge ]; then
@@ -70,6 +101,7 @@ fi
 
 if [ ! -d /run/systemd/system ]; then
 	say "systemd is not running here (container/chroot): service not started"
+	mf_upgrade_done # nothing to check here, so nothing to switch back to
 	exit 0
 fi
 systemctl daemon-reload
@@ -90,42 +122,47 @@ if [ "$fresh" -eq 1 ]; then
 	systemctl enable "$UNIT" >/dev/null 2>&1 || systemctl enable "$UNIT"
 elif ! systemctl is-enabled --quiet "$UNIT"; then
 	say "upgraded; $UNIT is disabled, so it was left stopped (start: sudo systemctl enable --now $UNIT)"
+	mf_upgrade_done # a stopped service cannot be checked: no automatic switch back
 	exit 0
 fi
 started_at=$(date +%s)
 systemctl restart "$UNIT" || true
-
-# A good start (setup mode too) rewrites the database marker after its health
-# check (D393); a failed one exits (4 after an upgrade's rollback).
-state=unknown
-i=0
-while [ "$i" -lt 120 ]; do
-	if [ -e "$MARKER" ] && [ "$(stat -c %Y "$MARKER")" -ge "$started_at" ]; then
-		state=ready
-		break
-	fi
-	if [ "$(systemctl is-active "$UNIT" 2>/dev/null || true)" = failed ]; then
-		state=failed
-		break
-	fi
-	sleep 1
-	i=$((i + 1))
-done
+wait_ready "$started_at"
 
 case "$state" in
 ready)
-	say "service $UNIT is running (logs: journalctl -u meshforge-controller)"
+	mf_upgrade_done
+	say "service $UNIT is running version $MF_VERSION (logs: journalctl -u meshforge-controller)"
 	;;
 failed)
 	say "service $UNIT FAILED to start; see: journalctl -u meshforge-controller -n 80"
 	if [ "$fresh" -eq 0 ]; then
 		if [ -e "$ROLLBACK_FAILED" ] && [ "$(stat -c %Y "$ROLLBACK_FAILED")" -ge "$started_at" ]; then
+			# G2: the restore itself failed - never start an older version on a
+			# database in an unknown state; the record says what to do.
 			say "after the upgrade failed, the database could NOT be restored from the backup taken before it"
 			say "(see: sudo meshforge-controller db status - it names the backup to restore by hand"
 			say " with: sudo meshforge-controller db restore <backup> --yes)."
+			say "the previous version was NOT started (its database is not in a known state)."
 		else
 			say "after an upgrade the database was restored from the backup taken before it"
-			say "(see: sudo meshforge-controller db status); start the previous version or fix the cause."
+			from=$(mf_state_get from)
+			if mf_upgrade_rollback "the controller did not start on version $MF_VERSION (see the log above)"; then
+				rolled_at=$(date +%s)
+				wait_ready "$rolled_at"
+				if [ "$state" = ready ]; then
+					mf_upgrade_rolled_back_ok
+					say "UPGRADE FAILED - ROLLED BACK: the previous version $from runs again on the restored"
+					say "database ($MF_OPT/current -> $(mf_current_target)); agents reconnect by themselves."
+					say "Send the log above to the MeshForge team."
+				else
+					say "the rollback to $from did not start either (state: $state);"
+					say "see: journalctl -u meshforge-controller -n 80 and sudo meshforge-controller db status"
+				fi
+			else
+				say "no previous version was kept, so it could not switch back; fix the cause and"
+				say "start it again (see: sudo meshforge-controller db status)."
+			fi
 		fi
 	fi
 	exit 0

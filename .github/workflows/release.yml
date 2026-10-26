@@ -1,0 +1,240 @@
+# Release (V0.17 G5, Q36, D403): a tag v0.17.N -> a GitHub Release with the
+# installers attached:
+#
+#   meshforge-agent_<deb-ver>_amd64.deb        Ubuntu 22.04 / 24.04 agent
+#   meshforge-controller_<deb-ver>_amd64.deb   Ubuntu 24.04 controller
+#   MeshForge-Agent-Setup-<ver>-1.exe          Windows 10/11 x64 agent
+#   SHA256SUMS                                 sha256 of each, `sha256sum -c` format
+#
+# Rules:
+# * the tag must equal v<[project].version in pyproject.toml> (a release is
+#   never built from a version it does not say it is);
+# * the tagged commit must have a green `ci-ok` check from the CI workflow
+#   (every test, incl. package-linux and package-windows, passed for it) -
+#   the release jobs only build; they do not re-test;
+# * the packages are built from the tag exactly like CI builds them
+#   (pins.toml, uv.lock, reproducible; revision 1);
+# * the job summary prints the [agent_deb] / [controller_deb] / [windows_exe]
+#   tables for packaging/previous-release.toml, so the NEXT version's
+#   upgrade-from-release tests start from this one (commit them by hand).
+#
+# Repository is public: these become public downloads (Q36 note).
+name: Release
+
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "existing tag to (re)build and publish, e.g. v0.17.0"
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  UV_VERSION: "0.10.12"
+  UV_PYTHON: "3.12"
+  UV_PYTHON_PREFERENCE: only-managed
+  PYTHONUTF8: "1"
+  TAG: ${{ github.event.inputs.tag || github.ref_name }}
+
+jobs:
+  check:
+    name: tag = version, CI green for the commit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      checks: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      sha: ${{ steps.version.outputs.sha }}
+    steps:
+      - name: a release tag (v<major>.<minor>.<patch>), nothing else
+        shell: bash
+        run: |
+          # [[ =~ ]] anchors the WHOLE string (grep would match per line, so a
+          # multi-line workflow_dispatch input could pass); C locale: ASCII digits
+          export LC_ALL=C
+          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::the tag is not a release tag (vX.Y.Z)"
+            exit 1
+          fi
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/tags/${{ env.TAG }}
+          persist-credentials: false
+      - id: version
+        name: the tag names the project version
+        run: |
+          version=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          echo "pyproject version: $version, tag: $TAG"
+          if [ "$TAG" != "v$version" ]; then
+            echo "::error::tag $TAG does not match [project].version $version in pyproject.toml - set the version, commit, and tag that commit"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: ci-ok passed for this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ steps.version.outputs.sha }}
+        run: |
+          # Only GitHub Actions' own ci-ok (any app can post a check named ci-ok).
+          conclusion=$(gh api "repos/$GITHUB_REPOSITORY/commits/$SHA/check-runs?check_name=ci-ok" \
+            --jq '[.check_runs[] | select(.app.slug == "github-actions") | .conclusion] | if length == 0 then "missing" else (if all(. == "success") then "success" else "failure" end) end')
+          echo "ci-ok for $SHA: $conclusion"
+          if [ "$conclusion" != "success" ]; then
+            echo "::error::the CI workflow's ci-ok check is '$conclusion' for $SHA - release only a commit whose CI is green"
+            exit 1
+          fi
+
+  build-linux:
+    name: build the .deb packages
+    needs: check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/tags/${{ env.TAG }}
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: ${{ env.UV_PYTHON }}
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - run: uv sync --locked --extra controller --extra agent
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: "22"
+      - name: build the dashboard
+        run: npm --prefix frontend ci && npm --prefix frontend run build
+      - name: agent bundle + .deb
+        run: |
+          uv run python scripts/build_bundle.py --role agent --out dist/agent/
+          uv run python scripts/build_deb.py --bundle "$(ls -d dist/agent/meshforge-*-linux-x86_64)" --out release/
+      - name: controller bundle + .deb
+        run: |
+          uv run python scripts/build_bundle.py --role controller --out dist/controller/ --skip-dashboard-build
+          uv run python scripts/build_deb.py --role controller --bundle "$(ls -d dist/controller/meshforge-*-linux-x86_64)" --out release/
+      - name: lintian (errors fail)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq lintian
+          lintian --fail-on error --tag-display-limit 0 release/*.deb
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-linux
+          path: release/*.deb
+          if-no-files-found: error
+          retention-days: 30
+
+  build-windows:
+    name: build the Windows installer
+    needs: check
+    runs-on: windows-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/tags/${{ env.TAG }}
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: ${{ env.UV_PYTHON }}
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - run: uv sync --locked --extra agent
+      - name: agent bundle + installer (revision 1)
+        run: |
+          uv run python scripts/build_bundle.py --role agent --os windows --out dist/ --cache "$env:LOCALAPPDATA\meshforge-bundle"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          $bundle = (Get-ChildItem dist -Directory -Filter 'meshforge-*-windows-x86_64').FullName
+          uv run python scripts/build_windows_installer.py --bundle $bundle --out release/ --cache "$env:LOCALAPPDATA\meshforge-bundle"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-windows
+          path: release/*.exe
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    name: publish the GitHub Release
+    needs: [check, build-linux, build-windows]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: release-*
+          path: release
+          merge-multiple: true
+      - name: SHA256SUMS
+        working-directory: release
+        run: |
+          ls -la
+          test "$(ls *.deb | wc -l)" -eq 2
+          test "$(ls *.exe | wc -l)" -eq 1
+          sha256sum *.deb *.exe > SHA256SUMS
+          cat SHA256SUMS
+      - name: create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.check.outputs.version }}
+        working-directory: release
+        run: |
+          cat > notes.md <<EOF
+          MeshForge $VERSION.
+
+          - Windows 10/11 (x64) agent: \`MeshForge-Agent-Setup-$VERSION-1.exe\` (unsigned: Windows shows
+            "Windows protected your PC" - More info, Run anyway; see docs/user/install-windows.md)
+          - Ubuntu 22.04/24.04 agent: \`meshforge-agent_*.deb\` (\`sudo apt install ./<file>\`)
+          - Ubuntu 24.04 controller: \`meshforge-controller_*.deb\`
+
+          Check a download: \`sha256sum -c SHA256SUMS --ignore-missing\`.
+          Upgrade: install the new version over the old one; see docs/user/upgrade-and-uninstall.md.
+          EOF
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag \
+            --title "MeshForge $VERSION" --notes-file notes.md \
+            ./*.deb ./*.exe SHA256SUMS
+      - name: pins for the next version's upgrade tests
+        env:
+          VERSION: ${{ needs.check.outputs.version }}
+        working-directory: release
+        run: |
+          base="https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG"
+          {
+            echo '### packaging/previous-release.toml for the next version'
+            echo '```toml'
+            echo "version = \"$VERSION\""
+            echo "tag = \"$TAG\""
+            for kind in agent_deb controller_deb windows_exe; do
+              case $kind in
+                agent_deb) f=$(ls meshforge-agent_*.deb) ;;
+                controller_deb) f=$(ls meshforge-controller_*.deb) ;;
+                windows_exe) f=$(ls *.exe) ;;
+              esac
+              echo ""
+              echo "[$kind]"
+              echo "url = \"$base/$f\""
+              echo "sha256 = \"$(sha256sum "$f" | cut -d' ' -f1)\""
+            done
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
