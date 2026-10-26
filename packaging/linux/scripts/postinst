@@ -242,10 +242,11 @@ else
 		else
 			say "UPGRADE FAILED: version $MF_VERSION did not become healthy: $failed_why."
 			say "the rollback to $from did not help either: $why"
-			say "see: journalctl -u meshforge-agent -n 80"
+			say "service $UNIT is NOT running ($(systemctl is-active "$UNIT" 2>/dev/null || true)); the cause is"
+			say "probably not the version (a configuration both versions refuse?); see: journalctl -u meshforge-agent -n 80"
 		fi
 	else
-		say "service $UNIT is NOT healthy: $failed_why"
+		say "service $UNIT is NOT healthy (NOT running as it should): $failed_why"
 		if [ "$fresh" -eq 0 ]; then
 			say "no previous version was kept, so it could not switch back (see the warning above)"
 		fi
