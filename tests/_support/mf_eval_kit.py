@@ -16,7 +16,15 @@ from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any, Final
 
-__all__ = ["EVAL_DIR", "SAMPLE_DIR", "job_record", "load", "write_raw"]
+__all__ = [
+    "EVAL_DIR",
+    "SAMPLE_DIR",
+    "job_record",
+    "load",
+    "sample_makespan",
+    "write_raw",
+    "write_sample",
+]
 
 EVAL_DIR: Final = Path(__file__).resolve().parents[2] / "scripts" / "eval"
 SAMPLE_DIR: Final = EVAL_DIR / "sample"
@@ -115,7 +123,9 @@ def write_raw(
     for run in runs:
         created = _T0 + dt.timedelta(minutes=run.order)
         ms = makespan(run.family, run.size, run.arm, run.block)
-        state = "ok" if status is None else status(run.family, run.size, run.arm, run.block)
+        state = (
+            "ok" if status is None else status(run.family, run.size, run.arm, run.block)
+        )
         job = job_record(
             f"job_{run.order:026d}",
             created,
@@ -168,3 +178,32 @@ def _params(family: str) -> dict[str, Any]:
     if family == "cpu.sort":
         return {"n": 10_000_000}
     raise KeyError(family)
+
+
+SAMPLE_ARMS: Final = ("B0", "B1", "B5")
+SAMPLE_FAMILIES: Final = {"cpu.primes": ("s", "m"), "split.hash_files": ("s", "m")}
+
+
+def sample_makespan(family: str, size: str, arm: str, block: int) -> float:
+    """The committed sample's makespans: every arm drawn from one log-normal
+    distribution per size (pure noise - the verdicts must be ``not_separable``)."""
+    import math
+    import random
+
+    rng = random.Random(f"sample|{family}|{size}|{arm}|{block}")  # noqa: S311
+    base = {"s": 8000.0, "m": 16000.0}[size]
+    return base * math.exp(rng.gauss(0.0, 0.15))
+
+
+def write_sample(folder: Path) -> Path:
+    """Write the committed sample (``scripts/eval/sample/raw``) to ``folder``."""
+    return write_raw(
+        folder,
+        name="sample-noise",
+        arms=SAMPLE_ARMS,
+        families=SAMPLE_FAMILIES,
+        repetitions=3,
+        makespan=sample_makespan,
+        link="loopback",
+        smoke=True,
+    )

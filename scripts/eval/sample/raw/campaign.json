@@ -1,0 +1,54 @@
+{
+  "format": "meshforge-eval-raw/1",
+  "spec": {
+    "name": "sample-noise",
+    "seed": 7,
+    "link": "loopback",
+    "repetitions": 3,
+    "jobs_per_run": 1,
+    "run_timeout_s": 1800.0,
+    "objective": "min_time",
+    "origin": null,
+    "smoke": true,
+    "arms": [
+      "B0",
+      "B1",
+      "B5"
+    ],
+    "families": [
+      {
+        "family": "cpu.primes",
+        "sizes": {
+          "s": {
+            "limit": 100000000,
+            "repeats": 4
+          },
+          "m": {
+            "limit": 100000000,
+            "repeats": 4
+          }
+        }
+      },
+      {
+        "family": "split.hash_files",
+        "sizes": {
+          "s": {
+            "files": 256,
+            "size_kb": 256,
+            "rounds": 100
+          },
+          "m": {
+            "files": 256,
+            "size_kb": 256,
+            "rounds": 100
+          }
+        }
+      }
+    ]
+  },
+  "spec_digest": "sha256:e07216083ac6d3a0e3ddc80f6ec83024876a8e6e36ffadbbb9162374d225d0f4",
+  "schedule_digest": "sha256:0ea5ebdb8f560bd5b454df70ac51995f4b3c3556d57d9b6ff0915249fd1fbf11",
+  "runs_planned": 36,
+  "origin_node_id": "node_a",
+  "created_at": "2026-10-27T09:00:00+00:00"
+}

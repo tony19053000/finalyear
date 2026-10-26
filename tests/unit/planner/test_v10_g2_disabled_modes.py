@@ -175,7 +175,9 @@ def test_the_dispatcher_passes_the_setting_to_the_planner() -> None:
 
 def test_settings_validate_sort_and_dedupe() -> None:
     assert PlannerSettings().disabled_modes == ()
-    assert PlannerSettings(disabled_modes=["mode3", "mode1", "mode3"]).disabled_modes == (
+    assert PlannerSettings(
+        disabled_modes=["mode3", "mode1", "mode3"]
+    ).disabled_modes == (
         "mode1",
         "mode3",
     )

@@ -34,7 +34,7 @@ ARMS = ("B0", "B1", "B5", "B6")
 
 def _noise(seed: int, sigma: float = 0.15) -> Any:
     def makespan(family: str, size: str, arm: str, block: int) -> float:
-        rng = random.Random(f"{seed}|{family}|{size}|{arm}|{block}")
+        rng = random.Random(f"{seed}|{family}|{size}|{arm}|{block}")  # noqa: S311
         base = {"s": 8000.0, "m": 16000.0, "l": 32000.0}.get(size, 12000.0)
         return base * math.exp(rng.gauss(0.0, sigma))
 
@@ -89,7 +89,9 @@ def test_noise_data_is_reported_not_separable(tmp_path: Path) -> None:
     assert len(verdicts) == 6, verdicts  # B0, B1, B6 vs B5 + B1, B5, B6 vs B0
     assert set(verdicts.values()) == {"not_separable"}, verdicts
     assert all(c["groups"] == 12 for c in analysis["comparisons"])
-    text = render_report(analysis, analysis_sha256="0" * 64, figures=(), figures_dir="f")
+    text = render_report(
+        analysis, analysis_sha256="0" * 64, figures=(), figures_dir="f"
+    )
     assert "**not_separable**" in text
     assert "**better**" not in text and "**worse**" not in text
 
@@ -124,7 +126,11 @@ def test_a_real_speedup_is_better_and_a_slowdown_is_worse(tmp_path: Path) -> Non
     assert verdicts["B6-B0"] == "better"
     assert verdicts["B1-B5"] == "worse"
     assert verdicts["B0-B5"] == "not_separable"
-    row = next(c for c in analysis["comparisons"] if c["arm"] == "B6" and c["reference"] == "B5")
+    row = next(
+        c
+        for c in analysis["comparisons"]
+        if c["arm"] == "B6" and c["reference"] == "B5"
+    )
     low, high = row["speedup_ci"]
     assert low <= row["speedup_geomean"] <= high
     assert 1.3 < row["speedup_geomean"] < 1.6  # 1 / 0.7 = 1.43
@@ -136,7 +142,11 @@ def test_too_few_groups_is_never_a_claim(tmp_path: Path) -> None:
         _effect({"B6": 0.5}),
         families={"cpu.primes": ("s", "m")},
     )
-    row = next(c for c in analysis["comparisons"] if c["arm"] == "B6" and c["reference"] == "B5")
+    row = next(
+        c
+        for c in analysis["comparisons"]
+        if c["arm"] == "B6" and c["reference"] == "B5"
+    )
     assert row["groups"] == 2
     assert (row["verdict"], row["reason"]) == ("not_separable", "too_few_groups")
 
@@ -166,7 +176,11 @@ def test_failed_and_mismatched_runs_are_counted_not_used(tmp_path: Path) -> None
     # B6 planned without any ML model is not the ML planner: all left out
     assert analysis["per_arm"]["B6"]["statuses"] == {"mismatch:ml_inactive": 30}
     assert analysis["per_arm"]["B6"]["groups_measured"] == 0
-    row = next(c for c in analysis["comparisons"] if c["arm"] == "B6" and c["reference"] == "B5")
+    row = next(
+        c
+        for c in analysis["comparisons"]
+        if c["arm"] == "B6" and c["reference"] == "B5"
+    )
     assert (row["groups"], row["verdict"]) == (0, "not_separable")
 
 
@@ -193,7 +207,7 @@ def test_byte_identical_and_independent_of_input_order(tmp_path: Path) -> None:
     first = dumps(analyze([read_raw(folder)]))
     assert first == dumps(analyze([read_raw(folder)]))
     lines = (folder / "runs.jsonl").read_text("utf-8").splitlines()
-    random.Random(1).shuffle(lines)
+    random.Random(1).shuffle(lines)  # noqa: S311
     (folder / "runs.jsonl").write_text("\n".join(lines) + "\n", "utf-8")
     assert dumps(analyze([read_raw(folder)])) == first
 
@@ -232,7 +246,9 @@ def test_evidence_flags_and_banner(tmp_path: Path) -> None:
     analysis = _analysis(tmp_path, _noise(2))
     assert analysis["evidence"] is False
     assert analysis["inputs"][0]["smoke"] is True
-    text = render_report(analysis, analysis_sha256="0" * 64, figures=(), figures_dir="f")
+    text = render_report(
+        analysis, analysis_sha256="0" * 64, figures=(), figures_dir="f"
+    )
     assert "**Not evidence.**" in text and "smoke run" in text
 
 

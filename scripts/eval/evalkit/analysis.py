@@ -54,6 +54,7 @@ from evalkit.arms import ARMS
 from evalkit.canonical import num
 from evalkit.raw import RawData
 from evalkit.schedule import derive_seed
+from evalkit.spec import MIN_EVIDENCE_REPETITIONS
 
 __all__ = [
     "ANALYSIS_VERSION",
@@ -537,7 +538,7 @@ def _input(raw: RawData) -> dict[str, Any]:
         "arms": list(spec["arms"]),
         "families": [f["family"] for f in spec["families"]],
         "smoke": smoke,
-        "evidence": not smoke and reps >= 10,
+        "evidence": not smoke and reps >= MIN_EVIDENCE_REPETITIONS,
         "runs_planned": raw.campaign["runs_planned"],
         "runs_recorded": len(raw.runs),
         "complete": len(raw.runs) == raw.campaign["runs_planned"],
@@ -547,6 +548,10 @@ def _input(raw: RawData) -> dict[str, Any]:
         "sessions": len(raw.sessions),
         "builds": builds,
         "mixed_builds": len(builds) > 1,
+        # D406: only the installed release packages count (a source checkout
+        # is a developer run)
+        "release_build": bool(builds)
+        and all(b.get("source") == "bundle" for b in builds),
     }
 
 
@@ -578,8 +583,13 @@ def analyze(
         "analysis_version": ANALYSIS_VERSION,
         "settings": asdict(settings),
         "inputs": inputs,
-        "evidence": all(i["evidence"] and i["complete"] for i in inputs)
-        and not any(i["mixed_builds"] for i in inputs),
+        "evidence": all(
+            i["evidence"]
+            and i["complete"]
+            and i["release_build"]
+            and not i["mixed_builds"]
+            for i in inputs
+        ),
         "arms": arms,
         "links": links,
         "per_arm": _per_arm(groups, runs, arms, statuses, versions, settings),

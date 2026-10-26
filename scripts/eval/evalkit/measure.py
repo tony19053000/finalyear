@@ -11,9 +11,11 @@ runner's: ``end_to_end_ms`` = the terminal transition's time minus the job's
 ``queue_ms`` = created -> first ``preparing`` transition (planning + waiting
 for a slot); ``run_ms`` = the final whole-job attempt's ``run`` phase (the
 program itself); ``overhead_ms`` = ``end_to_end_ms - run_ms``: everything the
-fabric adds around the program (RQ4) - only for a job that ran whole (a split
-job's lanes overlap, so it has no single ``run`` to subtract; ``None``, with
-the reason in ``overhead_basis``).
+fabric adds around the program (RQ4) - only for a job that ran whole. A split
+job (any ``lane`` / ``combine`` attempt - also one planned onto a single lane,
+Local or Mode 1, which still runs as one lane + combine) has no single
+``run`` to subtract: ``None``, with the reason ``split_job`` in
+``overhead_basis``.
 """
 
 from __future__ import annotations
@@ -25,6 +27,7 @@ from typing import Any, Final
 __all__ = ["TERMINAL", "measure_job"]
 
 TERMINAL: Final = frozenset({"succeeded", "failed", "cancelled"})
+_SPLIT_ROLES: Final = frozenset({"lane", "combine"})
 
 
 def _when(value: Any) -> dt.datetime | None:
@@ -124,7 +127,10 @@ def measure_job(
         None if run is None else _phase(decisions, str(run.get("attempt_id")), "run")
     )
     e2e = _ms(created, finished) if state in TERMINAL else None
-    if mode == "split":
+    split_job = mode == "split" or any(
+        a.get("role") in _SPLIT_ROLES for a in job.get("attempts", ())
+    )
+    if split_job:
         overhead, basis = None, "split_job"
     elif run_ms is None or e2e is None:
         overhead, basis = None, "no_run_phase"

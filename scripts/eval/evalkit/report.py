@@ -14,6 +14,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any, Final
 
 from evalkit.arms import ARMS
+from evalkit.spec import MIN_EVIDENCE_REPETITIONS
 
 __all__ = ["RESEARCH_QUESTION", "render_report"]
 
@@ -61,9 +62,10 @@ def _banner(analysis: Mapping[str, Any]) -> list[str]:
     for item in analysis.get("inputs", ()):
         if item["smoke"]:
             reasons.append(f"`{item['name']}` is a smoke run (sizes below the window)")
-        if item["repetitions"] < 10:
+        if item["repetitions"] < MIN_EVIDENCE_REPETITIONS:
             reasons.append(
-                f"`{item['name']}` has {item['repetitions']} repetitions (< 10, D417)"
+                f"`{item['name']}` has {item['repetitions']} repetitions "
+                f"(< {MIN_EVIDENCE_REPETITIONS}, D417)"
             )
         if not item["complete"]:
             reasons.append(
@@ -72,6 +74,10 @@ def _banner(analysis: Mapping[str, Any]) -> list[str]:
             )
         if item["mixed_builds"]:
             reasons.append(f"`{item['name']}` ran on more than one build")
+        if not item.get("release_build", False):
+            reasons.append(
+                f"`{item['name']}` did not run on the installed release packages (D406)"
+            )
     return [
         "> **Not evidence.** This report is generated from data that cannot",
         "> support a claim: " + "; ".join(reasons) + ".",

@@ -1,7 +1,7 @@
 """Run (or resume) a V1.0 evaluation campaign on a real fabric (D417/D419).
 
     uv run python scripts/eval/run_campaign.py --spec CAMPAIGN.yaml --raw DIR \\
-        [--profile-hook "sudo lab/eval_profile.sh {profile} {toml}"] \\
+        [--profile-hook "sudo lab/eval_profile.sh {profile} {env}"] \\
         [--origin NODE_ID] [--no-seed] [--poll-s 1] [--max-runs N] [--plan]
 
 Talks to the controller exactly like ``compute`` does (the same settings,
@@ -10,10 +10,13 @@ laptop - the one whose agent is the Local candidate (B0 pins jobs to it);
 its node id is read from this machine's agent unless ``--origin`` is given.
 
 ``--profile-hook`` is needed when the arms need more than one controller
-profile (``evalkit.arms``): the command gets the profile name and the path
-of its ``[controller.planner]`` TOML drop-in (written to ``DIR/profiles``),
-must make the controller run with it (e.g. copy the drop-in, restart the
-service) and exit 0; the runner then waits until every node is back ONLINE.
+profile (``evalkit.arms``): ``{profile}`` is replaced by the profile name,
+``{toml}`` / ``{env}`` by the path of its ``[controller.planner]`` TOML
+drop-in / systemd environment file (both written to ``DIR/profiles``). The
+command must make the controller run with it and exit 0; the runner then
+waits until every node is back ONLINE. On the installed Linux controller
+``lab/eval_profile.sh`` does that (a systemd drop-in + restart; ``sudo
+lab/eval_profile.sh --clear`` removes it after the campaign).
 
 ``--plan`` prints the schedule (block order) and exits without contacting the
 controller. Interrupt with Ctrl-C at any time; the same command resumes.
@@ -48,7 +51,9 @@ def _parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--spec", type=Path, required=True, help="the campaign YAML file")
     p.add_argument("--raw", type=Path, required=True, help="the raw data folder")
-    p.add_argument("--profile-hook", default=None, help="command; {profile} {toml}")
+    p.add_argument(
+        "--profile-hook", default=None, help="command; {profile} {toml} {env}"
+    )
     p.add_argument("--origin", default=None, help="the Local laptop's node id")
     p.add_argument("--no-seed", action="store_true", help="never seed the local cache")
     p.add_argument("--poll-s", type=float, default=1.0)

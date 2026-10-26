@@ -32,7 +32,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Final
 
-from evalkit.arms import ARMS, PROFILES, profile_toml
+from evalkit.arms import ARMS, PROFILES, profile_env_file, profile_toml
 from evalkit.canonical import sha256_bytes, write_text
 from evalkit.fabric import Fabric, FabricError, ProfileSwitcher, wait_ready
 from evalkit.measure import TERMINAL, measure_job
@@ -42,6 +42,7 @@ from evalkit.raw import (
     SESSIONS_FILE,
     RawError,
     append_line,
+    cut_partial_tail,
     read_raw,
     write_campaign,
 )
@@ -147,8 +148,11 @@ def _prepare_folder(
     profiles = folder / "profiles"
     for name in sorted({ARMS[a].profile for a in spec.arms}):
         write_text(profiles / f"{name}.toml", profile_toml(PROFILES[name]))
+        write_text(profiles / f"{name}.env", profile_env_file(PROFILES[name]))
     if data.partial_lines:
         options.log(f"ignoring {data.partial_lines} line(s) cut short by a crash")
+        for name in (RUNS_FILE, SESSIONS_FILE):
+            cut_partial_tail(folder / name)
     return {str(r["run_id"]) for r in data.runs}
 
 

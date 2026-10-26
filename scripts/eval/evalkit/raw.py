@@ -15,7 +15,10 @@ file's digest equals the stored one (else it refuses: a different campaign
 must use a different folder), reads ``runs.jsonl`` and skips every run
 already there. A line cut short by a crash (no newline) is ignored and
 reported; the run is simply done again (its jobs are found again by their
-idempotency keys - no duplicate job is submitted).
+idempotency keys - no duplicate job is submitted). Before it appends, the
+runner cuts that unfinished tail off (:func:`cut_partial_tail`; the bytes go
+to ``<file>.cut`` for the record) - otherwise the next line would be glued to
+it and the file would no longer parse.
 """
 
 from __future__ import annotations
@@ -37,6 +40,7 @@ __all__ = [
     "RawData",
     "RawError",
     "append_line",
+    "cut_partial_tail",
     "read_raw",
     "write_campaign",
 ]
@@ -69,6 +73,26 @@ def append_line(path: Path, record: Mapping[str, Any]) -> None:
         fh.write(line + "\n")
         fh.flush()
         os.fsync(fh.fileno())
+
+
+def cut_partial_tail(path: Path) -> int:
+    """Remove an unfinished last line (no newline) from ``path``, appending
+    its bytes to ``<path>.cut``; the number of bytes cut (0 = none)."""
+    if not path.exists():
+        return 0
+    data = path.read_bytes()
+    if not data or data.endswith(b"\n"):
+        return 0
+    keep = data.rfind(b"\n") + 1
+    with path.with_name(path.name + ".cut").open("ab") as fh:
+        fh.write(data[keep:] + b"\n")
+        fh.flush()
+        os.fsync(fh.fileno())
+    with path.open("r+b") as fh:
+        fh.truncate(keep)
+        fh.flush()
+        os.fsync(fh.fileno())
+    return len(data) - keep
 
 
 def _lines(path: Path) -> tuple[list[dict[str, Any]], int]:

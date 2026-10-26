@@ -1,11 +1,11 @@
 """Analysis -> the Markdown evaluation report + SVG figures (D419).
 
-    uv run --group eval python scripts/eval/make_report.py \\
+    uv run --group evaluation python scripts/eval/make_report.py \\
         --analysis OUT_DIR/analysis.json --out docs/reports/v1.0-evaluation.md \\
         [--figures-dir docs/reports/v1.0-evaluation-figures] [--no-figures]
 
-Figures need matplotlib (the ``eval`` dependency group: ``uv sync --group
-eval``); ``--no-figures`` writes the report without them. Same analysis ->
+Figures need matplotlib (the ``evaluation`` dependency group: ``uv sync --group
+evaluation``); ``--no-figures`` writes the report without them. Same analysis ->
 same report and figure bytes.
 
 Exit codes: 0 written; 2 bad arguments, unreadable analysis or no matplotlib.
@@ -72,7 +72,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             figures=not args.no_figures,
         )
     except ModuleNotFoundError as exc:
-        print(f"make_report: {exc} (uv sync --group eval)", file=sys.stderr)
+        print(f"make_report: {exc} (uv sync --group evaluation)", file=sys.stderr)
         return 2
     except (OSError, ValueError) as exc:
         print(f"make_report: {exc}", file=sys.stderr)

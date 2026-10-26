@@ -183,8 +183,9 @@ def wait_ready(
 
 
 class CommandSwitcher:
-    """Runs ``template`` (``{profile}`` and ``{toml}`` substituted, split with
-    POSIX rules, no shell) and requires exit 0."""
+    """Runs ``template`` (``{profile}``, ``{toml}`` and ``{env}`` - the
+    profile's name, its TOML drop-in and its systemd environment file -
+    substituted, split with POSIX rules, no shell) and requires exit 0."""
 
     def __init__(self, template: str, *, timeout_s: float = 600.0) -> None:
         self.template = template
@@ -192,7 +193,9 @@ class CommandSwitcher:
 
     def apply(self, profile: Profile, toml_path: Path) -> None:
         argv = [
-            part.replace("{profile}", profile.name).replace("{toml}", str(toml_path))
+            part.replace("{profile}", profile.name)
+            .replace("{toml}", str(toml_path))
+            .replace("{env}", str(toml_path.with_suffix(".env")))
             for part in shlex.split(self.template)
         ]
         try:

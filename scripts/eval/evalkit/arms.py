@@ -29,6 +29,7 @@ __all__ = [
     "Arm",
     "Profile",
     "profile_env",
+    "profile_env_file",
     "profile_toml",
 ]
 
@@ -149,6 +150,16 @@ def profile_env(profile: Profile) -> dict[str, str]:
         )
         out[f"MESHFORGE_CONTROLLER__PLANNER__{key.upper()}"] = text
     return out
+
+
+def profile_env_file(profile: Profile) -> str:
+    """The profile as a systemd ``EnvironmentFile`` (``lab/eval_profile.sh``
+    installs it as a drop-in of ``meshforge-controller.service``: environment
+    variables override ``controller.toml``, which is never edited). Values
+    are single-quoted so systemd keeps a list's double quotes."""
+    lines = [f"# MeshForge evaluation profile {profile.name}: {profile.description}"]
+    lines += [f"{key}='{value}'" for key, value in profile_env(profile).items()]
+    return "\n".join(lines) + "\n"
 
 
 def profile_toml(profile: Profile) -> str:
