@@ -322,7 +322,6 @@ EXTRA_IMPORTS: Final[Mapping[str, str]] = {
     "asyncpg": "controller",
     "alembic": "controller",
     "pyarrow": "controller",
-    "tzdata": "controller",
     "zeroconf": "controller/agent",
     # agent (`docker` also comes with the dev group via testcontainers)
     "psutil": "agent",
@@ -341,6 +340,9 @@ EXTRA_IMPORTS: Final[Mapping[str, str]] = {
     # it counts for `extras("agent")` only there (elsewhere it is never
     # installed nor imported - listing it would skip every agent test).
     **({"win32service": "agent"} if sys.platform == "win32" else {}),
+    # tzdata (`sys_platform == 'win32'`, controller extra) likewise: listed
+    # everywhere it skipped every extras("controller") test on Linux (V1.0 G0).
+    **({"tzdata": "controller"} if sys.platform == "win32" else {}),
 }
 
 #: Packages of this repository: pure Python, so their modules left behind by an
