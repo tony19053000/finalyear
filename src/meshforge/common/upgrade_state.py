@@ -201,7 +201,9 @@ def upgrade_notice(
         return UpgradeNotice(
             "in_progress",
             f"an upgrade from {state.get('from', '?')} to {state.get('to', '?')} "
-            f"is in progress (phase {state.get('phase', '?')})",
+            f"is in progress (phase {state.get('phase', '?')}); if no installer or "
+            "apt is running now, it was cut off - finish it with `sudo dpkg "
+            "--configure -a` (Linux) or run the installer again (Windows)",
             state,
         )
     return None

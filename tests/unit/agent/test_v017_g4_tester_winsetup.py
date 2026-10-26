@@ -551,7 +551,10 @@ def test_n1_rollback_with_a_service_that_will_not_stop_repoints_nothing() -> Non
     assert res.exit_code == ExitCode.FAILURE
     assert scm.python == PY2  # NOT re-pointed under a running process
     assert f"install:{PY1}" not in scm.log
-    assert scm.current == V1.version_dir  # pointer never moved to the broken version
+    # V0.17 G5 (brief §5e invariant): current.txt names the version the
+    # service's binPath names - here the new one, which still runs. (G4 left
+    # current.txt on V1 while the SCM pointed at V2.)
+    assert scm.current == V2.version_dir
     assert any("did not stop" in line and "still runs" in line for line in res.lines)
 
 
@@ -591,22 +594,21 @@ def test_n3_unexpected_migration_exception_is_blocked_and_never_starts() -> None
 @pytest.mark.parametrize(
     "exc", [RuntimeError("boom"), ws.OpsError("icacls failed"), OSError(5, "denied")]
 )
-def test_n3_migration_failure_during_upgrade_says_neither_version_runs(
+def test_n3_migration_failure_during_upgrade_restores_the_previous_version(
     exc: Exception,
 ) -> None:
+    # V0.17 G5 (rollback matrix row 2) replaces G4's "neither version runs":
+    # the previous version is restored and running, current.txt and the
+    # service's binPath agree on it.
     scm = _MigrateBoom(python=PY1, state="running", current=V1.version_dir)
     scm.exc = exc
     res = _run(scm)
-    assert res.outcome is not ws.SetupOutcome.OK
-    assert "start" not in scm.log and scm.state != "running"
+    assert res.outcome is ws.SetupOutcome.ROLLED_BACK
+    assert scm.state == "running" and scm.python == PY1
+    assert scm.current == V1.version_dir
     text = "\n".join(res.lines)
-    assert "this was an upgrade" in text and "does NOT run either" in text
-    # the advertised recovery command names real subcommand/flag spellings
-    assert "winservice update-path --python-exe" in text and PY1 in text
-    assert "sc.exe start MeshForgeAgent" in text
-    # blocked path points current.txt at the new (installed) version like the SCM;
-    # the OpsError path leaves it: either is a real, installed version
-    assert scm.current in {V1.version_dir, V2.version_dir}
+    assert "identity migration failed" in text
+    assert "does NOT run either" not in text
 
 
 def test_n3_keyboard_interrupt_is_not_swallowed() -> None:

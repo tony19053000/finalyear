@@ -44,6 +44,7 @@ from meshforge.agent.winsetup import (
     teardown,
     wait_healthy,
 )
+from meshforge.agent.winupgrade import FileRecords
 from meshforge.common.exit_codes import ExitCode
 from meshforge.common.logging import configure_logging
 from meshforge.common.windows_service import (
@@ -114,7 +115,10 @@ def cmd_setup(
         print(f"setup: run it with the installed bundle's python.exe ({exc})")
         return int(ExitCode.USAGE_ERROR)
     result = setup(
-        RealOps(_machine(), layout), layout, health_timeout_s=health_timeout_s
+        RealOps(_machine(), layout),
+        layout,
+        health_timeout_s=health_timeout_s,
+        records=FileRecords(Path(str(layout.root))),  # V0.17 G5 (Q38/Q39)
     )
     _write_outputs(
         result.as_dict(), result.summary(), result.lines, result_file, message_file

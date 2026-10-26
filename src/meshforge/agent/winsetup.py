@@ -33,6 +33,23 @@ with a fake on any OS; :mod:`meshforge.agent.winservice_ops` is the real one.
 
 The result (:class:`SetupResult`) is JSON for the installer's last page; its
 lines name paths and fixes, never a token or a key.
+
+**V0.17 G5 (the rollback matrix, D393/D403):**
+
+* the run is journalled (:mod:`.winupgrade`, ``Program Files\\MeshForge\\upgrade``)
+  before anything changes; a journal left by a cut-off run (power loss, a
+  killed installer) makes this run finish it - and revert to the interpreter
+  the journal names when the new version is not healthy, even though the
+  service already points at the new one;
+* an identity migration that **raises** during an upgrade (a named step or a
+  bug) restores and starts the previous version (G4 left both stopped); a
+  migration that is *blocked* (an identity question for the owner) still
+  leaves the service stopped (Q13);
+* the Q38 forced-failure trigger fails the new version's health check (an
+  upgrade only), so the real rollback runs; it is removed after use;
+* after every outcome ``current.txt`` and the service's ``binPath`` name the
+  same version (when the new version will not stop for a rollback, both stay
+  on the new one and the result is ``failed``).
 """
 
 from __future__ import annotations
@@ -44,6 +61,7 @@ from enum import StrEnum
 from typing import Any, Final, Protocol
 
 from meshforge.agent.wininstall import LEGACY_TASK_NAME, ProgramLayout
+from meshforge.agent.winupgrade import Journal, NullRecords, UpgradeRecords
 from meshforge.common.exit_codes import ExitCode
 from meshforge.common.logging import get_logger
 from meshforge.common.windows_service import SERVICE_NAME
@@ -277,25 +295,72 @@ def _same_python(a: str | None, b: str) -> bool:
     return a is not None and a.strip().lower() == b.strip().lower()
 
 
+@dataclass(slots=True)
+class _Run:
+    """What this setup run has changed so far (G5)."""
+
+    records: UpgradeRecords
+    version_dir: str
+    switched: bool = False
+    """The service was re-pointed at this version's ``python.exe``."""
+
+
 def setup(
     ops: Ops,
     layout: ProgramLayout,
     *,
     health_timeout_s: float = DEFAULT_HEALTH_TIMEOUT_S,
+    records: UpgradeRecords | None = None,
 ) -> SetupResult:
     """Install / upgrade / repair (module docstring). Never raises
     :class:`OpsError`: every failure is a result with its reason."""
     result = SetupResult(SetupOutcome.FAILED, layout.version_dir)
+    run = _Run(records or NullRecords(), layout.version_dir)
     try:
-        return _setup(ops, layout, health_timeout_s, result)
+        result = _setup(ops, layout, health_timeout_s, result, run)
     except OpsError as exc:
         result.lines.append(f"setup stopped: {exc}")
-        try:
-            result.service_state = ops.service_status().state
-        except OpsError:
-            result.service_state = "unknown"
-        _note_upgrade_left_stopped(result)
-        return result
+        if run.switched and result.previous_python is not None:
+            # G5: an upgrade never ends with neither version running.
+            result = _roll_back(
+                ops,
+                result.previous_python,
+                health_timeout_s,
+                result,
+                run,
+                reason=f"setup stopped: {exc}",
+            )
+        else:
+            try:
+                result.service_state = ops.service_status().state
+            except OpsError:
+                result.service_state = "unknown"
+            if run.switched:
+                _point_at_best_effort(ops, layout.version_dir, result)
+            _note_upgrade_left_stopped(result)
+    _close_records(result, run)
+    return result
+
+
+def _point_at_best_effort(ops: Ops, version_dir: str, result: SetupResult) -> None:
+    """Keep ``current.txt`` on the version the service points at (G5)."""
+    try:
+        _point_at(ops, version_dir)
+    except OpsError as exc:
+        result.lines.append(f"current.txt / PATH shims not updated: {exc}")
+
+
+def _close_records(result: SetupResult, run: _Run) -> None:
+    """End the journal when the result is coherent; a ``failed`` run keeps it,
+    so the next run (a repair) still knows which version to go back to."""
+    try:
+        if result.outcome is SetupOutcome.FAILED:
+            return
+        run.records.clear_journal()
+        if result.outcome is SetupOutcome.OK:
+            run.records.clear_rolled_back()
+    except OSError as exc:
+        log.warning("agent.service.upgrade_records_failed", error=str(exc))
 
 
 def _note_upgrade_left_stopped(result: SetupResult) -> None:
@@ -314,7 +379,11 @@ def _note_upgrade_left_stopped(result: SetupResult) -> None:
 
 
 def _setup(
-    ops: Ops, layout: ProgramLayout, health_timeout_s: float, result: SetupResult
+    ops: Ops,
+    layout: ProgramLayout,
+    health_timeout_s: float,
+    result: SetupResult,
+    run: _Run,
 ) -> SetupResult:
     new_python = str(layout.python_exe)
     lines = result.lines
@@ -322,7 +391,27 @@ def _setup(
     previous = before.python if before.exists else None
     if previous is not None and _same_python(previous, new_python):
         previous = None  # a repair of the running version: nothing to go back to
+    journal = run.records.read_journal()
+    if journal is not None:
+        # G5 (Q39): the last run was cut off. Finish it; if the new version is
+        # not healthy, go back to what the service ran before THAT run.
+        log.warning(
+            "agent.service.setup_interrupted_before",
+            phase=journal.phase,
+            to=journal.to_version_dir,
+        )
+        lines.append(
+            f"the last setup run (to {journal.to_version_dir}) did not finish "
+            f"(phase {journal.phase or '?'}); this run finishes it"
+        )
+        if (
+            previous is None
+            and journal.from_python is not None
+            and not _same_python(journal.from_python, new_python)
+        ):
+            previous = journal.from_python
     result.previous_python = previous
+    run.records.write_journal(Journal(previous, layout.version_dir, "switching"))
     _stop_legacy_task(ops, lines)
     running = before.exists and before.state not in ("stopped", "absent")
     if running and not ops.stop_service(STOP_TIMEOUT_S):
@@ -334,12 +423,38 @@ def _setup(
         result.service_state = ops.service_status().state
         return result
     ops.install_service(new_python)
+    run.switched = True
+    run.records.write_journal(Journal(previous, layout.version_dir, "checking"))
     try:
         outcome, migration_lines = ops.migrate()
-    except OpsError:
-        raise  # a named Windows step failed: "setup stopped: ...", service stopped
+    except OpsError as exc:
+        if previous is None:
+            raise  # a named Windows step failed: "setup stopped: ...", service stopped
+        # G5: the previous version runs again; the identity is untouched
+        # (the migration copies, verifies, then swaps - nothing half-moved).
+        lines.append(f"identity migration failed: {exc}")
+        return _roll_back(
+            ops,
+            previous,
+            health_timeout_s,
+            result,
+            run,
+            reason=f"identity migration: {exc}",
+        )
     except Exception as exc:  # a bug: never start over an undecided identity
         log.exception("agent.service.setup_migration_error", cause=type(exc).__name__)
+        if previous is not None:
+            lines.append(
+                f"identity migration failed unexpectedly ({type(exc).__name__}: {exc})"
+            )
+            return _roll_back(
+                ops,
+                previous,
+                health_timeout_s,
+                result,
+                run,
+                reason=f"identity migration: {type(exc).__name__}",
+            )
         outcome = "blocked"
         migration_lines = [
             f"identity migration failed unexpectedly ({type(exc).__name__}: {exc}); "
@@ -363,11 +478,18 @@ def _setup(
         _note_upgrade_left_stopped(result)
         return result
     health = _start_and_check(ops, health_timeout_s)
+    forced = run.records.forced_failure(layout.version_dir) if previous else None
+    if health.ok and forced is not None:
+        health = Health(False, forced, health.status)
     if health.ok:
         return _finish_ok(ops, layout.version_dir, new_python, result)
     lines.append(f"version {layout.version_dir}: {health.reason}")
     if previous is not None:
-        return _roll_back(ops, previous, health_timeout_s, result)
+        if forced is not None:
+            run.records.consume_forced_failure()
+        return _roll_back(
+            ops, previous, health_timeout_s, result, run, reason=health.reason
+        )
     result.service_state = health.status.state
     if (
         health.status.state == "stopped"
@@ -410,7 +532,13 @@ def _finish_ok(
 
 
 def _roll_back(
-    ops: Ops, previous: str, timeout_s: float, result: SetupResult
+    ops: Ops,
+    previous: str,
+    timeout_s: float,
+    result: SetupResult,
+    run: _Run,
+    *,
+    reason: str,
 ) -> SetupResult:
     from meshforge.agent.wininstall import program_layout
 
@@ -421,9 +549,11 @@ def _roll_back(
         previous_dir = None
     if not ops.stop_service(STOP_TIMEOUT_S):
         # Re-pointing a service that still runs the new version would leave the
-        # SCM, current.txt and the running process disagreeing: stop here.
+        # SCM, current.txt and the running process disagreeing: stop here, and
+        # keep current.txt on the version the service points at (G5 invariant).
         result.outcome = SetupOutcome.FAILED
         result.service_state = ops.service_status().state
+        _point_at_best_effort(ops, run.version_dir, result)
         lines.append(
             f"rolling back to {previous} was not possible: the {SERVICE_NAME} "
             f"service did not stop within {STOP_TIMEOUT_S:.0f} s; it still runs "
@@ -442,6 +572,12 @@ def _roll_back(
     result.outcome = SetupOutcome.ROLLED_BACK
     result.running_python = previous
     result.node_id = ops.node_id()
+    try:
+        run.records.write_rolled_back(
+            from_dir=previous_dir or previous, to_dir=run.version_dir, reason=reason
+        )
+    except OSError as exc:
+        log.warning("agent.service.upgrade_records_failed", error=str(exc))
     lines.append(
         f"the previous version ({previous_dir or previous}) runs again; the new "
         "files stay installed - send the log above to the MeshForge team"
