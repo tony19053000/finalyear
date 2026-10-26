@@ -1524,7 +1524,9 @@ class ControllerRuntime:
         deadline = loop.time() + drain
 
         def remaining() -> float:
-            return max(deadline - loop.time(), 0.0)
+            # Clamped to ``drain``: ``(t + drain) - t`` can exceed ``drain`` by
+            # a float rounding step when ``t`` is large (seen on Windows).
+            return min(max(deadline - loop.time(), 0.0), drain)
 
         log.info("controller.stopping", drain_s=drain)
         if self._advertiser is not None:
