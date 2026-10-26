@@ -2,7 +2,7 @@
 
 > Concise current state. Long-term plan: [`DEVELOPMENT_ROADMAP.md`](DEVELOPMENT_ROADMAP.md). Update at the end of every work session.
 
-**Last updated:** 2026-10-26 (session 7: G4 merged to main e41f1031, 0.17.1 [~]; next G5)
+**Last updated:** 2026-10-27 (session 8: G5 merged e173ad13 (tester r1+r2 PASS, reviewer APPROVE, D405); 0.17.6/0.17.7 [~]; gates green on main: unit 26734, ruff, mypy)
 
 ```
 TOTAL   ██████████████▒▒▒░░░  71%  113/159 done, 21 in progress
@@ -25,8 +25,9 @@ V1.0    ░░░░░░░░░░░░░░░░░░░░   0%   0/8 
 █ done `[x]` · ▒ in progress or waiting on a 🧑 lab step `[~]` · ░ not started
 
 ## Progress
+
 ```
-TOTAL   ██████████████▒▒▒░░░  71%  113/159 done, 22 in progress
+TOTAL   ██████████████▒▒▒░░░  71%  113/159 done, 24 in progress
 
 V0.1    █████████████████▒▒▒  83%  10/12  Foundations & engineering system
 V0.2    ██▒▒▒▒▒▒▒▒▒▒▒▒▒░░░░░   9%   1/11  Lab setup & feasibility validation
@@ -40,7 +41,7 @@ V0.9    ██████████████████░░  90%   9/10
 V0.10   ██████████████████░░  90%   9/10  Mode 3 Task Splitting
 V0.14   ██████████████████▒▒  87%   7/8   Unified planner v2
 V0.15   █████████████████░░░  83%  10/12  ML planner
-V0.17   ▒▒▒▒▒▒▒▒▒▒▒▒▒░░░░░░░   0%   0/9   Productization
+V0.17   ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒░░   0%   0/9   Productization
 V1.0    ░░░░░░░░░░░░░░░░░░░░   0%   0/8   Release hardening & final evaluation
 ```
 █ done `[x]` · ▒ in progress or waiting on a 🧑 lab step `[~]` · ░ not started
@@ -302,56 +303,7 @@ Reviewer non-blocking follow-ups (carry into G2/G3): (1) `mint` should carry `pe
 - Windows: not yet run (first real CI run will cover unit + fresh-clone on windows-latest)
 
 ## Next Recommended Task
-**Push (ask user) → `package-windows` CI green → fix first-run issues; then V0.17 G5 brief** (upgrade/rollback matrix incl. G4 migrate-failure pointer, uninstall verifier, user docs; 0.17.6/0.17.7). G4 non-blocking follow-ups: winservice_host.install log delete outcome; drop unused `output` param of netsh_delete_outcome; `-h` as option value matches help shortcut. 🧑 G4 lab (progress note steps 1–9).
 
-_Older:_ **V0.17 G4 APPROVED** (§5d, Q28–Q34 as recommended) — implementer STOPPED by user, wip @3f3fd0b6 in worktree agent-a92fb795dc545626f. (Windows service + Inno Setup installer + firewall + Docker/GPU checks, 0.17.1; reuses G1/G3; SP1 verdict pywin32 D386) — Lead drafts, team approves. 🧑 labs: G1, G2 (Q19 mirror upload, Q21 pg_dump import), G3, SP1, SP3, icacls (D400).
-
-_Older:_ **V0.17 brief DRAFTED** (`docs/briefs/V0.17-productization.md`, D384–D397) — team to answer **Q1–Q10** (§7); Q1 (GitHub repo + Windows CI) is a hard prerequisite. Then G0 spikes SP1–SP3.
-
-_Older:_ 🧑 **0.15.11 lab run** (`lab/checklists/V0.15-ml-planner.md`), then Lead closes/keeps TD1 per D380. Agent-side V0.15 is complete; next agent work = V0.17 brief (or V0.11 if margin). Merged worktrees kept (removal optional, ask first).
-
-_Older:_ **V0.15 G6 brief** (brief §5, the remaining V0.15 tasks after 0.15.9) — Lead drafts, team approves. 🧑 0.14.8 lab still open. Merged worktrees kept (removal optional, ask first).
-
-_Older:_ **V0.15 G5 brief DRAFTED** (brief §5f/§5g, D368–D374) — team to answer **Q24–Q30**, then G5a ∥ G5b implementers. Scope: regret gate via TermPredictor (D360), typed `TermOut.ml` / `DecisionOut.ml_model_version` in the API, Models page in the dashboard, wire `ml/replay` loader to the registry; fold in G3/G4 tech-debt above. 🧑 0.14.8 lab still open. Merged worktrees kept (removal optional, ask first).
-
-_Older:_ 🧑 **0.14.8 lab** (`lab/checklists/V0.14-planner.md`): part A regret check must NOT be `skipped` (D329); part C pastes `by_live_node_count` (D332). Agent-side: **V0.15 G3 ∥ G4 briefs DRAFTED** (brief §5c/§5d, D358–D365) — APPROVED. **G4** (agent-a80327d0439205cff): fix r1 done @26c63eef, tester r2 + reviewer to re-run. **G3** (agent-a4720f4e9d07293c7): fix r1 committed c31a0156, gates unconfirmed, then tester r2 + reviewer. See SESSION_HANDOFF cold-start prompt. (Brief §2/§3: G3 registry migration 0034 + artefacts + retrain + activation gate, 0.15.7; G4 TermPredictor planner integration, 0.15.6 — carry pre-calibration raw_s to features + replay-vs-live parity test; fold in G2 tech-debt items where natural). Merged worktrees (V0.14 G1–G6F, V0.15 G1) kept (removal optional, ask first).
-
-_Older:_ **V0.14 G6** — brief §5e DRAFTED (`d9ead6da`, D324–D328); team to answer Q13–Q16, then implementer (Mode 3 loader path for the evaluator per D322 follow-up, cluster harness campaign proving criteria 1–4, latency evidence), then implementer → tester → reviewer; then 🧑 0.14.8 lab. Optional follow-up: admin "Run evaluation" control (D323). Merged worktrees G1–G5 kept (user: removal optional).
-
-_Older:_ 🧑 **0.10.10** Mode 3 lab run (`lab/checklists/V0.10-mode3.md`). Agent-side: V0.10 tech debt (D287/D288 list under Technical Debt) or V0.14 Unified planner v2 brief (team to choose).
-
-_Older:_ **V0.10 G8** (0.10.9; brief §5h + G8 carry-overs: stderr tail, `_history` cache, chunk_record reads speculative copies, map refetch throttle) → G9 (cluster harness + `lab/checklists/V0.10-mode3.md`) → 🧑 0.10.10.
-
-_Older:_ **V0.9 G5c** — implementer in a worktree with brief §5g: item 0.0 cool-down race first (closes 0.9.7 after tester + reviewer), then item 0.1–0.8, then the 0.9.8 quality report. 🧑 lab: V0.9 C1–C3 + R1–R3, 0.8.10.
-
-_Older:_ **V0.9 G5** — write the G5 brief (0.9.6 automatic labels + 0.9.7 unattended runner; item 0 = D245 follow-ups: log `stopped_while_applying`, `_kill_and_reap` helper). Labels MUST drop `condition_measured->>'bench_role'` rows (D244); runner uses small submit budgets and wires owner pause to `ConditionRunner.stop_all`. 🧑 lab: V0.9 C1–C3, 0.8.10.
-
-_Older:_ **🧑 0.8.10** — team runs `lab/checklists/V0.8-visual.md` (steps A–H; fix D210 item 1 clock skew before step E perf). **Agent:** write the V0.9 brief (benchmark & telemetry v1); item 0 = D210 non-blocking list.
-
-_Older:_ **V0.8 G5 — Settings & fabric** (brief §5e, D199): implementer in a worktree → tester r1 → reviewer → merge → whole component once → close 0.8.6; then G7 brief (0.8.9 e2e + perf). Small side task: fix the intermittent V0.5 rotted-peer test (Known Bugs). V0.4–V0.7 are complete agent-side; each closes on its 🧑 lab run (0.4.15, 0.5.11, 0.6.13, 0.7.12).
-
-**2026-10-05 (later): V0.6 started.** Brief `docs/briefs/V0.6-scheduling-reliability.md` (D102–D119, ADR-0015 Proposed). **G1 implementer RUNNING** (0.6.9, 0.6.10, 0.6.14 + dispatcher/gc_index splits + D59); progress `docs/briefs/progress/V0.6-G1.md`. Then G1 tester → reviewer → G2. 🧑 0.5.11 lab still closes V0.5; 🧑 team: review ADR-0015 before G3.
-
-**2026-10-05: V0.5 G5 CLOSED.** Agent-side next: write the **V0.6 brief** (first: split `common/gc_index.py`, confirm controller `gc.py:133` `_on_change` write is off the event loop). 🧑 **0.5.11 lab** (lab/checklists/V0.5-data-plane.md, ~10 GB free per agent) closes V0.5; 🧑 0.4.15 still open.
-
-**2026-10-02: one agent at a time — reviewer for the stabilisation lane + D95 (commits 97f347e … 732b77f) → write wave 2 briefs (G4, G5) → G4 implementer. 🧑 0.4.15 lab run.** Everything below is history.
-
-**Models (2026-09-24):** Lead, implementer and reviewer now run **`claude-opus-5-5`**; tester moved to `claude-sonnet-5-5` on 2026-10-01 (was `claude-sonnet-5`, commit `6563c7d`, details in `SESSION_HANDOFF.md` §0c). §0b's throughput numbers were measured on Opus 5 — re-baseline after G6 before re-planning.
-
-**Agent-side, two things, can run in parallel (separate sessions, the fix task in its own worktree):**
-1. ~~Relaunch the exit-139 fix~~ — **done 2026-09-24** (see Known Bugs). Run pytest through `scripts/pytest_exit_guard.py` from now on.
-2. ~~Write and run the V0.3 G6 brief~~ — **done 2026-09-24**, 0.3.14 `[x]`. ~~G7 brief (0.3.4)~~ — **done 2026-09-25**, 0.3.4 `[x]`. **Next: the V0.4 brief** (see Current Task). Old note, kept for history: See Current Task for the three items G6 inherits — especially **NB-G5-1's ARCHITECTURE §12.3 amendment**, which the reviewer calls the single most important follow-up.
-
-**🔴 🧑 `uv run python lab/inventory.py` on laptops 2, 3 and 4 — this blocks V0.3**, confirms the hardware ADR-0012 rests on (team-stated, unmeasured: L2 ≈ RTX 3050, L3 ≈ RTX 2050, **L4 no GPU**), fills `docs/LAB.md` §1 and settles ADR-0011.
-**🧑 Team approval of ADR-0012** — it changes an item `PROJECT_BRIEF` §33 calls relatively fixed.
-Agent-side, **nothing is left in V0.2**: the S3-review follow-up (protocol helpers promoted into `_harness/protocol.py`) is done. Small optional follow-ups from the 0.2.10/0.2.13 reviews are in the roadmap design change log. **0.2.12 must wait for real lab data** — never run it on loopback numbers.
-
-**🧑 Lab runs are now the critical path.** Agent-side spike work in V0.2 is finished; what remains needs real machines: (1) S2 two-laptop runs (`lab/spikes/S2.md` §3), (2) S3 two-laptop runs (`lab/spikes/S3.md` §2), (3) `lab/inventory.py` on all 4 laptops, (4) the ADR-0011 decision + torch install (unblocks S4 0.2.8 / S5 0.2.9), (5) the GitHub push + CI proof below. Agent-side while waiting: nothing required. **V0.3 is planned** in `docs/briefs/V0.3-fabric-core.md` (task groups G1–G7, decisions D1–D8, G1 brief ready); ADR-0013 + ADR-0002 Updates written (Proposed); when the inventory of laptops 2–4 is in, spawn G1. 0.2.12 once any lab data lands.
-
-In parallel, 🧑 **GitHub push + CI proof** (only humans push):
-1. Create a **private** GitHub repo (no README/license/.gitignore).
-2. In the project folder: `git remote add origin git@github.com:<owner>/<repo>.git` then `git push -u origin main`.
-3. Actions tab → run "CI" on `main`: expect lint, types, unit (ubuntu + windows), component, fresh-clone (ubuntu + windows), ci-ok all green. Paste back the run URL (and the Windows logs if red).
-4. Settings → Branches/Rulesets for `main`: require PR + status check `ci-ok`.
-5. Criterion 2 proof — three branches, one PR each, commit with `--no-verify`: `ci-bad-lint` (add `import os` to `src/meshforge/common/__init__.py`), `ci-bad-type` (add `def _bad() -> int: return "x"`), `ci-bad-boundary` (add `import meshforge.agent  # noqa: F401` to `src/meshforge/controller/__init__.py`). Expect red + merge blocked. Paste back the 3 run URLs, then close PRs and delete branches.
-After that the Lead marks 0.1.4 and 0.1.10 `[x]` and closes V0.1; then start **V0.2** (lab setup & spikes) in a new session.
+1. Push main (user OK needed) → CI incl. package-windows green.
+2. Version-bump commit (replace hard-coded agent_version="0.1.0.dev0" test Hellos with meshforge.__version__) → tag v0.17.0 → run upgrade-from-release tests.
+3. 🧑 lab/checklists/V0.17-install.md (0.17.8).
