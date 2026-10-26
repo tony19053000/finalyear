@@ -77,6 +77,7 @@ def sampler(
     rss: dict[str, Shape] | None = None,
     fds: dict[str, Shape] | None = None,
     threads: dict[str, Shape] | None = None,
+    pids: dict[str, Shape] | None = None,
     os_name: str = "posix",
     every_s: float = 30.0,
     end_s: float = 4320.0,
@@ -85,7 +86,9 @@ def sampler(
     events: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     """A samples file: ``procs`` = name -> (role, host); flat 100 MiB RSS,
-    40 FDs, 12 threads unless a shape says otherwise."""
+    40 FDs, 12 threads unless a shape says otherwise; ``pids``: the process
+    identity over time (a new value = a restart; default one process)."""
+    pids = pids or {}
     rss = rss or {}
     fds = fds or {}
     threads = threads or {}
@@ -112,9 +115,10 @@ def sampler(
         }
         for name in procs:
             counter = fds.get(name, lambda _t: 40.0)(t)
+            pid = int(pids.get(name, lambda _t: 100.0)(t))
             tick["procs"][name] = {
-                "pid": 100,
-                "create_time": 1.0,
+                "pid": pid,
+                "create_time": float(pid),
                 "rss_bytes": int(rss.get(name, lambda _t: 100.0 * MIB)(t)),
                 "fds": None if os_name == "nt" else int(counter),
                 "handles": int(counter) if os_name == "nt" else None,

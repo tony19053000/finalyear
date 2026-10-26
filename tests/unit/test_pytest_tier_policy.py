@@ -106,6 +106,18 @@ def test_cluster_chaos_directory_is_the_chaos_tier(suite: pytest.Pytester) -> No
     result.assert_outcomes(passed=1, deselected=1)
 
 
+def test_cluster_soak_directory_is_the_soak_tier(suite: pytest.Pytester) -> None:
+    """V1.0 G1: tests/cluster/soak/ is tier soak (opt-in), not cluster."""
+    _write(suite, "cluster/soak/test_a.py", "def test_a():\n    pass\n")
+    _write(suite, "cluster/test_b.py", "def test_b():\n    pass\n")
+    result = suite.runpytest_subprocess("-m", "cluster")
+    result.assert_outcomes(passed=1, deselected=1)
+    result = suite.runpytest_subprocess("-m", "soak")
+    result.assert_outcomes(skipped=1, deselected=1)
+    result = suite.runpytest_subprocess("-m", "soak", "--run-soak")
+    result.assert_outcomes(passed=1, deselected=1)
+
+
 def test_a_cluster_marker_in_the_chaos_directory_fails_collection(
     suite: pytest.Pytester,
 ) -> None:

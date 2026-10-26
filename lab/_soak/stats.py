@@ -40,6 +40,28 @@ def slope_per_hour(points: Sequence[tuple[float, float]]) -> float | None:
     return cov / var * 3600.0
 
 
+def pooled_slope_per_hour(
+    segments: Sequence[Sequence[tuple[float, float]]],
+) -> float | None:
+    """The least-squares slope shared by several series, each with its own
+    level (a "within" / fixed-effects fit): every segment is centred on its own
+    means, so the drop when a restarted process starts small again is not
+    read as a negative slope, nor its level as growth. Segments with fewer
+    than 3 points add nothing; ``None`` when no segment has a time spread."""
+    cov = var = 0.0
+    for points in segments:
+        if len(points) < 3:
+            continue
+        n = len(points)
+        mean_t = sum(t for t, _ in points) / n
+        mean_v = sum(v for _, v in points) / n
+        var += sum((t - mean_t) ** 2 for t, _ in points)
+        cov += sum((t - mean_t) * (v - mean_v) for t, v in points)
+    if var <= 0:
+        return None
+    return cov / var * 3600.0
+
+
 @dataclass(frozen=True, slots=True)
 class Window:
     """A half-open time window ``[start, end)`` in seconds since the run start."""

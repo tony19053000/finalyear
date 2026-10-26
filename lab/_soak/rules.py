@@ -26,6 +26,14 @@ Rules (D410 numbering):
    the least-squares slope over the run (after warm-up) < 5 MB/h.
 4. ``handles`` - per process: FDs (Linux) / handles (Windows) and threads,
    quiet-2 median <= quiet-1 median + 5 % (at least +1: integer counters).
+
+   **Restarts** (rules 3-4): chaos restarts processes, and a restarted process
+   starts small - comparing quiet 1 of the old one with quiet 2 of the new one
+   would hide any leak. So the series is cut into **lifetimes** (by ``(pid,
+   create_time)``), each minus its own warm-up; the slope is the pooled
+   within-lifetime fit (each lifetime its own level), and when no single
+   lifetime spans both quiet windows the growth compares the first and last
+   third of the longest lifetime instead (``growth_basis`` in the details).
 5. ``db_growth`` - DB bytes per job of the 2nd half of the load within 20 %
    of the 1st half (8 MiB noise floor); in the idle tail no table's live rows
    grow (time-driven telemetry tables reported, not judged); WAL <= 1.5 x
@@ -52,7 +60,14 @@ from _sched.analysis import RETRYABLE
 from _soak.chaos import CATALOGUE, LoggedAction
 from _soak.inputs import SoakInputs
 from _soak.load import MAX_ATTEMPTS, JobSpec
-from _soak.stats import Window, median, parse_ts, pct_change, slope_per_hour
+from _soak.stats import (
+    Window,
+    median,
+    parse_ts,
+    pct_change,
+    pooled_slope_per_hour,
+    slope_per_hour,
+)
 
 PASS: Final = "PASS"  # noqa: S105 - a verdict word
 FAIL: Final = "FAIL"
@@ -424,24 +439,100 @@ def _in(
     ]
 
 
+Points = Sequence[tuple[float, dict[str, Any]]]
+
+
+def _lifetimes(points: Points) -> list[list[tuple[float, dict[str, Any]]]]:
+    """The series cut where the process identity ``(pid, create_time)``
+    changes: one list per process lifetime, in time order."""
+    out: list[list[tuple[float, dict[str, Any]]]] = []
+    last: tuple[Any, Any] | None = None
+    for t, p in sorted(points, key=lambda tp: tp[0]):
+        ident = (p.get("pid"), p.get("create_time"))
+        if not out or ident != last:
+            out.append([])
+            last = ident
+        out[-1].append((t, p))
+    return out
+
+
+def _settled(
+    lives: list[list[tuple[float, dict[str, Any]]]], warmup_s: float, run_start_s: float
+) -> list[list[tuple[float, dict[str, Any]]]]:
+    """Each lifetime without its own warm-up: the plan's warm-up for a process
+    that was already running at the start, ``warmup_s`` after its first sample
+    for one (re)started during the run - a fresh process grows while it fills
+    its caches, which is not a leak."""
+    out: list[list[tuple[float, dict[str, Any]]]] = []
+    for i, life in enumerate(lives):
+        first = life[0][0]
+        cut = run_start_s + warmup_s if i == 0 else first + warmup_s
+        out.append([(t, p) for t, p in life if t >= cut])
+    return out
+
+
+def _growth_windows(
+    pts: Points,
+    lives: list[list[tuple[float, dict[str, Any]]]],
+    q1: Window,
+    q2: Window,
+    metric: str,
+) -> tuple[str, list[float], list[float]]:
+    """Which two samples to compare for "quiet-1 -> quiet-2" growth.
+
+    ``quiet_windows`` when one process lifetime covers both quiet windows (the
+    D410 rule as written). Otherwise a restart in between would compare two
+    different processes - the new one starts small, so any leak would vanish -
+    and the comparison moves to the **longest settled lifetime**: its first
+    third vs its last third (each at most a quiet window long). ``none`` when
+    no lifetime is long enough (>= 3 x MIN_WINDOW_SAMPLES samples)."""
+    a, b = _in(pts, q1, metric), _in(pts, q2, metric)
+    in_q = {
+        (p.get("pid"), p.get("create_time"))
+        for t, p in pts
+        if (q1.holds(t) or q2.holds(t)) and p.get(metric) is not None
+    }
+    if len(in_q) <= 1:
+        return "quiet_windows", a, b
+    usable = [
+        [(t, float(p[metric])) for t, p in life if p.get(metric) is not None]
+        for life in lives
+    ]
+    usable = [u for u in usable if len(u) >= 3 * MIN_WINDOW_SAMPLES]
+    if not usable:
+        return "none", [], []
+    longest = max(usable, key=lambda u: (u[-1][0] - u[0][0], len(u)))
+    span = longest[-1][0] - longest[0][0]
+    length = min(span / 3.0, q1.end_s - q1.start_s)
+    head = [v for t, v in longest if t < longest[0][0] + length]
+    tail = [v for t, v in longest if t > longest[-1][0] - length]
+    return "longest_lifetime", head, tail
+
+
 def rule_memory(inputs: SoakInputs) -> dict[str, Any]:
     plan = inputs.plan
     q1, q2 = plan.quiet1(), plan.quiet2()
-    fit = Window("fit", plan.warmup_min * 60.0, plan.hours * 3600.0)
+    fit = Window("fit", 0.0, plan.hours * 3600.0)
+    warmup_s = plan.warmup_min * 60.0
     rows: list[dict[str, Any]] = []
     for key, series in sorted(_series(inputs).items()):
-        pts = series["points"]
-        a, b = _in(pts, q1, "rss_bytes"), _in(pts, q2, "rss_bytes")
-        m1, m2 = median(a), median(b)
-        slope = slope_per_hour(
+        pts = [(t, p) for t, p in series["points"] if p.get("rss_bytes")]
+        lives = _settled(_lifetimes(pts), warmup_s, 0.0)
+        slope = pooled_slope_per_hour(
             [
-                (t, float(p["rss_bytes"]) / MIB)
-                for t, p in pts
-                if fit.holds(t) and p.get("rss_bytes")
+                [(t, float(p["rss_bytes"]) / MIB) for t, p in life if fit.holds(t)]
+                for life in lives
             ]
         )
+        q_a, q_b = _in(pts, q1, "rss_bytes"), _in(pts, q2, "rss_bytes")
+        basis, a, b = _growth_windows(pts, lives, q1, q2, "rss_bytes")
+        m1, m2 = median(a), median(b)
         growth = pct_change(m1, m2) if m1 is not None and m2 is not None else None
-        if len(a) < MIN_WINDOW_SAMPLES or len(b) < MIN_WINDOW_SAMPLES or slope is None:
+        if (
+            len(q_a) < MIN_WINDOW_SAMPLES
+            or len(q_b) < MIN_WINDOW_SAMPLES
+            or slope is None
+        ):
             verdict = INCONCLUSIVE
         elif (
             growth is not None and growth >= RSS_GROWTH_PCT
@@ -453,6 +544,8 @@ def rule_memory(inputs: SoakInputs) -> dict[str, Any]:
             {
                 "series": key,
                 "role": series["role"],
+                "lifetimes": len(lives),
+                "growth_basis": basis,
                 "quiet1_median_mib": None if m1 is None else round(m1 / MIB, 2),
                 "quiet2_median_mib": None if m2 is None else round(m2 / MIB, 2),
                 "growth_pct": None if growth is None else round(growth, 2),
@@ -471,25 +564,34 @@ def rule_memory(inputs: SoakInputs) -> dict[str, Any]:
 
 
 def rule_handles(inputs: SoakInputs) -> dict[str, Any]:
-    q1, q2 = inputs.plan.quiet1(), inputs.plan.quiet2()
+    plan = inputs.plan
+    q1, q2 = plan.quiet1(), plan.quiet2()
+    warmup_s = plan.warmup_min * 60.0
     rows: list[dict[str, Any]] = []
     for key, series in sorted(_series(inputs).items()):
         pts = series["points"]
+        lives = _settled(_lifetimes(pts), warmup_s, 0.0)
         counter = "handles" if series.get("os") == "nt" else "fds"
         for metric in (counter, "threads"):
-            a, b = _in(pts, q1, metric), _in(pts, q2, metric)
+            q_a, q_b = _in(pts, q1, metric), _in(pts, q2, metric)
+            basis, a, b = _growth_windows(pts, lives, q1, q2, metric)
             m1, m2 = median(a), median(b)
-            if len(a) < MIN_WINDOW_SAMPLES or len(b) < MIN_WINDOW_SAMPLES:
+            if (
+                len(q_a) < MIN_WINDOW_SAMPLES
+                or len(q_b) < MIN_WINDOW_SAMPLES
+                or m1 is None
+                or m2 is None
+            ):
                 verdict, bound = INCONCLUSIVE, None
             else:
-                assert m1 is not None  # noqa: S101 - len checked
-                assert m2 is not None  # noqa: S101
                 bound = m1 + max(m1 * COUNTER_GROWTH_PCT / 100.0, 1.0)
                 verdict = PASS if m2 <= bound else FAIL
             rows.append(
                 {
                     "series": key,
                     "metric": metric,
+                    "lifetimes": len(lives),
+                    "growth_basis": basis,
                     "quiet1_median": m1,
                     "quiet2_median": m2,
                     "bound": None if bound is None else round(bound, 2),
@@ -497,7 +599,7 @@ def rule_handles(inputs: SoakInputs) -> dict[str, Any]:
                     "verdict": verdict,
                     **(
                         {}
-                        if a or b
+                        if q_a or q_b
                         else {"note": "not measured (needs root / Administrator?)"}
                     ),
                 }

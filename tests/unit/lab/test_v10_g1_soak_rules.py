@@ -100,6 +100,73 @@ def test_one_extra_thread_is_tolerated() -> None:
     assert rules.rule_handles(w.world(samples=samples))["verdict"] == rules.PASS
 
 
+def test_leak_is_not_hidden_by_a_chaos_restart() -> None:
+    """A chaos kill restarts the leaking agent half-way: each lifetime grows
+    10 MiB/h. A fit over the whole sawtooth (and quiet-1 vs quiet-2 of two
+    different processes) would call it flat; the per-lifetime fit does not."""
+    samples = w.healthy_samples()
+    samples["L2"] = w.sampler(
+        "L2",
+        {"agent": ("agent", "L2")},
+        rss={"agent": lambda t: (100 + 10 * (t % 1800) / 3600) * MIB},
+        pids={"agent": lambda t: 100 if t < 1800 else 101},
+    )
+    rule = rules.rule_memory(w.world(samples=samples))
+    row = next(r for r in rule["details"] if r["series"] == "L2/agent")
+    assert row["lifetimes"] == 2
+    assert row["growth_basis"] == "longest_lifetime"
+    assert row["slope_mb_h"] == pytest.approx(10 * 1.048576, rel=0.05)
+    assert row["verdict"] == rules.FAIL
+
+
+def test_a_restarted_process_warming_up_is_not_a_leak() -> None:
+    """Restarted at 30 min: the new process grows 80 -> 100 MiB in its first
+    minute (caches), then stays flat - its own warm-up is not judged."""
+
+    def rss(t: float) -> float:
+        if 1800 <= t < 1860:
+            return (80 + (t - 1800) / 3) * MIB
+        return 100.0 * MIB
+
+    samples = w.healthy_samples()
+    samples["L2"] = w.sampler(
+        "L2",
+        {"agent": ("agent", "L2")},
+        rss={"agent": rss},
+        pids={"agent": lambda t: 100 if t < 1800 else 101},
+    )
+    rule = rules.rule_memory(w.world(samples=samples))
+    row = next(r for r in rule["details"] if r["series"] == "L2/agent")
+    assert row["lifetimes"] == 2
+    assert row["verdict"] == rules.PASS, row
+    assert abs(row["slope_mb_h"]) < 0.5
+
+
+def test_fd_leak_hidden_by_a_restart_in_quiet_two_is_caught() -> None:
+    """The leaking agent is restarted just before the last quiet window, so
+    its quiet-2 counter looks like quiet-1: the comparison moves to the
+    longest lifetime (first third vs last third) and still fails."""
+    samples = w.healthy_samples()
+    samples["L2"] = w.sampler(
+        "L2",
+        {"agent": ("agent", "L2")},
+        fds={"agent": lambda t: 40 + (t if t < 3200 else t - 3200) / 60},
+        pids={"agent": lambda t: 100 if t < 3200 else 101},
+    )
+    rule = rules.rule_handles(w.world(samples=samples))
+    row = next(
+        r for r in rule["details"] if r["series"] == "L2/agent" and r["metric"] == "fds"
+    )
+    assert row["growth_basis"] == "longest_lifetime"
+    assert row["verdict"] == rules.FAIL, row
+    threads = next(
+        r
+        for r in rule["details"]
+        if r["series"] == "L2/agent" and r["metric"] == "threads"
+    )
+    assert threads["verdict"] == rules.PASS
+
+
 def test_fd_leak_fails_and_windows_uses_handles() -> None:
     samples = w.healthy_samples()
     samples["L3"] = w.sampler(
@@ -553,3 +620,13 @@ def test_overall_verdict_and_report() -> None:
     assert "**INCONCLUSIVE**" in text
     assert "kill_job_tree" in text
     assert _by_id(world)["lost_jobs"]["verdict"] == rules.PASS
+
+
+def test_pooled_slope_ignores_the_level_of_each_lifetime() -> None:
+    from _soak.stats import pooled_slope_per_hour, slope_per_hour
+
+    first = [(t, 100 + t / 360) for t in range(0, 1800, 60)]  # +10 / h
+    second = [(t, 50 + (t - 1800) / 360) for t in range(1800, 3600, 60)]
+    assert pooled_slope_per_hour([first, second]) == pytest.approx(10.0)
+    assert slope_per_hour(first + second) < 0  # the naive fit sees a drop
+    assert pooled_slope_per_hour([first[:2], [(0.0, 1.0)] * 3]) is None
