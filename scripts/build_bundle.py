@@ -750,6 +750,58 @@ def trust_store_paths(environ: Mapping[str, str]) -> list[str]:
     return [environ[name] for name in TRUST_ENV if environ.get(name)]
 
 
+def uv_dirs(uv: str) -> list[str]:
+    """The build user's own uv cache and managed-Python dirs (``uv cache dir`` /
+    ``uv python dir`` in the caller's environment, not :func:`clean_env`): where
+    the interpreter running this build and an sdist build would come from."""
+    dirs: list[str] = []
+    for what in ("cache", "python"):
+        try:
+            out = run([uv, what, "dir"], env=os.environ, what=f"uv {what} dir")
+        except BundleError:
+            continue  # best effort: the other needles still apply
+        if out.strip():
+            dirs.append(out.strip())
+    return dirs
+
+
+def build_machine_paths(
+    *,
+    work: Path,
+    out: Path,
+    repo: Path,
+    cache: Path,
+    environ: Mapping[str, str],
+    interpreter: Sequence[str],
+    uv: Sequence[str],
+) -> list[str]:
+    """The leak-check roots: the directories that exist only on *this* build
+    machine and that a bundle referring to would not be relocatable (CI fix of
+    the first V0.17 G4 run).
+
+    * the staging dir (``work``), the output dir and the source checkout;
+    * the bundle cache (Python archive, uv cache of the build, PostgreSQL);
+    * the build interpreter's prefixes and the user's uv cache / Python dirs;
+    * the trust-store paths (SP3 F3).
+
+    Deliberately **not** the home directory: hash-checked third-party wheels
+    embed *their* build machines' paths (``~/.cargo/registry`` in Rust
+    extensions, ``~/AppData/Local/Temp/cibw-run-*`` in numpy's config, the
+    ``/home/runner/work/<project>`` source roots in cyclonedx SBOMs), and a CI
+    runner has the same home as the runner that built them. Those are inert
+    debug strings in files we ship byte-for-byte, never paths the bundle uses.
+    """
+    return [
+        str(work),
+        str(out),
+        str(repo),
+        str(cache),
+        *interpreter,
+        *uv,
+        *trust_store_paths(environ),
+    ]
+
+
 # ----------------------------------------------------------------- the build
 @dataclass(frozen=True, slots=True)
 class BuildOptions:
@@ -890,14 +942,15 @@ def build(options: BuildOptions) -> Path:
         normalise_tree(root, epoch)
 
         needles = leak_needles(
-            [
-                work,
-                out,
-                REPO,
-                options.cache,
-                Path.home(),
-                *trust_store_paths(os.environ),
-            ]
+            build_machine_paths(
+                work=work,
+                out=out,
+                repo=REPO,
+                cache=options.cache,
+                environ=os.environ,
+                interpreter=sorted({sys.prefix, sys.base_prefix, sys.exec_prefix}),
+                uv=uv_dirs(uv),
+            )
         )
         leaks = find_leaks(root, needles)
         if leaks:

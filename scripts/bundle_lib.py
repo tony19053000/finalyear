@@ -295,8 +295,11 @@ class Leak:
     needle: str
 
 
-_TOO_GENERIC: Final = frozenset({"/home", "/root", "/usr", "/tmp"})  # noqa: S108 - not opened
-"""Paths too common to flag (``HOME=/root`` on CI would hit unrelated text)."""
+_TOO_GENERIC: Final = frozenset(
+    {"/home", "/root", "/usr", "/usr/local", "/opt", "/tmp"}  # noqa: S108 - not opened
+)
+"""Paths too common to flag (``HOME=/root`` on CI would hit unrelated text; a
+build interpreter in ``/usr/local`` must not flag numpy's ``/usr/local/lib``)."""
 
 
 def _windows_forms(path: str) -> set[str]:
