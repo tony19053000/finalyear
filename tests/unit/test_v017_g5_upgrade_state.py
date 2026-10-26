@@ -120,6 +120,7 @@ def test_garbage_records_are_ignored_not_fatal(tmp_path: Path) -> None:
 
 # ------------------------------------------------------------------ doctor
 def test_doctor_reports_a_rollback_as_a_failure(tmp_path: Path) -> None:
+    pytest.importorskip("meshforge.agent.doctor", reason="needs the agent extra")
     from meshforge.agent.doctor import ItemStatus, gather, render
     from meshforge.agent.settings import AgentSettings
 
@@ -150,6 +151,7 @@ def test_doctor_reports_a_rollback_as_a_failure(tmp_path: Path) -> None:
 
 
 def test_doctor_in_a_checkout(tmp_path: Path) -> None:
+    pytest.importorskip("meshforge.agent.doctor", reason="needs the agent extra")
     from meshforge.agent.doctor import gather
     from meshforge.agent.settings import AgentSettings
 
@@ -159,6 +161,7 @@ def test_doctor_in_a_checkout(tmp_path: Path) -> None:
 
 
 def test_doctor_cli_exit_codes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    pytest.importorskip("meshforge.agent.doctor", reason="needs the agent extra")
     from typer.testing import CliRunner
 
     from meshforge.agent import doctor as doctor_module

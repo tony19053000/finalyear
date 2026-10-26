@@ -200,7 +200,9 @@ def test_a_bad_controller_version_fails_at_construction() -> None:
 
 # ------------------------------------------------------- the agent's side
 def test_the_agent_stops_with_a_typed_reason_and_never_retries() -> None:
-    pytest.importorskip("grpc")
+    pytest.importorskip(
+        "meshforge.agent.console.supervisor", reason="needs the agent extra"
+    )
     from meshforge.agent.console.supervisor import _reason_for
     from meshforge.agent.session.errors import (
         AgentContractError,
