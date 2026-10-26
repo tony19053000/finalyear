@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -24,7 +25,8 @@ def test_written_file_loads_as_valid_settings(
     path = tmp_path / "etc" / "controller.toml"
     written, chosen = write_default_config(path, address)
     assert written and chosen == address
-    assert path.stat().st_mode & 0o777 == 0o644
+    if os.name != "nt":  # POSIX file modes
+        assert path.stat().st_mode & 0o777 == 0o644
     monkeypatch.setenv("MESHFORGE_INSTALL_MODE", "system")
     settings = ControllerSettings.load(path, data_dir=tmp_path / "state")
     assert settings.controller.grpc_bind == f"{address}:47100"

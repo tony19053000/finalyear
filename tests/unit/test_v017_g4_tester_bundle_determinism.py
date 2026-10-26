@@ -111,6 +111,9 @@ def test_epoch_change_changes_the_archive_but_not_the_manifest(tmp_path: Path) -
     assert a1.read_bytes() != a2.read_bytes()
 
 
+@pytest.mark.skipif(
+    os.name == "nt", reason="POSIX file modes (no execute bit on Windows)"
+)
 def test_normalise_makes_modes_uniform(tmp_path: Path) -> None:
     root = tmp_path / "r"
     root.mkdir()
@@ -140,6 +143,9 @@ def test_verify_bundle_detects_tamper_addition_and_removal(tmp_path: Path) -> No
     assert any("meshforge-agent.cmd" in d for d in lib.verify_bundle(root))
 
 
+@pytest.mark.skipif(
+    os.name == "nt", reason="POSIX file modes (no execute bit on Windows)"
+)
 def test_exec_bit_flip_is_a_difference(tmp_path: Path) -> None:
     root = tmp_path / "r"
     root.mkdir()

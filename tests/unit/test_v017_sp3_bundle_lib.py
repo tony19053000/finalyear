@@ -226,9 +226,9 @@ def test_replace_in_text_files_skips_binaries(tmp_path: Path) -> None:
 # -------------------------------------------------------------- manifest
 def _tree(root: Path) -> None:
     (root / "bin").mkdir(parents=True)
-    (root / "bin" / "tool").write_text("#!/bin/sh\n")
+    (root / "bin" / "tool").write_text("#!/bin/sh\n", newline="\n")
     (root / "bin" / "tool").chmod(0o755)
-    (root / "data.txt").write_text("hello\n")
+    (root / "data.txt").write_text("hello\n", newline="\n")
     (root / "empty").mkdir()
 
 

@@ -7,6 +7,7 @@ with the code's pin.
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -152,6 +153,9 @@ def test_tool_settings_external_mode_is_unchanged(tmp_path: Path) -> None:
     assert tool_database_settings(settings) is settings.database
 
 
+@pytest.mark.skipif(
+    os.name == "nt", reason="POSIX file modes (the controller is Linux-only, D398)"
+)
 def test_tool_settings_managed_reads_the_app_password(tmp_path: Path) -> None:
     settings = _settings(tmp_path, mode="managed", port=47151)
     with pytest.raises(ManagedDbError, match="start the controller"):

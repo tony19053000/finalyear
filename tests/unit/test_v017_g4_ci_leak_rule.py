@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import importlib.util
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from types import ModuleType
 
 import pytest
@@ -42,14 +42,17 @@ bb = _load("build_bundle")
 
 
 def _needles(home: str, sep: str = "/") -> list[bytes]:
-    """The needles of a CI-shaped build on a runner whose home is ``home``."""
+    """The needles of a CI-shaped build on a runner whose home is ``home``
+    (a Linux runner for ``sep="/"``, a Windows one for ``"\\"``, whichever OS
+    the test runs on)."""
     j = sep.join
+    P = PurePosixPath if sep == "/" else PureWindowsPath
     return lib.leak_needles(  # type: ignore[no-any-return]
         bb.build_machine_paths(
-            work=Path(j([home, "work", "finalyear", "finalyear", "dist", ".bundle-x"])),
-            out=Path(j([home, "work", "finalyear", "finalyear", "dist"])),
-            repo=Path(j([home, "work", "finalyear", "finalyear"])),
-            cache=Path(j([home, ".cache", "meshforge-bundle"])),
+            work=P(j([home, "work", "finalyear", "finalyear", "dist", ".bundle-x"])),
+            out=P(j([home, "work", "finalyear", "finalyear", "dist"])),
+            repo=P(j([home, "work", "finalyear", "finalyear"])),
+            cache=P(j([home, ".cache", "meshforge-bundle"])),
             environ={"SSL_CERT_FILE": "/srv/corp-trust/ca.pem", "PATH": "/usr/bin"},
             interpreter=[
                 j([home, "work", "finalyear", "finalyear", ".venv"]),
