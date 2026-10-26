@@ -588,7 +588,9 @@ def test_a_directory_or_fifo_named_like_the_trigger_is_ignored(
     assert machine.sh("mf_forced_failure").returncode != 0
 
 
-@pytest.mark.skipif(os.geteuid() == 0, reason="needs a non-root test user")
+@pytest.mark.skipif(
+    getattr(os, "geteuid", lambda: 0)() == 0, reason="needs a non-root test user"
+)
 def test_the_real_ownership_check_refuses_a_file_a_non_root_user_wrote(
     machine: Machine,
 ) -> None:
