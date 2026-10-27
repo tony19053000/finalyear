@@ -39,6 +39,7 @@ re-run resumes after the last finished action.
 
 from __future__ import annotations
 
+import posixpath
 import random
 import re
 import shlex
@@ -60,6 +61,10 @@ APPLIED_OUTCOMES: Final = frozenset({"done", "interrupted"})
 """Outcomes after which the fault may really have happened (attribution)."""
 
 
+AGENT_FREE_DISK_FLOOR_MIB: Final = 1024
+"""The agent's fixed free-disk floor (``agent/cas/store.py``): below it a
+``disk_fill`` is skipped (chaos.py checks ``df`` first) - the fault would prove
+nothing new, and on L1 it would only squeeze PostgreSQL further."""
 DISK_FILL_LEAVE_FREE_MIB: Final = 512
 """``disk_fill`` leaves this much free: half the agent's fixed 1 GiB free-disk
 floor (``agent/cas/store.py`` DEFAULT_FREE_DISK_FLOOR_BYTES), so the agent must
@@ -335,6 +340,23 @@ def render_command(action: Action, target: Target) -> str:
                 f"{action.kind} on {target.label} needs '{needed}' in targets.json"
             )
     return _fill(template, values, action.kind)
+
+
+def free_check_command(target: Target) -> str:
+    """``df`` of the fill file's folder (bytes available), run before a ``disk_fill``."""
+    fill = {**LINUX_VARS, **target.vars}["fill_file"]
+    return _fill(
+        "df --output=avail -B1 -- {fill_dir} | tail -n 1",
+        {"fill_dir": posixpath.dirname(fill) or "/"},
+        f"disk_fill free check on {target.label}",
+    )
+
+
+def parse_avail(output: str) -> int | None:
+    """The byte count ``free_check_command`` printed, or ``None``."""
+    lines = output.strip().splitlines()
+    last = lines[-1].strip() if lines else ""
+    return int(last) if last.isdigit() else None
 
 
 def cleanup_command(target: Target) -> str:

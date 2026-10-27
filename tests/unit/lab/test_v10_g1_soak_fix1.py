@@ -1,4 +1,4 @@
-"""V1.0 G1 fix round 1 (roadmap 1.0.2, D410/D411): disk_fill leaves 512 MiB and
+"""V1.0 G1 fix rounds 1-2 (roadmap 1.0.2, D410/D411): disk_fill leaves 512 MiB and
 must be proven, lasting faults are undone (wrapper traps + ``chaos.py cleanup``),
 command values are pattern-checked, the leak fallback needs a long lifetime.
 
@@ -13,6 +13,7 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import pwd
 import shutil
 import signal
 import subprocess
@@ -87,9 +88,9 @@ def test_cleanup_command_with_and_without_iface() -> None:
         "sudo -n /usr/local/sbin/mf-chaos cleanup - /var/lib/meshforge/mf-chaos-fill.bin"
     )
     wifi = Target("L2", "linux", ("agent",), "ssh", ssh="lab@l2", iface="wlp3s0",
-                  vars={"fill_file": "/data/mf-chaos-fill.bin"})  # fmt: skip
+                  vars={"fill_file": "/var/lib/meshforge/cas/mf-chaos-fill.bin"})  # fmt: skip
     assert chaos.cleanup_command(wifi).endswith(
-        "cleanup wlp3s0 /data/mf-chaos-fill.bin"
+        "cleanup wlp3s0 /var/lib/meshforge/cas/mf-chaos-fill.bin"
     )
 
 
@@ -268,35 +269,66 @@ def test_fallback_min_span_scales_with_the_plan() -> None:
 
 
 # ------------------------------------------------------- lab/mf-chaos (real sh)
-def _fake_bin(tmp_path: Path, avail_bytes: int = 3 * MIB) -> tuple[Path, Path]:
-    """Fake system tools that append their argv to ``calls.log``."""
-    bindir, log = tmp_path / "bin", tmp_path / "calls.log"
-    bindir.mkdir()
-    for name in ("systemctl", "systemd-run", "nmcli", "tc", "fallocate", "runuser"):
-        body = f'echo "{name} $*" >> "{log}"\n'
-        if name == "tc":
-            body += 'case "$*" in "qdisc show"*) echo "qdisc netem 8001: root";; esac\n'
-        if name == "nmcli":
-            body += '[ "$#" -eq 1 ] && echo enabled\n'
-        if name == "fallocate":  # really create the file (size argument: -l N -- F)
-            body += 'shift; n=$1; shift; shift; head -c "$n" /dev/zero > "$1"\n'
-        (bindir / name).write_text("#!/bin/sh\n" + body)
-        (bindir / name).chmod(0o755)
-    (bindir / "df").write_text(f'#!/bin/sh\necho Avail\necho " {avail_bytes}"\n')
-    (bindir / "df").chmod(0o755)
-    return bindir, log
+class Box:
+    """A sandbox for the wrapper: fake tools on PATH (each appends its argv to
+    ``log``) and a copy of the script whose pinned fill folder is ``fill_dir``
+    (``tmp/ml``, owned by the test user, who is added to FILL_OWNERS)."""
 
+    def __init__(self, tmp_path: Path, avail_bytes: int = 3 * MIB) -> None:
+        self.bindir, self.log = tmp_path / "bin", tmp_path / "calls.log"
+        self.fill_dir = tmp_path / "ml"
+        self.fill_dir.mkdir(mode=0o755)
+        self.bindir.mkdir()
+        for name in ("systemctl", "systemd-run", "nmcli", "tc", "fallocate", "runuser",
+                     "apt-get"):  # fmt: skip
+            body = f'echo "{name} $*" >> "{self.log}"\n'
+            if name == "tc":
+                body += (
+                    'case "$*" in "qdisc show"*) echo "qdisc netem 8001: root";; esac\n'
+                )
+            if name == "nmcli":
+                body += '[ "$#" -eq 1 ] && echo enabled\n'
+            if name == "fallocate":  # really write the file (argv: -l N -- F)
+                body += 'shift; n=$1; shift; shift; head -c "$n" /dev/zero > "$1"\n'
+            (self.bindir / name).write_text("#!/bin/sh\n" + body)
+            (self.bindir / name).chmod(0o755)
+        (self.bindir / "df").write_text(
+            f'#!/bin/sh\necho Avail\necho " {avail_bytes}"\n'
+        )
+        (self.bindir / "df").chmod(0o755)
+        me = pwd.getpwuid(os.getuid()).pw_name
+        text = WRAPPER.read_text()
+        for old, new in (
+            ("FILL_DIR=/var/lib/meshforge\n", f"FILL_DIR={self.fill_dir}\n"),
+            ('FILL_OWNERS="root meshforge"\n', f'FILL_OWNERS="root meshforge {me}"\n'),
+        ):
+            assert old in text
+            text = text.replace(old, new)
+        self.script = tmp_path / "mf-chaos"
+        self.script.write_text(text)
 
-def _sh(bindir: Path, *args: str, **kw: Any) -> subprocess.CompletedProcess[str]:
-    env = {**os.environ, "PATH": f"{bindir}:{os.environ['PATH']}"}
-    return subprocess.run(
-        ["sh", str(WRAPPER), *args], env=env, capture_output=True, text=True,
-        timeout=30, check=False, **kw,
-    )  # fmt: skip
+    @property
+    def fill(self) -> Path:
+        return self.fill_dir / "mf-chaos-fill.bin"
 
+    def env(self) -> dict[str, str]:
+        return {**os.environ, "PATH": f"{self.bindir}:{os.environ['PATH']}"}
 
-def _log(log: Path) -> str:
-    return log.read_text() if log.exists() else ""
+    def sh(self, *args: str, real: bool = False) -> subprocess.CompletedProcess[str]:
+        script = WRAPPER if real else self.script
+        return subprocess.run(
+            ["sh", str(script), *args], env=self.env(), capture_output=True, text=True,
+            timeout=30, check=False,
+        )  # fmt: skip
+
+    def start(self, *args: str) -> subprocess.Popen[str]:
+        return subprocess.Popen(
+            ["sh", str(self.script), *args], env=self.env(), stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, text=True, start_new_session=True,
+        )  # fmt: skip
+
+    def calls(self) -> str:
+        return self.log.read_text() if self.log.exists() else ""
 
 
 needs_sh = pytest.mark.skipif(shutil.which("sh") is None, reason="needs a POSIX sh")
@@ -307,17 +339,32 @@ needs_sh = pytest.mark.skipif(shutil.which("sh") is None, reason="needs a POSIX 
     "args",
     [
         ("disk-fill", "a1", "/etc/passwd", "512", "10"),
-        ("disk-fill", "a1", "/var/../etc/mf-chaos-fill.bin", "512", "10"),
+        ("disk-fill", "a1", "/tmp/mf-chaos-fill.bin", "512", "10"),
+        (
+            "disk-fill",
+            "a1",
+            "/var/lib/meshforge/../../etc/mf-chaos-fill.bin",
+            "512",
+            "10",
+        ),
+        ("disk-fill", "a1", "/var/lib/meshforge/a/b/mf-chaos-fill.bin", "512", "10"),
         ("disk-fill", "a1", "/var/lib/meshforge/mf-chaos-fill.bin", "5x", "10"),
         ("net-down", "a;b", "10"),
         ("net-down", "a1", "10; reboot"),
         ("netem", "a1", "eth0 x", "200", "5", "10"),
         ("netem", "a1", "eth0", "200", "5"),
         ("cleanup", "eth0", "/etc/shadow"),
+        ("cleanup", "eth0", "/tmp/mf-chaos-fill.bin"),
         ("stop-postgres", "/usr/bin", "/var/lib/meshforge/db/data"),
         ("kill-job-tree", "/etc"),
+        ("kill-job-tree", "/sys/fs/cgroup/system.slice"),
+        ("kill-job-tree", "/sys/fs/cgroup/system.slice/ssh.service"),
+        ("kill-job-tree", "/sys/fs/cgroup/system.slice/meshforge-agent.service/../x"),
         ("kill-agent", "extra"),
         ("reinstall", "/tmp/x.sh"),
+        ("reinstall", "/tmp/x.deb"),
+        ("reinstall", "/var/lib/mf-lab/../../tmp/x.deb"),
+        ("reinstall", "/var/lib/mf-lab/missing-for-sure.deb"),
         ("format-disk",),
         (),
     ],
@@ -325,34 +372,86 @@ needs_sh = pytest.mark.skipif(shutil.which("sh") is None, reason="needs a POSIX 
 def test_wrapper_refuses_bad_arguments_before_doing_anything(
     tmp_path: Path, args: tuple[str, ...]
 ) -> None:
-    bindir, log = _fake_bin(tmp_path)
-    done = _sh(bindir, *args)
+    box = Box(tmp_path)
+    done = box.sh(*args, real=True)  # the installed rules, unmodified
     assert done.returncode == 2, (done.stdout, done.stderr)
     assert "mf-chaos:" in done.stderr
-    assert _log(log) == ""
+    assert box.calls() == ""
 
 
 @needs_sh
-def test_wrapper_refuses_a_deb_not_owned_by_root(tmp_path: Path) -> None:
-    bindir, log = _fake_bin(tmp_path)
-    deb = tmp_path / "meshforge-controller_1.0.0_amd64.deb"
+def test_reinstall_needs_a_root_owned_chain(tmp_path: Path) -> None:
+    """A .deb in a user-owned folder (copy with DEB_DIR pointed there)."""
+    box = Box(tmp_path)
+    lab = tmp_path / "lab"
+    lab.mkdir()
+    deb = lab / "meshforge-controller_1.0.0_amd64.deb"
     deb.write_text("x")
-    done = _sh(bindir, "reinstall", str(deb))
+    box.script.write_text(
+        box.script.read_text().replace("DEB_DIR=/var/lib/mf-lab\n", f"DEB_DIR={lab}\n")
+    )
+    done = box.sh("reinstall", str(deb))
     if os.geteuid() != 0:
         assert done.returncode == 2
-        assert "owned by root" in done.stderr
-        assert "apt-get" not in _log(log)
+        assert "must be owned by root" in done.stderr
+    assert "apt-get" not in box.calls()
+
+
+@needs_sh
+def test_disk_fill_refuses_symlinks_existing_files_and_open_folders(
+    tmp_path: Path,
+) -> None:
+    box = Box(tmp_path)
+    victim = tmp_path / "victim"
+    victim.write_text("precious")
+    args = ("a1", "512", "10")
+
+    def fill(path: Path) -> subprocess.CompletedProcess[str]:
+        return box.sh("disk-fill", args[0], str(path), *args[1:])
+
+    box.fill.symlink_to(victim)  # a symlinked fill file
+    done = fill(box.fill)
+    assert done.returncode == 2 and "symlink" in done.stderr
+    assert box.sh("cleanup", "-", str(box.fill)).returncode == 2  # cleanup too
+    assert box.sh("_body-disk-fill", str(box.fill), "1", "1").returncode == 2
+    assert victim.read_text() == "precious"
+    box.fill.unlink()
+
+    box.fill.write_text("left over")  # an existing file
+    done = fill(box.fill)
+    assert done.returncode == 2 and "already exists" in done.stderr
+    box.fill.unlink()
+
+    (box.fill_dir / "sub").symlink_to(tmp_path, target_is_directory=True)
+    done = fill(box.fill_dir / "sub" / "mf-chaos-fill.bin")  # a symlinked parent
+    assert done.returncode == 2 and "not a real directory" in done.stderr
+
+    open_dir = box.fill_dir / "open"
+    open_dir.mkdir()
+    open_dir.chmod(0o777)  # a world-writable parent
+    done = fill(open_dir / "mf-chaos-fill.bin")
+    assert done.returncode == 2 and "world-writable" in done.stderr
+    assert fill(box.fill_dir / "missing" / "mf-chaos-fill.bin").returncode == 2
+
+    box.fill_dir.chmod(0o777)  # the pinned folder itself
+    done = fill(box.fill)
+    assert done.returncode == 2 and "world-writable" in done.stderr
+    box.fill_dir.chmod(0o755)
+    assert box.calls() == ""
+    assert fill(box.fill).returncode == 0  # the good case still works
 
 
 @needs_sh
 def test_wrapper_detaches_lasting_faults_as_named_units(tmp_path: Path) -> None:
-    bindir, log = _fake_bin(tmp_path)
-    assert _sh(bindir, "net-down", "a7", "30").returncode == 0
-    assert _sh(bindir, "netem", "a8", "wlp3s0", "200", "5", "600").returncode == 0
-    fill = "/var/lib/meshforge/mf-chaos-fill.bin"
-    assert _sh(bindir, "disk-fill", "a9", fill, "512", "37.5").returncode == 0
-    lines = _log(log).splitlines()
-    assert lines == [
+    box = Box(tmp_path)
+    assert box.sh("net-down", "a7", "30").returncode == 0
+    assert box.sh("netem", "a8", "wlp3s0", "200", "5", "600").returncode == 0
+    sub = box.fill_dir / "cas"
+    sub.mkdir()
+    fill = str(sub / "mf-chaos-fill.bin")
+    done = box.sh("disk-fill", "a9", fill, "512", "37.5")
+    assert done.returncode == 0, done.stderr
+    assert box.calls().splitlines() == [
         "systemd-run --collect --quiet --unit=mf-chaos-a7 /usr/local/sbin/mf-chaos "
         "_body-net-down 30",
         "systemd-run --collect --quiet --unit=mf-chaos-a8 /usr/local/sbin/mf-chaos "
@@ -360,14 +459,6 @@ def test_wrapper_detaches_lasting_faults_as_named_units(tmp_path: Path) -> None:
         "systemd-run --collect --quiet --unit=mf-chaos-a9 /usr/local/sbin/mf-chaos "
         f"_body-disk-fill {fill} 512 37.5",
     ]
-
-
-def _start_body(bindir: Path, *args: str) -> subprocess.Popen[str]:
-    env = {**os.environ, "PATH": f"{bindir}:{os.environ['PATH']}"}
-    return subprocess.Popen(
-        ["sh", str(WRAPPER), *args], env=env, stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE, text=True, start_new_session=True,
-    )  # fmt: skip
 
 
 def _reap(proc: subprocess.Popen[str]) -> None:
@@ -394,10 +485,9 @@ def test_disk_fill_body_removes_its_file_on_a_signal(
 ) -> None:
     """``systemctl stop mf-chaos-ID`` signals the unit's whole cgroup; the
     trap must undo the fill at once, not after the sleep."""
-    bindir, _log_path = _fake_bin(tmp_path, avail_bytes=3 * MIB)
-    fill = tmp_path / "vol" / "mf-chaos-fill.bin"
-    fill.parent.mkdir()
-    proc = _start_body(bindir, "_body-disk-fill", str(fill), "1", "60")
+    box = Box(tmp_path, avail_bytes=3 * MIB)
+    fill = box.fill
+    proc = box.start("_body-disk-fill", str(fill), "1", "60")
     try:
         _wait_for(fill.exists)
         _wait_for(lambda: fill.stat().st_size == 2 * MIB)  # avail 3 MiB - leave 1
@@ -412,45 +502,84 @@ def test_disk_fill_body_removes_its_file_on_a_signal(
 
 @needs_sh
 def test_disk_fill_body_undoes_on_normal_end_and_net_down_traps(tmp_path: Path) -> None:
-    bindir, log = _fake_bin(tmp_path, avail_bytes=3 * MIB)
-    fill = tmp_path / "mf-chaos-fill.bin"
-    done = _sh(bindir, "_body-disk-fill", str(fill), "1", "0.2")
+    box = Box(tmp_path, avail_bytes=3 * MIB)
+    done = box.sh("_body-disk-fill", str(box.fill), "1", "0.2")
     assert done.returncode == 0, done.stderr
     assert "wrote 2097152 bytes" in done.stdout
-    assert not fill.exists()
-    proc = _start_body(bindir, "_body-net-down", "60")
+    assert not box.fill.exists()
+    proc = box.start("_body-net-down", "60")
     try:
-        _wait_for(lambda: "nmcli networking off" in _log(log))
+        _wait_for(lambda: "nmcli networking off" in box.calls())
         os.killpg(proc.pid, signal.SIGTERM)
         proc.wait(timeout=10)
     finally:
         _reap(proc)
-    calls = _log(log).splitlines()
+    calls = box.calls().splitlines()
     assert calls[calls.index("nmcli networking off") + 1] == "nmcli networking on"
 
 
 @needs_sh
 def test_netem_body_deletes_the_qdisc_when_done(tmp_path: Path) -> None:
-    bindir, log = _fake_bin(tmp_path)
-    done = _sh(bindir, "_body-netem", "wlp3s0", "200", "5", "0.1")
+    box = Box(tmp_path)
+    done = box.sh("_body-netem", "wlp3s0", "200", "5", "0.1")
     assert done.returncode == 0, done.stderr
-    calls = _log(log).splitlines()
+    calls = box.calls().splitlines()
     assert calls[0] == "tc qdisc replace dev wlp3s0 root netem delay 200ms loss 5%"
     assert "tc qdisc del dev wlp3s0 root" in calls
 
 
 @needs_sh
 def test_cleanup_is_idempotent(tmp_path: Path) -> None:
-    bindir, log = _fake_bin(tmp_path)
-    fill = tmp_path / "mf-chaos-fill.bin"
-    fill.write_bytes(b"x" * 1024)
+    box = Box(tmp_path)
+    box.fill.write_bytes(b"x" * 1024)
     for _ in range(2):
-        done = _sh(bindir, "cleanup", "wlp3s0", str(fill))
+        done = box.sh("cleanup", "wlp3s0", str(box.fill))
         assert done.returncode == 0, done.stderr
         assert "cleanup done" in done.stdout
-        assert not fill.exists()
-    calls = _log(log)
+        assert not box.fill.exists()
+    calls = box.calls()
     assert "systemctl stop mf-chaos-*.service" in calls
     assert "nmcli networking on" in calls
     assert "tc qdisc del dev wlp3s0 root" in calls
-    assert _sh(bindir, "cleanup", "-", "-").returncode == 0
+    dash = box.sh("cleanup", "-", "-")
+    assert dash.returncode == 0
+    assert "netem qdiscs on -: n/a, fill file -: n/a" in dash.stdout
+
+
+# ------------------------------------------------- chaos.py disk_fill df check
+def _df_driver(tmp_path: Path, avail: str) -> tuple[Any, list[list[str]]]:
+    calls: list[list[str]] = []
+
+    def runner(argv: list[str], timeout_s: float) -> tuple[int, str]:
+        calls.append(argv)
+        return 0, avail if "df" in argv[-1] else "started"
+
+    plan = w.plan()
+    action = chaos.Action("A1", w.at(0), 0, "disk_fill", "L2", "ssh", 60.0,
+                          {"leave_free_mib": "512"})  # fmt: skip
+    driver = chaos_cli.Driver(
+        plan, [action], tmp_path / "log.jsonl", manual="skip", late_s=600.0,
+        control_dir=None, runner=runner,
+    )  # fmt: skip
+    return driver, calls
+
+
+@pytest.mark.parametrize(
+    ("avail", "outcome", "runs"),
+    [
+        (str(5 * 1024 * MIB), "done", 2),  # 5 GiB free: check, then fill
+        (str(900 * MIB), "skipped", 1),  # already under the 1 GiB floor
+        ("df: no such file", "failed", 1),
+    ],
+)
+def test_disk_fill_checks_free_space_first(
+    tmp_path: Path, avail: str, outcome: str, runs: int
+) -> None:
+    driver, calls = _df_driver(tmp_path, avail)
+    target = driver.plan.target("L2")
+    result = driver._execute(driver.actions[0], target)
+    assert result[0] == outcome, result
+    assert len(calls) == runs
+    assert calls[0][-1] == ("df --output=avail -B1 -- /var/lib/meshforge | tail -n 1")
+    if runs == 2:
+        assert "mf-chaos disk-fill a1" in calls[1][-1]

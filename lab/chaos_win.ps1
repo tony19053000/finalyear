@@ -59,13 +59,24 @@ $fillFile = Get-Var "fill_file" "C:\ProgramData\MeshForge\mf-chaos-fill.bin"
 
 function Invoke-Cleanup {
     # Idempotent: an enabled adapter stays enabled, a missing file stays missing.
+    # Returns $true when everything is clean.
+    $ok = $true
     $iface = [string]$target.iface
+    $adapter = "n/a"
     if ($iface) {
         try { netsh interface set interface name="$iface" admin=enabled | Out-Null } catch { }
+        if ($LASTEXITCODE -eq 0) { $adapter = "enabled" }
+        else {
+            # netsh fails for an adapter that is already enabled on some builds: ask Windows.
+            $state = (Get-NetAdapter -Name $iface -ErrorAction SilentlyContinue).AdminStatus
+            if ([string]$state -eq "Up") { $adapter = "enabled" }
+            else { $adapter = "FAILED (netsh exit $LASTEXITCODE, admin status '$state')"; $ok = $false }
+        }
     }
     Remove-Item -Force -ErrorAction SilentlyContinue "$fillFile"
-    $left = if (Test-Path "$fillFile") { "present" } else { "absent" }
-    Write-Host "cleanup ${Label}: adapter '$iface' enabled, fill file $left"
+    if (Test-Path "$fillFile") { $left = "STILL PRESENT"; $ok = $false } else { $left = "absent" }
+    Write-Host "cleanup ${Label}: adapter '$iface' $adapter, fill file $left"
+    return $ok
 }
 
 function Get-AgentProcess {
@@ -138,8 +149,9 @@ function Invoke-Action($action) {
     }
 }
 
-Invoke-Cleanup
-if ($Cleanup) { exit 0 }
+$clean = Invoke-Cleanup
+if ($Cleanup) { if ($clean) { exit 0 } else { exit 3 } }
+if (-not $clean) { Write-Host "warning: cleanup incomplete - check the adapter / fill file by hand (checklist C3)" }
 
 $done = @{}
 $started = @{}

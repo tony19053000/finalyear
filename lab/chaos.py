@@ -52,11 +52,14 @@ if str(_LAB_DIR) not in sys.path:
 
 from _soak import jsonl  # noqa: E402
 from _soak.chaos import (  # noqa: E402
+    AGENT_FREE_DISK_FLOOR_MIB,
     Action,
     TemplateError,
     cleanup_command,
     end_record,
     finished_ids,
+    free_check_command,
+    parse_avail,
     render_command,
     ssh_argv,
     started_ids,
@@ -75,6 +78,7 @@ from _soak.stats import parse_ts  # noqa: E402
 LOG_FILE: Final = "chaos-log.jsonl"
 COMMAND_TIMEOUT_S: Final = 120.0
 HARNESS_ACK_TIMEOUT_S: Final = 180.0
+MIB: Final = 1024 * 1024
 EXIT_OK: Final = 0
 EXIT_IO: Final = 1
 EXIT_USAGE: Final = 2
@@ -189,11 +193,44 @@ class Driver:
             command = render_command(action, target)
         except TemplateError as exc:
             return "failed", None, str(exc), None
-        argv = ssh_argv(target, command) if executor == "ssh" else ["sh", "-c", command]
+        if action.kind == "disk_fill":
+            skip = self._below_floor(target)
+            if skip is not None:
+                return skip
+        argv = self._argv(target, command)
         code, out = self.runner(argv, COMMAND_TIMEOUT_S)
         if action.kind == "reboot" and code in (0, 255):
             return "done", code, out, None  # 255: the SSH session died with the laptop
         return ("done" if code == 0 else "failed"), code, out, None
+
+    @staticmethod
+    def _argv(target: Target, command: str) -> list[str]:
+        return (
+            ssh_argv(target, command)
+            if target.executor == "ssh"
+            else ["sh", "-c", command]
+        )
+
+    def _below_floor(self, target: Target) -> Outcome | None:
+        """``disk_fill`` pre-check: skip when the volume is already under the
+        agent's floor (nothing to prove; on L1 PostgreSQL shares the disk)."""
+        try:
+            command = free_check_command(target)
+        except TemplateError as exc:
+            return "failed", None, str(exc), None
+        code, out = self.runner(self._argv(target, command), COMMAND_TIMEOUT_S)
+        avail = parse_avail(out) if code == 0 else None
+        if avail is None:
+            return (
+                "failed",
+                code,
+                f"cannot read the free space first: {out[-200:]}",
+                None,
+            )
+        if avail < AGENT_FREE_DISK_FLOOR_MIB * MIB:
+            return ("skipped", code, f"only {avail // MIB} MiB free, already under the "
+                    f"agent's {AGENT_FREE_DISK_FLOOR_MIB} MiB floor", None)  # fmt: skip
+        return None
 
     def _manual(self, action: Action, target: Target) -> Outcome:
         if self.manual == "skip":
