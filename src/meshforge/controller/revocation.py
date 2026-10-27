@@ -239,9 +239,21 @@ class RevocationStore:
         return RevokeOutcome(node_id, serial, False, previous, pending_serial=pending)
 
     async def snapshot(self) -> RevocationSnapshot:
-        """Revoked nodes and every unexpired revoked/superseded serial."""
+        """Revoked nodes and every unexpired revoked/superseded serial, read in
+        ONE ``REPEATABLE READ`` snapshot.
+
+        A revoke commits ``node.state`` and its ``revoked_cert`` row together;
+        two READ COMMITTED reads could straddle that commit (seen on a CI
+        runner: the periodic sync read the nodes before it and the serials
+        after), so :meth:`Revocations.sync` saw the serial without the revoked
+        node and cut the live session ``cert_superseded`` - the agent was told
+        to re-join instead of ``node_revoked`` and the revoke reported
+        ``session_killed=false``."""
         try:
             async with self._sessions() as db:
+                await db.connection(
+                    execution_options={"isolation_level": "REPEATABLE READ"}
+                )
                 nodes = (
                     await db.scalars(
                         select(Node.node_id).where(
@@ -302,6 +314,10 @@ class Revocations:
         self.sync_failures = 0
         self.deferred_enforcements = 0
         """Committed revocations whose immediate sync failed (D156 a)."""
+        self._revoke_cuts: set[str] = set()
+        """Revoked nodes whose session a :meth:`sync` cut, not yet reported by
+        a REST revoke: the periodic sync can run between a REST revoke's commit
+        and that request's own sync and cut the session first."""
 
     # ------------------------------------------------------------ read side
 
@@ -361,12 +377,17 @@ class Revocations:
                 enforced=False,
                 pending_serial=outcome.pending_serial,
             )
+        cut_by_sync = node_id in self._revoke_cuts
+        self._revoke_cuts.discard(node_id)
         return RevokeOutcome(
             outcome.node_id,
             outcome.serial,
             outcome.already,
             outcome.previous_state,
-            session_killed=node_id in killed,
+            # Cut by this sync, or by a concurrent (periodic) sync that saw this
+            # request's commit first - never by an earlier request's revocation
+            # (``already``: revoking again changes nothing).
+            session_killed=node_id in killed or (not outcome.already and cut_by_sync),
             pending_serial=outcome.pending_serial,
         )
 
@@ -390,12 +411,16 @@ class Revocations:
                     for serial in snap.serials
                 }
             )
+            # Only still-revoked nodes keep an unreported cut: bounded, and a
+            # node reinstated and revoked again is not credited an old cut.
+            self._revoke_cuts &= snap.nodes
             killed: set[str] = set()
             for node_id in sorted(snap.nodes):
                 if self._sessions.has_session(node_id) and (
                     await self._sessions.revoke_node(node_id)
                 ):
                     killed.add(node_id)
+                    self._revoke_cuts.add(node_id)
                     self.kills += 1
             # D155 T-1: a live stream still using a superseded (or otherwise
             # revoked) serial of a node that is NOT revoked - the old laptop of

@@ -46,7 +46,7 @@ CONTROLLER_PROGRAM: Final = SystemProgram(
     # controller machine stays a developer server in their own state (the
     # managed lock would refuse a second server over the service's database).
     run_in_place_without_args=True,
-    extra_env=(f"MESHFORGE_CONFIG={CONTROLLER_CONFIG_FILE}",),
+    extra_env=(f"MESHFORGE_CONFIG={CONTROLLER_CONFIG_FILE.as_posix()}",),
     # Admin commands act on the service's state; anything else (the server
     # itself, `--version`) runs in place.
     reexec_commands=frozenset(

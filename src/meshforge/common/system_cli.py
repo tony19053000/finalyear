@@ -280,7 +280,7 @@ def decide(
             message=(
                 f"{program.prog}: note: a system install exists; this development "
                 "command uses YOUR user-mode state, not the service's "
-                f"({SYSTEM_LINUX_DATA_DIR}). Use {program.prog} from the "
+                f"({SYSTEM_LINUX_DATA_DIR.as_posix()}). Use {program.prog} from the "
                 f"package for the service, or set {INSTALL_MODE_ENV_VAR}=user to "
                 "silence this."
             ),
@@ -293,7 +293,8 @@ def decide(
         "/usr/bin/env",
         f"{INSTALL_MODE_ENV_VAR}=system",
         *program.extra_env,
-        str(program.launcher),
+        # Linux paths, also when the decision is computed elsewhere (tests).
+        program.launcher.as_posix(),
         *args,
     )
     return Decision(
@@ -301,7 +302,7 @@ def decide(
         argv=argv,
         message=(
             f"{program.prog}: acting on the system service's state "
-            f"({SYSTEM_LINUX_DATA_DIR}) as user {SERVICE_USER!r} via sudo"
+            f"({SYSTEM_LINUX_DATA_DIR.as_posix()}) as user {SERVICE_USER!r} via sudo"
         ),
     )
 

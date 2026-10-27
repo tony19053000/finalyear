@@ -55,7 +55,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 SERVICE = "MeshForgeAgent"
@@ -76,9 +76,34 @@ def service_sid(name: str = SERVICE) -> str:
     return "S-1-5-80-" + "-".join(str(s) for s in struct.unpack("<5I", digest))
 
 
-def run(argv: Sequence[str], *, check: bool = True, timeout: float = 300) -> str:
+def windows_powershell_env(environ: Mapping[str, str] | None = None) -> dict[str, str]:
+    """The environment for a ``powershell.exe`` (Windows PowerShell 5.1) child
+    without ``PSModulePath``.
+
+    Started from PowerShell 7 (the CI steps run ``shell: pwsh``), the inherited
+    ``PSModulePath`` lists PowerShell 7's own module folders first, so 5.1 finds
+    7's ``Microsoft.PowerShell.Security`` (Core-only) before its own and cannot
+    load it: ``Get-Acl`` fails ``CouldNotAutoloadMatchingModule``. Without the
+    variable, Windows PowerShell builds its default module path (machine + user
+    + System32), exactly as from Explorer or ``cmd``."""
+    source = os.environ if environ is None else environ
+    return {k: v for k, v in source.items() if k.upper() != "PSMODULEPATH"}
+
+
+def run(
+    argv: Sequence[str],
+    *,
+    check: bool = True,
+    timeout: float = 300,
+    env: Mapping[str, str] | None = None,
+) -> str:
     done = subprocess.run(
-        list(argv), capture_output=True, text=True, errors="replace", timeout=timeout
+        list(argv),
+        capture_output=True,
+        text=True,
+        errors="replace",
+        timeout=timeout,
+        env=None if env is None else dict(env),
     )
     if check and done.returncode != 0:
         raise CheckError(
@@ -89,7 +114,10 @@ def run(argv: Sequence[str], *, check: bool = True, timeout: float = 300) -> str
 
 
 def ps(script: str) -> str:
-    return run(["powershell", "-NoProfile", "-NonInteractive", "-Command", script])
+    return run(
+        ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+        env=windows_powershell_env(),
+    )
 
 
 def ok(text: str) -> None:
@@ -166,11 +194,22 @@ def process_owner(pid: str) -> str:
 
 
 def acl_sids(path: Path) -> dict[str, str]:
-    """SID -> rights of every ACE of ``path`` (explicit and inherited)."""
+    """SID -> rights of every ACE of ``path`` (explicit and inherited).
+
+    Read through .NET (``File``/``Directory.GetAccessControl``), not the
+    ``Get-Acl`` cmdlet: no module autoload is involved, so a ``powershell.exe``
+    started with a foreign ``PSModulePath`` cannot fail
+    ``CouldNotAutoloadMatchingModule`` (seen on the CI runner)."""
+    literal = str(path).replace("'", "''")
     out = ps(
-        f"(Get-Acl -LiteralPath '{path}').Access | ForEach-Object {{ "
-        "$_.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value "
-        '+ "`t" + $_.FileSystemRights + "`t" + $_.AccessControlType }'
+        f"$p = '{literal}'; "
+        "if ([System.IO.Directory]::Exists($p)) "
+        "{ $acl = [System.IO.Directory]::GetAccessControl($p) } "
+        "else { $acl = [System.IO.File]::GetAccessControl($p) }; "
+        "$acl.GetAccessRules($true, $true, "
+        "[System.Security.Principal.SecurityIdentifier]) | ForEach-Object { "
+        '$_.IdentityReference.Value + "`t" + $_.FileSystemRights + "`t" '
+        "+ $_.AccessControlType }"
     )
     found: dict[str, str] = {}
     for line in out.splitlines():

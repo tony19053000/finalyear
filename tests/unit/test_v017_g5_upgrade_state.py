@@ -135,7 +135,7 @@ def test_doctor_reports_a_rollback_as_a_failure(tmp_path: Path) -> None:
     assert ids["version"].text.startswith("meshforge-agent 0.17.0 (git aaaaaaaaaaaa)")
     assert ids["joined"].status is ItemStatus.WARN
     assert ids["upgrade"].status is ItemStatus.OK
-    upg = upgrade_dir(tmp_path / "opt", windows=False)
+    upg = upgrade_dir(tmp_path / "opt")  # this platform's folder, as doctor reads
     upg.mkdir()
     (upg / "rolled-back.json").write_text(_record("rolled_back"))
     report = gather(settings, root=bundle, with_checks=False, require_root=False)

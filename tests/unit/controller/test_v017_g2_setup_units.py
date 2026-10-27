@@ -3,6 +3,7 @@ password rule and the setup settings. Pure (files in tmp_path)."""
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -49,7 +50,8 @@ def test_token_file_lifecycle(tmp_path: Path) -> None:
     assert read_setup_token(path) is None
     token, created = ensure_setup_token(path)
     assert created and len(token.get_secret_value()) >= 43
-    assert path.stat().st_mode & 0o777 == 0o600
+    if os.name != "nt":  # POSIX file modes
+        assert path.stat().st_mode & 0o777 == 0o600
     again, created_again = ensure_setup_token(path)
     assert not created_again
     assert again.get_secret_value() == token.get_secret_value()

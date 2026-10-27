@@ -108,7 +108,8 @@ def test_marker_round_trip_and_damage(tmp_path: Path) -> None:
         "0.17.1",
         "0034",
     )
-    assert (tmp_path / "schema-version.json").stat().st_mode & 0o777 == 0o600
+    if os.name != "nt":  # POSIX file modes
+        assert (tmp_path / "schema-version.json").stat().st_mode & 0o777 == 0o600
     (tmp_path / "schema-version.json").write_text("{not json")
     assert read_marker(tmp_path) is None  # damaged = "back up to be safe"
     (tmp_path / "schema-version.json").write_text('{"version": 3}')
@@ -128,7 +129,8 @@ def test_rollback_failed_record_round_trip_and_damage(tmp_path: Path) -> None:
         error="ManagedDbError: " + "x" * 2000,
     )
     path = tmp_path / ROLLBACK_FAILED_NAME
-    assert path.stat().st_mode & 0o777 == 0o600
+    if os.name != "nt":  # POSIX file modes
+        assert path.stat().st_mode & 0o777 == 0o600
     record = read_rollback_failed(tmp_path)
     assert record is not None
     assert record["backup"] == str(tmp_path / "backups" / "pre-0.18.0.dump")

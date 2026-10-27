@@ -419,7 +419,7 @@ def test_service_unit_is_the_hardened_system_service() -> None:
 
     unit = _unit("meshforge-agent.service")
     assert unit["User"] == [SERVICE_USER] and unit["Group"] == [SERVICE_USER]
-    assert unit["ExecStart"] == [f"{SYSTEM_LAUNCHER} run"]
+    assert unit["ExecStart"] == [f"{SYSTEM_LAUNCHER.as_posix()} run"]
     assert unit["Environment"] == [f"{INSTALL_MODE_ENV_VAR}=system"]
     assert unit["Restart"] == ["always"]
     assert set(unit["RestartPreventExitStatus"][0].split()) == {
@@ -429,7 +429,7 @@ def test_service_unit_is_the_hardened_system_service() -> None:
     assert unit["ProtectSystem"] == ["strict"]
     # V0.17 G3: + the console token folder ("-": optional)
     assert unit["ReadWritePaths"] == [
-        f"{SYSTEM_LINUX_DATA_DIR} -{SYSTEM_CONSOLE_TOKEN_DIR}"
+        f"{SYSTEM_LINUX_DATA_DIR.as_posix()} -{SYSTEM_CONSOLE_TOKEN_DIR.as_posix()}"
     ]
     for key in ("ProtectHome", "PrivateTmp", "NoNewPrivileges", "Delegate"):
         assert unit[key] == ["yes"], key
@@ -441,7 +441,7 @@ def test_service_unit_is_the_hardened_system_service() -> None:
     assert unit["DelegateSubgroup"] == [LEAF_NAME]
     assert unit["KillMode"] == ["mixed"]
     assert unit["WantedBy"] == ["multi-user.target"]
-    enrolment = f"{SYSTEM_LINUX_DATA_DIR}/identity/{NODE_CERT_FILE_NAME}"
+    enrolment = f"{SYSTEM_LINUX_DATA_DIR.as_posix()}/identity/{NODE_CERT_FILE_NAME}"
     # V0.17 G3: the service runs before the join (its console is how one joins)
     assert "ConditionPathExists" not in unit
     postinst = (PACKAGING / "scripts" / "postinst").read_text("utf-8")

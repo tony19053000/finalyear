@@ -96,8 +96,31 @@ def test_a_streak_of_failed_reads_calls_back_once_with_the_count() -> None:
 
 
 def test_one_short_of_the_streak_does_nothing() -> None:
-    cap = _cap([FAIL, FAIL], 3)
-    over, low, unknown = _run(cap, timeout=0.1)
+    reads = _reads([FAIL, FAIL])
+    calls: list[int] = []
+
+    def counted(root: Path) -> int:
+        calls.append(1)
+        return int(reads(root))
+
+    cap = _cap([], 3)
+    cap.disk_free = counted
+    over: list[int] = []
+    low: list[int] = []
+    unknown: list[int] = []
+
+    async def scenario() -> None:
+        task = asyncio.create_task(cap.run(over.append, low.append, unknown.append))
+        # Wait for the good reads after the two failures (by count, not a fixed
+        # time: a 1 ms sleep is ~16 ms on Windows).
+        for _ in range(500):
+            if len(calls) >= 4 or task.done():
+                break
+            await asyncio.sleep(0.01)
+        await wc.stop_watch(task)
+
+    asyncio.run(scenario())
+    assert len(calls) >= 4
     assert unknown == [] and over == [] and low == []
     assert cap.free_read_failures == 0  # the later good reads reset it
 
