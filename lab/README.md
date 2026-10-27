@@ -13,6 +13,12 @@ lab/
   mode3_check.py    V0.10 Mode 3 lab: build a split job of any size, verify an output, criteria 2-3 report (0.10.10)
   _mode3/           its criteria 2-3 arithmetic (D274), pure
   _fabric/          helpers for both (stdlib REST client, timeline maths, checkpoints, reports)
+  soak.py           V1.0 72 h soak: plan (seeded load + chaos), run (per-laptop sampler), report (D410 rules) (1.0.2)
+  soak_load.py      V1.0 soak: the seeded mixed job load + the final collect (1.0.2)
+  chaos.py          V1.0 soak: the seeded chaos schedule over SSH / locally (1.0.2)
+  chaos_win.ps1     V1.0 soak: the same schedule's actions on a Windows laptop (1.0.2)
+  mf-chaos          V1.0 soak: root-owned chaos wrapper (validated args, trap undo, cleanup) for sudo on Linux laptops (1.0.2)
+  _soak/            their plan, load mix, chaos catalogue, sampler, D410 rules, report; procedure: checklists/V1.0-soak.md
   checklists/       step-by-step human procedures, e.g. V0.3-fabric.md
   spikes/           feasibility spikes S1–S7              (tasks 0.2.5–0.2.11)
     _harness/       shared by every spike: reps runner, stats, result JSON, report

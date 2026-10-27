@@ -26,7 +26,7 @@ for the same process; a different identity is an agent **restart**.
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from typing import Any, Final, Protocol
 
@@ -80,17 +80,58 @@ def is_agent_command(name: str, cmdline: Sequence[str]) -> bool:
         )
         if entry and "run" in bases[i + 1 :]:
             return True
+        # V1.0 G1: the Windows service's supervised agent child
+        # (``python -I -m meshforge.agent.winservice child -- run``, D386).
+        if (
+            arg == "-m"
+            and i + 2 < len(bases)
+            and cmdline[i + 1] == "meshforge.agent.winservice"
+            and bases[i + 2] == "child"
+        ):
+            return True
     return False
 
 
-def pick_agent(procs: Iterable[ProcInfo]) -> ProcInfo:
-    """The agent among ``procs``; :class:`RssError` when none or ambiguous."""
+CONTROLLER_ADMIN_COMMANDS: Final = frozenset(
+    {"token", "fabric", "node", "user", "ca", "setup", "db", "--version", "--help"}
+)
+"""``meshforge-controller <sub>`` admin commands: short-lived, never the server."""
+
+
+def is_controller_command(name: str, cmdline: Sequence[str]) -> bool:
+    """V1.0 G1: the controller *server* (``meshforge-controller`` / ``python -m
+    meshforge.controller`` with no admin subcommand; the uv wrapper excluded)."""
+    if _base(name) in _WRAPPERS or (cmdline and _base(cmdline[0]) in _WRAPPERS):
+        return False
+    bases = [_base(a) for a in cmdline]
+    for i, arg in enumerate(bases):
+        entry = arg == "meshforge-controller" or (
+            arg == "-m"
+            and i + 1 < len(bases)
+            and cmdline[i + 1] == "meshforge.controller"
+        )
+        if entry:
+            rest = cmdline[i + 2 if arg == "-m" else i + 1 :]
+            return not any(a in CONTROLLER_ADMIN_COMMANDS for a in rest)
+    return False
+
+
+def is_postgres_process(name: str, cmdline: Sequence[str]) -> bool:
+    """A PostgreSQL server process (postmaster or backend; Linux and Windows)."""
+    del cmdline
+    return _base(name) in ("postgres", "postmaster")
+
+
+def pick_leaf(
+    procs: Iterable[ProcInfo], match: Callable[[ProcInfo], bool], what: str
+) -> ProcInfo:
+    """The one matching process with no matching descendant (the interpreter at
+    the bottom of a ``uv run`` / launcher tree, :func:`pick_agent`'s rule);
+    :class:`RssError` ``<what>_not_found`` / ``<what>_ambiguous``."""
     by_pid = {p.pid: p for p in procs}
-    candidates = {
-        p.pid: p for p in by_pid.values() if is_agent_command(p.name, p.cmdline)
-    }
+    candidates = {p.pid: p for p in by_pid.values() if match(p)}
     if not candidates:
-        raise RssError("agent_not_found", "no running meshforge-agent process found")
+        raise RssError(f"{what}_not_found", f"no running {what} process found")
     ancestors: set[int] = set()
     for proc in candidates.values():
         seen: set[int] = set()
@@ -104,10 +145,88 @@ def pick_agent(procs: Iterable[ProcInfo]) -> ProcInfo:
     if len(leaves) != 1:
         pids = ", ".join(str(p.pid) for p in leaves)
         raise RssError(
-            "agent_ambiguous",
-            f"{len(leaves)} meshforge-agent processes are running (pids {pids}); pass --pid",
+            f"{what}_ambiguous",
+            f"{len(leaves)} {what} processes are running (pids {pids}); "
+            "name the one to sample with --target",
         )
     return leaves[0]
+
+
+def pick_postmaster(procs: Iterable[ProcInfo]) -> ProcInfo:
+    """The PostgreSQL postmaster: a postgres process whose parent is not one
+    (its backends are its children). :class:`RssError` when none / several."""
+    by_pid = {p.pid: p for p in procs}
+    roots = [
+        p
+        for pid, p in sorted(by_pid.items())
+        if is_postgres_process(p.name, p.cmdline)
+        and not (
+            p.ppid in by_pid
+            and is_postgres_process(by_pid[p.ppid].name, by_pid[p.ppid].cmdline)
+        )
+    ]
+    if not roots:
+        raise RssError("postgres_not_found", "no running PostgreSQL server found")
+    if len(roots) != 1:
+        pids = ", ".join(str(p.pid) for p in roots)
+        raise RssError(
+            "postgres_ambiguous",
+            f"{len(roots)} PostgreSQL servers are running (pids {pids}); "
+            "name the one to sample with --target",
+        )
+    return roots[0]
+
+
+def pick_agent(procs: Iterable[ProcInfo]) -> ProcInfo:
+    """The agent among ``procs``; :class:`RssError` when none or ambiguous."""
+    try:
+        return pick_leaf(procs, lambda p: is_agent_command(p.name, p.cmdline), "agent")
+    except RssError as exc:
+        if exc.failure_type == "agent_not_found":
+            raise RssError(
+                "agent_not_found", "no running meshforge-agent process found"
+            ) from None
+        raise RssError(
+            "agent_ambiguous",
+            str(exc).replace("name the one to sample with --target", "pass --pid"),
+        ) from None
+
+
+@dataclass(frozen=True, slots=True)
+class ProcMetrics:
+    """One process's (or tree's) counters; ``None`` = not readable here."""
+
+    rss_bytes: int
+    fds: int | None
+    handles: int | None
+    threads: int
+    cpu_s: float
+    procs: int = 1
+
+    def plus(self, other: ProcMetrics) -> ProcMetrics:
+        def add(a: int | None, b: int | None) -> int | None:
+            return None if a is None or b is None else a + b
+
+        return ProcMetrics(
+            rss_bytes=self.rss_bytes + other.rss_bytes,
+            fds=add(self.fds, other.fds),
+            handles=add(self.handles, other.handles),
+            threads=self.threads + other.threads,
+            cpu_s=self.cpu_s + other.cpu_s,
+            procs=self.procs + other.procs,
+        )
+
+
+def _counter(proc: Any, method: str, ps: Any) -> int | None:
+    """``num_fds`` (POSIX) / ``num_handles`` (Windows): ``None`` when this OS
+    has no such counter or we may not read it (AccessDenied)."""
+    fn = getattr(proc, method, None)
+    if fn is None:
+        return None
+    try:
+        return int(fn())
+    except (ps.AccessDenied, ps.ZombieProcess):
+        return None
 
 
 class ProcessSource(Protocol):
@@ -162,6 +281,58 @@ class PsutilSource:
             return int(proc.memory_info().rss)
         except ps.Error:
             return None
+
+    def metrics(
+        self, ident: tuple[int, float], *, tree: bool = False
+    ) -> ProcMetrics | None:
+        """V1.0 G1: RSS, open files (Linux ``/proc/<pid>/fd`` via psutil
+        ``num_fds``) or handles (Windows ``num_handles``), threads and CPU
+        seconds of that exact process - summed over it and its descendants when
+        ``tree`` (PostgreSQL: postmaster + backends). ``None`` if it is gone. A
+        counter the OS will not show us (another user's process without root)
+        is ``None``, never a guess."""
+        ps = self._psutil
+        try:
+            root = ps.Process(ident[0])
+            if abs(float(root.create_time()) - ident[1]) > 0.01:
+                return None
+            procs = [root, *root.children(recursive=True)] if tree else [root]
+        except ps.Error:
+            return None
+        total = ProcMetrics(
+            rss_bytes=0, fds=0, handles=0, threads=0, cpu_s=0.0, procs=0
+        )
+        for proc in procs:
+            try:
+                with proc.oneshot():
+                    rss = int(proc.memory_info().rss)
+                    threads = int(proc.num_threads())
+                    times = proc.cpu_times()
+                    fds = _counter(proc, "num_fds", ps)
+                    handles = _counter(proc, "num_handles", ps)
+            except ps.AccessDenied:
+                if proc is root:
+                    raise RssError(
+                        "access_denied",
+                        f"may not read process {ident[0]}: run the sampler as "
+                        "root / an Administrator PowerShell",
+                    ) from None
+                continue
+            except ps.Error:
+                if proc is root:
+                    return None
+                continue  # a backend that ended between listing and reading
+            total = total.plus(
+                ProcMetrics(
+                    rss_bytes=rss,
+                    fds=fds,
+                    handles=handles,
+                    threads=threads,
+                    cpu_s=float(times.user) + float(times.system),
+                    procs=1,
+                )
+            )
+        return total
 
     def by_pid(self, pid: int) -> ProcInfo:
         ps = self._psutil
