@@ -36,6 +36,13 @@ def load() -> None:
         sys.path.insert(0, str(EVAL_DIR))
 
 
+def _write_lf(path: Path, text: str) -> None:
+    """UTF-8 with LF line endings on every OS (``Path.write_text`` would write
+    CRLF on Windows), so the bytes - and the committed sample's hashes - are
+    the same everywhere (D419)."""
+    path.write_text(text, encoding="utf-8", newline="\n")
+
+
 def job_record(
     job_id: str,
     created: dt.datetime,
@@ -118,7 +125,7 @@ def write_raw(
         "origin_node_id": "node_a",
         "created_at": _T0.isoformat(),
     }
-    (folder / "campaign.json").write_text(json.dumps(campaign, indent=2), "utf-8")
+    _write_lf(folder / "campaign.json", json.dumps(campaign, indent=2) + "\n")
     lines = []
     for run in runs:
         created = _T0 + dt.timedelta(minutes=run.order)
@@ -154,7 +161,7 @@ def write_raw(
                 sort_keys=True,
             )
         )
-    (folder / "runs.jsonl").write_text("\n".join(lines) + "\n", "utf-8")
+    _write_lf(folder / "runs.jsonl", "\n".join(lines) + "\n")
     sessions = [
         json.dumps(
             {
@@ -166,7 +173,7 @@ def write_raw(
         )
         for build in builds
     ]
-    (folder / "sessions.jsonl").write_text("\n".join(sessions) + "\n", "utf-8")
+    _write_lf(folder / "sessions.jsonl", "\n".join(sessions) + "\n")
     return folder
 
 
