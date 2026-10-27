@@ -137,6 +137,19 @@ def git(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     return state
 
 
+@pytest.fixture
+def fake_head(monkeypatch: pytest.MonkeyPatch) -> str:
+    """HEAD is ``SHA_A`` in a clean tree: the CLI tests must not need a real git
+    checkout (the V0.1 fresh-clone criterion runs the unit tier in a copy that
+    has no ``.git``)."""
+    monkeypatch.setattr(
+        rc, "resolve_sha", lambda ref: SHA_A if ref in {"HEAD", SHA_A} else None
+    )
+    monkeypatch.setattr(rc, "tree_is_dirty", lambda: False)
+    monkeypatch.setattr(rc, "changed_files", lambda old, new: [])
+    return SHA_A
+
+
 def test_no_evidence_is_missing(git: dict[str, Any]) -> None:
     res = rc.judge_lab(_lab(), [], SHA_A)
     assert (res.status, res.detail) == ("MISSING", "no evidence yet (lab section L2)")
@@ -245,10 +258,11 @@ def test_a_missing_lab_dir_is_no_evidence(tmp_path: Path) -> None:
     assert rc.load_lab_evidence(tmp_path / "absent") == ({}, [])
 
 
-def test_record_lab_writes_a_file_the_check_reads_back(tmp_path: Path) -> None:
+def test_record_lab_writes_a_file_the_check_reads_back(
+    tmp_path: Path, fake_head: str
+) -> None:
     out = tmp_path / "acceptance"
-    head = rc.resolve_sha("HEAD")
-    assert head is not None
+    head = fake_head
     code = rc.main(
         [
             "record-lab",
@@ -338,7 +352,9 @@ def test_markdown_escapes_pipes_and_lists_every_row() -> None:
     assert "**Totals:** FAIL 1" in md
 
 
-def test_an_invalid_manifest_or_unknown_row_is_a_usage_error(tmp_path: Path) -> None:
+def test_an_invalid_manifest_or_unknown_row_is_a_usage_error(
+    tmp_path: Path, fake_head: str
+) -> None:
     bad = tmp_path / "m.yaml"
     bad.write_text("[]", encoding="utf-8")
     out = str(tmp_path / "r")
@@ -347,7 +363,9 @@ def test_an_invalid_manifest_or_unknown_row_is_a_usage_error(tmp_path: Path) -> 
     assert rc.main(["--sha", "no-such-ref", "--out", out]) == 2
 
 
-def test_only_lab_writes_both_reports_and_never_runs_tests(tmp_path: Path) -> None:
+def test_only_lab_writes_both_reports_and_never_runs_tests(
+    tmp_path: Path, fake_head: str
+) -> None:
     out = tmp_path / "report"
     code = rc.main(
         ["--only", "lab", "--lab-dir", str(tmp_path / "none"), "--out", str(out)]
