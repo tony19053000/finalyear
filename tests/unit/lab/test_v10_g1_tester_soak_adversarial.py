@@ -1,5 +1,5 @@
-"""V1.0 G1 tester: adversarial tests of the soak analyzer (D410/D411).
 # ruff: noqa: E501, PT006
+"""V1.0 G1 tester: adversarial tests of the soak analyzer (D410/D411).
 
 Derived from the success criteria, not the implementation: a real leak must
 FAIL however the restarts are arranged, a warm-up plateau must PASS, missing
