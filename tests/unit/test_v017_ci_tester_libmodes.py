@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
-from pg_bundle import drop_library_exec_bits  # noqa: E402
+from pg_bundle import drop_library_exec_bits
 
 pytestmark = [
     pytest.mark.unit,

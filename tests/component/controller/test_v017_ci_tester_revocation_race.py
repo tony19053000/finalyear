@@ -56,7 +56,9 @@ async def _reinstate(engine: AsyncEngine, node: str) -> None:
         await conn.execute(
             text("UPDATE node SET state='online' WHERE node_id=:n"), {"n": node}
         )
-        await conn.execute(text("DELETE FROM revoked_cert WHERE node_id=:n"), {"n": node})
+        await conn.execute(
+            text("DELETE FROM revoked_cert WHERE node_id=:n"), {"n": node}
+        )
 
 
 class Sessions:
