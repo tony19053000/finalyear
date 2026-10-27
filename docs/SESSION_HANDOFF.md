@@ -17,6 +17,11 @@ Follow-ups (non-blocking): G5 — strict SID check also in private_files.py/iden
 Ask user: OK to delete packaging/linux/meshforge-agent.path and /tmp/mfpg-suite-zl5ehujf? Merged worktrees (incl. G5 agent-a11b3ed50cf2af224, v1-brief) + stale containers kept — ask before removing. Normal mode. Parallel agents OK. Don't delete anything without asking. User wants max speed; prefers short simple answers.
 ```
 >
+> **SESSION 9 UPDATE (2026-10-28, supersedes the prompt above where they differ):**
+> - V1.0 G2 MERGED to local main a8180fc7 (tester PASS, reviewer APPROVE; full unit 27517 green on main). NOT pushed.
+> - CI-fix worktree agent-acf9ed2d27b3f026a @d80a63b7 (7 commits, 8e228bff rewritten): reviewer APPROVE; tester running → merge → push main → watch CI. Non-blocking: clear _revoke_cuts on reinstate; pg_bundle recursive *.so chmod. Open question to user: move V0.8 p95<500ms event test out of CI gate?
+> - G0 (agent-a2e637b9695f93353) and G1 (agent-aab06fbf3cde54efb, @9d7f73b3) implementers resumed; not finished.
+
 > Order of truth: `PROJECT_BRIEF → ARCHITECTURE → ROADMAP → STATUS → this file`. If this file
 > disagrees with the roadmap, the roadmap wins and this file is stale — fix it.
 
