@@ -233,7 +233,15 @@ def test_installed_service_joins_and_runs_a_venv_job(
     (project / "req.txt").write_text("mfwindemo==1.0\n", encoding="utf-8")
     job_id = submit(fabric, MANIFEST, upload_folder(fabric, project), node_id=node_id)
     job = wait_job(fabric, job_id, within=300)
-    assert job["state"] == "succeeded", (job, _log_tail())
+    if job["state"] != "succeeded":
+        # The job's own lines (VERSION / CPURATE / DENIED) say which check
+        # failed; the agent log tail last (the message is long).
+        output = fabric.call("GET", f"/v1/jobs/{job_id}/logs?stream=both").text
+        raise AssertionError(
+            f"job {job['state']} ({job.get('failure_type')}, exit "
+            f"{job.get('exit_code')})\njob output:\n{output[-4000:]}\n"
+            f"agent log:\n{_log_tail()}"
+        )
     events = _agent_events(offset)
     ready = [e for e in events if e.get("event") == "agent.execution.env_ready"]
     assert ready and ready[0].get("env_cache") == "built", (ready, _log_tail())

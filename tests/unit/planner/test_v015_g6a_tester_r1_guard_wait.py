@@ -10,8 +10,9 @@ controller-wide training-child guard.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import datetime as dt
-from collections.abc import Sequence
+from collections.abc import AsyncIterator, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -79,12 +80,46 @@ def _retrainer(clock: _Clock, monkeypatch: pytest.MonkeyPatch) -> MlRetrainer:
     return retrainer
 
 
+class _Arrivals:
+    """``TRAINING_GUARD`` as the retrainer sees it, counting the retrains that
+    reached it: the test waits until N are queued on the guard instead of
+    sleeping (``_retrain`` hops through worker threads before it gets there,
+    which a loaded Windows runner can stretch past any fixed sleep)."""
+
+    def __init__(self) -> None:
+        self.count = 0
+        self.changed = asyncio.Event()
+
+    def busy(self) -> bool:
+        return TRAINING_GUARD.busy()
+
+    @contextlib.asynccontextmanager
+    async def held(self) -> AsyncIterator[None]:
+        # counted in the same step as the lock's queueing (no await between)
+        self.count += 1
+        self.changed.set()
+        async with TRAINING_GUARD.held():
+            yield
+
+    async def wait_for(self, n: int) -> None:
+        while self.count < n:
+            self.changed.clear()
+            await asyncio.wait_for(self.changed.wait(), timeout=30)
+
+
+def _arrivals(monkeypatch: pytest.MonkeyPatch) -> _Arrivals:
+    arrivals = _Arrivals()
+    monkeypatch.setattr(ml_retrain_task, "TRAINING_GUARD", arrivals)
+    return arrivals
+
+
 def _waits(logs: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [e for e in logs if e["event"] == "controller.ml.retrain_guard_acquired"]
 
 
 def test_queued_but_instant_still_logs(monkeypatch: pytest.MonkeyPatch) -> None:
     retrainer = _retrainer(_Clock(), monkeypatch)
+    arrivals = _arrivals(monkeypatch)
 
     async def main() -> None:
         held, release = asyncio.Event(), asyncio.Event()
@@ -97,7 +132,7 @@ def test_queued_but_instant_still_logs(monkeypatch: pytest.MonkeyPatch) -> None:
         o = asyncio.create_task(other())
         await held.wait()
         r = asyncio.create_task(retrainer._retrain("manual", NOW))
-        await asyncio.sleep(0.02)
+        await arrivals.wait_for(1)
         release.set()
         await asyncio.gather(o, r)
 
@@ -122,6 +157,7 @@ def test_a_cancelled_waiter_logs_nothing_and_frees_the_guard(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     retrainer = _retrainer(_Clock(), monkeypatch)
+    arrivals = _arrivals(monkeypatch)
 
     async def main() -> bool:
         held, release = asyncio.Event(), asyncio.Event()
@@ -134,7 +170,7 @@ def test_a_cancelled_waiter_logs_nothing_and_frees_the_guard(
         o = asyncio.create_task(other())
         await held.wait()
         r = asyncio.create_task(retrainer._retrain("scheduled", NOW))
-        await asyncio.sleep(0.02)
+        await arrivals.wait_for(1)  # cancelled while queued on the guard
         r.cancel()
         with pytest.raises(asyncio.CancelledError):
             await r
@@ -152,6 +188,7 @@ def test_two_queued_retrains_each_log_their_own_wait(
 ) -> None:
     clock = _Clock()
     retrainer = _retrainer(clock, monkeypatch)
+    arrivals = _arrivals(monkeypatch)
 
     async def main() -> None:
         held, release = asyncio.Event(), asyncio.Event()
@@ -166,7 +203,7 @@ def test_two_queued_retrains_each_log_their_own_wait(
         await held.wait()
         a = asyncio.create_task(retrainer._retrain("scheduled", NOW))
         b = asyncio.create_task(retrainer._retrain("manual", NOW))
-        await asyncio.sleep(0.02)
+        await arrivals.wait_for(2)  # both queued behind the other child
         release.set()
         await asyncio.gather(o, a, b)
 

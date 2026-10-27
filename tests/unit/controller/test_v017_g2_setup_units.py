@@ -60,9 +60,13 @@ def test_token_file_lifecycle(tmp_path: Path) -> None:
     assert not setup_token_matches(token, "")
     assert not setup_token_matches(token, "a" * 1000)
     assert not setup_token_matches(None, token.get_secret_value())
-    path.chmod(0o644)  # readable by others: refused, never used
-    with pytest.raises(PrivateFileError):
-        read_setup_token(path)
+    if os.name != "nt":
+        # POSIX: readable by others is refused, never used. Windows has no mode
+        # bits; its owner-only ACL is applied at write time and not re-read
+        # (private_files module doc, THREAT_MODEL LF-S2).
+        path.chmod(0o644)
+        with pytest.raises(PrivateFileError):
+            read_setup_token(path)
     remove_setup_token(path)
     remove_setup_token(path)
     assert read_setup_token(path) is None
