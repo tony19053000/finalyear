@@ -1,0 +1,175 @@
+{
+ "actions": [
+  {
+   "at": "2026-10-27T20:00:36.962504+00:00",
+   "duration_s": 0.0,
+   "executor": "harness",
+   "id": "A001",
+   "kind": "kill_job_tree",
+   "offset_s": 656.0,
+   "params": {},
+   "target": "a1"
+  },
+  {
+   "at": "2026-10-27T20:05:29.040742+00:00",
+   "duration_s": 0.0,
+   "executor": "harness",
+   "id": "A002",
+   "kind": "kill_controller",
+   "offset_s": 948.0,
+   "params": {},
+   "target": "ctl"
+  },
+  {
+   "at": "2026-10-27T20:09:36.578603+00:00",
+   "duration_s": 30.0,
+   "executor": "harness",
+   "id": "A003",
+   "kind": "net_down_long",
+   "offset_s": 1195.6,
+   "params": {},
+   "target": "ctl"
+  },
+  {
+   "at": "2026-10-27T20:14:29.784867+00:00",
+   "duration_s": 60.0,
+   "executor": "harness",
+   "id": "A004",
+   "kind": "netem",
+   "offset_s": 1488.8,
+   "params": {
+    "delay_ms": "200",
+    "loss_pct": "5"
+   },
+   "target": "a2"
+  },
+  {
+   "at": "2026-10-27T20:19:18.298774+00:00",
+   "duration_s": 0.0,
+   "executor": "api",
+   "id": "A005",
+   "kind": "cancel_mode3",
+   "offset_s": 1777.3,
+   "params": {},
+   "target": "ctl"
+  },
+  {
+   "at": "2026-10-27T20:23:00.424400+00:00",
+   "duration_s": 0.0,
+   "executor": "harness",
+   "id": "A006",
+   "kind": "kill_agent",
+   "offset_s": 1999.4,
+   "params": {},
+   "target": "a1"
+  },
+  {
+   "at": "2026-10-27T20:27:48.524135+00:00",
+   "duration_s": 24.0,
+   "executor": "harness",
+   "id": "A007",
+   "kind": "reboot",
+   "offset_s": 2287.5,
+   "params": {},
+   "target": "a1"
+  },
+  {
+   "at": "2026-10-27T20:32:39.348885+00:00",
+   "duration_s": 10.0,
+   "executor": "harness",
+   "id": "A008",
+   "kind": "net_down_short",
+   "offset_s": 2578.3,
+   "params": {},
+   "target": "ctl"
+  },
+  {
+   "at": "2026-10-27T20:36:47.974757+00:00",
+   "duration_s": 0.0,
+   "executor": "harness",
+   "id": "A009",
+   "kind": "kill_job_tree",
+   "offset_s": 2827.0,
+   "params": {},
+   "target": "a0"
+  },
+  {
+   "at": "2026-10-27T20:40:32.731450+00:00",
+   "duration_s": 0.0,
+   "executor": "harness",
+   "id": "A010",
+   "kind": "kill_agent",
+   "offset_s": 3051.7,
+   "params": {},
+   "target": "a0"
+  }
+ ],
+ "nonce": "563b0afc",
+ "schema": "meshforge.chaos-schedule/1",
+ "seed": 7,
+ "t0": "2026-10-27T19:49:41+00:00",
+ "targets": [
+  {
+   "commands": {},
+   "executor": "harness",
+   "hostname": "",
+   "iface": "",
+   "label": "ctl",
+   "node_ids": [],
+   "os": "linux",
+   "roles": [
+    "controller"
+   ],
+   "ssh": "",
+   "vars": {}
+  },
+  {
+   "commands": {},
+   "executor": "harness",
+   "hostname": "",
+   "iface": "",
+   "label": "a0",
+   "node_ids": [
+    "node_01M5ZEHMZ9RPQKJCF71PQNMF2G"
+   ],
+   "os": "linux",
+   "roles": [
+    "agent"
+   ],
+   "ssh": "",
+   "vars": {}
+  },
+  {
+   "commands": {},
+   "executor": "harness",
+   "hostname": "",
+   "iface": "",
+   "label": "a1",
+   "node_ids": [
+    "node_01M5ZEHMZFK7BAB9VEP6N81Z1H"
+   ],
+   "os": "linux",
+   "roles": [
+    "agent"
+   ],
+   "ssh": "",
+   "vars": {}
+  },
+  {
+   "commands": {},
+   "executor": "harness",
+   "hostname": "",
+   "iface": "",
+   "label": "a2",
+   "node_ids": [
+    "node_01M5ZEHMZPGEMYFP7TD8QGPR8E"
+   ],
+   "os": "linux",
+   "roles": [
+    "agent"
+   ],
+   "ssh": "",
+   "vars": {}
+  }
+ ]
+}

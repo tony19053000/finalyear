@@ -1,0 +1,103 @@
+{
+ "chaos_gap_min": [
+  3.0,
+  5.0
+ ],
+ "duration_scale": 0.1,
+ "hours": 1.0,
+ "job_gap_s": 20.0,
+ "link": "wifi",
+ "nonce": "563b0afc",
+ "quiet_h": 0.1,
+ "schema": "meshforge.soak-plan/1",
+ "seed": 7,
+ "t0": "2026-10-27T19:49:41+00:00",
+ "tail_h": 0.1,
+ "targets": [
+  {
+   "commands": {},
+   "executor": "harness",
+   "hostname": "",
+   "iface": "",
+   "label": "ctl",
+   "node_ids": [],
+   "os": "linux",
+   "roles": [
+    "controller"
+   ],
+   "ssh": "",
+   "vars": {}
+  },
+  {
+   "commands": {},
+   "executor": "harness",
+   "hostname": "",
+   "iface": "",
+   "label": "a0",
+   "node_ids": [
+    "node_01M5ZEHMZ9RPQKJCF71PQNMF2G"
+   ],
+   "os": "linux",
+   "roles": [
+    "agent"
+   ],
+   "ssh": "",
+   "vars": {}
+  },
+  {
+   "commands": {},
+   "executor": "harness",
+   "hostname": "",
+   "iface": "",
+   "label": "a1",
+   "node_ids": [
+    "node_01M5ZEHMZFK7BAB9VEP6N81Z1H"
+   ],
+   "os": "linux",
+   "roles": [
+    "agent"
+   ],
+   "ssh": "",
+   "vars": {}
+  },
+  {
+   "commands": {},
+   "executor": "harness",
+   "hostname": "",
+   "iface": "",
+   "label": "a2",
+   "node_ids": [
+    "node_01M5ZEHMZPGEMYFP7TD8QGPR8E"
+   ],
+   "os": "linux",
+   "roles": [
+    "agent"
+   ],
+   "ssh": "",
+   "vars": {}
+  }
+ ],
+ "warmup_min": 1.5,
+ "windows": [
+  {
+   "end_h": 0.1,
+   "name": "quiet1",
+   "start_h": 0.025
+  },
+  {
+   "end_h": 0.9,
+   "name": "chaos",
+   "start_h": 0.1
+  },
+  {
+   "end_h": 1.0,
+   "name": "quiet2",
+   "start_h": 0.9
+  },
+  {
+   "end_h": 1.1,
+   "name": "tail",
+   "start_h": 1.0
+  }
+ ]
+}

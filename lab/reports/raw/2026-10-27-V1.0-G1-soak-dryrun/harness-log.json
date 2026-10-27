@@ -1,0 +1,74 @@
+[
+ {
+  "id": "A001",
+  "kind": "kill_job_tree",
+  "target": "a1",
+  "outcome": "done",
+  "detail": "killed=1",
+  "t": 848.49
+ },
+ {
+  "id": "A002",
+  "kind": "kill_controller",
+  "target": "ctl",
+  "outcome": "done",
+  "detail": "controller SIGKILL; restarted by the harness",
+  "t": 1140.4
+ },
+ {
+  "id": "A003",
+  "kind": "net_down_long",
+  "target": "ctl",
+  "outcome": "done",
+  "detail": "4 links blackholed for 30 s",
+  "t": 1388.04
+ },
+ {
+  "id": "A004",
+  "kind": "netem",
+  "target": "a2",
+  "outcome": "done",
+  "detail": "200 ms on 1 links (no loss)",
+  "t": 1681.21
+ },
+ {
+  "id": "A006",
+  "kind": "kill_agent",
+  "target": "a1",
+  "outcome": "done",
+  "detail": "agent1 SIGKILL",
+  "t": 2191.84
+ },
+ {
+  "id": "A007",
+  "kind": "reboot",
+  "target": "a1",
+  "outcome": "done",
+  "detail": "agent1 SIGKILL",
+  "t": 2480.02
+ },
+ {
+  "id": "A008",
+  "kind": "net_down_short",
+  "target": "ctl",
+  "outcome": "done",
+  "detail": "4 links blackholed for 10 s",
+  "t": 2770.78
+ },
+ {
+  "id": "A009",
+  "kind": "kill_job_tree",
+  "target": "a0",
+  "outcome": "done",
+  "detail": "killed=1",
+  "t": 3019.3
+ },
+ {
+  "id": "A010",
+  "kind": "kill_agent",
+  "target": "a0",
+  "outcome": "done",
+  "detail": "agent0 SIGKILL",
+  "t": 3244.19
+ }
+]
