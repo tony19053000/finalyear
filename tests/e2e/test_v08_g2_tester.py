@@ -29,7 +29,8 @@ pytestmark = [pytest.mark.e2e, pytest.mark.timeout(300), pytest.mark.docker]
 # V0.8 G3 (D191 b): the boot probe GET /v1/session is 200 {session: null}, so
 # no test here allows a /v1/session 401 any more.
 # V0.9 G6: an admin (as here) also has Benchmarks (admin-only nav entry).
-SKIP_NAV = ["Overview", "Nodes", "Jobs", "Benchmarks", "Settings"]
+# V0.14 G5 (D300) added "Planner" between Benchmarks and Settings.
+SKIP_NAV = ["Overview", "Nodes", "Jobs", "Benchmarks", "Planner", "Settings"]
 
 
 def _signed_in(
