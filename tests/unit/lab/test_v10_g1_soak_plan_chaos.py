@@ -157,9 +157,8 @@ def test_command_templates_render_and_need_their_variables() -> None:
     action = chaos.Action("A007", w.at(0), 0, "netem", "L2", "ssh", 600.0, {"delay_ms": "200",
                           "loss_pct": "5"})  # fmt: skip
     command = chaos.render_command(action, l2)
-    assert "tc qdisc replace dev wlp3s0 root netem delay 200ms loss 5%" in command
-    assert "sleep 600" in command
-    assert "--unit=mf-chaos-a007" in command
+    # the root-owned wrapper does the tc / sleep / trap (lab/mf-chaos)
+    assert command == "sudo -n /usr/local/sbin/mf-chaos netem a007 wlp3s0 200 5 600"
     argv = chaos.ssh_argv(l2, command)
     assert argv[0] == "ssh"
     assert "BatchMode=yes" in argv

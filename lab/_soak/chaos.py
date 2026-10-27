@@ -4,7 +4,8 @@
 services: kill -9 an agent; kill -9 the controller (the service restarts it);
 stop PostgreSQL under the controller; reboot a laptop; Wi-Fi/Ethernet down for
 30 s and for 5 min; netem 200 ms / 5 % loss for 10 min (Linux only); fill the
-agent's disk to 95 %; kill a running job's process tree; cancel an in-flight
+agent's disk until only 512 MiB are free (half its 1 GiB floor, so it must refuse
+work ``disk_full`` - :data:`PROOF_FAILURES`); kill a running job's process tree; cancel an in-flight
 Mode 3 job; revoke + re-join a node (once); reinstall the controller package
 (once). Each kind says which laptops it applies to, which processes it is
 *expected* to restart, whether it is fabric-wide (anything on the controller
@@ -19,9 +20,13 @@ are drawn by weight; ``once`` kinds never repeat.
 
 **Commands.** Linux laptops are driven over SSH from the controller laptop
 (``executor: ssh``) or locally (``local``) with the templates in
-:data:`LINUX_COMMANDS` (overridable per target, ``{var}`` placeholders). Long
-effects run detached under ``systemd-run`` so they survive the SSH session the
-fault itself cuts. Windows laptops (``executor: windows``) run their own rows
+:data:`LINUX_COMMANDS` (overridable per target, ``{var}`` placeholders, every
+value pattern-checked and shell-quoted). They all call the root-owned wrapper
+``/usr/local/sbin/mf-chaos`` (``lab/mf-chaos``): it validates its arguments,
+runs long effects detached under ``systemd-run`` (they survive the SSH session
+the fault itself cuts) and undoes them in a ``trap`` on exit or signal;
+``mf-chaos cleanup`` (``chaos.py cleanup``) is the idempotent undo of all of
+them. Windows laptops (``executor: windows``) run their own rows
 with ``lab/chaos_win.ps1`` from the same schedule file; ``chaos.py`` logs
 those rows as ``delegated``. ``harness`` hands each action to the dry run's
 cluster harness through request files.
@@ -35,6 +40,9 @@ re-run resumes after the last finished action.
 from __future__ import annotations
 
 import random
+import re
+import shlex
+import string
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
@@ -50,6 +58,12 @@ FINAL_OUTCOMES: Final = frozenset(
 )
 APPLIED_OUTCOMES: Final = frozenset({"done", "interrupted"})
 """Outcomes after which the fault may really have happened (attribution)."""
+
+
+DISK_FILL_LEAVE_FREE_MIB: Final = 512
+"""``disk_fill`` leaves this much free: half the agent's fixed 1 GiB free-disk
+floor (``agent/cas/store.py`` DEFAULT_FREE_DISK_FLOOR_BYTES), so the agent must
+refuse work ``disk_full`` - "fill to 95 %" left > 1 GiB on any disk > 20 GB."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,7 +112,7 @@ CATALOGUE: Final[dict[str, Kind]] = {
         ),
         Kind(
             "disk_fill", 1, 600, 180, (), True, needs_agent=True,
-            params=(("fill_pct", "95"),),
+            params=(("leave_free_mib", str(DISK_FILL_LEAVE_FREE_MIB)),),
         ),
         Kind("kill_job_tree", 2, 0, 120, (), True, needs_agent=True),
         Kind("cancel_mode3", 1, 0, 60, (), False, needs_controller=True,
@@ -113,54 +127,51 @@ CATALOGUE: Final[dict[str, Kind]] = {
 
 MIN_DURATION_S: Final = 10.0
 
+PROOF_FAILURES: Final[dict[str, frozenset[str]]] = {
+    "disk_fill": frozenset({"disk_full"}),
+}
+"""Kinds whose effect must be *seen*: an applied action counts only when some
+job attempt on its laptop ended with one of these failure types in its window."""
+
+WRAPPER: Final = "/usr/local/sbin/mf-chaos"
+"""The root-owned chaos wrapper (``lab/mf-chaos``, installed by the checklist,
+A5): it validates its arguments, detaches long effects with ``systemd-run`` and
+undoes them in a ``trap`` - the sudoers rule allows only this one program."""
+
 # Templates for Linux laptops with the .deb services (D386/D390). {id},
-# {duration_s}, {iface}, {delay_ms}, {loss_pct}, {fill_pct} and every key of
-# the target's "vars" are substituted. Each must exit within COMMAND_TIMEOUT_S;
-# long effects detach with systemd-run (they outlive the SSH session they cut).
-_RUN: Final = "sudo -n systemd-run --collect --quiet --unit=mf-chaos-{id} sh -c"
+# {duration_s}, {iface}, {delay_ms}, {loss_pct}, {leave_free_mib} and every key
+# of the target's "vars" are substituted - each value must match SAFE_VALUE and
+# is shell-quoted (render_command). Each must exit within COMMAND_TIMEOUT_S;
+# the wrapper detaches long effects (they outlive the SSH session they cut).
+_W: Final = "sudo -n {wrapper}"
 LINUX_COMMANDS: Final[dict[str, str]] = {
-    "kill_agent": "sudo -n systemctl kill --signal=SIGKILL --kill-whom=main meshforge-agent",
-    "kill_controller": (
-        "sudo -n systemctl kill --signal=SIGKILL --kill-whom=main meshforge-controller"
-    ),
+    "kill_agent": _W + " kill-agent",
+    "kill_controller": _W + " kill-controller",
     # The managed PostgreSQL (D390): stop it under the running controller. The
     # controller then stops with FAILURE and systemd restarts both (D398).
-    "restart_postgres": (
-        "sudo -n -u meshforge {pg_bin}/pg_ctl -D {pg_data} stop -m fast -w -t 60"
-    ),
-    "reboot": "sudo -n systemd-run --on-active=2 --collect --quiet systemctl reboot",
-    "net_down_short": (
-        _RUN + " 'nmcli networking off; sleep {duration_s}; nmcli networking on'"
-    ),
-    "net_down_long": (
-        _RUN + " 'nmcli networking off; sleep {duration_s}; nmcli networking on'"
-    ),
-    "netem": (
-        _RUN + " 'tc qdisc replace dev {iface} root netem delay {delay_ms}ms loss "
-        "{loss_pct}%; sleep {duration_s}; tc qdisc del dev {iface} root'"
-    ),
-    "disk_fill": (
-        _RUN
-        + " 'f={fill_file}; d=$(dirname $f); s=$(df --output=size -B1 $d | tail -1);"
-        " a=$(df --output=avail -B1 $d | tail -1); n=$((a - s * (100 - {fill_pct}) / 100));"
-        " [ $n -gt 0 ] && fallocate -l $n $f; sleep {duration_s}; rm -f $f'"
-    ),
+    "restart_postgres": _W + " stop-postgres {pg_bin} {pg_data}",
+    "reboot": _W + " reboot",
+    "net_down_short": _W + " net-down {id} {duration_s}",
+    "net_down_long": _W + " net-down {id} {duration_s}",
+    "netem": _W + " netem {id} {iface} {delay_ms} {loss_pct} {duration_s}",
+    "disk_fill": _W + " disk-fill {id} {fill_file} {leave_free_mib} {duration_s}",
     # Every process of the agent service's cgroup except the agent's own leaf
     # (DelegateSubgroup=agent): the running jobs' trees.
-    "kill_job_tree": (
-        "sudo -n sh -c 'n=0; for f in $(find {agent_cgroup} -mindepth 2 -name "
-        'cgroup.procs ! -path "*/agent/*"); do for p in $(cat $f); do kill -9 $p '
-        "&& n=$((n+1)); done; done; echo killed=$n'"
-    ),
-    "upgrade_reinstall": ("sudo -n apt-get install --reinstall -y {controller_deb}"),
+    "kill_job_tree": _W + " kill-job-tree {agent_cgroup}",
+    "upgrade_reinstall": _W + " reinstall {controller_deb}",
 }
+CLEANUP_COMMAND: Final = _W + " cleanup {iface_or_dash} {fill_file}"
+"""Idempotent undo of every lasting fault (``chaos.py cleanup``)."""
 LINUX_VARS: Final[dict[str, str]] = {
+    "wrapper": WRAPPER,
     "pg_bin": "/opt/meshforge/controller/current/pgsql/bin",
     "pg_data": "/var/lib/meshforge/db/data",
     "fill_file": "/var/lib/meshforge/mf-chaos-fill.bin",
     "agent_cgroup": "/sys/fs/cgroup/system.slice/meshforge-agent.service",
     "controller_deb": "",
 }
+SAFE_VALUE: Final = re.compile(r"[A-Za-z0-9_@%+=:,./-]*")
+"""What a substituted value may contain (no spaces, quotes, ``$``, ``;``...)."""
 API_KINDS: Final = frozenset({"cancel_mode3"})
 """Done by chaos.py through the controller's REST API, whatever the executor."""
 MANUAL_BY_DEFAULT: Final = frozenset({"revoke_rejoin"})
@@ -286,6 +297,25 @@ class TemplateError(ValueError):
     """A command template names a variable nobody defined."""
 
 
+def _fill(template: str, values: Mapping[str, str], what: str) -> str:
+    """``template`` with every ``{name}`` replaced by its value, shell-quoted;
+    a value outside :data:`SAFE_VALUE` is refused (it would reach a root
+    shell through ``sudo``)."""
+    names = {f for _, f, _, _ in string.Formatter().parse(template) if f}
+    quoted: dict[str, str] = {}
+    for name in names:
+        if name not in values:
+            raise TemplateError(f"{what}: unknown placeholder '{name}'")
+        value = values[name]
+        if not SAFE_VALUE.fullmatch(value):
+            raise TemplateError(f"{what}: unsafe characters in '{name}' = {value!r}")
+        quoted[name] = shlex.quote(value)
+    try:
+        return template.format(**quoted)
+    except (KeyError, IndexError, ValueError) as exc:
+        raise TemplateError(f"{what}: bad template ({exc})") from None
+
+
 def render_command(action: Action, target: Target) -> str:
     """The shell command for a Linux ``ssh`` / ``local`` action."""
     template = target.commands.get(action.kind) or LINUX_COMMANDS.get(action.kind)
@@ -299,16 +329,20 @@ def render_command(action: Action, target: Target) -> str:
         "duration_s": f"{action.duration_s:g}",
         "iface": target.iface,
     }
-    try:
-        command = template.format(**values)
-    except (KeyError, IndexError) as exc:
-        raise TemplateError(f"{action.kind}: unknown placeholder {exc}") from None
     for needed in ("iface", "controller_deb"):
         if "{" + needed + "}" in template and not values.get(needed):
             raise TemplateError(
                 f"{action.kind} on {target.label} needs '{needed}' in targets.json"
             )
-    return command
+    return _fill(template, values, action.kind)
+
+
+def cleanup_command(target: Target) -> str:
+    """The idempotent undo for a Linux laptop: network on, no netem, no fill file."""
+    template = target.commands.get("cleanup") or CLEANUP_COMMAND
+    values = {**LINUX_VARS, **target.vars, "iface": target.iface,
+              "iface_or_dash": target.iface or "-"}  # fmt: skip
+    return _fill(template, values, f"cleanup on {target.label}")
 
 
 def ssh_argv(target: Target, command: str) -> list[str]:

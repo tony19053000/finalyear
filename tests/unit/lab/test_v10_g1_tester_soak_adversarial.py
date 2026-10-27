@@ -270,10 +270,6 @@ def test_non_fails_jobs_chaos_does_not_explain_a_failed_job() -> None:
     assert r["verdict"] == rules.FAIL
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="DEFECT T1: fallback explain(end, host=None) lets a note for ANOTHER laptop explain the failure",
-)
 def test_note_covering_host_explains_failure_but_other_host_note_does_not() -> None:
     n_ok = Note(
         w.T0 + timedelta(seconds=900), w.T0 + timedelta(seconds=1100), "L2", "wifi"
@@ -334,9 +330,6 @@ def test_late_job_exact_boundary() -> None:
     assert late["details"]["late"] and late["verdict"] == rules.FAIL
 
 
-@pytest.mark.xfail(
-    strict=True, reason="DEFECT T2: _terminal_at crashes on non-dict transition entries"
-)
 def test_view_with_malformed_transitions_does_not_crash() -> None:
     v = w.view("job0")
     v["transitions"] = [None, {"at": "garbage"}, "x"]
@@ -537,14 +530,8 @@ def test_torn_tail_in_samples_is_reported_as_problem_and_never_pass(
         ("samples.l2.jsonl", b'{"type":"header"}\n[1,2]\n{"type":"tick"}\n'),
         ("samples.l2.jsonl", b""),
         ("notes.json", b"{oops"),
-        pytest.param(
-            "notes.json",
-            b'{"events": [1, "x", null]}',
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason="DEFECT T3: load_inputs crashes (AttributeError) on non-object notes events",
-            ),
-        ),
+        ("notes.json", b'{"events": [1, "x", null]}'),
+        ("notes.json", b'{"events": "not a list"}'),
         ("notes.json", b'{"events": [{"from": "bad", "to": "worse"}]}'),
         ("notes.json", b"[]"),
         (

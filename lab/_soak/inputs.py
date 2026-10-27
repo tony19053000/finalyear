@@ -52,8 +52,10 @@ class Note:
     reason: str
 
     def covers(self, moment: datetime, host: str | None) -> bool:
+        """In the interval and for that laptop; an event on no known laptop
+        (``host`` None) is covered only by a fabric-wide (``"*"``) note."""
         return self.start <= moment <= self.end and (
-            self.host == "*" or host is None or self.host == host
+            self.host == "*" or (host is not None and self.host == host)
         )
 
 
@@ -102,7 +104,14 @@ def load_inputs(run_dir: Path) -> SoakInputs:
             problems.append(str(exc))
     notes: list[Note] = []
     if (run_dir / NOTES_FILE).exists():
-        for row in read_json(run_dir / NOTES_FILE).get("events") or []:
+        events = read_json(run_dir / NOTES_FILE).get("events") or []
+        if not isinstance(events, list):
+            problems.append(f"{NOTES_FILE}: 'events' is not a list - no note used")
+            events = []
+        for row in events:
+            if not isinstance(row, dict):
+                problems.append(f"{NOTES_FILE}: event {row!r} is not an object")
+                continue
             start, end = parse_ts(row.get("from")), parse_ts(row.get("to"))
             if start is None or end is None:
                 problems.append(f"{NOTES_FILE}: bad event {row!r}")

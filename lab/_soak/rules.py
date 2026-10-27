@@ -33,7 +33,10 @@ Rules (D410 numbering):
    create_time)``), each minus its own warm-up; the slope is the pooled
    within-lifetime fit (each lifetime its own level), and when no single
    lifetime spans both quiet windows the growth compares the first and last
-   third of the longest lifetime instead (``growth_basis`` in the details).
+   third of the longest lifetime instead (``growth_basis`` in the details) -
+   INCONCLUSIVE when that lifetime spans < 12 h (scaled by ``hours / 72`` for a
+   compressed run). Each row reports ``excluded_share``: the share of its
+   samples the warm-up cuts removed.
 5. ``db_growth`` - DB bytes per job of the 2nd half of the load within 20 %
    of the 1st half (8 MiB noise floor); in the idle tail no table's live rows
    grow (time-driven telemetry tables reported, not judged); WAL <= 1.5 x
@@ -44,7 +47,9 @@ Rules (D410 numbering):
    ``fabric_check soak`` record is explained.
 
 Plus ``chaos`` (D411): at least one applied action per 45 min of the chaos
-window, and ``coverage``: every sampler observed >= 90 % of the run.
+window - a ``disk_fill`` counts only when an attempt on its laptop failed
+``disk_full`` inside its window (else INCONCLUSIVE: not proven) - and
+``coverage``: every sampler observed >= 90 % of the run.
 """
 
 from __future__ import annotations
@@ -57,7 +62,7 @@ from datetime import datetime
 from typing import Any, Final
 
 from _sched.analysis import RETRYABLE
-from _soak.chaos import CATALOGUE, LoggedAction
+from _soak.chaos import CATALOGUE, PROOF_FAILURES, LoggedAction
 from _soak.inputs import SoakInputs
 from _soak.load import MAX_ATTEMPTS, JobSpec
 from _soak.stats import (
@@ -78,6 +83,11 @@ LATE_AFTER_DEADLINE_S: Final = 600.0
 RSS_GROWTH_PCT: Final = 10.0
 RSS_SLOPE_MB_H: Final = 5.0
 COUNTER_GROWTH_PCT: Final = 5.0
+FALLBACK_MIN_SPAN_H: Final = 12.0
+"""The ``longest_lifetime`` growth fallback needs a lifetime this long (at the
+72 h plan; scaled by ``hours / 72`` for a compressed run, so a 1 h dry run needs
+10 min): a shorter one cannot tell a leak from warm-up -> INCONCLUSIVE."""
+FULL_RUN_H: Final = 72.0
 DB_RATIO_TOL: Final = 0.20
 DB_NOISE_BYTES: Final = 8 * 1024 * 1024
 DB_MIN_JOBS_PER_HALF: Final = 20
@@ -178,10 +188,17 @@ class Attributor:
 
 
 # ------------------------------------------------------------ rule 1: jobs
+def _rows(value: Any) -> list[Mapping[str, Any]]:
+    """The object entries of a list from a JSON file (anything else skipped)."""
+    if not isinstance(value, list):
+        return []
+    return [v for v in value if isinstance(v, Mapping)]
+
+
 def _terminal_at(view: Mapping[str, Any]) -> datetime | None:
     moments = [
         parse_ts(t.get("at"))
-        for t in view.get("transitions") or []
+        for t in _rows(view.get("transitions"))
         if t.get("to_state") in TERMINAL
     ]
     found = [m for m in moments if m is not None]
@@ -192,7 +209,7 @@ def _committed(view: Mapping[str, Any]) -> int:
     roles = ("combine",) if "split" in (view.get("manifest") or {}) else ("run",)
     return sum(
         1
-        for a in view.get("attempts") or []
+        for a in _rows(view.get("attempts"))
         if a.get("state") == "done" and (a.get("role") or "run") in roles
     )
 
@@ -200,7 +217,7 @@ def _committed(view: Mapping[str, Any]) -> int:
 def _job_failure_explained(
     view: Mapping[str, Any], att: Attributor, end: datetime | None
 ) -> str | None:
-    for attempt in view.get("attempts") or []:
+    for attempt in _rows(view.get("attempts")):
         if attempt.get("state") not in ("failed", "lost", "fenced"):
             continue
         moment = parse_ts(attempt.get("ended_at")) or end
@@ -212,6 +229,7 @@ def _job_failure_explained(
         if why:
             return why
     if end is not None:
+        # No attempt pins a laptop: only a fabric-wide action or a "*" note.
         return att.explain(end, None, fails_jobs=True)
     return None
 
@@ -471,12 +489,26 @@ def _settled(
     return out
 
 
+def fallback_min_span_s(hours: float) -> float:
+    """:data:`FALLBACK_MIN_SPAN_H`, scaled with the plan's length."""
+    return FALLBACK_MIN_SPAN_H * 3600.0 * min(1.0, hours / FULL_RUN_H)
+
+
+def _excluded_share(points: Points, settled: list[list[Any]]) -> float | None:
+    """The share of a series' samples the warm-up cuts removed (reported, so a
+    reader sees how much of a sawtooth series the verdict rests on)."""
+    if not points:
+        return None
+    return round(1.0 - sum(len(life) for life in settled) / len(points), 4)
+
+
 def _growth_windows(
     pts: Points,
     lives: list[list[tuple[float, dict[str, Any]]]],
     q1: Window,
     q2: Window,
     metric: str,
+    min_span_s: float = 0.0,
 ) -> tuple[str, list[float], list[float]]:
     """Which two samples to compare for "quiet-1 -> quiet-2" growth.
 
@@ -485,7 +517,9 @@ def _growth_windows(
     different processes - the new one starts small, so any leak would vanish -
     and the comparison moves to the **longest settled lifetime**: its first
     third vs its last third (each at most a quiet window long). ``none`` when
-    no lifetime is long enough (>= 3 x MIN_WINDOW_SAMPLES samples)."""
+    no lifetime has >= 3 x MIN_WINDOW_SAMPLES samples, ``too_short`` when the
+    longest spans < ``min_span_s`` (:func:`fallback_min_span_s`) - both give no
+    comparison, so the rule is INCONCLUSIVE."""
     a, b = _in(pts, q1, metric), _in(pts, q2, metric)
     in_q = {
         (p.get("pid"), p.get("create_time"))
@@ -503,6 +537,8 @@ def _growth_windows(
         return "none", [], []
     longest = max(usable, key=lambda u: (u[-1][0] - u[0][0], len(u)))
     span = longest[-1][0] - longest[0][0]
+    if span < min_span_s:
+        return "too_short", [], []
     length = min(span / 3.0, q1.end_s - q1.start_s)
     head = [v for t, v in longest if t < longest[0][0] + length]
     tail = [v for t, v in longest if t > longest[-1][0] - length]
@@ -514,6 +550,7 @@ def rule_memory(inputs: SoakInputs) -> dict[str, Any]:
     q1, q2 = plan.quiet1(), plan.quiet2()
     fit = Window("fit", 0.0, plan.hours * 3600.0)
     warmup_s = plan.warmup_min * 60.0
+    min_span = fallback_min_span_s(plan.hours)
     rows: list[dict[str, Any]] = []
     for key, series in sorted(_series(inputs).items()):
         pts = [(t, p) for t, p in series["points"] if p.get("rss_bytes")]
@@ -525,13 +562,14 @@ def rule_memory(inputs: SoakInputs) -> dict[str, Any]:
             ]
         )
         q_a, q_b = _in(pts, q1, "rss_bytes"), _in(pts, q2, "rss_bytes")
-        basis, a, b = _growth_windows(pts, lives, q1, q2, "rss_bytes")
+        basis, a, b = _growth_windows(pts, lives, q1, q2, "rss_bytes", min_span)
         m1, m2 = median(a), median(b)
         growth = pct_change(m1, m2) if m1 is not None and m2 is not None else None
         if (
             len(q_a) < MIN_WINDOW_SAMPLES
             or len(q_b) < MIN_WINDOW_SAMPLES
             or slope is None
+            or growth is None
         ):
             verdict = INCONCLUSIVE
         elif (
@@ -545,6 +583,7 @@ def rule_memory(inputs: SoakInputs) -> dict[str, Any]:
                 "series": key,
                 "role": series["role"],
                 "lifetimes": len(lives),
+                "excluded_share": _excluded_share(pts, lives),
                 "growth_basis": basis,
                 "quiet1_median_mib": None if m1 is None else round(m1 / MIB, 2),
                 "quiet2_median_mib": None if m2 is None else round(m2 / MIB, 2),
@@ -567,6 +606,7 @@ def rule_handles(inputs: SoakInputs) -> dict[str, Any]:
     plan = inputs.plan
     q1, q2 = plan.quiet1(), plan.quiet2()
     warmup_s = plan.warmup_min * 60.0
+    min_span = fallback_min_span_s(plan.hours)
     rows: list[dict[str, Any]] = []
     for key, series in sorted(_series(inputs).items()):
         pts = series["points"]
@@ -574,7 +614,7 @@ def rule_handles(inputs: SoakInputs) -> dict[str, Any]:
         counter = "handles" if series.get("os") == "nt" else "fds"
         for metric in (counter, "threads"):
             q_a, q_b = _in(pts, q1, metric), _in(pts, q2, metric)
-            basis, a, b = _growth_windows(pts, lives, q1, q2, metric)
+            basis, a, b = _growth_windows(pts, lives, q1, q2, metric, min_span)
             m1, m2 = median(a), median(b)
             if (
                 len(q_a) < MIN_WINDOW_SAMPLES
@@ -591,6 +631,7 @@ def rule_handles(inputs: SoakInputs) -> dict[str, Any]:
                     "series": key,
                     "metric": metric,
                     "lifetimes": len(lives),
+                    "excluded_share": _excluded_share(pts, lives),
                     "growth_basis": basis,
                     "quiet1_median": m1,
                     "quiet2_median": m2,
@@ -829,17 +870,62 @@ def rule_heartbeat(inputs: SoakInputs, att: Attributor) -> dict[str, Any]:
 
 
 # ------------------------------------------------------ chaos + coverage
-def rule_chaos(inputs: SoakInputs) -> dict[str, Any]:
+def _proof(a: LoggedAction, inputs: SoakInputs, att: Attributor) -> list[str]:
+    """For a kind in :data:`PROOF_FAILURES`: the job attempts on the action's
+    laptop that ended with the expected failure type inside its window (a job
+    refused there and retried elsewhere is "deferred", one with no retry left
+    failed - both prove the fault reached the agent)."""
+    expected = PROOF_FAILURES.get(a.kind)
+    if not expected:
+        return []
+    start, end = a.window()
+    seen: list[str] = []
+    for job_id, view in sorted(((inputs.final or {}).get("jobs") or {}).items()):
+        if not isinstance(view, Mapping):
+            continue
+        for attempt in _rows(view.get("attempts")):
+            if attempt.get("failure_type") not in expected:
+                continue
+            moment = parse_ts(attempt.get("ended_at")) or parse_ts(
+                attempt.get("started_at")
+            )
+            host = att.host_of_node(attempt.get("node_id"))
+            if moment is not None and host == a.target and start <= moment <= end:
+                seen.append(f"{job_id}/{attempt.get('attempt_id')}")
+    return seen
+
+
+def rule_chaos(inputs: SoakInputs, att: Attributor | None = None) -> dict[str, Any]:
+    """D411: >= 1 applied action per 45 min of the chaos window. A kind in
+    :data:`PROOF_FAILURES` counts only when its effect was seen (``disk_fill``:
+    an attempt on that laptop failed ``disk_full`` in its window); an applied
+    but unproven one does not count and makes the rule at best INCONCLUSIVE -
+    the fault ran, but the path it exists to test was not exercised."""
+    att = att or Attributor(inputs)
     window = inputs.plan.chaos_window()
     needed = max(1, math.ceil((window.end_s - window.start_s) / 60.0 / CHAOS_EVERY_MIN))
     applied = [a for a in inputs.actions if a.applied]
+    proofs = {a.id: _proof(a, inputs, att) for a in applied if a.kind in PROOF_FAILURES}
+    unproven = [a.id for a in applied if a.id in proofs and not proofs[a.id]]
+    counted = [a for a in applied if a.id not in unproven]
     by_kind = Counter(a.kind for a in applied)
     by_outcome = Counter(a.outcome for a in inputs.actions)
-    verdict = PASS if len(applied) >= needed else FAIL
+    if len(counted) < needed:
+        verdict = FAIL
+    elif unproven:
+        verdict = INCONCLUSIVE
+    else:
+        verdict = PASS
+    summary = f"{len(counted)} chaos actions applied (>= {needed} needed)"
+    if unproven:
+        summary += (
+            f"; {len(unproven)} not proven ({', '.join(unproven)}: no disk_full seen)"
+        )
     return _rule(
-        "chaos", "D411", verdict,
-        f"{len(applied)} chaos actions applied (>= {needed} needed)",
-        {"needed": needed, "applied": len(applied), "by_kind": dict(sorted(by_kind.items())),
+        "chaos", "D411", verdict, summary,
+        {"needed": needed, "applied": len(applied), "counted": len(counted),
+         "unproven": unproven, "proof": {k: v[:20] for k, v in sorted(proofs.items())},
+         "by_kind": dict(sorted(by_kind.items())),
          "by_outcome": dict(sorted(by_outcome.items())),
          "actions": [_action_row(a) for a in inputs.actions]},
     )  # fmt: skip
@@ -905,7 +991,7 @@ def evaluate(
         rule_db(inputs),
         rule_disk(inputs),
         rule_heartbeat(inputs, att),
-        rule_chaos(inputs),
+        rule_chaos(inputs, att),
         rule_coverage(inputs),
     ]
     plan = inputs.plan

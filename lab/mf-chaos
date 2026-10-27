@@ -1,0 +1,163 @@
+#!/bin/sh
+# V1.0 lab kit (roadmap 1.0.2, D411): the soak's chaos actions on a Linux laptop.
+#
+# Installed root-owned as /usr/local/sbin/mf-chaos by lab/checklists/V1.0-soak.md
+# (A5); the sudoers rule allows ONLY this program, never a shell. Every argument
+# is checked against a strict pattern before it is used, so `sudo mf-chaos` is
+# limited to the faults below. Called by lab/chaos.py (templates in
+# lab/_soak/chaos.py LINUX_COMMANDS):
+#
+#   mf-chaos kill-agent | kill-controller | reboot
+#   mf-chaos stop-postgres PG_BIN PG_DATA     (PG_BIN under /opt/meshforge/, PG_DATA under /var/lib/meshforge/)
+#   mf-chaos net-down ID SECS                 (nmcli networking off for SECS)
+#   mf-chaos netem ID IFACE DELAY_MS LOSS_PCT SECS
+#   mf-chaos disk-fill ID FILL_FILE LEAVE_FREE_MIB SECS
+#   mf-chaos kill-job-tree [AGENT_CGROUP]     (under /sys/fs/cgroup/)
+#   mf-chaos reinstall DEB                    (a root-owned, not group/world-writable .deb)
+#   mf-chaos cleanup IFACE|- FILL_FILE|-      (idempotent undo of every lasting fault)
+#
+# Lasting faults (net-down, netem, disk-fill) run detached as the transient unit
+# mf-chaos-ID (they outlive the SSH session they cut) and undo themselves in a
+# trap on EXIT/INT/TERM/HUP - `systemctl stop mf-chaos-ID` restores at once.
+set -eu
+
+SELF=/usr/local/sbin/mf-chaos
+MIB=1048576
+
+die() { echo "mf-chaos: $*" >&2; exit 2; }
+
+# check NAME VALUE ERE - VALUE must be one line matching ERE entirely.
+check() {
+    case "$2" in *"
+"*) die "$1: newline not allowed" ;; esac
+    printf '%s\n' "$2" | grep -Eqx -- "$3" || die "$1: bad value '$2'"
+}
+no_dotdot() { case "$2" in *..*) die "$1: '..' not allowed" ;; esac; }
+check_id() { check id "$1" '[a-z0-9-]{1,40}'; }
+check_secs() { check seconds "$1" '[0-9]{1,6}(\.[0-9]{1,3})?'; }
+check_iface() { check iface "$1" '[A-Za-z0-9_.:-]{1,15}'; }
+check_fill() {
+    check fill_file "$1" '/[A-Za-z0-9_./-]*/mf-chaos-fill\.bin'
+    no_dotdot fill_file "$1"
+}
+
+detach() { # ID BODY ARGS... - run "$SELF BODY ARGS" as the unit mf-chaos-ID
+    id=$1; shift
+    systemd-run --collect --quiet --unit="mf-chaos-$id" "$SELF" "$@"
+    echo "started mf-chaos-$id: $*"
+}
+
+nap() { sleep "$1" & wait $! || true; } # a signal interrupts the wait at once
+
+# ------------------------------------------------------------------ bodies
+undo_net() { nmcli networking on 2>/dev/null || true; }
+body_net_down() {
+    trap 'undo_net' EXIT INT TERM HUP
+    nmcli networking off
+    nap "$1"
+}
+
+undo_netem() {
+    if tc qdisc show dev "$NETEM_IFACE" root 2>/dev/null | grep -q netem; then
+        tc qdisc del dev "$NETEM_IFACE" root 2>/dev/null || true
+    fi
+}
+body_netem() {
+    NETEM_IFACE=$1
+    trap 'undo_netem' EXIT INT TERM HUP
+    tc qdisc replace dev "$1" root netem delay "${2}ms" loss "${3}%"
+    nap "$4"
+}
+
+undo_fill() { rm -f -- "$FILL_FILE"; }
+body_disk_fill() {
+    FILL_FILE=$1
+    trap 'undo_fill' EXIT INT TERM HUP
+    dir=$(dirname -- "$1")
+    avail=$(df --output=avail -B1 -- "$dir" | tail -n 1 | tr -d ' ')
+    n=$((avail - $2 * MIB))
+    if [ "$n" -gt 0 ]; then fallocate -l "$n" -- "$1"; fi
+    left=$(df --output=avail -B1 -- "$dir" | tail -n 1 | tr -d ' ')
+    echo "disk-fill: wrote $n bytes; $((left / MIB)) MiB free on $dir (target $2 MiB)"
+    nap "$3"
+}
+
+# ---------------------------------------------------------------- commands
+[ "$#" -ge 1 ] || die "usage: mf-chaos KIND ARGS... (see the header of this file)"
+kind=$1; shift
+case "$kind" in
+kill-agent)
+    [ "$#" -eq 0 ] || die "kill-agent takes no arguments"
+    systemctl kill --signal=SIGKILL --kill-whom=main meshforge-agent ;;
+kill-controller)
+    [ "$#" -eq 0 ] || die "kill-controller takes no arguments"
+    systemctl kill --signal=SIGKILL --kill-whom=main meshforge-controller ;;
+reboot)
+    [ "$#" -eq 0 ] || die "reboot takes no arguments"
+    systemd-run --on-active=2 --collect --quiet systemctl reboot ;;
+stop-postgres)
+    [ "$#" -eq 2 ] || die "stop-postgres PG_BIN PG_DATA"
+    check pg_bin "$1" '/opt/meshforge/[A-Za-z0-9_./-]+'; no_dotdot pg_bin "$1"
+    check pg_data "$2" '/var/lib/meshforge/[A-Za-z0-9_./-]+'; no_dotdot pg_data "$2"
+    [ -x "$1/pg_ctl" ] || die "no $1/pg_ctl"
+    runuser -u meshforge -- "$1/pg_ctl" -D "$2" stop -m fast -w -t 60 ;;
+net-down)
+    [ "$#" -eq 2 ] || die "net-down ID SECS"
+    check_id "$1"; check_secs "$2"
+    detach "$1" _body-net-down "$2" ;;
+netem)
+    [ "$#" -eq 5 ] || die "netem ID IFACE DELAY_MS LOSS_PCT SECS"
+    check_id "$1"; check_iface "$2"; check delay_ms "$3" '[0-9]{1,5}'
+    check loss_pct "$4" '[0-9]{1,2}(\.[0-9]{1,3})?'; check_secs "$5"
+    detach "$1" _body-netem "$2" "$3" "$4" "$5" ;;
+disk-fill)
+    [ "$#" -eq 4 ] || die "disk-fill ID FILL_FILE LEAVE_FREE_MIB SECS"
+    check_id "$1"; check_fill "$2"; check leave_free_mib "$3" '[0-9]{1,7}'; check_secs "$4"
+    detach "$1" _body-disk-fill "$2" "$3" "$4" ;;
+kill-job-tree)
+    [ "$#" -le 1 ] || die "kill-job-tree [AGENT_CGROUP]"
+    cg=${1:-/sys/fs/cgroup/system.slice/meshforge-agent.service}
+    check agent_cgroup "$cg" '/sys/fs/cgroup/[A-Za-z0-9_.@/-]+'; no_dotdot agent_cgroup "$cg"
+    n=0
+    for f in $(find "$cg" -mindepth 2 -name cgroup.procs ! -path "*/agent/*"); do
+        for p in $(cat "$f"); do kill -9 "$p" 2>/dev/null && n=$((n + 1)); done
+    done
+    echo "killed=$n" ;;
+reinstall)
+    [ "$#" -eq 1 ] || die "reinstall DEB"
+    check deb "$1" '/[A-Za-z0-9_.+/-]+\.deb'; no_dotdot deb "$1"
+    [ -f "$1" ] || die "no file $1"
+    for x in "$1" "$(dirname -- "$1")"; do
+        st=$(stat -c '%u %a' -- "$x")
+        uid=${st% *}; mode=${st#* }
+        [ "$uid" = 0 ] || die "$x must be owned by root"
+        case "$mode" in *[2367]? | *[2367]) die "$x must not be group/world-writable" ;; esac
+    done
+    apt-get install --reinstall -y "$1" ;;
+cleanup)
+    [ "$#" -eq 2 ] || die "cleanup IFACE|- FILL_FILE|-"
+    [ "$1" = - ] || check_iface "$1"
+    [ "$2" = - ] || check_fill "$2"
+    # Stop running faults first (their traps undo them), then undo anything a
+    # killed fault left behind. Every step is a no-op when nothing is left.
+    systemctl stop 'mf-chaos-*.service' 2>/dev/null || true
+    undo_net
+    if [ "$1" != - ]; then NETEM_IFACE=$1; undo_netem; fi
+    if [ "$2" != - ]; then FILL_FILE=$2; undo_fill; fi
+    echo "cleanup done: networking $(nmcli networking 2>/dev/null || echo '?')," \
+        "netem on ${1}: $(tc qdisc show dev "$1" root 2>/dev/null | grep -c netem || true)," \
+        "fill file ${2}: $([ -e "$2" ] && echo present || echo absent)" ;;
+_body-net-down)
+    [ "$#" -eq 1 ] || die "_body-net-down SECS"; check_secs "$1"
+    body_net_down "$1" ;;
+_body-netem)
+    [ "$#" -eq 4 ] || die "_body-netem IFACE DELAY_MS LOSS_PCT SECS"
+    check_iface "$1"; check delay_ms "$2" '[0-9]{1,5}'
+    check loss_pct "$3" '[0-9]{1,2}(\.[0-9]{1,3})?'; check_secs "$4"
+    body_netem "$1" "$2" "$3" "$4" ;;
+_body-disk-fill)
+    [ "$#" -eq 3 ] || die "_body-disk-fill FILL_FILE LEAVE_FREE_MIB SECS"
+    check_fill "$1"; check leave_free_mib "$2" '[0-9]{1,7}'; check_secs "$3"
+    body_disk_fill "$1" "$2" "$3" ;;
+*) die "unknown kind '$kind'" ;;
+esac

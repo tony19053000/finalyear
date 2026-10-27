@@ -80,6 +80,9 @@ def _details(rule: Mapping[str, Any]) -> list[str]:
         out.append(
             f"By kind: `{details.get('by_kind')}`; by outcome: `{details.get('by_outcome')}`."
         )
+        if details.get("proof"):
+            out.append(f"Proof (disk_full attempts in the window): `{details['proof']}`; "
+                       f"not proven: `{details.get('unproven')}`.")  # fmt: skip
         out.append("")
         out.append("| id | kind | target | started | effect until | outcome | detail |")
         out.append("|---|---|---|---|---|---|---|")

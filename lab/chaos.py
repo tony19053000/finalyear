@@ -16,11 +16,19 @@ Runs on the **controller laptop**. The schedule is ``DIR/chaos-schedule.json``
         same command again; finished actions are skipped, an action that was
         running when the driver died is logged ``interrupted``, one more than
         --late-min late is logged ``missed``.
+        At start / resume, and when stopped by Ctrl+C / SIGTERM / SIGHUP, it
+        runs ``cleanup`` on every SSH / local laptop first.
+    uv run python lab/chaos.py cleanup (--dir DIR | --targets targets.json)
+            [--only L1,L2]
+        Undo every lasting fault (idempotent): network on, no netem qdisc, no
+        fill file, running ``mf-chaos-*`` units stopped - through the wrapper
+        ``/usr/local/sbin/mf-chaos cleanup`` on each Linux laptop. Windows
+        laptops: ``chaos_win.ps1 ... -Cleanup`` on the laptop (printed).
     uv run python lab/chaos.py show --dir DIR
         The schedule with each action's logged outcome.
 
 Exit codes: 0 done; 1 cannot write the log; 2 usage error; 3 done but an
-action failed (see the log); 130 interrupted (resumable).
+action failed (see the log) / a cleanup failed; 130 interrupted (resumable).
 """
 
 from __future__ import annotations
@@ -29,6 +37,7 @@ import argparse
 import json
 import os
 import random
+import signal
 import subprocess
 import sys
 import time
@@ -45,6 +54,7 @@ from _soak import jsonl  # noqa: E402
 from _soak.chaos import (  # noqa: E402
     Action,
     TemplateError,
+    cleanup_command,
     end_record,
     finished_ids,
     render_command,
@@ -57,6 +67,7 @@ from _soak.plan import (  # noqa: E402
     RunPlan,
     Target,
     load_plan,
+    load_targets,
     read_json,
 )
 from _soak.stats import parse_ts  # noqa: E402
@@ -213,6 +224,52 @@ class Driver:
         return "failed", None, "the harness did not answer", None
 
 
+def cleanup(
+    targets: Sequence[Target],
+    runner: Callable[[list[str], float], tuple[int, str]] | None = None,
+) -> int:
+    """Undo lasting faults on every laptop (module docstring); the number of
+    laptops whose cleanup failed."""
+    run = runner or run_argv
+    failed = 0
+    for target in targets:
+        if target.executor == "harness":
+            continue  # the dry run's harness heals its own faults
+        if target.executor == "windows":
+            _say(f"cleanup {target.label}: on that laptop run `powershell -ExecutionPolicy "
+                 f"Bypass -File lab\\chaos_win.ps1 -RunDir <RUN> -Label {target.label} "
+                 "-Cleanup`")  # fmt: skip
+            continue
+        try:
+            command = cleanup_command(target)
+        except TemplateError as exc:
+            _say(f"cleanup {target.label}: FAILED {exc}")
+            failed += 1
+            continue
+        argv = (
+            ssh_argv(target, command)
+            if target.executor == "ssh"
+            else ["sh", "-c", command]
+        )
+        code, out = run(argv, COMMAND_TIMEOUT_S)
+        if code == 0:
+            _say(f"cleanup {target.label}: ok {out[-200:]}")
+        else:
+            failed += 1
+            _say(f"cleanup {target.label}: FAILED (exit {code}) {out[-200:]} - a detached "
+                 "fault still undoes itself when its time is up; run `chaos.py cleanup` "
+                 "again once the laptop is reachable")  # fmt: skip
+    return failed
+
+
+class Stopped(KeyboardInterrupt):
+    """SIGTERM / SIGHUP: handled like Ctrl+C (cleanup, then exit 130)."""
+
+
+def _raise_stopped(signum: int, _frame: object) -> None:
+    raise Stopped(signal.Signals(signum).name)
+
+
 def make_canceller(seed: int, wait_s: float) -> Callable[[Action], Outcome]:
     """``cancel_mode3``: cancel one running split job (seeded choice)."""
     from soak_load import DEFAULT_URL, URL_ENV, Lab, RefusedError, TransientError
@@ -268,6 +325,20 @@ def cmd_show(run_dir: Path) -> int:
     return EXIT_OK
 
 
+def cmd_cleanup(run_dir: Path | None, targets_path: Path | None, only: str) -> int:
+    if run_dir is not None:
+        targets: Sequence[Target] = load_plan(run_dir).targets
+    else:
+        assert targets_path is not None  # noqa: S101 - argparse: one of the two
+        targets = load_targets(targets_path)
+    wanted = {x.strip() for x in only.split(",") if x.strip()}
+    unknown = wanted - {t.label for t in targets}
+    if unknown:
+        raise PlanError(f"--only: unknown labels {sorted(unknown)}")
+    chosen = [t for t in targets if not wanted or t.label in wanted]
+    return EXIT_ACTION_FAILED if cleanup(chosen) else EXIT_OK
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="chaos", description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest="command", required=True)
@@ -279,10 +350,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     r.add_argument("--cancel-wait-min", type=float, default=5.0)
     s = sub.add_parser("show")
     s.add_argument("--dir", type=Path, required=True, dest="run_dir")
+    c = sub.add_parser("cleanup")
+    where = c.add_mutually_exclusive_group(required=True)
+    where.add_argument("--dir", type=Path, dest="run_dir")
+    where.add_argument("--targets", type=Path)
+    c.add_argument("--only", default="", help="comma-separated labels (default: all)")
     args = parser.parse_args(argv)
     try:
         if args.command == "show":
             return cmd_show(args.run_dir)
+        if args.command == "cleanup":
+            return cmd_cleanup(args.run_dir, args.targets, args.only)
         plan, actions = _load(args.run_dir)
     except PlanError as exc:
         _say(f"error: {exc}")
@@ -299,9 +377,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         if needs_api
         else None,
     )
+    for signum in (signal.SIGTERM, signal.SIGHUP):
+        signal.signal(signum, _raise_stopped)
     try:
+        _say("cleanup before the first action (a previous run may have left a fault)")
+        cleanup(plan.targets)
         return driver.run()
     except KeyboardInterrupt:
+        for signum in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT):
+            signal.signal(signum, signal.SIG_IGN)  # the cleanup must finish
+        _say("stopped - undoing lasting faults")
+        cleanup(plan.targets)
         _say("interrupted - run the same command again to resume")
         return EXIT_INTERRUPTED
     except OSError as exc:

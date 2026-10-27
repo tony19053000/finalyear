@@ -20,13 +20,22 @@
 
   Kinds done here: kill_agent, kill_job_tree, reboot, net_down_short,
   net_down_long, disk_fill (the catalogue in lab/_soak/chaos.py). netem is never
-  scheduled on Windows; revoke_rejoin asks the operator.
+  scheduled on Windows; revoke_rejoin asks the operator. disk_fill leaves
+  params.leave_free_mib (512 MiB = half the agent's 1 GiB free-disk floor) free on
+  the fill file's drive, so the agent must refuse work disk_full.
+
+  Cleanup: every start first undoes what a killed run may have left (the
+  adapter re-enabled, the fill file removed) - lasting faults also undo
+  themselves in try/finally. `-Cleanup` does only that and exits:
+
+    powershell -ExecutionPolicy Bypass -File lab\chaos_win.ps1 -RunDir C:\mf-soak\RUN -Label L3 -Cleanup
 #>
 param(
     [Parameter(Mandatory = $true)][string]$RunDir,
     [Parameter(Mandatory = $true)][string]$Label,
     [double]$LateMin = 10,
-    [switch]$SkipManual
+    [switch]$SkipManual,
+    [switch]$Cleanup
 )
 
 $ErrorActionPreference = "Stop"
@@ -44,6 +53,19 @@ function Write-Log([hashtable]$record) {
 function Get-Var([string]$name, [string]$default) {
     if ($target.vars -and $target.vars.PSObject.Properties[$name]) { return [string]$target.vars.$name }
     return $default
+}
+
+$fillFile = Get-Var "fill_file" "C:\ProgramData\MeshForge\mf-chaos-fill.bin"
+
+function Invoke-Cleanup {
+    # Idempotent: an enabled adapter stays enabled, a missing file stays missing.
+    $iface = [string]$target.iface
+    if ($iface) {
+        try { netsh interface set interface name="$iface" admin=enabled | Out-Null } catch { }
+    }
+    Remove-Item -Force -ErrorAction SilentlyContinue "$fillFile"
+    $left = if (Test-Path "$fillFile") { "present" } else { "absent" }
+    Write-Host "cleanup ${Label}: adapter '$iface' enabled, fill file $left"
 }
 
 function Get-AgentProcess {
@@ -90,15 +112,20 @@ function Invoke-Action($action) {
             return @("done", "$iface down $duration s")
         }
         "disk_fill" {
-            $file = Get-Var "fill_file" "C:\ProgramData\MeshForge\mf-chaos-fill.bin"
-            $pct = [double]$action.params.fill_pct
+            $file = $fillFile
+            $leaveMib = [long]$action.params.leave_free_mib
+            if ($leaveMib -le 0) { return @("failed", "schedule has no params.leave_free_mib") }
             $drive = New-Object System.IO.DriveInfo ([System.IO.Path]::GetPathRoot($file))
-            $need = [long]($drive.AvailableFreeSpace - $drive.TotalSize * (100 - $pct) / 100)
-            if ($need -le 0) { return @("done", "already above $pct %") }
-            fsutil file createnew "$file" $need | Out-Null
-            try { Start-Sleep -Seconds $duration }
+            $need = [long]($drive.AvailableFreeSpace - $leaveMib * 1MB)
+            if ($need -le 0) { return @("done", "already under $leaveMib MiB free") }
+            try {
+                fsutil file createnew "$file" $need | Out-Null
+                $drive = New-Object System.IO.DriveInfo ([System.IO.Path]::GetPathRoot($file))
+                $leftMib = [long]($drive.AvailableFreeSpace / 1MB)
+                Start-Sleep -Seconds $duration
+            }
             finally { Remove-Item -Force -ErrorAction SilentlyContinue "$file" }
-            return @("done", "filled $need bytes for $duration s")
+            return @("done", "filled $need bytes, $leftMib MiB free, for $duration s")
         }
         "revoke_rejoin" {
             if ($SkipManual) { return @("skipped", "manual action skipped") }
@@ -110,6 +137,9 @@ function Invoke-Action($action) {
         default { return @("skipped", "kind $($action.kind) is not done on Windows") }
     }
 }
+
+Invoke-Cleanup
+if ($Cleanup) { exit 0 }
 
 $done = @{}
 $started = @{}
