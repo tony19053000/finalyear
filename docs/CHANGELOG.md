@@ -54,6 +54,8 @@ for Linux and Windows.
 
 ### Fixed
 
+- The packaged controller reads its Parquet datasets on a Linux without the system time-zone database: the
+  controller takes the `tzdata` package on every OS, not only Windows (G7).
 - A controller whose own event loop stalled (GC pause, starved machine) no longer marks live nodes OFFLINE:
   the lease timer listens for one heartbeat interval after a late wake-up before it judges a lease (G7, D424).
 
