@@ -145,7 +145,9 @@ def test_dry_run_on_fresh_system_creates_no_lock_dir(tmp_path: Path) -> None:
     assert not paths.target_identity.parent.exists()
 
 
-@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores permissions")
+@pytest.mark.skipif(
+    getattr(os, "geteuid", lambda: -1)() == 0, reason="root ignores permissions"
+)
 @pytest.mark.xfail(
     strict=True,
     reason="minor defect TC4-1: a non-writable lock folder escapes migrate() as a raw "
