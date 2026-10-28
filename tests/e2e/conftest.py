@@ -255,7 +255,7 @@ def new_page(
     rest), watched from its first document. At the end of a passing test every
     page made here must be clean (console, uncaught errors, CSP, axe on the
     final state); the test fails at teardown otherwise, listing each problem."""
-    from mf_dashboard import PageWatch
+    from mf_dashboard import NETWORK_CHANGED_NOISE, PageWatch
 
     watches: list[PageWatch] = []
 
@@ -268,6 +268,11 @@ def new_page(
         if init:
             page.add_init_script(init)
         watch = PageWatch.attach(page)
+        watch.allow_matching(
+            NETWORK_CHANGED_NOISE,
+            "Docker job containers change the host's interfaces (see the constant)",
+            may_not_occur=True,
+        )
         watches.append(watch)
         leak_watch.attach(page, test)
         return page, watch
