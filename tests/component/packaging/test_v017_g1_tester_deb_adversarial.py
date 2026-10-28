@@ -492,7 +492,13 @@ def test_concurrent_migrations_do_not_corrupt(
         "cat /tmp/m*.rc"
     )
     codes = sorted(out.split())
-    assert codes.count("0") >= 1, (codes, box.ok("cat /tmp/m*.out"))
+    # CI fix round 4: runs are serialised by migrate-identity.lock - one
+    # migrates, the others then find the target present; every run succeeds
+    # (before, a run that planned against a stale view could block the target)
+    assert codes == ["0"] * 4, (codes, box.ok("cat /tmp/m*.out"))
+    outputs = box.ok("cat /tmp/m*.out")
+    assert outputs.count("migrated node") == 1, outputs
+    assert outputs.count("already has an identity") == 3, outputs
     box.ok("rm -f /tmp/m*.rc")
     # whatever the interleaving: one consistent, startable identity
     assert box.run(f"test -e {SYS_ID}/migration.pending").returncode != 0

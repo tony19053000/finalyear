@@ -9,6 +9,7 @@ from collections.abc import Callable
 from contextlib import ExitStack
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Final
 
 from meshforge.agent.identity import (
     DEFAULT_LOCK_TIMEOUT_S,
@@ -51,9 +52,16 @@ from meshforge.agent.migration.safe_source import (
 from meshforge.agent.migration.user_units import running_user_agents, stop_user_unit
 from meshforge.common.atomic import atomic_write_bytes
 from meshforge.common.errors import IdentityError, MeshForgeError
+from meshforge.common.filelock import locked as file_locked
 from meshforge.common.logging import get_logger
 
 log = get_logger(__name__)
+
+MIGRATE_LOCK_FILE_NAME: Final = "migrate-identity.lock"
+"""Serialises whole ``migrate-identity`` runs (plan + execute); in the folder
+that holds the target identity folder. Never deleted (``common.filelock``)."""
+MIGRATE_LOCK_TIMEOUT_S: Final = 300.0
+"""A run may stop a user unit and copy a few small files: minutes at most."""
 
 
 def _service_owner(user: str | None) -> Owner:
@@ -420,8 +428,56 @@ def migrate(
     service_user: str | None = SERVICE_USER,
     sudo_user: str | None = None,
 ) -> MigrationReport:
-    """The command: :func:`plan`, then :func:`execute` unless ``dry_run``."""
+    """The command: :func:`plan`, then :func:`execute` unless ``dry_run``.
+
+    A real run holds :data:`MIGRATE_LOCK_FILE_NAME` (beside the target
+    identity folder) from the plan to the end of the execute, so concurrent
+    runs (two package hooks, an admin re-run) happen one after the other: the
+    later one plans against what the earlier one left (``target_present``)
+    instead of acting on a plan the other run has made stale - which could
+    block a committed identity or clear another run's half copy (CI fix
+    round 4). A dry run only reads and takes no lock."""
     paths = paths or system_paths()
+    if dry_run:
+        return _plan_and_execute(
+            paths,
+            explicit=explicit,
+            config_from=config_from,
+            dry_run=True,
+            service_user=service_user,
+            sudo_user=sudo_user,
+        )
+    lock_dir = paths.target_identity.parent
+    lock_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        with file_locked(
+            lock_dir / MIGRATE_LOCK_FILE_NAME, timeout_s=MIGRATE_LOCK_TIMEOUT_S
+        ):
+            return _plan_and_execute(
+                paths,
+                explicit=explicit,
+                config_from=config_from,
+                dry_run=False,
+                service_user=service_user,
+                sudo_user=sudo_user,
+            )
+    except TimeoutError:
+        raise MeshForgeError(
+            f"another migrate-identity run holds {lock_dir / MIGRATE_LOCK_FILE_NAME}"
+            f" (waited {MIGRATE_LOCK_TIMEOUT_S:g} s); let it finish, then re-run "
+            f"{rerun_hint()}"
+        ) from None
+
+
+def _plan_and_execute(
+    paths: Paths,
+    *,
+    explicit: Path | None,
+    config_from: Path | None,
+    dry_run: bool,
+    service_user: str | None,
+    sudo_user: str | None,
+) -> MigrationReport:
     chosen = plan(
         paths, explicit=explicit, config_from=config_from, sudo_user=sudo_user
     )
