@@ -19,7 +19,7 @@ remove | deconfigure)
 	# D389: the firewall rule goes with the service (by its profile name).
 	# `ufw show added` lists the rule even while ufw is inactive (`ufw status`
 	# does not), so a rule added while ufw was on never outlives the package.
-	if command -v ufw >/dev/null 2>&1 && ufw show added 2>/dev/null | grep -q 'MeshForge Controller'; then
+	if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q 'MeshForge Controller'; then
 		ufw delete allow 'MeshForge Controller' >/dev/null 2>&1 || true
 	fi
 	if [ "$1" = remove ]; then
