@@ -76,6 +76,9 @@ kernel32.GetCurrentProcess.restype = wintypes.HANDLE
 ok = kernel32.QueryInformationJobObject(
     None, 15, ctypes.byref(rate), ctypes.sizeof(rate), ctypes.byref(size)
 )
+kernel32.IsProcessInJob.argtypes = [
+    wintypes.HANDLE, wintypes.HANDLE, ctypes.POINTER(wintypes.BOOL)
+]
 in_job = wintypes.BOOL()
 kernel32.IsProcessInJob(kernel32.GetCurrentProcess(), None, ctypes.byref(in_job))
 program = os.path.join(os.environ.get("ProgramFiles", r"C:\Program Files"), "MeshForge")
