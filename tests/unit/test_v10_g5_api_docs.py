@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import importlib.util
 import sys
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from types import ModuleType
 from typing import Any
 
@@ -205,6 +205,36 @@ def test_cli_page_has_every_command_at_a_fixed_width(
     ):
         assert f"### `{command}`" in narrow, command
     assert "\x1b[" not in narrow and "╭" not in narrow  # no colour, no rich boxes
+
+
+def test_cli_help_shows_path_defaults_the_same_on_every_os() -> None:
+    """A ``Path`` default is printed with ``/`` even where ``str()`` gives ``\\``.
+
+    CI fix round 4: ``meshforge-controller setup init-config --path`` defaults to
+    ``Path("/etc/meshforge/controller.toml")``, which Click printed as
+    ``\\etc\\meshforge\\controller.toml`` on Windows. A Windows path object
+    stands in for the Windows run here; the default is restored afterwards.
+    """
+    import typer
+
+    cli = _load("apidoc_cli")
+    app = typer.Typer(add_completion=False)
+
+    @app.command()
+    def init(
+        path: Path = typer.Option(Path("/etc/mf/c.toml"), help="Settings."),  # noqa: B008
+    ) -> None:
+        """Init."""
+
+    root = typer.main.get_command(app)
+    (param,) = (p for p in root.params if p.name == "path")
+    windows_default = PureWindowsPath("/etc/mf/c.toml")
+    param.default = windows_default
+    assert "\\" in str(windows_default)
+    ((_, text),) = list(cli._walk(root, ("init",), None))
+    assert "[default: /etc/mf/c.toml]" in text, text
+    assert "\\" not in text
+    assert param.default is windows_default
 
 
 def test_check_reports_changed_missing_and_stray_pages(tmp_path: Path) -> None:

@@ -355,6 +355,56 @@ async def test_concurrent_submits_of_one_run_make_one_job(
         await a.stop()
 
 
+async def test_orphan_sweep_between_commit_and_link_still_reports_submitted(
+    http: httpx.AsyncClient,
+    runtime: ControllerRuntime,
+    grpc_target: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """CI fix round 4 (CI run 40652417064): the runner tick's ``sync()`` linked
+    the run to the job a submit had just committed, before the submit's own
+    link - the submit reported ``already`` (and stopped its batch as stale)
+    for a run it had in fact submitted. The sweep is forced into exactly that
+    window here; the outcome must be ``submitted``, counted once, one job."""
+    a = await _agent(grpc_target, tmp_path / "a")
+    try:
+        created = await _create(http, _spec(a.node_id, strategies="[local]"))
+        submitter, store = runtime.bench_submitter, runtime.bench
+        assert submitter is not None and store is not None
+        campaign = await store.get_campaign(created["campaign_id"])
+        assert campaign is not None
+        real_mark = store.mark_submitted
+        swept: list[str] = []
+
+        async def sweep_first(run_id: str, job_id: str, **kw: Any) -> bool:
+            await store.sync(campaign.id)  # the runner tick wins the race
+            swept.append(run_id)
+            return await real_mark(run_id, job_id, **kw)
+
+        monkeypatch.setattr(store, "mark_submitted", sweep_first)
+        batch = await submitter.submit_next(campaign, 2)
+        monkeypatch.setattr(store, "mark_submitted", real_mark)
+        assert len(swept) == 2
+        assert [o.outcome for o in batch.outcomes] == ["submitted", "submitted"]
+        assert batch.submitted == 2 and not batch.stale
+        runs = await _runs(http, campaign.id)
+        assert [r["state"] for r in runs[:2]] == ["submitted", "submitted"]
+        assert [r["job_id"] for r in runs[:2]] == [o.job_id for o in batch.outcomes]
+        jobs = (await http.get("/v1/jobs", params={"limit": 50})).json()["jobs"]
+        bench_jobs = [j for j in jobs if j["benchmark"]]
+        assert len(bench_jobs) == 2
+        # a replay of a swept run is not a second "submitted"
+        again = await submitter.submit_run(
+            campaign, (await store.runs(campaign.id, limit=1))[0], owner_name=None
+        )
+        assert again.outcome == "already" and again.job_id == runs[0]["job_id"]
+        for job in bench_jobs:
+            await http.post(f"/v1/jobs/{job['job_id']}/cancel")
+    finally:
+        await a.stop()
+
+
 async def test_api_refusals(
     http: httpx.AsyncClient, runtime: ControllerRuntime
 ) -> None:

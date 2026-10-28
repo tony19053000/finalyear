@@ -136,7 +136,13 @@ def _create_and_run(
     a loaded CI runner a stall (e.g. heartbeats late) can make both nodes not
     online mid-call (CI run 40616707191: 5 of 24 submitted, nothing failed),
     so submit again for the rest, as an operator or the campaign runner
-    would. Any other outcome (``skipped`` / ``already``) still fails here."""
+    would, backing off 2-5 s between tries.
+
+    ``already`` (CI fix round 4) is accepted only for a run an earlier call of
+    this loop reported ``submitted`` (a resubmit that met it moving on); an
+    ``already`` for any other run - another submitter took it, or the orphan
+    sweep race fixed in ``BenchSubmitter.submit_run`` is back - and every
+    ``skipped`` still fail here."""
     path = work / f"spec-{time.monotonic_ns()}.yaml"
     path.write_text(spec)
     created = _compute(fabric, a_data, "bench", "create", str(path), "--json", cwd=work)
@@ -144,8 +150,11 @@ def _create_and_run(
     campaign_id = str(json.loads(created.stdout)["campaign_id"])
     total = 0
     deferred: list[str] = []
+    ours: set[object] = set()  # seqs this loop saw submitted
     deadline = time.monotonic() + 300
+    tries = 0
     while total < runs:
+        tries += 1
         submitted = _compute(
             fabric,
             a_data,
@@ -168,11 +177,14 @@ def _create_and_run(
         result = json.loads(submitted.stdout)
         outcomes = list(result["outcomes"])
         unexpected = [
-            f"run {o.get('seq')} {o.get('outcome')}: {o.get('detail')}"
+            f"run {o.get('seq')} {o.get('outcome')}: {o.get('detail')} "
+            f"(job {o.get('job_id')}, try {tries})"
             for o in outcomes
             if o.get("outcome") not in ("submitted", "deferred")
+            and not (o.get("outcome") == "already" and o.get("seq") in ours)
         ]
         assert not unexpected, "\n".join(unexpected)
+        ours.update(o.get("seq") for o in outcomes if o.get("outcome") == "submitted")
         deferred += [
             f"run {o.get('seq')} deferred: {o.get('detail')}"
             for o in outcomes
@@ -184,7 +196,7 @@ def _create_and_run(
                 f"{total} of {runs} submitted; last deferrals:\n"
                 + "\n".join(deferred[-10:])
             )
-            time.sleep(1.0)
+            time.sleep(min(5.0, 1.0 + tries))  # 2 s, 3 s, ... capped at 5 s
     if deferred:  # shown with the test's output when a later check fails
         print(f"{len(deferred)} deferral(s) before all {runs} were submitted:")  # noqa: T201
         print("\n".join(deferred[-10:]))  # noqa: T201
