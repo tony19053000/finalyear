@@ -287,6 +287,16 @@ class JobTransition(Base):
     at: Mapped[dt.datetime] = mapped_column(nullable=False)
 
 
+LIVE_ATTEMPT_SQL: Final = (
+    "state IN ("
+    + ", ".join(
+        f"'{s.value}'" for s in AttemptState if s not in ATTEMPT_TERMINAL_STATES
+    )
+    + ")"
+)
+"""The non-terminal attempt states as SQL (partial-index predicates)."""
+
+
 class Attempt(TimestampMixin, Base):
     __tablename__ = "attempt"
     __table_args__ = (
@@ -315,15 +325,15 @@ class Attempt(TimestampMixin, Base):
             "job_id",
             "node_id",
             unique=True,
-            postgresql_where=text(
-                "role = 'lane' AND state IN ("
-                + ", ".join(
-                    f"'{s.value}'"
-                    for s in AttemptState
-                    if s not in ATTEMPT_TERMINAL_STATES
-                )
-                + ")"
-            ),
+            postgresql_where=text(f"role = 'lane' AND {LIVE_ATTEMPT_SQL}"),
+        ),
+        # V1.0 G4 (D412): the live-attempt polls (dispatcher/reconcile, the
+        # timeout check, start snapshots) read the few non-terminal rows; a
+        # seq scan of every attempt ever run grew with history (migration 0036).
+        Index(
+            "ix_attempt_live_created_at",
+            "created_at",
+            postgresql_where=text(LIVE_ATTEMPT_SQL),
         ),
     )
 

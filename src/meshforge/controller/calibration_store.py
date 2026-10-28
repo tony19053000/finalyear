@@ -145,6 +145,7 @@ __all__ = [
     "CalibrationStoreError",
     "RefreshResult",
     "factor_rows",
+    "fingerprint_query",
     "matched_watermark",
     "parse_mode",
     "read_outcomes",
@@ -342,12 +343,8 @@ def _window(*columns: Any, limit: int) -> Any:
     )
 
 
-async def window_fingerprint(db: AsyncSession, limit: int) -> tuple[int, str | None]:
-    """V1.0 G4 (F-2): ``(rows, md5)`` of :func:`read_outcomes`' window
-    computed in the database. The digest covers every field the matched-run
-    set depends on (decision id, chosen node, candidates, attempt node and
-    role, every phase row of the attempt); equal fingerprints -> the same
-    matched decision ids. ``md5`` is None for an empty window."""
+def fingerprint_query(limit: int) -> Any:
+    """The statement :func:`window_fingerprint` runs (also for EXPLAIN)."""
     w = _window(
         PlanDecision.id.label("decision_id"),
         PlanDecision.chosen_node_id.label("chosen"),
@@ -388,19 +385,24 @@ async def window_fingerprint(db: AsyncSession, limit: int) -> tuple[int, str | N
         "|",
         phases,
     )
-    found = (
-        await db.execute(
-            select(
-                func.count(),
-                func.md5(
-                    func.string_agg(
-                        row_text,
-                        aggregate_order_by(literal_column("','"), w.c.decision_id),
-                    )
-                ),
-            ).select_from(w)
-        )
-    ).one()
+    return select(
+        func.count(),
+        func.md5(
+            func.string_agg(
+                row_text,
+                aggregate_order_by(literal_column("','"), w.c.decision_id),
+            )
+        ),
+    ).select_from(w)
+
+
+async def window_fingerprint(db: AsyncSession, limit: int) -> tuple[int, str | None]:
+    """V1.0 G4 (F-2): ``(rows, md5)`` of :func:`read_outcomes`' window
+    computed in the database. The digest covers every field the matched-run
+    set depends on (decision id, chosen node, candidates, attempt node and
+    role, every phase row of the attempt); equal fingerprints -> the same
+    matched decision ids. ``md5`` is None for an empty window."""
+    found = (await db.execute(fingerprint_query(limit))).one()
     return int(found[0] or 0), None if found[1] is None else str(found[1])
 
 
