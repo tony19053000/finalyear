@@ -67,7 +67,7 @@ if _DIR:
     def _tasks() -> dict[str, int]:
         import asyncio
 
-        loop = asyncio.events._get_running_loop()  # noqa: SLF001 - main thread's loop
+        loop = asyncio.events._get_running_loop()
         if loop is None:
             return {}
         names: collections.Counter[str] = collections.Counter()
@@ -75,6 +75,58 @@ if _DIR:
             coro = task.get_coro()
             names[getattr(coro, "__qualname__", type(coro).__name__)] += 1
         return dict(names.most_common())
+
+    def _fill(obj: object, attr: str, cap: object) -> dict[str, Any] | None:
+        held = getattr(obj, attr, None)
+        if held is None:
+            return None
+        return {"len": len(held), "cap": cap}
+
+    def _const(module: str, name: str) -> object:
+        found = sys.modules.get(f"meshforge.controller.{module}")
+        return getattr(found, name, None)
+
+    def _caches() -> dict[str, Any]:
+        """Fill level vs cap of the controller's long-lived bounded stores (the
+        warm-up a memory rule must not read as a leak): the event bus ring,
+        LogHub's ended attempts, the live resource rings, the progress-kind
+        cache. Found by type name through ``gc`` (read-only)."""
+        out: dict[str, Any] = {}
+        wanted = {"EventBus", "LogHub", "ResourceTracker", "ProgressTracker"}
+        for obj in gc.get_objects():
+            name = type(obj).__name__
+            if name not in wanted or name in out:
+                continue
+            if name == "EventBus":
+                ring = obj._ring  # type: ignore[attr-defined]
+                out[name] = {
+                    "ring": {"len": len(ring), "cap": ring.maxlen},
+                    "seq": obj.seq,  # type: ignore[attr-defined]
+                }
+            elif name == "LogHub":
+                out[name] = {
+                    "ended": _fill(obj, "_ended", _const("jobs.logs", "_ENDED_KEPT")),
+                    "attempts": _fill(obj, "_attempts", None),
+                }
+            elif name == "ResourceTracker":
+                rings = getattr(obj, "_rings", {})
+                out[name] = {
+                    "nodes": len(rings),
+                    "samples": sum(
+                        len(getattr(r, "_samples", ())) for r in rings.values()
+                    ),
+                    "cap_per_node": getattr(obj, "_ring_size", None),
+                }
+            else:
+                out[name] = {
+                    "is_split": _fill(
+                        obj,
+                        "_is_split",
+                        _const("split.progress_events", "MAX_KIND_CACHE"),
+                    ),
+                    "seen": _fill(obj, "_seen", None),
+                }
+        return out
 
     def _dump(signum: int, frame: object) -> None:
         _SEQ[0] += 1
@@ -96,6 +148,7 @@ if _DIR:
             "gc_objects": sum(types.values()),
             "gc_top": dict(types.most_common(80)),
             "tasks": _tasks(),
+            "caches": _caches() if _ROLE == "controller" else {},
             "timings": {k: list(v) for k, v in _TIMINGS.items() if v},
         }
         if tracemalloc.is_tracing():

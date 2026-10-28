@@ -107,6 +107,29 @@ def proc_row(pid: int) -> dict[str, Any] | None:
         return None
 
 
+def rss_slope(
+    series: Sequence[tuple[float, int]], since_s: float, until_s: float = math.inf
+) -> dict[str, Any]:
+    """Least-squares RSS slope (MiB/h) of ``(t, rss_bytes)`` points in
+    ``[since_s, until_s]``, with the first/last value: a leak keeps a positive
+    slope over a long idle window, a filled bounded store does not."""
+    pts = [(t, v / 2**20) for t, v in series if since_s <= t <= until_s]
+    if len(pts) < 3:
+        return {"n": len(pts)}
+    n = len(pts)
+    mt = sum(t for t, _ in pts) / n
+    mv = sum(v for _, v in pts) / n
+    var = sum((t - mt) ** 2 for t, _ in pts)
+    slope = sum((t - mt) * (v - mv) for t, v in pts) / var if var else 0.0
+    return {
+        "n": n,
+        "span_s": round(pts[-1][0] - pts[0][0], 1),
+        "first_mib": round(pts[0][1], 1),
+        "last_mib": round(pts[-1][1], 1),
+        "slope_mib_per_h": round(slope * 3600.0, 2),
+    }
+
+
 class Sampler(threading.Thread):
     """``pids()`` sampled every ``every_s``: ``rows`` = ``(t, label, row)``."""
 
@@ -174,7 +197,9 @@ class EventTap(threading.Thread):
                         self.frames.append((time.time(), frame))
                         data = frame.get("data") or {}
                         if frame.get("type") == "job.state" and data.get("state") in (
-                            "succeeded", "failed", "cancelled"
+                            "succeeded",
+                            "failed",
+                            "cancelled",
                         ):
                             self.terminal.add(str(data.get("job_id")))
         except Exception as exc:  # noqa: BLE001 - reported in the results
@@ -186,7 +211,9 @@ class EventTap(threading.Thread):
         self.join(10)
 
 
-def dump(pid: int, out_dir: Path, *, role: str, timeout_s: float = 120.0) -> dict[str, Any]:
+def dump(
+    pid: int, out_dir: Path, *, role: str, timeout_s: float = 120.0
+) -> dict[str, Any]:
     """SIGUSR2 ``pid`` and return the hook's new JSON dump."""
     before = set(out_dir.glob(f"{role}-{pid}-*.json"))
     os.kill(pid, signal.SIGUSR2)
@@ -221,11 +248,23 @@ class PySpy:
             path = self.out_dir / f"pyspy-{name}.txt"
             self._procs.append(
                 subprocess.Popen(
-                    [self.binary, "record", "--pid", str(target), "-r", "100",
-                     "-f", "raw", "--nonblocking", "-o", str(path),
-                     *(["--idle"] if idle else [])],
-                    stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT,
-                )  # fmt: skip
+                    [
+                        self.binary,
+                        "record",
+                        "--pid",
+                        str(target),
+                        "-r",
+                        "100",
+                        "-f",
+                        "raw",
+                        "--nonblocking",
+                        "-o",
+                        str(path),
+                        *(["--idle"] if idle else []),
+                    ],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.STDOUT,
+                )
             )
             self.files[name] = str(path)
         time.sleep(1.0)
@@ -284,8 +323,9 @@ async def _generic_plan(conn: Any, query: str) -> list[str]:
     assert tag not in query
     await conn.execute("CREATE TEMP TABLE IF NOT EXISTS _mf_plan(n serial, line text)")
     await conn.execute("TRUNCATE _mf_plan")
+    # the statement is pg_stat_statements' own text, dollar-quoted (tag checked)
     await conn.execute(
-        "DO $mfdo$ DECLARE r record; BEGIN FOR r IN EXECUTE "
+        "DO $mfdo$ DECLARE r record; BEGIN FOR r IN EXECUTE "  # noqa: S608
         f"'EXPLAIN (GENERIC_PLAN) ' || {tag}{query}{tag} LOOP "
         'INSERT INTO _mf_plan(line) VALUES (r."QUERY PLAN"); END LOOP; END $mfdo$'
     )
@@ -335,13 +375,21 @@ def pg_top(settings: Any, limit: int = 15, explain: int = 10) -> list[dict[str, 
 
 
 def pyspy_top(
-    path: Path, match: str, *, top: int = 30, skip_idle: bool = True
+    path: Path,
+    match: str,
+    *,
+    top: int = 30,
+    skip_idle: bool = True,
+    spine_pct: float = 90.0,
 ) -> dict[str, Any]:
-    """Self and inclusive sample shares per function of the processes whose
-    ``process N:"cmdline"`` frame contains ``match`` (a ``py-spy record
-    --subprocesses -f raw`` file: one ``frame;frame;... count`` per line).
+    """Self and inclusive sample shares per function of the stacks containing
+    ``match`` (a ``py-spy record -f raw`` file: one ``frame;frame;... count``
+    per line; ``--subprocesses`` adds a ``process N:"cmdline"`` frame).
     ``skip_idle``: samples parked in the selector (an idle event loop) are
-    left out, so the shares are of busy time."""
+    left out, so the shares are of busy time. Frames on at least
+    ``spine_pct`` % of the samples (``main``, ``run_until_complete``, ...)
+    say nothing and are left out of the inclusive list; ``meshforge_pct`` is
+    the inclusive list of the product's own frames only."""
     from collections import Counter
 
     self_c: Counter[str] = Counter()
@@ -364,7 +412,20 @@ def pyspy_top(
         for f in set(frames):
             incl[f] += n
 
-    def rows(c: Counter[str]) -> list[tuple[str, float]]:
-        return [(k, round(100.0 * v / max(1, total), 2)) for k, v in c.most_common(top)]
+    def pct(v: int) -> float:
+        return round(100.0 * v / max(1, total), 2)
 
-    return {"samples": total, "self_pct": rows(self_c), "inclusive_pct": rows(incl)}
+    def rows(
+        c: Counter[str], keep: Callable[[str, int], bool]
+    ) -> list[tuple[str, float]]:
+        return [(k, pct(v)) for k, v in c.most_common() if keep(k, v)][:top]
+
+    def body(k: str, v: int) -> bool:
+        return pct(v) < spine_pct
+
+    return {
+        "samples": total,
+        "self_pct": rows(self_c, lambda k, v: True),
+        "inclusive_pct": rows(incl, body),
+        "meshforge_pct": rows(incl, lambda k, v: "meshforge/" in k and body(k, v)),
+    }

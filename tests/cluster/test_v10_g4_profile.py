@@ -58,6 +58,8 @@ from mf_profile import (
     dump,
     pg_stat_reset,
     pg_top,
+    pyspy_top,
+    rss_slope,
     summary,
 )
 from pydantic import SecretStr
@@ -69,7 +71,9 @@ from meshforge.common.tree import BuiltTree, build_tree
 pytestmark = [pytest.mark.perf, pytest.mark.timeout(4 * 3600)]
 
 if not sys.platform.startswith("linux"):
-    pytest.skip("the profiling run is Linux-only (SIGUSR2, /proc)", allow_module_level=True)
+    pytest.skip(
+        "the profiling run is Linux-only (SIGUSR2, /proc)", allow_module_level=True
+    )
 
 
 def _env_int(name: str, default: int) -> int:
@@ -88,6 +92,9 @@ IDLE_MIN: Final = _env_int("MESHFORGE_PROFILE_IDLE_MIN", 0)
 HISTORY: Final = _env_int("MESHFORGE_PROFILE_HISTORY", 0)
 """Jobs run (and kept) BEFORE the measured phases: the database of a long run."""
 TRACEMALLOC: Final = os.environ.get("MESHFORGE_PROFILE_TRACEMALLOC") == "1"
+EVENTS_RING: Final = _env_int("MESHFORGE_PROFILE_EVENTS_RING", 0)
+"""``controller.events.ring_size`` override (0 = shipped 10 000): a small ring
+fills in minutes, so the memory phase can show the bus ring's plateau."""
 PYSPY: Final = os.environ.get("MESHFORGE_PROFILE_PYSPY") or None
 """A py-spy binary: the controller is recorded per phase (``pyspy-<phase>.txt``)."""
 EXEC: Final = {
@@ -180,10 +187,13 @@ class Api:
         done: dict[str, dict[str, Any]] = {}
         next_poll = time.monotonic() + POLL_S
         while time.monotonic() < deadline:
-            if self.tap is not None and time.monotonic() < next_poll:
-                if not set(ids) <= self.tap.terminal:
-                    time.sleep(0.05)
-                    continue
+            if (
+                self.tap is not None
+                and time.monotonic() < next_poll
+                and not set(ids) <= self.tap.terminal
+            ):
+                time.sleep(0.05)
+                continue
             next_poll = time.monotonic() + POLL_S
             for job_id in [i for i in ids if i not in done]:
                 job = self.job(job_id)
@@ -192,7 +202,9 @@ class Api:
             if len(done) == len(ids):
                 return done
             time.sleep(0.25)
-        raise AssertionError(f"{len(ids) - len(done)} jobs not terminal in {within_s} s")
+        raise AssertionError(
+            f"{len(ids) - len(done)} jobs not terminal in {within_s} s"
+        )
 
 
 def _ts(value: str) -> float:
@@ -235,9 +247,7 @@ def _decisions(pg_settings: Any) -> list[float]:
     return list(pg_run(pg_settings, go))
 
 
-def _event_latency(
-    tap: EventTap, jobs: dict[str, dict[str, Any]]
-) -> dict[str, Any]:
+def _event_latency(tap: EventTap, jobs: dict[str, dict[str, Any]]) -> dict[str, Any]:
     arrows: dict[tuple[str, str], float] = {}
     for job_id, job in jobs.items():
         for t in job["transitions"]:
@@ -264,7 +274,9 @@ def _event_latency(
     }
 
 
-def _diff_top(a: dict[str, int], b: dict[str, int], n: int = 25) -> list[tuple[str, int]]:
+def _diff_top(
+    a: dict[str, int], b: dict[str, int], n: int = 25
+) -> list[tuple[str, int]]:
     keys = set(a) | set(b)
     deltas = [(k, int(b.get(k, 0)) - int(a.get(k, 0))) for k in keys]
     return sorted(deltas, key=lambda kv: -abs(kv[1]))[:n]
@@ -281,7 +293,8 @@ def test_profile_local_fabric(
     dumps.mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("MF_PROFILE_DIR", str(dumps))
     monkeypatch.setenv(
-        "PYTHONPATH", os.pathsep.join(filter(None, [str(HOOK_DIR), os.environ.get("PYTHONPATH")]))
+        "PYTHONPATH",
+        os.pathsep.join(filter(None, [str(HOOK_DIR), os.environ.get("PYTHONPATH")])),
     )
     if TRACEMALLOC:
         monkeypatch.setenv("MF_PROFILE_TRACEMALLOC", "controller")
@@ -294,7 +307,7 @@ def test_profile_local_fabric(
             "agents": AGENTS, "idle_s": IDLE_S, "seq_jobs": SEQ_JOBS, "burst": BURST,
             "transfer_mib": TRANSFER_MIB, "waves": WAVES, "wave_jobs": WAVE_JOBS,
             "idle_min": IDLE_MIN, "tracemalloc": TRACEMALLOC, "exec": EXEC,
-            "history": HISTORY,
+            "history": HISTORY, "events_ring": EVENTS_RING or None,
             "cpus": os.cpu_count(),
         },
     }  # fmt: skip
@@ -308,6 +321,9 @@ def test_profile_local_fabric(
         timing=SHIPPED,
         agent_execution=EXEC,
         agent_env={"DOCKER_HOST": "unix:///nonexistent/meshforge-test.sock"},
+        controller_extra={"events": {"ring_size": EVENTS_RING}}
+        if EVENTS_RING
+        else None,
     )
     assert fabric.controller is not None
     ctl = fabric.controller
@@ -322,7 +338,9 @@ def test_profile_local_fabric(
 
     def pids() -> dict[str, int]:
         found = {"controller": ctl.pid} if ctl.running else {}
-        found.update({f"agent{n.index}": n.pid for n in fabric.nodes if n.process.running})
+        found.update(
+            {f"agent{n.index}": n.pid for n in fabric.nodes if n.process.running}
+        )
         return found
 
     sampler = Sampler(pids, 2.0)
@@ -360,8 +378,12 @@ def test_profile_local_fabric(
         time.sleep(IDLE_S)
         spy.stop()
         hb_per_s = AGENTS / SHIPPED.heartbeat_s
-        ctl_cpu_ms_s = 1000.0 * idle["processes"]["controller"]["cpu_s"] / idle["wall_s"]
-        idle["controller_cpu_ms_per_heartbeat_upper_bound"] = round(ctl_cpu_ms_s / hb_per_s, 3)
+        ctl_cpu_ms_s = (
+            1000.0 * idle["processes"]["controller"]["cpu_s"] / idle["wall_s"]
+        )
+        idle["controller_cpu_ms_per_heartbeat_upper_bound"] = round(
+            ctl_cpu_ms_s / hb_per_s, 3
+        )
         idle["controller_rss_mib"] = round(dumps_first["rss_bytes"] / 2**20, 1)
         idle["verdict_idle_cpu_lt_5pct"] = (
             "PASS" if idle["processes"]["controller"]["cpu_pct"] < 5.0 else "FAIL"
@@ -383,10 +405,7 @@ def test_profile_local_fabric(
         results["overhead"] = {
             "succeeded": sum(1 for j in seq.values() if j["state"] == "succeeded"),
             "submit_api_ms": summary(api_ms),
-            **{
-                k: summary([t[k] for t in times if t[k] is not None])
-                for k in times[0]
-            },
+            **{k: summary([t[k] for t in times if t[k] is not None]) for k in times[0]},
         }
         save()
 
@@ -448,7 +467,11 @@ def test_profile_local_fabric(
         spy.stop()
         all_jobs[job_id] = tjob
         attempt = tjob["attempts"][-1]
-        staged = [x for x in attempt.get("transfers", []) if x["tree_id"] == str(big.tree.tree_id)]
+        staged = [
+            x
+            for x in attempt.get("transfers", [])
+            if x["tree_id"] == str(big.tree.tree_id)
+        ]
         ctl_bytes = sum(x["bytes"] for x in staged if x["source"] == "controller")
         ctl_ms = max((x["duration_ms"] for x in staged), default=0)
         client = api.client()
@@ -478,7 +501,12 @@ def test_profile_local_fabric(
         # -------------------------------------------------------- memory
         mem: list[dict[str, Any]] = []
         mem_dumps = [snap()]
-        mem.append({"what": "after-transfer", "rss_mib": round(mem_dumps[0]["rss_bytes"] / mib, 1)})
+        mem.append(
+            {
+                "what": "after-transfer",
+                "rss_mib": round(mem_dumps[0]["rss_bytes"] / mib, 1),
+            }
+        )
         for w in range(WAVES):
             sampler.mark(f"wave{w}")
             wave = [api.submit(small, f"wave{w}-{i}", 0.2)[0] for i in range(WAVE_JOBS)]
@@ -488,7 +516,8 @@ def test_profile_local_fabric(
             mem_dumps.append(d)
             mem.append({"what": f"wave{w}", "rss_mib": round(d["rss_bytes"] / mib, 1),
                         "gc_objects": d["gc_objects"], "tasks": sum(d["tasks"].values()),
-                        "traced_mib": round(d.get("tracemalloc_traced_bytes", 0) / mib, 2)})  # fmt: skip
+                        "traced_mib": round(d.get("tracemalloc_traced_bytes", 0) / mib, 2),
+                        "caches": d.get("caches")})  # fmt: skip
             save()
         for m in range(IDLE_MIN):
             sampler.mark(f"idle{m}")
@@ -497,7 +526,8 @@ def test_profile_local_fabric(
             mem_dumps.append(d)
             mem.append({"what": f"idle-min{m + 1}", "rss_mib": round(d["rss_bytes"] / mib, 1),
                         "gc_objects": d["gc_objects"], "tasks": sum(d["tasks"].values()),
-                        "traced_mib": round(d.get("tracemalloc_traced_bytes", 0) / mib, 2)})  # fmt: skip
+                        "traced_mib": round(d.get("tracemalloc_traced_bytes", 0) / mib, 2),
+                        "caches": d.get("caches")})  # fmt: skip
             save()
         if len(mem_dumps) >= 3:
             first, last = mem_dumps[1], mem_dumps[-1]
@@ -513,7 +543,8 @@ def test_profile_local_fabric(
         results["events"] = _event_latency(tap, all_jobs)
         results["events"]["verdict_p95_lt_500ms"] = (
             "PASS"
-            if (results["events"]["job_state_from_transition_ms"].get("p95") or 1e9) < 500
+            if (results["events"]["job_state_from_transition_ms"].get("p95") or 1e9)
+            < 500
             else "FAIL"
         )
         save()
@@ -526,10 +557,33 @@ def test_profile_local_fabric(
             for label in ("controller", "agent0")
         }
         results["threads"] = {
-            label: sampler.series(label, "threads")[-1:] for label in ("controller", "agent0")
+            label: sampler.series(label, "threads")[-1:]
+            for label in ("controller", "agent0")
         }
         results["marks"] = sampler.marks
         results["pyspy"] = spy.files
+        results["pyspy_top"] = {
+            name: pyspy_top(
+                Path(path),
+                "meshforge/agent"
+                if name.endswith("-agent")
+                else "meshforge/controller",
+                top=20,
+                skip_idle=not name.startswith(("upload", "staging")),
+            )
+            for name, path in spy.files.items()
+            if Path(path).is_file() and Path(path).stat().st_size
+        }
+        idle_marks = [
+            t for t, what in sampler.marks if what.startswith("idle") and what != "idle"
+        ]
+        if idle_marks:
+            # RSS slope over the idle tail (after the first idle minute): a
+            # bounded store still filling reads as a positive slope here.
+            results["memory_idle_slope_mib_per_h"] = {
+                label: rss_slope(sampler.series(label, "rss"), idle_marks[0] + 60.0)
+                for label in ("controller", "agent0")
+            }
         results["db"] = {"unavailable": pg_reason} if pg_reason else pg_top(pg_settings)
         results["finished"] = dt.datetime.now(dt.UTC).isoformat()
         save()
