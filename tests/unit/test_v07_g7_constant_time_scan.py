@@ -93,6 +93,18 @@ ALLOWED: dict[tuple[str, str], str] = {
     ("controller/ml/train/classify.py", "e.fingerprint in prints"): (
         "V0.15 G6a: counting the same-workload groups a fold dropped - no secret"
     ),
+    (
+        "controller/calibration_store.py",
+        "await window_fingerprint(db, limit) != seen.fingerprint",
+    ): (
+        "V1.0 G4 (F-2): an md5 of the calibration read window (decision ids, "
+        "phases) computed by the database, compared with the one this process "
+        "took earlier - a change detector, no secret"
+    ),
+    ("controller/calibration_store.py", "fingerprint == prepared.fingerprint"): (
+        "V1.0 G4 (F-2): the same read-window md5 before and under the "
+        "calibration lock - a change detector, no secret"
+    ),
     ("controller/auth/users.py", "ApiToken.token_hash == wanted"): (
         "a SQL WHERE on the SHA-256 of a 256-bit random token (an index lookup "
         "in PostgreSQL, not a Python compare); timing could reveal at most a "
