@@ -125,7 +125,13 @@ jobs:
       - name: controller bundle + .deb
         run: |
           uv run python scripts/build_bundle.py --role controller --out dist/controller/ --skip-dashboard-build
-          uv run python scripts/build_deb.py --role controller --bundle "$(ls -d dist/controller/meshforge-*-linux-x86_64)" --out release/
+          bundle="$(ls -d dist/controller/meshforge-*-linux-x86_64)"
+          # D423: the controller bundle carries the ml extra (build_bundle ROLE_EXTRAS) and
+          # its interpreter imports the whole training stack (the installed .deb trains
+          # for real in tests/component/packaging/test_v10_g7_controller_ml.py)
+          "$bundle/python/bin/python3.12" -I -c 'import json, sys; e = json.load(open(sys.argv[1]))["extras"]; sys.exit(0 if "ml" in e else f"BUILDINFO extras lack ml: {e}")' "$bundle/BUILDINFO.json"
+          "$bundle/python/bin/python3.12" -I -c 'import sys, sklearn, scipy, lightgbm, xgboost; from meshforge.controller.ml.train import missing_libraries as m; sys.exit(f"missing: {m()}" if m() else 0)'
+          uv run python scripts/build_deb.py --role controller --bundle "$bundle" --out release/
       - name: lintian (errors fail)
         run: |
           sudo apt-get update -qq

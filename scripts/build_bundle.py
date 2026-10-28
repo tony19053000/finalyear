@@ -138,7 +138,10 @@ PINS: Final = REPO / "packaging" / "pins.toml"
 Role = Literal["agent", "controller"]
 ROLE_EXTRAS: Final[Mapping[str, tuple[str, ...]]] = {
     "agent": ("agent",),
-    "controller": ("controller",),
+    # V1.0 G7 (D423): the installed controller trains the ML planner's models
+    # (retrain task, `compute planner ml compare/classify`) - without the `ml`
+    # extra every train exits 2 "install the ml extra" (L4 lab day blocked).
+    "controller": ("controller", "ml"),
 }
 ROLE_COMMANDS: Final[Mapping[str, tuple[str, ...]]] = {
     # V0.17 G3: the app-menu launcher of the local console
@@ -592,6 +595,22 @@ STRIP_SITE: Final[Mapping[str, tuple[tuple[str, str], ...]]] = {
         ("pyarrow/include", "C++ headers for building extensions"),
         ("pyarrow/src", "C++ sources for building extensions"),
         ("greenlet/tests", "greenlet's own test suite"),
+        # V1.0 G7 (D423): the `ml` extra (scikit-learn + scipy, LightGBM,
+        # XGBoost) is now in the controller bundle; these keep it in the budget.
+        # The installed controller trains a model set end to end in
+        # tests/component/packaging/test_v10_g7_controller_ml.py.
+        ("scipy/**/tests", "scipy's own test suites"),
+        ("sklearn/**/tests", "scikit-learn's own test suites"),
+        ("xgboost/testing", "XGBoost's test helpers (never imported by xgboost)"),
+        # Arrow Flight (RPC) and the S3 filesystem: native libraries loaded only
+        # by pyarrow.flight / pyarrow._s3fs (pyarrow.fs guards that import);
+        # MeshForge reads and writes local Parquet files only.
+        ("pyarrow/libarrow_flight.so*", "Arrow Flight RPC (pyarrow.flight only)"),
+        ("pyarrow/libarrow_python_flight.so*", "Arrow Flight Python glue"),
+        ("pyarrow/_flight.*", "pyarrow.flight's extension module and source"),
+        ("pyarrow/flight.py", "pyarrow.flight (its native parts are not shipped)"),
+        ("pyarrow/libarrow_s3.so*", "the S3 filesystem (pyarrow._s3fs only)"),
+        ("pyarrow/_s3fs.*", "the S3 filesystem's extension module and source"),
     ),
 }
 """Per role: what of the installed wheels is not shipped (role -> (glob, why))."""
