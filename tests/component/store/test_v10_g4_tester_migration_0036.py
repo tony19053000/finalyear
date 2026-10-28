@@ -140,8 +140,17 @@ def test_a_state_moving_in_and_out_of_the_live_set_is_found_either_way(
     queued-ish back in re-enters it, results always equal a no-index scan."""
     command.upgrade(alembic_config(pg_settings), "head")
     _seed_every_state(pg_settings)
-    asyncio.run(_sql(pg_settings, "UPDATE attempt SET state = 'running' WHERE state = 'done'"))
+    asyncio.run(
+        _sql(pg_settings, "UPDATE attempt SET state = 'running' WHERE state = 'done'")
+    )
     q = f"SELECT id FROM attempt WHERE {LIVE_ATTEMPT_SQL} ORDER BY id"
     with_idx = asyncio.run(_sql(pg_settings, "SET LOCAL enable_seqscan = off", q))
-    without = asyncio.run(_sql(pg_settings, "SET LOCAL enable_indexscan = off", "SET LOCAL enable_bitmapscan = off", q))
+    without = asyncio.run(
+        _sql(
+            pg_settings,
+            "SET LOCAL enable_indexscan = off",
+            "SET LOCAL enable_bitmapscan = off",
+            q,
+        )
+    )
     assert with_idx == without and len(with_idx) > len(_NON_TERMINAL) - 1
