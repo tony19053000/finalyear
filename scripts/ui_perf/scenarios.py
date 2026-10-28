@@ -107,8 +107,11 @@ def is_transient_suspect(resp: httpx.Response) -> bool:
     if resp.status_code != 409:
         return False
     try:
-        error = resp.json().get("error", {})
+        body = resp.json()
     except ValueError:
+        return False
+    error = body.get("error") if isinstance(body, dict) else None
+    if not isinstance(error, dict):
         return False
     return bool(
         error.get("code") == "no_feasible_plan"

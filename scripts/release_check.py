@@ -39,6 +39,7 @@ import datetime as dt
 import fnmatch
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -63,6 +64,20 @@ STATUSES: Final = ("PASS", "FAIL", "MISSING", "WAIVED", "NOT_RUN")
 VERDICTS: Final = ("PASS", "FAIL")
 #: pytest exit codes that still mean "the run finished": 0 all passed, 1 some
 #: failed (the per-item outcomes say which), 5 nothing collected.
+#: An evidence ``sha`` is a full commit SHA, never a movable ref (``HEAD``, a
+#: branch, ``HEAD~0``): a ref resolves to whatever is checked out *now* and
+#: would never go stale (D406; tester T-4).
+FULL_SHA: Final = re.compile(r"[0-9a-f]{40}")
+#: Files that change what every source-built row runs - the dependency set -
+#: so they stale every lab row backed by ``src/`` without each row listing them
+#: (ADR-0023 D406 section; reviewer note 1).
+GLOBAL_AFFECTED: Final = ("pyproject.toml", "uv.lock")
+
+
+class GitUnavailableError(RuntimeError):
+    """``git`` is not on PATH (tester T-2): a usage error, exit 2."""
+
+
 _PYTEST_FINISHED: Final = frozenset({0, 1, 5})
 
 
@@ -90,13 +105,16 @@ class LabEntry:
 
 
 def _git(*args: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(  # fixed git argv in the repo
-        ["git", *args],  # noqa: S607 - git from PATH, like every dev tool here
-        cwd=rm.REPO,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    try:
+        return subprocess.run(  # fixed git argv in the repo
+            ["git", *args],  # noqa: S607 - git from PATH, like every dev tool here
+            cwd=rm.REPO,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except FileNotFoundError as exc:
+        raise GitUnavailableError("git is not on PATH") from exc
 
 
 def resolve_sha(ref: str) -> str | None:
@@ -281,6 +299,8 @@ def _lab_entry(raw: object, source: str) -> LabEntry | str:
             return f"missing {name}"
     if raw["verdict"] not in VERDICTS:
         return f"verdict must be one of {VERDICTS}"
+    if not FULL_SHA.fullmatch(raw["sha"]):
+        return "sha must be a full 40-hex commit SHA, not a ref"
     try:
         dt.datetime.fromisoformat(raw["recorded_at"])
     except ValueError:
@@ -302,14 +322,43 @@ def _recorded(entry: LabEntry) -> dt.datetime:
     return when if when.tzinfo else when.replace(tzinfo=dt.UTC)
 
 
-def judge_lab(row: rm.Row, entries: Sequence[LabEntry], target_sha: str) -> Result:
+def effective_globs(row: rm.Row) -> tuple[str, ...]:
+    """``row.affected_by`` plus :data:`GLOBAL_AFFECTED` when the row is backed
+    by source (any glob under ``src/``)."""
+    if any(g.startswith("src/") for g in row.affected_by):
+        return (
+            *row.affected_by,
+            *(g for g in GLOBAL_AFFECTED if g not in row.affected_by),
+        )
+    return tuple(row.affected_by)
+
+
+def judge_lab(
+    row: rm.Row,
+    entries: Sequence[LabEntry],
+    target_sha: str,
+    package_version: str | None = None,
+) -> Result:
+    """The newest entry decides (ties: the later source path, deterministic).
+    A ``package_version`` other than the release's does not by itself stale the
+    evidence (the SHA diff decides, ADR-0023); it is shown in the detail."""
     if not entries:
         return Result(
             row.id, row.kind, "MISSING", f"no evidence yet (lab section {row.section})"
         )
-    entry = max(entries, key=_recorded)
+    entry = max(entries, key=lambda e: (_recorded(e), e.source))
     ev = [entry.source]
     where = f"{entry.package_version} @ {entry.sha[:12]}, {entry.recorded_at}"
+    if package_version and entry.package_version != package_version:
+        where += f" (release is {package_version})"
+    if not FULL_SHA.fullmatch(entry.sha):
+        return Result(
+            row.id,
+            row.kind,
+            "MISSING",
+            f"evidence sha {entry.sha!r} is not a full commit SHA ({where})",
+            ev,
+        )
     if entry.package_version.strip().lower() in ("dev", "unknown", "none"):
         return Result(
             row.id, row.kind, "MISSING", f"not from a release build ({where}; D406)", ev
@@ -325,7 +374,7 @@ def judge_lab(row: rm.Row, entries: Sequence[LabEntry], target_sha: str) -> Resu
         changed = changed_files(evidence_sha, target_sha)
         if changed is None:
             return Result(row.id, row.kind, "MISSING", f"cannot diff {where}", ev)
-        if hits := affected(changed, row.affected_by):
+        if hits := affected(changed, effective_globs(row)):
             shown = ", ".join(hits[:3]) + (" ..." if len(hits) > 3 else "")
             return Result(
                 row.id,
@@ -446,6 +495,14 @@ def check(argv: Sequence[str]) -> int:
             print(f"release_check: unknown rows {unknown}", file=sys.stderr)
             return 2
         rows = [r for r in rows if r.id in set(args.rows)]
+    if not [r for r in rows if args.only is None or r.kind == args.only]:
+        # tester T-3: a gate that judged nothing must never exit 0
+        print(
+            "release_check: no rows selected"
+            + (f" of kind {args.only}" if args.only else ""),
+            file=sys.stderr,
+        )
+        return 2
 
     results: dict[str, Result] = {}
     auto_rows = [r for r in rows if r.kind == "auto"]
@@ -459,7 +516,9 @@ def check(argv: Sequence[str]) -> int:
     entries, warnings = load_lab_evidence(args.lab_dir)
     for row in rows:
         if row.kind == "lab":
-            results[row.id] = judge_lab(row, entries.get(row.id, []), target)
+            results[row.id] = judge_lab(
+                row, entries.get(row.id, []), target, args.package_version or None
+            )
         elif row.kind == "waiver":
             results[row.id] = judge_waiver(row)
     ordered = [results[r.id] for r in rows]
@@ -575,9 +634,13 @@ def record_lab(argv: Sequence[str]) -> int:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
-    if args and args[0] == "record-lab":
-        return record_lab(args[1:])
-    return check(args)
+    try:
+        if args and args[0] == "record-lab":
+            return record_lab(args[1:])
+        return check(args)
+    except GitUnavailableError as exc:
+        print(f"release_check: {exc}", file=sys.stderr)
+        return 2
 
 
 if __name__ == "__main__":

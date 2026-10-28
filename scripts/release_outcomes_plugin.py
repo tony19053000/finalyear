@@ -42,6 +42,10 @@ def pytest_runtest_logreport(report: pytest.TestReport) -> None:
 
 
 def pytest_sessionfinish(session: pytest.Session) -> None:
+    # Under pytest-xdist only the controller writes: it receives every worker's
+    # reports, while each worker sees only its share (and would race it).
+    if hasattr(session.config, "workerinput"):
+        return
     target = os.environ.get(ENV)
     if target:
         Path(target).write_text(json.dumps(_outcomes, sort_keys=True), encoding="utf-8")

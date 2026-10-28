@@ -235,7 +235,7 @@ def load_manifest(path: Path = MANIFEST) -> Manifest:
     """Parse the YAML file into rows; shape errors raise :class:`ManifestError`."""
     try:
         data = yaml.safe_load(path.read_text(encoding="utf-8"))
-    except (OSError, yaml.YAMLError) as exc:
+    except (OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
         raise ManifestError(f"cannot read {path}: {exc}") from exc
     if not isinstance(data, dict) or data.get("schema") != SCHEMA:
         raise ManifestError(f"{path}: not a {SCHEMA} document")

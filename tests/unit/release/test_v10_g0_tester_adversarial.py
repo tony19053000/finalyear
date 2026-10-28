@@ -303,10 +303,6 @@ def test_malformed_manifest_raises_manifest_error_only(
         rm.load_manifest(p)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="DEFECT T-1: non-UTF-8 manifest leaks UnicodeDecodeError instead of ManifestError (CLI traceback)",
-)
 def test_binary_and_missing_manifest_raise_manifest_error(tmp_path: Path) -> None:
     p = tmp_path / "bin.yaml"
     p.write_bytes(b"\xff\xfe\x00\x01garbage")
@@ -346,10 +342,6 @@ def test_cli_without_git_fails_cleanly_with_exit_2_not_a_traceback(
     assert "cannot resolve SHA" in res.stderr
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="DEFECT T-2: no git binary -> FileNotFoundError traceback, exit 1 (not 2)",
-)
 def test_cli_with_no_git_binary_fails_cleanly(tmp_path: Path) -> None:
     env = {**os.environ, "PATH": str(tmp_path)}
     res = subprocess.run(
@@ -486,14 +478,10 @@ def test_waiver_only_subset_exits_0_and_is_waived(
     assert {r["status"] for r in data["results"]} == {"WAIVED"}
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="DEFECT T-3: --only K with --rows selecting no K row evaluates nothing and exits 0",
-)
 def test_a_filter_that_selects_nothing_of_the_kind_must_not_pass_vacuously(
     tmp_path: Path, fake_head: str
 ) -> None:
-    """DEFECT PROBE: ``--only auto --rows <lab ids>`` evaluates zero rows. A
+    """Regression T-3 (fixed in fix round 1): ``--only auto --rows <lab ids>`` evaluates zero rows. A
     release gate that exits 0 having judged nothing is a false green."""
     out = tmp_path / "r"
     code = rc.main(
@@ -633,14 +621,10 @@ def test_a_later_fail_overrides_an_earlier_pass(fake_head: str) -> None:
 
 
 @pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
-@pytest.mark.xfail(
-    strict=True,
-    reason="DEFECT T-4: evidence sha 'HEAD'/branch resolves to the current checkout and never goes stale",
-)
 def test_evidence_sha_must_be_a_commit_not_a_movable_ref(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """DEFECT PROBE: a hand-written evidence file whose ``sha`` is ``HEAD`` (or a
+    """Regression T-4 (fixed in fix round 1): a hand-written evidence file whose ``sha`` is ``HEAD`` (or a
     branch name) resolves to whatever is checked out *now*, so it counts as
     evidence for every future release SHA and never goes stale (D406)."""
     repo = tmp_path / "repo"

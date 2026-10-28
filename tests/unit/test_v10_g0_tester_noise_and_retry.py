@@ -130,28 +130,10 @@ def _fast(monkeypatch: pytest.MonkeyPatch) -> None:
             },
         ),
         httpx.Response(409, json={"error": {"code": "no_feasible_plan"}}),
-        pytest.param(
-            httpx.Response(409, json={"error": "the node is suspect, not online"}),
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason="DEFECT T-5: is_transient_suspect crashes on a non-object error body",
-            ),
-        ),
-        pytest.param(
-            httpx.Response(409, json=[1]),
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason="DEFECT T-5: is_transient_suspect crashes on a non-object error body",
-            ),
-        ),
+        httpx.Response(409, json={"error": "the node is suspect, not online"}),
+        httpx.Response(409, json=[1]),
         httpx.Response(409, content=b"not json"),
-        pytest.param(
-            httpx.Response(409, json={"error": None}),
-            marks=pytest.mark.xfail(
-                strict=True,
-                reason="DEFECT T-5: is_transient_suspect crashes on a non-object error body",
-            ),
-        ),
+        httpx.Response(409, json={"error": None}),
         httpx.Response(429, json=SUSPECT),
         httpx.Response(503, json=SUSPECT),
         httpx.Response(200, json=SUSPECT),

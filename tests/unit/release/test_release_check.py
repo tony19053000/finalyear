@@ -9,12 +9,13 @@ step, not a unit test.
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import os
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any, Final
+from typing import Any, ClassVar, Final
 
 import pytest
 
@@ -204,6 +205,47 @@ def test_an_unknown_evidence_sha_is_missing(git: dict[str, Any]) -> None:
     res = rc.judge_lab(_lab(), [_entry(sha="c" * 40)], SHA_A)
     assert res.status == "MISSING"
     assert "unknown to git" in res.detail
+
+
+@pytest.mark.parametrize("dep", ["pyproject.toml", "uv.lock"])
+def test_a_dependency_change_stales_every_source_backed_lab_row(
+    git: dict[str, Any], dep: str
+) -> None:
+    """Reviewer note 1: the dependency set is global for rows backed by src/."""
+    git["changed"] = [dep]
+    res = rc.judge_lab(_lab(), [_entry(sha=SHA_A)], SHA_B)
+    assert res.status == "MISSING"
+    assert dep in res.detail
+
+
+def test_a_dependency_change_does_not_stale_a_row_not_backed_by_source(
+    git: dict[str, Any],
+) -> None:
+    git["changed"] = ["uv.lock"]
+    row = dataclasses.replace(_lab(), affected_by=("packaging/windows/*",))
+    assert rc.judge_lab(row, [_entry(sha=SHA_A)], SHA_B).status == "PASS"
+
+
+def test_another_package_version_is_shown_but_does_not_stale(
+    git: dict[str, Any],
+) -> None:
+    """Reviewer note 2 / ADR-0023: the SHA diff decides, the version is shown."""
+    res = rc.judge_lab(
+        _lab(), [_entry(package_version="1.0.0-rc.1")], SHA_A, "1.0.0-rc.2"
+    )
+    assert res.status == "PASS"
+    assert "(release is 1.0.0-rc.2)" in res.detail
+    same = rc.judge_lab(_lab(), [_entry()], SHA_A, "1.0.0-rc.1")
+    assert "release is" not in same.detail
+
+
+def test_equal_timestamps_break_ties_by_source_path(git: dict[str, Any]) -> None:
+    """Reviewer note 3: deterministic whatever the file order."""
+    a = _entry(verdict="FAIL", source="lab/reports/raw/a.json")
+    b = _entry(verdict="PASS", source="lab/reports/raw/b.json")
+    assert rc.judge_lab(_lab(), [a, b], SHA_A).status == "PASS"
+    assert rc.judge_lab(_lab(), [b, a], SHA_A).status == "PASS"
+    assert rc.judge_lab(_lab(), [b, a], SHA_A).evidence == ["lab/reports/raw/b.json"]
 
 
 def test_affected_globs_cross_directories() -> None:
@@ -437,3 +479,25 @@ def test_the_outcomes_plugin_folds_phases(tmp_path: Path) -> None:
         "test_xf": "skipped",
         "test_teardown": "error",
     }
+
+
+def test_an_xdist_worker_never_writes_the_outcomes_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Reviewer note 4: only the xdist controller (all reports) writes."""
+    import release_outcomes_plugin as plugin
+
+    out = tmp_path / "outcomes.json"
+    monkeypatch.setenv(plugin.ENV, str(out))
+
+    class _Config:
+        workerinput: ClassVar[dict[str, str]] = {"workerid": "gw0"}
+
+    class _Session:
+        config = _Config()
+
+    plugin.pytest_sessionfinish(_Session())  # type: ignore[arg-type]
+    assert not out.exists()
+    _Session.config = object()  # type: ignore[assignment]
+    plugin.pytest_sessionfinish(_Session())  # type: ignore[arg-type]
+    assert out.exists()
