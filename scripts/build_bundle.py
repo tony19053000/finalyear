@@ -107,6 +107,7 @@ from bundle_lib import (  # noqa: E402
     Layout,
     Manifest,
     bundle_name,
+    check_no_secrets,
     check_size_budget,
     deterministic_tar_xz,
     diff_entries,
@@ -959,6 +960,8 @@ def build(options: BuildOptions) -> Path:
                 f"{len(leaks)} file(s) name a build-machine path:\n{shown}",
                 reason="path_leak",
             )
+        # V1.0 G3 (D413): no key, token, secret file or test folder ships
+        check_no_secrets(root)
         files = scan_tree(root)
         manifest = Manifest(
             meta={

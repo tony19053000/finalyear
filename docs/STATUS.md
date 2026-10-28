@@ -27,7 +27,7 @@ V1.0    ░░░░░░░░░░░░░░░░░░░░   0%   0/8 
 ## Progress
 
 ```
-TOTAL   ██████████████▒▒▒░░░  71%  113/159 done, 24 in progress
+TOTAL   ██████████████▒▒▒░░░  71%  113/159 done, 27 in progress
 
 V0.1    █████████████████▒▒▒  83%  10/12  Foundations & engineering system
 V0.2    ██▒▒▒▒▒▒▒▒▒▒▒▒▒░░░░░   9%   1/11  Lab setup & feasibility validation
@@ -42,7 +42,7 @@ V0.10   ██████████████████░░  90%   9/10
 V0.14   ██████████████████▒▒  87%   7/8   Unified planner v2
 V0.15   █████████████████░░░  83%  10/12  ML planner
 V0.17   ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒░░   0%   0/9   Productization
-V1.0    ░░░░░░░░░░░░░░░░░░░░   0%   0/8   Release hardening & final evaluation
+V1.0    ▒▒▒▒▒▒▒▒░░░░░░░░░░░░   0%   0/8   Release hardening & final evaluation
 ```
 █ done `[x]` · ▒ in progress or waiting on a 🧑 lab step `[~]` · ░ not started
 

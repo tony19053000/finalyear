@@ -129,31 +129,65 @@ def _rows(fabric: Fabric, campaign_id: str) -> list[dict[str, Any]]:
 def _create_and_run(
     fabric: Fabric, a_data: Path, work: Path, spec: str, runs: int
 ) -> str:
+    """``compute bench create`` + ``compute bench submit -n runs --wait``.
+
+    A run whose node is not online at that instant is ``deferred`` - it stays
+    ``planned`` and the next submit takes it (``controller/bench/submit.py``). On
+    a loaded CI runner a stall (e.g. heartbeats late) can make both nodes not
+    online mid-call (CI run 40616707191: 5 of 24 submitted, nothing failed),
+    so submit again for the rest, as an operator or the campaign runner
+    would. Any other outcome (``skipped`` / ``already``) still fails here."""
     path = work / f"spec-{time.monotonic_ns()}.yaml"
     path.write_text(spec)
     created = _compute(fabric, a_data, "bench", "create", str(path), "--json", cwd=work)
     assert created.returncode == 0, created.stderr
     campaign_id = str(json.loads(created.stdout)["campaign_id"])
-    submitted = _compute(
-        fabric,
-        a_data,
-        "bench",
-        "submit",
-        campaign_id,
-        "-n",
-        str(runs),
-        "--wait",
-        "--timeout",
-        "1000",
-        "--json",
-        cwd=work,
-    )
-    # exit 126 = a waited run failed (the forced-failure campaign expects it)
-    assert submitted.returncode in (0, 126), (
-        submitted.stdout[-3000:],
-        submitted.stderr[-3000:],
-    )
-    assert json.loads(submitted.stdout)["submitted"] == runs
+    total = 0
+    deferred: list[str] = []
+    deadline = time.monotonic() + 300
+    while total < runs:
+        submitted = _compute(
+            fabric,
+            a_data,
+            "bench",
+            "submit",
+            campaign_id,
+            "-n",
+            str(runs - total),
+            "--wait",
+            "--timeout",
+            "1000",
+            "--json",
+            cwd=work,
+        )
+        # exit 126 = a waited run failed (the forced-failure campaign expects it)
+        assert submitted.returncode in (0, 126), (
+            submitted.stdout[-3000:],
+            submitted.stderr[-3000:],
+        )
+        result = json.loads(submitted.stdout)
+        outcomes = list(result["outcomes"])
+        unexpected = [
+            f"run {o.get('seq')} {o.get('outcome')}: {o.get('detail')}"
+            for o in outcomes
+            if o.get("outcome") not in ("submitted", "deferred")
+        ]
+        assert not unexpected, "\n".join(unexpected)
+        deferred += [
+            f"run {o.get('seq')} deferred: {o.get('detail')}"
+            for o in outcomes
+            if o.get("outcome") == "deferred"
+        ]
+        total += int(result["submitted"])
+        if total < runs:
+            assert time.monotonic() < deadline, (
+                f"{total} of {runs} submitted; last deferrals:\n"
+                + "\n".join(deferred[-10:])
+            )
+            time.sleep(1.0)
+    if deferred:  # shown with the test's output when a later check fails
+        print(f"{len(deferred)} deferral(s) before all {runs} were submitted:")  # noqa: T201
+        print("\n".join(deferred[-10:]))  # noqa: T201
     return campaign_id
 
 

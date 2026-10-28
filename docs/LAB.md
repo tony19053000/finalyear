@@ -147,6 +147,24 @@ Checklists for multi-step lab runs live in `lab/checklists/` — the V0.3 fabric
 
 Rules for measurements: ≥ 5 repetitions, report mean ± stdev · note the link (Wi-Fi/Ethernet), power state (plugged in, performance mode), and background load · never mix Wi-Fi and Ethernet runs in one table.
 
+### Load-sensitive timing tests (D422)
+
+Tests whose assertion is a wall-clock band or a latency budget measure the machine's load as much as the code. On shared CI runners they fail at random, so they carry the `perf` marker: CI (`-m "unit or component"`, `-m cluster`) skips them with the reason, and they run here instead. Today that is:
+
+- `tests/component/bench/test_v09_g2_tester_r1_exit_codes.py::test_default_run_time_on_this_host_is_near_the_calibration_hint` (run time within 0.3x–3x of the hint calibrated on Laptop 1)
+- `tests/component/agent/test_benchmarks_heartbeat.py::test_node_stays_online_while_an_all_threads_benchmark_runs[no-nice]` (the `nice10` case, the product default, stays a CI gate)
+- `tests/component/agent/test_v08_g1_event_stream.py::test_job_events_arrive_after_commit_p95_under_500_ms`
+- the planner latency tests (`tests/unit/planner/*latency*.py`) and the UI perf run (`tests/e2e/test_v08_g7_perf.py`), which were `perf` already.
+
+🧑 **When:** on every release candidate (with L2) and when a change touches the measured path (benchmark kernels, agent session/heartbeat, controller event stream, planner). **Where:** Laptop 1 (the calibration machine), plugged in, performance mode, nothing else running, Docker up. **Command** (repo root, the commit under test checked out):
+
+```bash
+uv sync --all-extras
+uv run python scripts/pytest_exit_guard.py -m "perf and (unit or component)" -q -rs
+```
+
+**Expected:** exit 0, every test above passed (none skipped except torch-only cases without torch). **Paste back:** `git rev-parse --short HEAD`, the summary line and the exit code. A failure on a quiet laptop is a real regression; fix it, never widen the band to pass.
+
 ---
 
 ## 6. Safety notes

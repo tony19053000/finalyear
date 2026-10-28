@@ -256,13 +256,18 @@ def test_every_cpu_job_survives_an_unwritable_results_dir_loudly(
 # --------------------------------------------------- cost model vs reality
 
 
+@pytest.mark.perf  # D422: wall-clock band - not a gate on shared CI runners
 @pytest.mark.parametrize("name", list(CPU_NAMES))
 def test_default_run_time_on_this_host_is_near_the_calibration_hint(
     name: str, tmp_path: Path
 ) -> None:
     """The hints were calibrated on Laptop 1. This host may be a different, busier
     machine, so the band is wide (0.3x - 3x); it still catches an efficiency that
-    is off by an order of magnitude, which would silently move runs out of 5 s - 3 min."""
+    is off by an order of magnitude, which would silently move runs out of 5 s - 3 min.
+
+    ``perf`` (D422): a shared CI runner can be 3x+ slower than its nominal speed
+    (seen: cpu.sort 11.5 s vs a 3.5 s hint), so this runs on a quiet lab laptop
+    (``docs/LAB.md`` "Load-sensitive timing tests"), not as a CI gate."""
     skip_without_numpy(name)
     family = get_family(name)
     built = build_job(name, {}, 9, tmp_path / "job")

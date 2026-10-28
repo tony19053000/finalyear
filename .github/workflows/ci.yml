@@ -1,7 +1,7 @@
 # CI for MeshForge (roadmap 0.1.10).
 #
 # Jobs:  lint · types · unit (Linux + Windows) · component (Linux, 8 shards) ·
-#        cluster (Linux) · fresh-clone (Linux + Windows) · eval-repro · package-linux ·
+#        cluster (Linux) · fresh-clone (Linux + Windows) · eval-repro · api-docs · package-linux ·
 #        package-windows · upgrade-from-release-linux · upgrade-windows · ci-ok
 # Branch protection on `main` should require ONLY the `ci-ok` check: it passes
 # iff every other job passed, so adding/renaming jobs never needs a settings change.
@@ -65,6 +65,11 @@ jobs:
       - name: import boundaries (lint-imports)
         if: ${{ !cancelled() }}
         run: uv run lint-imports
+      # V1.0 G3 (D413): every medium/high bandit finding in src/ is triaged in
+      # scripts/bandit_triage.toml (reason + decision ref) or this step fails.
+      - name: bandit gate (no untriaged medium/high)
+        if: ${{ !cancelled() }}
+        run: uv run python scripts/bandit_gate.py
       # Regenerates from proto/ into a temp dir and byte-compares with the
       # committed src/meshforge/common/proto/ tree (never overwrites it): a
       # hand-edited generated file, or a .proto change without regeneration,
@@ -82,7 +87,7 @@ jobs:
       - name: pre-commit hygiene hooks
         if: ${{ !cancelled() }}
         env:
-          SKIP: ruff-check,ruff-format,mypy,import-linter,gen-protos-check
+          SKIP: ruff-check,ruff-format,mypy,import-linter,gen-protos-check,api-docs-check
         run: uv run pre-commit run --all-files --show-diff-on-failure
 
   types:
@@ -269,6 +274,28 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+  # V1.0 G5 (D414): the API reference in docs/api/ (REST from the OpenAPI
+  # documents, gRPC from proto/ via protoc, CLI from --help, SDK from
+  # docstrings) is generated; a route, .proto or command change without
+  # `scripts/gen_api_docs.py` fails here with the pages that drifted.
+  api-docs:
+    name: api-docs (generated API reference up to date)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: ${{ env.UV_PYTHON }}
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+      - run: uv sync --locked --extra controller --extra agent
+      - name: docs/api matches the code
+        run: uv run --no-sync python scripts/gen_api_docs.py --check
+
   # V1.0 G2 (D419): the evaluation analysis is reproducible - analyze.py +
   # make_report.py on the committed sample (scripts/eval/sample) give the
   # committed SHA-256 of every output, figures included (matplotlib from the
@@ -393,6 +420,13 @@ jobs:
           uv run python scripts/build_deb.py --role controller --bundle "$bundle" --out dist/controller/ --revision 2
       - name: lintian, controller (errors fail)
         run: lintian --fail-on error --tag-display-limit 0 dist/controller/meshforge-controller_*-1_amd64.deb
+      # V1.0 G3 (D413): the builders already refuse a hit; this re-scans the
+      # artefacts exactly as they will be uploaded (keys, tokens, join codes,
+      # secret files, MeshForge tests, dev passwords - never prints a value).
+      - name: package secret scan (built artefacts)
+        run: >-
+          uv run python scripts/package_secret_scan.py
+          dist/*.deb dist/*.tar.xz dist/controller/*.deb dist/controller/*.tar.xz
       - name: package tests (systemd containers, real fabric)
         env:
           MESHFORGE_TEST_DEB_DIR: dist
@@ -474,6 +508,11 @@ jobs:
           uv run python scripts/build_windows_installer.py --bundle $bundle --out dist/ --revision 2 --cache "$env:LOCALAPPDATA\meshforge-bundle"
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           Get-ChildItem dist\*.exe | Format-Table Name, Length
+      # V1.0 G3 (D413): the bundle the installer packs + the .exe (raw bytes)
+      - name: package secret scan (bundle + installer)
+        run: |
+          uv run python scripts/package_secret_scan.py $env:BUNDLE (Get-ChildItem dist\*.exe).FullName
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: a developer laptop (user-mode identity + dev scheduled task)
         run: |
           New-Item -ItemType Directory -Force reports | Out-Null
@@ -747,7 +786,7 @@ jobs:
   ci-ok:
     name: ci-ok
     if: ${{ always() }}
-    needs: [lint, types, unit, component, cluster, fresh-clone, eval-repro, package-linux, package-windows, upgrade-from-release-linux, upgrade-windows]
+    needs: [lint, types, unit, component, cluster, fresh-clone, eval-repro, api-docs, package-linux, package-windows, upgrade-from-release-linux, upgrade-windows]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

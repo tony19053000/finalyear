@@ -66,6 +66,7 @@ if str(_SCRIPTS) not in sys.path:  # loaded by path (tests) rather than run
 from bundle_lib import (  # noqa: E402
     BUILDINFO_NAME,
     BundleError,
+    check_no_secrets,
     check_size_budget,
     load_pins,
     pinned,
@@ -745,6 +746,8 @@ def build_deb(options: DebOptions) -> Path:
                 + "\n".join(f"  {p}" for p in problems),
                 reason="bad_deb",
             )
+        # V1.0 G3 (D413): the package as shipped (control scripts included)
+        check_no_secrets(built)
         size = built.stat().st_size
         if options.size_budget and isinstance(budget, int | float):
             check_size_budget(size, float(budget), target.name)

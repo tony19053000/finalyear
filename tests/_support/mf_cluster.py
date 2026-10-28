@@ -646,8 +646,13 @@ class Fabric:
         start_agents: bool = True,
         record_links: bool = False,
         security_mode: str = "mtls",
+        bind_host: str = "127.0.0.1",
     ) -> None:
         self.workdir = workdir
+        # V1.0 G3 (M2 socket test): the controller's gRPC, HTTP and enrolment
+        # listeners bind this IPv4 address (a non-loopback interface address
+        # for the listener-auth test; loopback for everything else).
+        self.bind_host = bind_host
         # V0.7 G7 (D146 control run): ``"insecure-dev"`` runs every process in
         # plaintext on loopback (job secrets allowed on it), so the recorder can
         # be shown to SEE what the mtls run must hide. Never anything else.
@@ -739,8 +744,8 @@ class Fabric:
             "log": {"format": "json", "level": self.log_level},
             "controller": _drop_none(
                 {
-                    "grpc_bind": "127.0.0.1:0",
-                    "http_bind": "127.0.0.1:0",
+                    "grpc_bind": f"{self.bind_host}:0",
+                    "http_bind": f"{self.bind_host}:0",
                     "hello_timeout_s": t.controller_hello_timeout_s,
                     "shutdown_drain_s": t.shutdown_drain_s,
                 }
@@ -760,7 +765,7 @@ class Fabric:
             # {"network": {...}} (they would add traffic other scenarios count).
             "controller.network": {"enabled": False},
             # V0.7 G2: the enrolment listener (only when a CA exists), free port.
-            "controller.enroll": {"bind": "127.0.0.1:0"},
+            "controller.enroll": {"bind": f"{self.bind_host}:0"},
             **{f"controller.{k}": v for k, v in self._controller_extra.items()},
         }
         path = self.workdir / "controller.toml"
