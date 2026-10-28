@@ -59,6 +59,26 @@ race. The re-check path opens a second pooled session for the label reads
 while the locked transaction holds its connection, so the pool needs at
 least 2 connections (the default pool is larger).
 
+**V1.0 G4 (D412, F-2): the run-set fingerprint.** A refresh first asks the
+database for a cheap digest of the read window (:func:`window_fingerprint`:
+count + an md5 over every field :func:`match` and the run set depend on -
+decision id, chosen node, candidates, attempt node and role, every phase row -
+aggregated in SQL, nothing materialised in Python). When it equals the one
+this store's last refresh read its run set under (same read bound), that run
+set is the current one, and the ``no_new_runs`` rule is applied to it and
+the current settings against the newest row (one row read): a match is
+``no_new_runs`` without reading or matching anything (the steady state of an
+idle fabric: the refit used to read and match up to 4 000 runs every
+interval, ~+110 MiB of allocator high-water at the cap). Under the lock the
+fingerprint is taken again; equal to the prepare's -> the prepared run set is
+reused instead of a second full read (only a refit forced by a changed active
+version re-reads). The fingerprint is always taken **before** the outcome read
+it vouches for, so a run landing in between makes it stale (a full refresh
+next time), never wrong. The D306 gate and the ``no_new_runs`` rule
+(:data:`_RUN_SET_KEYS` against the newest row) are unchanged; the memo is
+per store instance (a new one - ``compute planner calibrate`` - takes the full
+path).
+
 **The matched runs** (one bounded read): ``dispatched`` decisions joined to
 their attempt (``done``, ``ended_at`` set), the attempt's run record (workload
 family, fingerprint) and the job (fingerprint when the record is not written
@@ -76,7 +96,8 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Final, Literal
 
-from sqlalchemy import and_, func, or_, select, text
+from sqlalchemy import Text, and_, cast, func, literal_column, or_, select, text
+from sqlalchemy.dialects.postgresql import aggregate_order_by
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
@@ -128,6 +149,7 @@ __all__ = [
     "parse_mode",
     "read_outcomes",
     "row_summary",
+    "window_fingerprint",
 ]
 
 log = get_logger(__name__)
@@ -216,14 +238,18 @@ def _same_inputs(previous: Mapping[str, Any], current: Mapping[str, Any]) -> boo
     )
 
 
-def _fit_set(runs: Sequence[MatchedRun], config: CalibrationConfig) -> dict[str, Any]:
-    """The matched-run set and fit settings of one refresh (``fit_inputs``)."""
+def _settings_of(config: CalibrationConfig) -> dict[str, Any]:
+    """The fit settings :data:`_RUN_SET_KEYS` compares."""
     return {
-        **run_set(runs),
         "window": config.window_runs,
         "k": config.shrink_k,
         "clamp": list(config.clamp),
     }
+
+
+def _fit_set(runs: Sequence[MatchedRun], config: CalibrationConfig) -> dict[str, Any]:
+    """The matched-run set and fit settings of one refresh (``fit_inputs``)."""
+    return {**run_set(runs), **_settings_of(config)}
 
 
 @dataclass(frozen=True, slots=True)
@@ -234,6 +260,20 @@ class _Prepared:
     active_version: int | None
     result: Refit | None
     note: str | None
+    fingerprint: tuple[int, str | None]
+    """V1.0 G4 (F-2): :func:`window_fingerprint` taken before the read."""
+    runs: list[MatchedRun]
+
+
+@dataclass(frozen=True, slots=True)
+class _Seen:
+    """V1.0 G4 (F-2): the run set this store's last refresh judged, keyed by
+    the window fingerprint it was read under (module docstring)."""
+
+    fingerprint: tuple[int, str | None]
+    limit: int
+    inputs: dict[str, Any]
+    """:func:`_fit_set` of that run set (its settings included)."""
 
 
 def _match_all(outcomes: Sequence[DecisionOutcome]) -> list[MatchedRun]:
@@ -290,6 +330,100 @@ async def matched_watermark(
     return int(count or 0), newest[0], int(newest[1])
 
 
+def _window(*columns: Any, limit: int) -> Any:
+    """The read window: :func:`_matched` + the job, newest first by
+    ``(ended_at, decision id)``, at most ``limit`` rows - the one row set
+    :func:`read_outcomes` and :func:`window_fingerprint` share."""
+    return (
+        _matched(select(*columns))
+        .join(Job, Job.id == PlanDecision.job_id)
+        .order_by(Attempt.ended_at.desc(), PlanDecision.id.desc())
+        .limit(limit)
+    )
+
+
+async def window_fingerprint(db: AsyncSession, limit: int) -> tuple[int, str | None]:
+    """V1.0 G4 (F-2): ``(rows, md5)`` of :func:`read_outcomes`' window
+    computed in the database. The digest covers every field the matched-run
+    set depends on (decision id, chosen node, candidates, attempt node and
+    role, every phase row of the attempt); equal fingerprints -> the same
+    matched decision ids. ``md5`` is None for an empty window."""
+    w = _window(
+        PlanDecision.id.label("decision_id"),
+        PlanDecision.chosen_node_id.label("chosen"),
+        PlanDecision.candidates.label("candidates"),
+        Attempt.id.label("attempt_id"),
+        Attempt.node_id.label("node"),
+        Attempt.role.label("role"),
+        limit=limit,
+    ).subquery("w")
+    phase_text = func.concat(
+        AttemptPhaseRow.phase,
+        "=",
+        AttemptPhaseRow.skipped,
+        "/",
+        AttemptPhaseRow.duration_ms,
+    )
+    phases = (
+        select(
+            func.string_agg(
+                phase_text, aggregate_order_by(literal_column("';'"), phase_text)
+            )
+        )
+        .where(AttemptPhaseRow.attempt_id == w.c.attempt_id)
+        .scalar_subquery()
+    )
+    row_text = func.concat(
+        w.c.decision_id,
+        "|",
+        w.c.chosen,
+        "|",
+        func.md5(cast(w.c.candidates, Text)),
+        "|",
+        w.c.attempt_id,
+        "|",
+        w.c.node,
+        "|",
+        w.c.role,
+        "|",
+        phases,
+    )
+    found = (
+        await db.execute(
+            select(
+                func.count(),
+                func.md5(
+                    func.string_agg(
+                        row_text,
+                        aggregate_order_by(literal_column("','"), w.c.decision_id),
+                    )
+                ),
+            ).select_from(w)
+        )
+    ).one()
+    return int(found[0] or 0), None if found[1] is None else str(found[1])
+
+
+async def _newest_has(db: AsyncSession, inputs: Mapping[str, Any]) -> int | None:
+    """The ``no_new_runs`` rule: the newest row's version when it was fitted
+    from ``inputs`` (same run set and settings) and its factors are readable
+    (an unreadable newest row is refitted); None otherwise."""
+    newest = (
+        await db.scalars(
+            select(PlannerCalibration)
+            .order_by(PlannerCalibration.version.desc())
+            .limit(1)
+        )
+    ).first()
+    if (
+        newest is not None
+        and _same_inputs(newest.fit_inputs, inputs)
+        and _row(newest).calibration is not None
+    ):
+        return int(newest.version)
+    return None
+
+
 async def read_outcomes(
     db: AsyncSession,
     limit: int,
@@ -302,26 +436,19 @@ async def read_outcomes(
     only rows strictly older than that ``(ended_at, decision id)`` - the ML
     dataset loader pages through the **same** read the calibration fits on
     (one query for both, never a copy)."""
-    query = (
-        _matched(
-            select(
-                PlanDecision.id,
-                PlanDecision.chosen_node_id,
-                PlanDecision.candidates,
-                Attempt.id,
-                Attempt.node_id,
-                Attempt.state,
-                Attempt.role,
-                Attempt.ended_at,
-                RunRecord.workload_family,
-                func.coalesce(RunRecord.fingerprint, Job.fingerprint),
-            )
-        )
-        .join(Job, Job.id == PlanDecision.job_id)
-        .outerjoin(RunRecord, RunRecord.attempt_id == Attempt.id)
-        .order_by(Attempt.ended_at.desc(), PlanDecision.id.desc())
-        .limit(limit)
-    )
+    query = _window(
+        PlanDecision.id,
+        PlanDecision.chosen_node_id,
+        PlanDecision.candidates,
+        Attempt.id,
+        Attempt.node_id,
+        Attempt.state,
+        Attempt.role,
+        Attempt.ended_at,
+        RunRecord.workload_family,
+        func.coalesce(RunRecord.fingerprint, Job.fingerprint),
+        limit=limit,
+    ).outerjoin(RunRecord, RunRecord.attempt_id == Attempt.id)
     if before is not None:
         ended, decision_id = before
         query = query.where(
@@ -376,6 +503,10 @@ class CalibrationStore:
         # V0.14 G4 (D319)
         self._regret_check = regret_check
         self._max_label_rows = max_label_rows
+        # V1.0 G4 (F-2): the last no_new_runs/stored refresh (module docstring)
+        self._seen: _Seen | None = None
+        self.full_reads = 0
+        """Outcome reads a refresh made (observability for the F-2 tests)."""
 
     async def matched_runs(self, config: CalibrationConfig) -> list[MatchedRun]:
         """V0.14 G4 (D316): the matched runs a refresh would read (newest
@@ -453,7 +584,9 @@ class CalibrationStore:
         """G4 fix round 1 (N2): the refresh's work done **without** the lock
         (module docstring)."""
         async with self._sessions() as db:
+            fingerprint = await window_fingerprint(db, limit)  # before the read
             outcomes = await read_outcomes(db, limit)
+            self.full_reads += 1
             current = (
                 await db.scalars(
                     select(PlannerCalibration).where(
@@ -462,6 +595,7 @@ class CalibrationStore:
                 )
             ).first()
         runs = await asyncio.to_thread(_match_all, outcomes)
+        del outcomes  # only the matched runs are kept
         active = None if current is None else _row(current).calibration
         result, note = await self._fit_and_check(runs, config, active)
         return _Prepared(
@@ -469,6 +603,28 @@ class CalibrationStore:
             active_version=None if current is None else int(current.version),
             result=result,
             note=note,
+            fingerprint=fingerprint,
+            runs=runs,
+        )
+
+    async def _still_unchanged(
+        self, config: CalibrationConfig, limit: int
+    ) -> RefreshResult | None:
+        """V1.0 G4 (F-2): ``no_new_runs`` from two cheap reads (the window
+        fingerprint, the newest row) when the window is the one this store's
+        last refresh judged and the newest row was fitted from that run set
+        and these settings - the same rule the full path applies."""
+        seen = self._seen
+        if seen is None or seen.limit != limit:
+            return None
+        inputs = {**seen.inputs, **_settings_of(config)}
+        async with self._sessions() as db:
+            if await window_fingerprint(db, limit) != seen.fingerprint:
+                return None
+            if await _newest_has(db, inputs) is None:
+                return None
+        return RefreshResult(
+            matched_runs=int(inputs["matched_runs"]), row=None, skipped="no_new_runs"
         )
 
     async def refresh(
@@ -481,60 +637,69 @@ class CalibrationStore:
             1, max_runs or min(MAX_RUNS_READ, config.window_runs * RUNS_PER_WINDOW)
         )
         try:
+            unchanged = await self._still_unchanged(config, limit)
+            if unchanged is not None:
+                return unchanged
             prepared = await self._prepare(config, limit)  # no lock held
-            async with self._sessions() as db, db.begin():
-                await db.execute(_LOCK)
-                outcomes = await read_outcomes(db, limit)
-                # pure CPU work off the event loop; the lock stays held (the
-                # transaction is this coroutine's), nothing else uses ``db``
-                runs = await asyncio.to_thread(_match_all, outcomes)
-                inputs = _fit_set(runs, config)
-                newest = (
-                    await db.scalars(
-                        select(PlannerCalibration)
-                        .order_by(PlannerCalibration.version.desc())
-                        .limit(1)
-                    )
-                ).first()
-                if (
-                    newest is not None
-                    and _same_inputs(newest.fit_inputs, inputs)
-                    and _row(newest).calibration is not None  # unreadable: refit
-                ):
-                    return RefreshResult(
-                        matched_runs=len(runs), row=None, skipped="no_new_runs"
-                    )
-                current = (
-                    await db.scalars(
-                        select(PlannerCalibration)
-                        .where(PlannerCalibration.status == "active")
-                        .with_for_update()
-                    )
-                ).first()
-                active_version = None if current is None else int(current.version)
-                if (
-                    prepared.inputs == inputs
-                    and prepared.active_version == active_version
-                ):
-                    result, note = prepared.result, prepared.note
-                else:  # something changed while unlocked: judge it again
-                    active = None if current is None else _row(current).calibration
-                    result, note = await self._fit_and_check(runs, config, active)
-                if result is None:
-                    skipped = (
-                        "too_few_runs" if len(runs) < MIN_RUNS else "nothing_to_fit"
-                    )
-                    return RefreshResult(
-                        matched_runs=len(runs), row=None, skipped=skipped
-                    )
-                return await self._store(
-                    db, result, current, len(runs), inputs, note=note
-                )
+            outcome, fingerprint, inputs = await self._locked(config, limit, prepared)
         except _DB_ERRORS as exc:
             raise CalibrationStoreError(
                 "the calibration refresh failed in the database",
                 details={"cause": type(exc).__name__},
             ) from exc
+        # committed: remember the run set judged (F-2)
+        self._seen = _Seen(fingerprint=fingerprint, limit=limit, inputs=inputs)
+        return outcome
+
+    async def _read_matched(self, db: AsyncSession, limit: int) -> list[MatchedRun]:
+        outcomes = await read_outcomes(db, limit)
+        self.full_reads += 1
+        # pure CPU work off the event loop; the lock stays held (the
+        # transaction is this coroutine's), nothing else uses ``db``
+        return await asyncio.to_thread(_match_all, outcomes)
+
+    async def _locked(
+        self, config: CalibrationConfig, limit: int, prepared: _Prepared
+    ) -> tuple[RefreshResult, tuple[int, str | None], dict[str, Any]]:
+        """The locked half of :meth:`refresh`: ``(result, fingerprint the run
+        set was read under, its inputs)``; one transaction, committed on the
+        ``async with`` exit."""
+        async with self._sessions() as db, db.begin():
+            await db.execute(_LOCK)
+            fingerprint = await window_fingerprint(db, limit)  # before any read
+            reused = fingerprint == prepared.fingerprint
+            # F-2 (b): an unchanged window -> the prepared run set, no re-read
+            runs = prepared.runs if reused else await self._read_matched(db, limit)
+            inputs = _fit_set(runs, config)
+            if await _newest_has(db, inputs) is not None:
+                skip = RefreshResult(
+                    matched_runs=len(runs), row=None, skipped="no_new_runs"
+                )
+                return skip, fingerprint, inputs
+            current = (
+                await db.scalars(
+                    select(PlannerCalibration)
+                    .where(PlannerCalibration.status == "active")
+                    .with_for_update()
+                )
+            ).first()
+            active_version = None if current is None else int(current.version)
+            if prepared.inputs == inputs and prepared.active_version == active_version:
+                result, note = prepared.result, prepared.note
+            else:  # something changed while unlocked: judge it again
+                if reused:  # a fresh read, as before F-2 (run records may differ)
+                    runs = await self._read_matched(db, limit)
+                    inputs = _fit_set(runs, config)
+                active = None if current is None else _row(current).calibration
+                result, note = await self._fit_and_check(runs, config, active)
+            if result is None:
+                skipped = "too_few_runs" if len(runs) < MIN_RUNS else "nothing_to_fit"
+                none = RefreshResult(matched_runs=len(runs), row=None, skipped=skipped)
+                return none, fingerprint, inputs
+            stored = await self._store(
+                db, result, current, len(runs), inputs, note=note
+            )
+            return stored, fingerprint, inputs
 
     @staticmethod
     async def _store(
