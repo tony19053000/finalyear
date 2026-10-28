@@ -474,17 +474,18 @@ def test_fifo_does_not_hang_and_is_refused(tmp_path: Path) -> None:
 
 
 @POSIX
-def test_unix_socket_is_refused(tmp_path: Path) -> None:
+def test_unix_socket_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     base, out = _two_parts(tmp_path)
-    s = socket.socket(socket.AF_UNIX)
-    try:
-        s.bind(str(base / "00000" / "s"))
-    except OSError:
-        pytest.skip("path too long for a unix socket")
-    try:
+    # V1.0 G0: bind by a short relative path - a deep temp root (the fresh-clone
+    # child run) exceeds the ~108-byte AF_UNIX path limit - and close the socket
+    # on every exit: the old skip-on-bind-failure leaked it (an unraisable
+    # ResourceWarning that failed whichever later test the GC ran in).
+    monkeypatch.chdir(base / "00000")
+    with socket.socket(socket.AF_UNIX) as s:
+        s.bind("s")
         _expect_unsafe(base, out)
-    finally:
-        s.close()
 
 
 @POSIX
