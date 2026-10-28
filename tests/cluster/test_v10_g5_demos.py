@@ -186,30 +186,44 @@ def test_reset_cancels_leftover_jobs_and_revokes_unused_invites(
     assert_pass(done, "05-install-join")
     state = json.loads((work / "state.json").read_text(encoding="utf-8"))
     (invite_id,) = state["invites"]
-    # a leftover demo job, as an interrupted show would leave it
-    project = tmp_path / "leftover"
-    project.mkdir()
-    (project / "main.py").write_text("import time\ntime.sleep(120)\n", encoding="utf-8")
-    (project / "compute.yaml").write_text(
-        "name: demo-leftover\nentrypoint: [python, main.py]\n", encoding="utf-8"
-    )
     cli = [sys.executable, "-m", "meshforge.cli"]
-    sub = subprocess.run(
-        [*cli, "run", str(project), "--node", fabric.nodes[1].node_id],
-        env=env, capture_output=True, text=True, timeout=120, check=True,
-    )  # fmt: skip
-    job_id = sub.stdout.split()[0]
+
+    def submit(name: str) -> str:
+        project = tmp_path / name
+        project.mkdir()
+        (project / "main.py").write_text(
+            "import time\ntime.sleep(120)\n", encoding="utf-8"
+        )
+        (project / "compute.yaml").write_text(
+            f"name: {name}\nentrypoint: [python, main.py]\n", encoding="utf-8"
+        )
+        sub = subprocess.run(
+            [*cli, "run", str(project), "--node", fabric.nodes[1].node_id],
+            env=env, capture_output=True, text=True, timeout=120, check=True,
+        )  # fmt: skip
+        return sub.stdout.split()[0]
+
+    # a leftover demo job, as an interrupted show leaves it: recorded in state
+    job_id = submit("meshforge-demo-05-install-join-leftover")
+    state["jobs"].append(job_id)
+    (work / "state.json").write_text(json.dumps(state), encoding="utf-8")
+    # someone else's job that merely looks like a demo job: never touched
+    user_job = submit("demo-render")
     reset = run_demo("05-install-join", env, work, "--reset")
     assert reset.returncode == 0 and "DEMO 05-install-join: RESET" in reset.stdout, (
         reset.stdout
     )
     assert f"$ compute cancel {job_id}" in reset.stdout
+    assert user_job not in reset.stdout, reset.stdout
     assert f"$ compute fabric invites --revoke {invite_id}" in reset.stdout
     invites = fabric.call("GET", "/v1/fabric/invites").json()["invites"]
     row = next(i for i in invites if i["id"] == invite_id)
     assert row["state"] == "revoked", row
     again = run_demo("05-install-join", env, work, "--reset")  # idempotent
     assert again.returncode == 0 and "compute cancel" not in again.stdout, again.stdout
+    user = fabric.call("GET", f"/v1/jobs/{user_job}").json()
+    assert user.get("job", user)["state"] not in ("cancelled", "failed"), user
+    fabric.call("POST", f"/v1/jobs/{user_job}/cancel")
 
 
 def test_05_join_a_new_laptop_with_the_demo_code(

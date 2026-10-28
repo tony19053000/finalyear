@@ -215,3 +215,78 @@ def test_lane_to_kill_prefers_a_busy_remote_lane(demo: ModuleType) -> None:
     progress["lanes"][2]["live"] = False
     assert demo._lane_to_kill(progress, "node_local") == "node_a"
     assert demo._lane_to_kill({"lanes": []}, None) is None
+
+
+def test_a_missing_compute_binary_is_a_demo_error_not_a_crash(
+    kit: ModuleType, tmp_path: Path
+) -> None:
+    with open(tmp_path / "log", "w", encoding="utf-8") as out:
+        compute = kit.Compute(
+            kit.Show(dry_run=True, out=out), ("/nonexistent/compute",)
+        )
+        with pytest.raises(kit.DemoError, match="compute binary not runnable"):
+            compute.run("nodes")
+
+
+def test_a_missing_compute_binary_fails_the_demo_with_a_reason(
+    demo: ModuleType, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    code = demo.main(
+        ["01-local", "--dry-run", "--work", str(tmp_path), "--compute", "/nonexistent"]
+    )
+    out = capsys.readouterr().out
+    assert code == 1
+    assert "DEMO 01-local: FAIL" in out and "compute binary not runnable" in out
+    # a run that failed at once is not told it "finished within" the budget
+    assert "finished within" not in out
+
+
+class _FakeCompute:
+    """Stands in for :class:`Compute` in reset: a fabric of known jobs."""
+
+    def __init__(self, kit: ModuleType, out: object, jobs: dict[str, str]) -> None:
+        self.show = kit.Show(dry_run=True, out=out)
+        self.kit = kit
+        self.jobs = jobs  # job_id -> state; a user's job is in here too
+        self.calls: list[tuple[str, ...]] = []
+
+    def json(self, *args: str, quiet: bool = True) -> object:
+        self.calls.append(("json", *args))
+        if args[0] == "jobs" and len(args) == 2:
+            if args[1] not in self.jobs:
+                raise self.kit.DemoError(f"compute jobs {args[1]} exited 1: not found")
+            return {"job": {"job_id": args[1], "state": self.jobs[args[1]]}}
+        if args[:2] == ("fabric", "invites"):
+            return {"invites": []}
+        raise AssertionError(f"reset must not list the fabric's jobs: {args}")
+
+    def job(self, job_id: str) -> dict[str, object]:
+        return dict(self.json("jobs", job_id)["job"])  # type: ignore[index]
+
+    def run(self, *args: str, quiet: bool = False, check: bool = True) -> str:
+        self.calls.append(args)
+        if args[0] == "cancel":
+            self.jobs[args[1]] = "cancelled"
+        return ""
+
+
+def test_reset_cancels_only_recorded_jobs_never_a_users_demo_named_job(
+    kit: ModuleType, tmp_path: Path
+) -> None:
+    jobs = {
+        "job_open": "running",
+        "job_done": "succeeded",
+        "job_user": "running",  # a real user's job, named "demo-render"
+    }
+    state = kit.DemoState(tmp_path / "state.json")
+    for job_id in ("job_open", "job_done", "job_gone", "job_open"):
+        state.jobs.append(job_id)
+    with open(tmp_path / "log", "w", encoding="utf-8") as out:
+        fake = _FakeCompute(kit, out, jobs)
+        kit.reset_fabric_objects(fake, state)
+    cancels = [c for c in fake.calls if c[0] == "cancel"]
+    assert cancels == [("cancel", "job_open")]
+    assert jobs["job_user"] == "running"
+    assert not any("job_user" in c for c in fake.calls)
+    assert "skip job_gone" in (tmp_path / "log").read_text(encoding="utf-8")
+    assert kit.JOB_PREFIX == "meshforge-demo-"

@@ -31,8 +31,10 @@ from pathlib import Path
 from typing import Any, Final
 
 TERMINAL: Final = frozenset({"succeeded", "failed", "cancelled"})
-JOB_PREFIX: Final = "demo-"
-"""Every demo job's name starts with this (``--reset`` cancels them)."""
+JOB_PREFIX: Final = "meshforge-demo-"
+"""Every demo job's name starts with this (``meshforge-demo-<scenario>-``), so
+the presenter can tell them apart in ``compute jobs``. ``--reset`` does NOT
+select jobs by name: it cancels only the job ids recorded in ``state.json``."""
 MODE_OF: Final = {"local": "local", "offload": "mode1", "split": "mode3"}
 """Stored candidate mode (``compute explain --json``) -> the mode's name."""
 
@@ -107,6 +109,10 @@ class Compute:
         except subprocess.TimeoutExpired as exc:
             raise DemoError(
                 f"compute {args[0]} did not finish in {self.timeout_s:.0f} s"
+            ) from exc
+        except OSError as exc:  # missing / not executable / bad --compute
+            raise DemoError(
+                f"compute binary not runnable: {shlex.join(self.argv0)}: {exc}"
             ) from exc
         if check and done.returncode != 0:
             tail = (done.stderr or done.stdout).strip().splitlines()[-5:]
@@ -253,19 +259,17 @@ def run_hook(
 
 
 def reset_fabric_objects(compute: Compute, state: DemoState) -> None:
-    """Cancel every non-terminal demo job; revoke unused demo invites."""
-    listed = compute.json("jobs", "--limit", "200").get("jobs", [])
-    open_jobs = {
-        str(j["job_id"])
-        for j in listed
-        if j.get("state") not in TERMINAL
-        and str(j.get("name", "")).startswith(JOB_PREFIX)
-    }
-    for job_id in state.jobs:
-        if job_id not in open_jobs and compute.job(job_id).get("state") not in TERMINAL:
-            open_jobs.add(job_id)
-    for job_id in sorted(open_jobs):
-        compute.run("cancel", job_id)
+    """Cancel the non-terminal jobs this scenario recorded; revoke its unused
+    invites. Only ids in ``state.json`` are touched - never other jobs on the
+    fabric, whatever their name (a user's ``demo-render`` is safe)."""
+    for job_id in dict.fromkeys(state.jobs):
+        try:
+            job_state = compute.job(job_id).get("state")
+        except DemoError as exc:  # gone from the fabric: nothing to cancel
+            compute.show.say(f"skip {job_id}: {exc}")
+            continue
+        if job_state not in TERMINAL:
+            compute.run("cancel", job_id)
     if state.invites:
         invites = compute.json("fabric", "invites").get("invites", [])
         for row in invites:

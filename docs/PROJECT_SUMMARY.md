@@ -32,7 +32,7 @@ So the system learns. It records how long every real run actually took on every 
 
 ## What version 1.0 ships
 
-- **Local, Mode 1 Job Offloading and Mode 3 Task Splitting**, all working on real laptops.
+- **Local, Mode 1 Job Offloading and Mode 3 Task Splitting.** Each was tested on real laptops in the earlier lab sessions (versions 0.x); the final lab check of version 1.0 itself is still to be done.
 - **The AI planner** that picks between them for every job: it starts from rules and cost estimates, corrects them with what past runs really took, and uses machine learning to predict run times. It can always say *why* it chose what it chose.
 - **Security:** laptops join with a one-time code, every connection between them is encrypted and checks who is on the other end, every user logs in, and each laptop's owner decides what it shares.
 - **A dashboard and a command-line tool** to see the machines, submit work, watch the logs and get the results.

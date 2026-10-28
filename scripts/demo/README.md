@@ -77,8 +77,11 @@ Every scenario starts with its reset, and `--reset` runs only the reset:
 scripts/demo/03-mode3-split.sh --reset --revive-cmd "CMD {node_id}"
 ```
 
-It cancels every unfinished job named `demo-...` and every job the scenario recorded in its work folder's
-`state.json`, revokes the scenario's invites that were not used, runs `--revive-cmd` for a laptop it killed, and
+It cancels every unfinished job the scenario recorded (by job id) in its work folder's `state.json` - and
+nothing else: it never picks jobs by name, so other people's jobs on the fabric are safe even if they are called
+`demo-...`. (Demo jobs are named `meshforge-demo-<scenario>-<part>` only so you can spot them in `compute jobs`.)
+A job whose id was never recorded - the show was killed while `compute run` was still printing it - must be
+cancelled by hand with `compute cancel JOB_ID`. It also revokes the scenario's invites that were not used, runs `--revive-cmd` for a laptop it killed, and
 removes the old projects and outputs. Running it twice is harmless. The work folder defaults to
 `$TMPDIR/meshforge-demo/<scenario>` (`--work DIR` to choose).
 

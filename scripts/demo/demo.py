@@ -550,9 +550,10 @@ def main(argv: list[str] | None = None) -> int:
         show.line(f"DEMO {args.scenario}: INTERRUPTED (run with --reset to clean up)")
         return 130
     elapsed = show.elapsed()
-    show.expect(
-        elapsed < BUDGET_S, f"finished within {BUDGET_S:.0f} s", f"{elapsed:.0f} s"
-    )
+    if not show.failures:  # a run that already failed has no time to judge
+        show.expect(
+            elapsed < BUDGET_S, f"finished within {BUDGET_S:.0f} s", f"{elapsed:.0f} s"
+        )
     verdict = "FAIL" if show.failures else "PASS"
     show.line(f"\nDEMO {args.scenario}: {verdict} in {elapsed:.1f} s")
     for failure in show.failures:

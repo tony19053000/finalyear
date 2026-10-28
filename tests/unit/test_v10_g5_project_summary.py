@@ -28,3 +28,9 @@ def test_ships_and_deferred_are_both_stated() -> None:
     deferred = _section(text, "Deferred: designed, not built")
     for words in ("Mode 2", "Mode 4", "not in version 1.0", "ADR-0012"):
         assert words in deferred, words
+
+
+def test_ships_does_not_claim_v1_lab_acceptance_as_done() -> None:
+    ships = _section(DOC.read_text(encoding="utf-8"), "What version 1.0 ships")
+    assert "all working on real laptops" not in ships
+    assert "still to be done" in ships
