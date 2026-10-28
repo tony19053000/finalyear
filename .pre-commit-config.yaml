@@ -91,3 +91,13 @@ repos:
         files: ^(proto/.*\.proto|scripts/gen_protos\.py|pyproject\.toml|uv\.lock)$
         pass_filenames: false
         require_serial: true
+
+      # V1.0 G5 (D414): docs/api/ is generated from the OpenAPI documents, the
+      # protos and the commands' --help; any change to them must regenerate it.
+      - id: api-docs-check
+        name: API reference up to date (gen_api_docs --check)
+        entry: uv run --extra controller --extra agent python scripts/gen_api_docs.py --check
+        language: system
+        files: ^(src/meshforge/.*\.py|proto/.*\.proto|scripts/(gen_api_docs|apidoc_[a-z]+)\.py|docs/api/.*|pyproject\.toml|uv\.lock)$
+        pass_filenames: false
+        require_serial: true

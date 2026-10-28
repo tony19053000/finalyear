@@ -36,9 +36,18 @@
 26. [Honest limits](#26-honest-limits)
 27. [Open questions](#27-open-questions)
 
+
+**Section status in v1.0** (D414): every section below starts with a `v1.0 status` line - **current** (built and
+shipping, matches the code) or **deferred** (designed, not built in this release: Mode 2 Remote GPU and Mode 4
+Combined GPU, [ADR-0012](adr/0012-scope-ship-mode3-complete.md)). Deferred sections are kept as the design the
+next versions build on; nothing in them is simulated or partly shipped. Generated API reference:
+[api/README.md](api/README.md).
+
 ---
 
 ## 1. Architecture at a glance
+
+> **v1.0 status:** current.
 
 One **controller** coordinates a set of **node agents** (one per laptop, including the controller's own laptop). Users interact through the **CLI**, the **dashboard**, or the **Python SDK** inside their own programs. A single **planner** decides, for every request, *where and how* to run it.
 
@@ -91,6 +100,8 @@ flowchart LR
 
 ## 2. Design principles
 
+> **v1.0 status:** current.
+
 | # | Principle | Consequence |
 |---|---|---|
 | P1 | **Plan ≠ execute.** | Planner produces an `ExecutionPlan`; separate executors carry it out. Planner never contains execution logic. |
@@ -108,6 +119,8 @@ flowchart LR
 ---
 
 ## 3. Runtime components & process layout
+
+> **v1.0 status:** current - the GPU-service process is deferred (ADR-0012).
 
 | Component | Runs on | Process | Responsibilities |
 |---|---|---|---|
@@ -153,6 +166,8 @@ flowchart TB
 
 ## 4. The three planes: control, data, GPU
 
+> **v1.0 status:** current for the control and data planes; the GPU plane is deferred (ADR-0012).
+
 ```mermaid
 flowchart LR
     subgraph CP["CONTROL PLANE — small messages"]
@@ -184,6 +199,8 @@ flowchart LR
 
 ## 5. Execution modes mapped onto the architecture
 
+> **v1.0 status:** current for Local, Mode 1 and Mode 3; the Mode 2 and Mode 4 rows are deferred (ADR-0012).
+
 |  | **One laptop** | **Many laptops** |
 |---|---|---|
 | **Task is sent away** | **Mode 1 — Job Offloading** → `JobOffloadExecutor` | **Mode 3 — Task Splitting** → `TaskSplitExecutor` (N × Mode-1 attempts over a work queue) |
@@ -211,6 +228,8 @@ flowchart TB
 ---
 
 ## 6. Workload model: two request kinds
+
+> **v1.0 status:** current for the job request; the accelerator request is a typed stub answered `not_supported_in_build` (ADR-0012).
 
 A planner cannot move the GPU calls of an arbitrary script to another machine without the script's cooperation. So the fabric has **two request kinds** that feed **one planner**:
 
@@ -264,6 +283,8 @@ pool.train(model, dataset, optimizer=opt, loss_fn=loss, epochs=10)
 ---
 
 ## 7. Planner architecture & cost models
+
+> **v1.0 status:** current (rule-based, calibrated v2 and ML hybrid planners).
 
 ```mermaid
 flowchart LR
@@ -324,6 +345,8 @@ flowchart LR
 
 ## 8. Mode 1 — Job Offloading flow
 
+> **v1.0 status:** current.
+
 ```mermaid
 sequenceDiagram
     autonumber
@@ -351,6 +374,8 @@ sequenceDiagram
 
 ## 9. Mode 3 — Task Splitting flow
 
+> **v1.0 status:** current.
+
 ```mermaid
 flowchart TB
     J["Task A with split spec"] --> PL["Planner: choose node set S, initial shares, chunk size"]
@@ -373,6 +398,8 @@ flowchart TB
 ---
 
 ## 10. Mode 2 — Remote GPU flow
+
+> **v1.0 status:** deferred - designed, not built in v1.0 (ADR-0012).
 
 ```mermaid
 sequenceDiagram
@@ -402,6 +429,8 @@ sequenceDiagram
 ---
 
 ## 11. Mode 4 — Combined GPU flow
+
+> **v1.0 status:** deferred - designed, not built in v1.0 (ADR-0012).
 
 ### 11.1 Inference (`pool.map`)
 ```mermaid
@@ -450,6 +479,8 @@ Profile per-block time/memory per GPU → dynamic-programming partition minimisi
 ---
 
 ## 12. State machines
+
+> **v1.0 status:** current for job, attempt, node, chunk and lane machines; the GPU session machine is deferred.
 
 ### 12.1 Job
 ```mermaid
@@ -549,6 +580,8 @@ stateDiagram-v2
 
 ## 13. Failure model, retries, idempotency
 
+> **v1.0 status:** current.
+
 | Failure | Detection | Response |
 |---|---|---|
 | Agent/laptop disappears | lease expiry | attempts → `LOST`; the job is retried in the same transaction (V0.6 G3, §12.1): auto jobs avoid that node for `retry_exclude_s`, pinned jobs wait for it; `on_lost: false` fails instead; chunks re-queued |
@@ -620,6 +653,8 @@ Retry policy is per failure type (`retryable` vs not), with max attempts and bac
 
 ## 14. Data plane: content-addressed storage & caching
 
+> **v1.0 status:** current.
+
 ```mermaid
 flowchart LR
     SRC["Project folder on A"] --> TM["Tree manifest: path → sha256 (Merkle root)"]
@@ -664,6 +699,8 @@ flowchart LR
 
 ## 15. Execution environments
 
+> **v1.0 status:** current.
+
 | Runtime | Default when | Isolation | Environment (V0.5 D85-D87) |
 |---|---|---|---|
 | **Docker** | Linux nodes; Windows nodes with Docker Desktop | container: CPU/RAM/pids limits, workdir-only mounts, no privilege, read-only root fs | image `meshforge-env:<env hash>` = pinned base + requirements in `/env` (on `PYTHONPATH`) |
@@ -681,6 +718,8 @@ Selection order is **docker > venv > subprocess** (`agent/execution/selection.py
 ---
 
 ## 16. Security model & pairing
+
+> **v1.0 status:** current.
 
 **Threat model (summary):** devices are owned by trusted people, but the network is not trusted, and a mistake must not let an outsider run code. Workloads are semi-trusted: they are sandboxed so they cannot trivially damage the host. A process with Docker-socket access has root-equivalent power — the agent is therefore a privileged component and is kept small and audited.
 
@@ -810,6 +849,8 @@ sequenceDiagram
 ---
 
 ## 17. Telemetry & benchmarking pipeline
+
+> **v1.0 status:** current.
 
 ```mermaid
 flowchart LR
@@ -946,6 +987,8 @@ Benchmarks run through **the same code paths as users** — so benchmark data re
 
 ## 18. ML subsystem
 
+> **v1.0 status:** current.
+
 - **Formulation:** *predict cost components per candidate plan*, then rank. Not a direct "which mode" classifier (kept only as an experimental comparison).
 - **Targets:** compute time per (workload, node); env setup time; per-mode overhead residuals (actual − analytical); failure probability.
 - **Features:** workload fingerprint features (type, sizes, params, batch, sequence length, declared resources), **measured hardware scores** (CPU GFLOPS, memory bandwidth, GPU TFLOPS, VRAM) rather than model names, live load, network metrics, cache state.
@@ -964,6 +1007,8 @@ Benchmarks run through **the same code paths as users** — so benchmark data re
 ---
 
 ## 19. Data model
+
+> **v1.0 status:** current.
 
 ```mermaid
 erDiagram
@@ -1003,6 +1048,8 @@ Schema is managed with SQLAlchemy 2.0 + Alembic migrations. Large logs and outpu
 ---
 
 ## 20. API surfaces
+
+> **v1.0 status:** current for REST, WebSocket, AgentControl and enrolment (reference: [api/](api/README.md)); GpuService and the in-program SDK are deferred.
 
 **gRPC (internal)**
 - `AgentControl.Session(stream AgentMessage) → stream ControllerMessage` — Hello/Reconcile, Heartbeat, ResourceUpdate, CacheReport, NetProbeResult, AttemptStatus, LogChunk ⇄ StartAttempt, CancelAttempt, RefreshFetchToken (V0.5 D95), ProbeRequest, PrepareEnv, GC, Ack.
@@ -1093,50 +1140,59 @@ Contracts live in `proto/` (source of truth) and OpenAPI generated from FastAPI.
 
 ## 21. Repository structure
 
+> **v1.0 status:** current.
+
 ```text
 .
 ├── CLAUDE.md                     agent operating guide
-├── README.md
-├── pyproject.toml                uv project; extras: controller, agent, gpu; dependency group: dev
-├── proto/meshforge/v1/           common.proto · agent.proto · gpu.proto
+├── README.md · CONTRIBUTING.md
+├── pyproject.toml · uv.lock      uv project; extras: controller, agent, ml, gpu; groups: dev, evaluation
+├── proto/meshforge/v1/           common.proto · agent.proto · enroll.proto · gpu.proto (gpu: deferred, ADR-0012)
 ├── src/meshforge/
-│   ├── common/                   config · ids · logging · hashing · errors · generated protos
+│   ├── common/                   config · ids · logging · hashing · manifest · pki · states · explain_text · generated protos (proto/)
 │   ├── controller/
-│   │   ├── app.py                process entry: FastAPI + gRPC in one event loop
-│   │   ├── api/                  REST + WebSocket routes
-│   │   ├── rpc/                  AgentControl service, session manager
-│   │   ├── registry/             nodes, liveness, reconciliation
-│   │   ├── jobs/                 job/attempt/chunk state machines, dispatcher
-│   │   ├── planner/              generators · feasibility · estimators · policies · explain
-│   │   ├── blobs/                controller CAS + location index
-│   │   ├── telemetry/            recording, export
-│   │   ├── benchmarks/           campaigns, samplers, condition controllers
-│   │   ├── ml/                   datasets, training, registry, predictors
-│   │   ├── security/             CA, enrollment, authz
+│   │   ├── app.py · server.py    process entry: FastAPI + gRPC in one event loop
+│   │   ├── api/  web/  events/   REST routes · served dashboard · live WebSocket events
+│   │   ├── session/              AgentControl servicer, session manager (gRPC)
+│   │   ├── registry.py · liveness.py · discovery.py   nodes, failure detection, mDNS
+│   │   ├── jobs/  split/         job/attempt state machines, dispatcher · Mode 3 lanes, chunks, combine
+│   │   ├── planner/              candidates · feasibility · estimator · calibration · policies · objectives · replay
+│   │   ├── planner_eval/  ml/    offline evaluator (regret) · ML dataset, training, registry, predictor
+│   │   ├── telemetry/  bench/    run records, export · benchmark campaigns and runner
+│   │   ├── network/              bandwidth/RTT probes
+│   │   ├── auth/  enrollment/    users, tokens · join codes, fabric CA (fabric_ca.py)
+│   │   ├── setup/  db_managed/   first-run setup page · managed PostgreSQL
 │   │   └── store/                SQLAlchemy models, Alembic migrations
 │   ├── agent/
-│   │   ├── main.py
+│   │   ├── main.py · runtime.py  process entry, wiring
 │   │   ├── session/              gRPC client, reconnect, command dedupe
-│   │   ├── identity/  hw/  monitor/  netprobe/
-│   │   ├── runtime/              docker.py · venv.py (common interface)
-│   │   ├── executor/             attempt lifecycle, work-queue worker
-│   │   ├── blobs/                CAS cache + peer HTTP server
-│   │   └── gpu/                  GPU-service supervisor
-│   ├── gpu_service/              server · sessions · tensors · modules · collectives
-│   ├── sdk/                      remote_gpu · combined_gpu · workqueue client
-│   └── cli/
-├── dashboard/                    React + TypeScript + Vite
-├── workloads/                    example + benchmark workload families
-├── lab/                          multi-laptop scripts, spikes, checklists, inventory
-├── deploy/                       docker-compose.dev.yml · systemd · windows · installers
-├── tests/                        unit · component · cluster · lab · gpu · e2e · soak · chaos (tier = folder; chaos lives in cluster/chaos/ - V0.6 G3; see roadmap test rules)
-└── docs/                         brief · architecture · roadmap · status · adr · LAB.md
+│   │   ├── identity.py  hardware/  resources/   identity, discovery + scores, resource samples
+│   │   ├── execution/  envs/     attempt lifecycle, Docker + subprocess runners, split lanes · job environments
+│   │   ├── cas/  cache/  peer/  gc/   content store, fetch, peer HTTP server, cache GC
+│   │   ├── benchmarks/  conditions/   benchmark child, condition controllers
+│   │   ├── console/              local console (V0.17 G3)
+│   │   └── win*.py               Windows service, installer, upgrade
+│   ├── workqueue/                shared leased work queue (ADR-0006/0019)
+│   ├── bench/                    benchmark workload families
+│   ├── gpu_service/              deferred (Mode 2/4, ADR-0012): package placeholder only
+│   ├── sdk/                      deferred (remote_gpu / combined_gpu): no public names in v1.0
+│   └── cli/                      `compute`
+├── frontend/                     React + TypeScript + Vite dashboard and agent console
+├── workloads/  examples/         example workloads · benchmark campaign specs
+├── lab/                          multi-laptop scripts, spikes, checklists, inventory, soak/chaos kit
+├── deploy/  packaging/           dev compose, systemd, Windows · .deb and Windows installer builds
+├── release/                      acceptance manifest (ADR-0023)
+├── scripts/                      codegen, API docs, bundles, evaluation, demos (scripts/demo/), changelog
+├── tests/                        unit · component · cluster (incl. chaos/, soak/) · e2e; shared helpers in _support/
+└── docs/                         brief · architecture · roadmap · status · adr · api (generated) · user · reports
 ```
 **One Python package, several entry points** — simpler than a multi-repo, still clean boundaries enforced by import rules (`common` ← everything; `controller` and `agent` never import each other; `sdk` and `gpu_service` import only `common`; `agent` never imports `gpu_service` — it launches it as a separate process and talks to it over gRPC with stubs from `common`; `cli` imports `common` + `sdk` and talks to the controller over REST, never importing controller/agent internals). Enforced by import-linter contracts in `pyproject.toml` plus the completeness guard `tests/unit/_import_guard.py` (`ALLOWED_DEPS`) — update both when adding a subpackage; `pytest` is the gate, `lint-imports` alone does not check completeness.
 
 ---
 
 ## 22. Technology stack
+
+> **v1.0 status:** current.
 
 | Area | Choice | Why / note |
 |---|---|---|
@@ -1160,6 +1216,8 @@ Contracts live in `proto/` (source of truth) and OpenAPI generated from FastAPI.
 ---
 
 ## 23. Deployment topology (lab)
+
+> **v1.0 status:** current.
 
 ```mermaid
 flowchart TB
@@ -1461,6 +1519,8 @@ Windows (agent/winsetup.py + agent/winupgrade.py; Program Files\MeshForge\upgrad
 
 ## 24. Cross-platform strategy
 
+> **v1.0 status:** current.
+
 - **Agent runs natively on Windows** (not inside WSL) — avoids WSL2 NAT/inbound problems; psutil, NVML, gRPC, PyTorch all work natively. Windows service in product; background task in dev.
 - **Workloads on Windows** run in Docker Desktop (Linux containers, GPU through WSL2 backend) when available, else native venv.
 - **Agents dial out** to the controller → no inbound port needed for the control plane. Peer blob servers and GPU services need inbound ports → firewall rules created by installer (documented manual step before V0.17).
@@ -1470,6 +1530,8 @@ Windows (agent/winsetup.py + agent/winupgrade.py; Program Files\MeshForge\upgrad
 
 ## 25. Observability
 
+> **v1.0 status:** current.
+
 - Structured JSON logs with `job_id`, `attempt_id`, `node_id`, `session_id` correlation fields.
   An event carries the ids that *exist* when it is logged: `controller.jobs.placement_refused` has `node_id` but no `job_id` - a refused submission never creates a job (D50), so there is no id to correlate on (V0.4 D62-5).
 - Dashboard: live node metrics, job timelines, planner explanations, benchmark results.
@@ -1478,6 +1540,8 @@ Windows (agent/winsetup.py + agent/winupgrade.py; Program Files\MeshForge\upgrad
 ---
 
 ## 26. Honest limits
+
+> **v1.0 status:** current.
 
 - Combined GPU never equals the full sum of GPUs; gain depends on work type and network. Measured and reported, not promised.
 - Mode 2/4 support PyTorch workloads via SDK/`torch.export`; arbitrary CUDA programs are out of scope.
@@ -1489,6 +1553,8 @@ Windows (agent/winsetup.py + agent/winupgrade.py; Program Files\MeshForge\upgrad
 ---
 
 ## 27. Open questions
+
+> **v1.0 status:** current - open items, not commitments.
 
 | # | Question | Resolved by |
 |---|---|---|

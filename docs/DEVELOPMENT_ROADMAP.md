@@ -765,10 +765,10 @@ A version is **complete** only when all apply:
 - [ ] **1.0.2** 72 h soak + chaos campaign
 - [ ] **1.0.3** Performance profiling & tuning pass
 - [ ] **1.0.4** Final security review
-- [ ] **1.0.5** Documentation complete (user guide, architecture, API reference, ADRs)
+- [~] **1.0.5** Documentation complete (user guide, architecture, API reference, ADRs) — *G5 implemented (docs/briefs/progress/V1.0-G5.md): generated `docs/api/` + CI `api-docs` drift job, ADR index 0001–0023, ARCHITECTURE current/deferred; open: team acceptance of Proposed ADRs, Windows screenshots (🧑 0.17.8), measured numbers in PROJECT_SUMMARY (G6)*
 - [ ] **1.0.6** Final evaluation: research question with all baselines, CIs, ablations (report/paper-ready)
-- [ ] **1.0.7** Scripted demonstration scenarios for every mode
-- [ ] **1.0.8** Release tag + changelog
+- [~] **1.0.7** Scripted demonstration scenarios for every mode — *G5 implemented: `scripts/demo/01`–`05` with reset + `--dry-run` (cluster test); open: 🧑 L5 rehearsals ×2 + fallback recordings*
+- [~] **1.0.8** Release tag + changelog — *G5 prep: `docs/CHANGELOG.md` V0.1–V1.0 + `scripts/changelog.py`; open: tag `v1.0.0` after `release_check.py` exit 0 + soak (G6, team approval)*
 
 **Success criteria**
 1. All acceptance criteria pass on the release build.
