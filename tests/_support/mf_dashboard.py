@@ -159,12 +159,13 @@ NOISE_CANARIES: Final = (
     "WebSocket connection to 'wss://h/v1/events/ws' failed: Error during WebSocket handshake: "
     "Unexpected response code: 500 @ https://h/assets/index-abc.js",
 )
-#: Host network churn, not an application error (V1.0 G0): every job of the
-#: fabric runs in its own Docker container, and each container start/stop adds
-#: or removes a veth interface. Chromium's network-change notifier then aborts
-#: the in-flight fetches with exactly this net error (the dashboard re-fetches).
-#: Seen on the 10k-job UI perf run. Matches only that error code on a failed
-#: resource load - an HTTP status or any other net:: error still fails the test.
+#: Host network churn, not an application error (V1.0 G0): whenever any Docker
+#: container on the host starts or stops (testcontainers Postgres of this or a
+#: parallel test run, other sessions' fabrics), Docker adds or removes a veth
+#: interface; Chromium's network-change notifier then aborts the page's
+#: in-flight fetches with exactly this net error (the dashboard re-fetches).
+#: Seen 2/3 on the long UI perf run (V0.8-c2). Matches only that error code on a
+#: failed resource load - an HTTP status or any other net:: error still fails.
 NETWORK_CHANGED_NOISE: Final = r"^Failed to load resource: net::ERR_NETWORK_CHANGED @ "
 
 #: Shortest ``allow`` text: a one- or two-letter fragment is in almost any line.

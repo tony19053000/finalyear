@@ -270,7 +270,7 @@ def new_page(
         watch = PageWatch.attach(page)
         watch.allow_matching(
             NETWORK_CHANGED_NOISE,
-            "Docker job containers change the host's interfaces (see the constant)",
+            "Docker veth churn on the host (see the constant)",
             may_not_occur=True,
         )
         watches.append(watch)

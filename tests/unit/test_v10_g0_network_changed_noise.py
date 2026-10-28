@@ -1,8 +1,8 @@
 """V1.0 G0: the e2e page guard's one shared noise entry, ``NETWORK_CHANGED_NOISE``.
 
-Docker job containers change the host's network interfaces; Chromium then aborts
-in-flight fetches with ``net::ERR_NETWORK_CHANGED``. Only that exact error on a
-failed resource load is excused - every other console error still fails a test.
+Docker containers starting/stopping on the host change its network interfaces;
+Chromium then aborts in-flight fetches with ``net::ERR_NETWORK_CHANGED``. Only
+that exact error on a failed resource load is excused - every other console error still fails a test.
 """
 
 from __future__ import annotations
