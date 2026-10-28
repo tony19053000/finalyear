@@ -13,10 +13,10 @@ from __future__ import annotations
 import contextlib
 import json
 import os
-import pwd
 import shutil
 import signal
 import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -31,6 +31,12 @@ from _soak.plan import Target
 pytestmark = pytest.mark.unit
 MIB = w.MIB
 WRAPPER = Path(__file__).resolve().parents[3] / "lab" / "mf-chaos"
+# The wrapper, the signal traps and the driver's SIGHUP handler are POSIX-only
+# (Windows has no pwd / SIGHUP / process groups, and Git's ``sh`` on PATH is not
+# the Linux laptop the wrapper runs on).
+posix_only = pytest.mark.skipif(
+    sys.platform == "win32", reason="POSIX-only: sh wrapper, pwd, SIGHUP, killpg"
+)
 
 
 # ------------------------------------------------------------ catalogue
@@ -141,6 +147,7 @@ def test_cleanup_failure_is_counted_and_exit_code(
     assert len(ok_calls) == 2
 
 
+@posix_only
 def test_run_cleans_up_at_start_and_on_sigterm(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -296,6 +303,7 @@ class Box:
             f'#!/bin/sh\necho Avail\necho " {avail_bytes}"\n'
         )
         (self.bindir / "df").chmod(0o755)
+        pwd = pytest.importorskip("pwd")
         me = pwd.getpwuid(os.getuid()).pw_name
         text = WRAPPER.read_text()
         for old, new in (
@@ -331,7 +339,10 @@ class Box:
         return self.log.read_text() if self.log.exists() else ""
 
 
-needs_sh = pytest.mark.skipif(shutil.which("sh") is None, reason="needs a POSIX sh")
+needs_sh = pytest.mark.skipif(
+    sys.platform == "win32" or shutil.which("sh") is None,
+    reason="needs a POSIX sh (the wrapper runs on the Linux laptops)",
+)
 
 
 @needs_sh
@@ -479,12 +490,13 @@ def _wait_for(check: Any, timeout_s: float = 10.0) -> None:
 
 
 @needs_sh
-@pytest.mark.parametrize("sig", [signal.SIGTERM, signal.SIGHUP, signal.SIGINT])
+@pytest.mark.parametrize("sig_name", ["SIGTERM", "SIGHUP", "SIGINT"])
 def test_disk_fill_body_removes_its_file_on_a_signal(
-    tmp_path: Path, sig: signal.Signals
+    tmp_path: Path, sig_name: str
 ) -> None:
     """``systemctl stop mf-chaos-ID`` signals the unit's whole cgroup; the
     trap must undo the fill at once, not after the sleep."""
+    sig = getattr(signal, sig_name)  # by name: SIGHUP does not exist on Windows
     box = Box(tmp_path, avail_bytes=3 * MIB)
     fill = box.fill
     proc = box.start("_body-disk-fill", str(fill), "1", "60")

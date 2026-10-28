@@ -7,7 +7,10 @@ node must never leave ONLINE - on the controller's live view, in the registry, o
 on the agent's side - and the stream must never drop.
 
 Run with the child's priority lowered (the product default) **and** without it, so
-the handoff can say whether the priority drop is what keeps the node ONLINE.
+the handoff can say whether the priority drop is what keeps the node ONLINE. The
+``no-nice`` case is ``perf`` (D422): on a shared CI runner it measures the
+runner's load, so it runs on a quiet lab laptop (``docs/LAB.md``
+"Load-sensitive timing tests"); the product-default ``nice10`` case is the gate.
 """
 
 from __future__ import annotations
@@ -48,7 +51,15 @@ async def _no_conditions() -> tuple[bool | None, float | None]:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("lower_priority", [True, False], ids=["nice10", "no-nice"])
+@pytest.mark.parametrize(
+    "lower_priority",
+    [
+        pytest.param(True, id="nice10"),
+        # D422: without the priority drop, staying ONLINE depends on how busy
+        # the host is - a measurement for a quiet lab laptop, not a CI gate.
+        pytest.param(False, id="no-nice", marks=pytest.mark.perf),
+    ],
+)
 async def test_node_stays_online_while_an_all_threads_benchmark_runs(
     runtime: ControllerRuntime,
     registry: Registry,
