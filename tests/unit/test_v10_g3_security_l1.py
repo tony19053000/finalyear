@@ -46,7 +46,7 @@ def test_strict_loader_is_a_safe_loader_subclass() -> None:
     # the constructors are SafeConstructor's: no python/object tags
     assert "tag:yaml.org,2002:python/object" not in loader.yaml_constructors
     assert not any(
-        tag.startswith("tag:yaml.org,2002:python/")
+        str(tag).startswith("tag:yaml.org,2002:python/")
         for tag in loader.yaml_multi_constructors
     )
 
