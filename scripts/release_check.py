@@ -14,6 +14,15 @@ Reads ``release/acceptance.yaml`` (D407) and gives every row a status:
   ``affected_by`` globs changed since (D406). Otherwise MISSING (or FAIL).
 * ``waiver`` rows - WAIVED when the reason and the cited decision are valid.
 
+**Preflight (V1.0 G7).** Before any ``auto`` row runs, the environment must hold
+every optional extra of ``pyproject.toml`` (``uv sync --all-extras``) and the
+built dashboard + agent console (``npm run build``). Without them whole modules
+``importorskip`` (pytest exit 4: rows FAIL) or skip (rows MISSING) and the report
+blames the product for the build environment. A failed preflight lists what is
+missing, prints the fix and exits 2 before anything runs. ``--no-preflight``
+(development only) runs anyway; the report header then says the preflight was
+skipped, so such a report is not release evidence.
+
 Writes ``<out>.md`` and ``<out>.json`` (default
 ``docs/reports/release-v1.0-acceptance``) and prints the table.
 
@@ -37,12 +46,14 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import fnmatch
+import importlib.metadata
 import json
 import os
 import re
 import subprocess
 import sys
 import tempfile
+import tomllib
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -72,6 +83,19 @@ FULL_SHA: Final = re.compile(r"[0-9a-f]{40}")
 #: so they stale every lab row backed by ``src/`` without each row listing them
 #: (ADR-0023 D406 section; reviewer note 1).
 GLOBAL_AFFECTED: Final = ("pyproject.toml", "uv.lock")
+
+
+PYPROJECT: Final = rm.REPO / "pyproject.toml"
+#: What ``npm run build`` writes (the controller dashboard, the agent console);
+#: the same files scripts/build_bundle.py requires (DASHBOARD_INDEX/CONSOLE_INDEX).
+UI_BUILDS: Final = (
+    "src/meshforge/controller/web/dist/index.html",
+    "src/meshforge/agent/console/dist/index.html",
+)
+PREFLIGHT_FIX: Final = (
+    "uv sync --all-extras --group evaluation && "
+    "(cd frontend && npm ci && npm run build)"
+)
 
 
 class GitUnavailableError(RuntimeError):
@@ -440,6 +464,54 @@ def exit_code(results: Sequence[Result], only: str | None) -> int:
     return 1 if any(r.status in ("FAIL", "MISSING") for r in counted) else 0
 
 
+# --------------------------------------------------------------- preflight
+
+
+def missing_extras(pyproject: Path = PYPROJECT) -> list[str]:
+    """Requirements of every optional extra that this interpreter does not satisfy.
+
+    Each requirement whose marker applies here (``extra`` set to the extra's name)
+    must be installed at a version its specifier allows. Only the top-level
+    distribution is checked (not ``uvicorn[standard]``'s own extras).
+    """
+    from packaging.requirements import InvalidRequirement, Requirement
+
+    data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
+    extras: Mapping[str, Sequence[str]] = data.get("project", {}).get(
+        "optional-dependencies", {}
+    )
+    problems: list[str] = []
+    for extra in sorted(extras):
+        for spec in extras[extra]:
+            try:
+                req = Requirement(spec)
+            except InvalidRequirement as exc:
+                problems.append(f"[{extra}] unreadable requirement {spec!r}: {exc}")
+                continue
+            if req.marker is not None and not req.marker.evaluate({"extra": extra}):
+                continue  # not for this platform
+            try:
+                version = importlib.metadata.version(req.name)
+            except importlib.metadata.PackageNotFoundError:
+                problems.append(f"[{extra}] {req.name} is not installed")
+                continue
+            if req.specifier and not req.specifier.contains(version, prereleases=True):
+                problems.append(
+                    f"[{extra}] {req.name} {version} does not satisfy {req.specifier}"
+                )
+    return problems
+
+
+def missing_ui(repo: Path = rm.REPO) -> list[str]:
+    """Built UI files the e2e-backed rows need that do not exist."""
+    return [f"{rel} is missing" for rel in UI_BUILDS if not (repo / rel).is_file()]
+
+
+def preflight(pyproject: Path = PYPROJECT, repo: Path = rm.REPO) -> list[str]:
+    """Everything wrong with this environment for running ``auto`` rows."""
+    return [*missing_extras(pyproject), *missing_ui(repo)]
+
+
 # --------------------------------------------------------------------- CLI
 
 
@@ -459,6 +531,12 @@ def check(argv: Sequence[str]) -> int:
     parser.add_argument("--lab-dir", type=Path, default=DEFAULT_LAB_DIR)
     parser.add_argument(
         "--out", type=Path, default=DEFAULT_OUT, help="report path prefix"
+    )
+    parser.add_argument(
+        "--no-preflight",
+        action="store_true",
+        help="run auto rows without the extras/UI check (development only: "
+        "the report says so and is not release evidence)",
     )
     args = parser.parse_args(argv)
 
@@ -506,7 +584,18 @@ def check(argv: Sequence[str]) -> int:
 
     results: dict[str, Result] = {}
     auto_rows = [r for r in rows if r.kind == "auto"]
-    if args.only in (None, "auto") and auto_rows:
+    run_auto = args.only in (None, "auto") and bool(auto_rows)
+    if run_auto and not args.no_preflight and (problems := preflight()):
+        print(
+            "release_check: this environment cannot run the auto rows "
+            f"({len(problems)} problem{'s' if len(problems) != 1 else ''}):\n  "
+            + "\n  ".join(problems)
+            + f"\nfix: {PREFLIGHT_FIX}\n"
+            "(or --only lab; --no-preflight runs anyway, not as release evidence)",
+            file=sys.stderr,
+        )
+        return 2
+    if run_auto:
         with tempfile.TemporaryDirectory(prefix="mf-release-") as tmp:
             for res in evaluate_auto(auto_rows, Path(tmp)):
                 results[res.id] = res
@@ -530,6 +619,13 @@ def check(argv: Sequence[str]) -> int:
         "Package version": args.package_version or "(not given: source checkout)",
         "Working tree": "DIRTY - not release evidence (D406)" if dirty else "clean",
         "Mode": f"--only {args.only}" if args.only else "all kinds",
+        "Preflight": (
+            "SKIPPED (--no-preflight) - not release evidence"
+            if run_auto and args.no_preflight
+            else "ok"
+            if run_auto
+            else "not needed (no auto rows run)"
+        ),
         "Rows": f"{len(ordered)}" + (" (subset)" if args.rows else ""),
         "Generated": dt.datetime.now(dt.UTC).replace(microsecond=0).isoformat(),
         "Exit": code,
@@ -548,6 +644,13 @@ def check(argv: Sequence[str]) -> int:
                 "package_version": args.package_version or None,
                 "dirty": dirty,
                 "only": args.only,
+                "preflight": (
+                    "skipped"
+                    if run_auto and args.no_preflight
+                    else "ok"
+                    if run_auto
+                    else "not_needed"
+                ),
                 "exit": code,
                 "warnings": warnings,
                 "results": [asdict(r) for r in ordered],
