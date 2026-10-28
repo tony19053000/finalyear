@@ -35,6 +35,15 @@ pytestmark = pytest.mark.unit
 HOOK = EVAL_DIR.parents[1] / "lab" / "eval_profile.sh"
 
 
+@pytest.fixture
+def analysis_deps() -> None:
+    """The analysis' paired verdicts import ``ml.train.metrics`` (numpy, and
+    pyarrow through the dataset module): skip without the ``ml`` extra, as
+    ``test_v10_g2_report`` does (the fresh-clone CI tier has no extras)."""
+    pytest.importorskip("numpy", reason="the paired verdict helper needs numpy")
+    pytest.importorskip("pyarrow", reason="ml.train.metrics imports the dataset module")
+
+
 # --------------------------------------------------------------- raw folder
 
 
@@ -327,6 +336,7 @@ def _tree(path: Path) -> dict[str, bytes]:
     }
 
 
+@pytest.mark.usefixtures("analysis_deps")
 def test_analysis_is_byte_identical_across_environments(tmp_path: Path) -> None:
     """Hash seed, time zone, locale, cwd, and the raw folder's location and
     name must not leak into any output byte (D419)."""
@@ -368,6 +378,7 @@ def test_analysis_is_byte_identical_across_environments(tmp_path: Path) -> None:
     assert b"SHA256SUMS" in b"".join(k.encode() for k in trees[0])
 
 
+@pytest.mark.usefixtures("analysis_deps")
 def test_sha256sums_matches_the_files_it_lists(tmp_path: Path) -> None:
     import hashlib
 
@@ -408,6 +419,7 @@ def test_a_different_seed_changes_the_output_and_the_same_seed_does_not(
     assert _tree(tmp_path / "a") == _tree(tmp_path / "b")
 
 
+@pytest.mark.usefixtures("analysis_deps")
 def test_the_committed_sample_is_not_modified_by_checking_it() -> None:
     import check_sample  # type: ignore[import-not-found]
 
@@ -416,6 +428,7 @@ def test_the_committed_sample_is_not_modified_by_checking_it() -> None:
     assert _tree(SAMPLE_DIR) == before
 
 
+@pytest.mark.usefixtures("analysis_deps")
 def test_check_sample_detects_a_tampered_expected_file(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

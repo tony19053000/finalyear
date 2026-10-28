@@ -46,8 +46,12 @@ crashed:
   has no such gap: its containers are swept at the next start.
 * **Windows:** the job object's handle is owned by the agent; when the agent dies
   for any reason the kernel closes it and ``KILL_ON_JOB_CLOSE`` ends every process
-  in the job, descendants included. Limit: the child runs for a few microseconds
-  before it is assigned; a process it starts in that window escapes the job.
+  in the job, descendants included. The child is created **suspended**
+  (``CREATE_SUSPENDED``), assigned to its job, and only then resumed
+  (``NtResumeProcess``, as psutil does), so nothing it starts escapes the job or
+  its CPU / memory caps - a venv's ``python.exe`` is a launcher that starts the
+  real interpreter at once (V0.17 CI). A child that cannot be resumed is killed
+  (:class:`SpawnError` ``spawn_failed``), never left frozen.
 * **macOS / other POSIX:** no parent-death signal exists; only the process group
   is used (``DEATH_SIGNAL_SUPPORTED`` says so).
 
@@ -330,6 +334,8 @@ if sys.platform == "win32":  # pragma: no cover - exercised on Windows CI only
     _JOB_OBJECT_CPU_RATE_CONTROL_HARD_CAP: Final = 0x4
     _PROCESS_SET_QUOTA: Final = 0x0100
     _PROCESS_TERMINATE: Final = 0x0001
+    _PROCESS_SUSPEND_RESUME: Final = 0x0800
+    _CREATE_SUSPENDED: Final = 0x00000004
 
     class _IoCounters(ctypes.Structure):
         _fields_ = [(name, ctypes.c_ulonglong) for name in (
@@ -378,6 +384,19 @@ if sys.platform == "win32":  # pragma: no cover - exercised on Windows CI only
     _kernel32.TerminateJobObject.argtypes = [wintypes.HANDLE, wintypes.UINT]
     _kernel32.CloseHandle.restype = wintypes.BOOL
     _kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    _ntdll = ctypes.WinDLL("ntdll")
+    _ntdll.NtResumeProcess.restype = ctypes.c_long  # NTSTATUS
+    _ntdll.NtResumeProcess.argtypes = [wintypes.HANDLE]
+
+    def _resume(pid: int) -> bool:
+        """Resume every thread of a child created ``CREATE_SUSPENDED``."""
+        handle = _kernel32.OpenProcess(_PROCESS_SUSPEND_RESUME, False, pid)
+        if not handle:
+            return False
+        try:
+            return bool(_ntdll.NtResumeProcess(handle) >= 0)
+        finally:
+            _kernel32.CloseHandle(handle)
 
     def _job_for(pid: int, limits: ProcessLimits | None = None) -> int | None:
         """A kill-on-close job holding ``pid`` with ``limits``, or None
@@ -438,6 +457,9 @@ else:
 
     def _job_for(pid: int, limits: ProcessLimits | None = None) -> int | None:
         return None
+
+    def _resume(pid: int) -> bool:
+        return True
 
     def _terminate_job(job: int) -> bool:
         return False
@@ -609,7 +631,13 @@ def _platform_argv(
     exe = resolve_executable(argv[0], env)
     kwargs: dict[str, Any] = {}
     if sys.platform == "win32":  # pragma: no cover - Windows only
-        flags = subprocess.CREATE_NO_WINDOW | subprocess.CREATE_NEW_PROCESS_GROUP
+        # Suspended until it is in its job object (spawn resumes it): a process
+        # the child starts at once must not escape the job's caps.
+        flags = (
+            subprocess.CREATE_NO_WINDOW
+            | subprocess.CREATE_NEW_PROCESS_GROUP
+            | _CREATE_SUSPENDED
+        )
         if lower_priority:
             flags |= subprocess.BELOW_NORMAL_PRIORITY_CLASS
         kwargs["creationflags"] = flags
@@ -717,6 +745,14 @@ async def spawn(
         raise SpawnError(
             "cannot apply the owner's resource limits (Windows job object)",
             reason="limits_not_applied",
+        )
+    if not _resume(proc.pid):  # pragma: no cover - Windows only
+        handle.kill_now()
+        await handle.reap()
+        raise SpawnError(
+            f"cannot start {Path(argv[0]).name!r}: the suspended child could "
+            "not be resumed",
+            reason="spawn_failed",
         )
     if on_spawn is not None:
         on_spawn(proc.pid)

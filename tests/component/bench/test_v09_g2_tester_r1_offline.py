@@ -24,6 +24,7 @@ from mf_bench_procs import (  # tests/_support, shared by the split files
     _env,
     _tree,
     needs_torch,
+    skip_without_numpy,
 )
 
 from meshforge.bench.workloads import (
@@ -124,6 +125,7 @@ def test_the_audit_harness_itself_sees_network_writes_and_blocks_meshforge(
 def test_cpu_job_entrypoint_runs_offline_without_meshforge_and_writes_only_results(
     name: str, tmp_path: Path
 ) -> None:
+    skip_without_numpy(name)
     built = build_job(name, {}, 3, tmp_path / "job")
     (built.path / "workload_params.json").write_text(
         json.dumps({"family": name, "params": TINY[name], "seed": 3}), encoding="utf-8"
