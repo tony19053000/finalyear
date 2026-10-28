@@ -8,6 +8,12 @@ its cost grew with history (4 200 attempts: 1.2 / 1.2 / 8.2 ms -> 0.06 / 0.04 /
 stays a few entries whatever the history. The predicate is the same state list
 as ``ux_attempt_live_lane``.
 
+Lock: a plain ``CREATE INDEX`` (not ``CONCURRENTLY``, which cannot run in the
+migration transaction) holds a ``SHARE`` lock on ``attempt`` while it builds -
+writes wait, reads do not. The build scans the table once (tens of
+milliseconds at a few thousand attempts) and runs in the controller's start-up
+migration transaction, before it serves.
+
 Downgrade drops the index.
 
 Revision ID: 0036

@@ -5,12 +5,13 @@ a terminal state in many places (the agent's DONE/FAILED report, node loss,
 the restart recovery, the stuck-attempt backstops, cancellation, fencing by a
 retry). Building the record inside each of those transactions would put
 telemetry on every hot path and one missed path would silently lose records.
-Instead :class:`RunRecorder` sweeps **by state**: every terminal attempt with no
-``run_record`` row is a record to write -
+Instead :class:`RunRecorder` sweeps **by state**: every terminal attempt not
+yet marked ``recorded`` is a record to write -
 
     SELECT ... FROM attempt
-    WHERE state IN ('done','failed','lost','fenced')
-      AND NOT EXISTS (SELECT 1 FROM run_record r WHERE r.attempt_id = attempt.id)
+    WHERE NOT recorded AND state IN ('done','failed','fenced','lost')
+    ORDER BY created_at, id LIMIT :batch
+    FOR NO KEY UPDATE SKIP LOCKED
 
 so it cannot miss one: a controller crash between the terminal commit and the
 record just leaves the attempt for the next sweep (also after a restart), and a
@@ -18,9 +19,27 @@ bug in the builder never rolls back a state transition. Each batch is one
 transaction: read the rows, build the records with the pure
 :func:`~.record.build_record`, ``INSERT ... ON CONFLICT (attempt_id) DO
 NOTHING`` (idempotent: two controllers or two sweeps cannot write a record
-twice, and a written record is never changed). The cost is a delay of at most
-``[controller.telemetry] record_interval_s`` (2 s), or less when
-:meth:`RunRecorder.nudge` is called after a terminal report.
+twice, and a written record is never changed), then set ``recorded`` on every
+attempt of the batch that now has a record - **in the same transaction**, so a
+record without its flag (or a flag without its record) can never be committed.
+The cost is a delay of at most ``[controller.telemetry] record_interval_s``
+(2 s), or less when :meth:`RunRecorder.nudge` is called after a terminal report.
+
+**Why a flag (V1.0 G4 F-4, D412).** The work list used to be an anti-join of
+every terminal attempt against ``run_record`` - a sequential scan of both
+tables every 2 s that grew with history (~47 % of all database time in the G4
+profile). ``ix_attempt_unrecorded`` (migration 0037) is a partial index on
+exactly the predicate above, so the sweep reads only the few unrecorded rows.
+A keyset watermark was rejected: an attempt that turns terminal after a newer
+one (a long job) would sit behind it and never be read. The row lock
+(``NO KEY UPDATE``, the lock the flag's ``UPDATE`` takes anyway, so it does not
+conflict with foreign-key inserts such as phase rows) with ``SKIP LOCKED`` lets
+two sweepers (two controllers on one database) take disjoint batches instead of
+building the same records; a row locked by anything else is taken by a later
+sweep. An attempt whose record already exists but whose flag is not set (an
+attempt recorded by an older release while this one migrated, or a test that
+writes records directly) is only marked - its record is never rebuilt. The
+flag's ``UPDATE`` keeps ``updated_at`` (the attempt's state did not change).
 
 **One bad record never jams the sweep.** The batch INSERT runs in a savepoint;
 if PostgreSQL refuses it for its *data* (SQLSTATE class 22 data exception or 23
@@ -69,7 +88,16 @@ from collections.abc import Awaitable, Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Final
 
-from sqlalchemy import exists, literal, select, tuple_
+from sqlalchemy import (
+    BindParameter,
+    Select,
+    bindparam,
+    exists,
+    literal,
+    select,
+    tuple_,
+    update,
+)
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import DBAPIError, SQLAlchemyError, StatementError
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
@@ -99,6 +127,7 @@ __all__ = [
     "CampaignLookup",
     "RunRecorder",
     "TelemetryStoreError",
+    "work_query",
 ]
 
 log = get_logger(__name__)
@@ -111,6 +140,12 @@ PAST_CAP_RESCAN_S: Final = 60.0
 """Past the cap: the shortest time between two resets of the watermark to the
 oldest attempt; a reset also needs the forward pass to have reached the end."""
 _TERMINAL: Final = tuple(sorted(s.value for s in ATTEMPT_TERMINAL_STATES))
+_TERMINAL_LITERAL: Final[BindParameter[list[str]]] = bindparam(
+    "terminal_states", list(_TERMINAL), expanding=True, literal_execute=True
+)
+"""Rendered as literals, so PostgreSQL proves the sweep's predicate implies
+``ix_attempt_unrecorded``'s under any plan (a generic plan of bound parameters
+could not use the partial index)."""
 type CampaignLookup = Callable[
     [AsyncSession, Collection[str]], Awaitable[Mapping[str, Mapping[str, Any]]]
 ]
@@ -359,30 +394,11 @@ class RunRecorder:
         count = 0
         try:
             async with self._sessions() as db, db.begin():
-                query = select(Attempt).where(
-                    Attempt.state.in_(_TERMINAL),
-                    ~exists().where(RunRecord.attempt_id == Attempt.id),
-                    Attempt.id.not_in(sorted(self._skip)),
-                )
-                if after is not None:
-                    query = query.where(
-                        tuple_(Attempt.created_at, Attempt.id)
-                        > tuple_(
-                            literal(after[0], Attempt.created_at.type),
-                            literal(after[1], Attempt.id.type),
-                        )
-                    )
                 attempts = list(
-                    await db.scalars(
-                        query.order_by(Attempt.created_at, Attempt.id).limit(
-                            self._batch
-                        )
-                    )
+                    await db.scalars(work_query(self._skip, after, self._batch))
                 )
                 if attempts:
-                    rows = await _sources(db, attempts, self._campaign_of)
-                    records = await self._build(db, rows)
-                    count = await self._insert(db, records) if records else 0
+                    count = await self._record(db, attempts)
         except SQLAlchemyError as exc:
             raise TelemetryStoreError(
                 "the database refused the telemetry sweep",
@@ -393,6 +409,33 @@ class RunRecorder:
         self.written += count
         if count:
             log.info("controller.telemetry.records_written", count=count)
+        return count
+
+    async def _record(self, db: AsyncSession, attempts: Sequence[Attempt]) -> int:
+        """Write the records of ``attempts`` (locked by the sweep) and mark
+        every one that has a record now; the number written. An attempt that
+        already had a record is only marked (module docstring)."""
+        ids = [a.id for a in attempts]
+        have = set(
+            await db.scalars(
+                select(RunRecord.attempt_id).where(RunRecord.attempt_id.in_(ids))
+            )
+        )
+        todo = [a for a in attempts if a.id not in have]
+        count = 0
+        if todo:
+            rows = await _sources(db, todo, self._campaign_of)
+            records = await self._build(db, rows)
+            count = await self._insert(db, records) if records else 0
+        await db.execute(
+            update(Attempt)
+            .where(
+                Attempt.id.in_(ids),
+                exists().where(RunRecord.attempt_id == Attempt.id),
+            )
+            .values(recorded=True, updated_at=Attempt.updated_at)
+            .execution_options(synchronize_session=False)
+        )
         return count
 
     def _committed(self, attempts: Sequence[Attempt]) -> None:
@@ -451,6 +494,33 @@ class RunRecorder:
             self._wake.clear()
             with contextlib.suppress(TimeoutError):
                 await asyncio.wait_for(self._wake.wait(), self._interval_s)
+
+
+def work_query(
+    skip: Collection[str], after: tuple[dt.datetime, str] | None, batch: int
+) -> Select[tuple[Attempt]]:
+    """The sweep's work list: up to ``batch`` unrecorded terminal attempts,
+    oldest first, not in ``skip``, after the watermark ``after`` if given;
+    row-locked, skipping rows another transaction holds (module docstring).
+    Served by ``ix_attempt_unrecorded``."""
+    query = select(Attempt).where(
+        ~Attempt.recorded,
+        Attempt.state.in_(_TERMINAL_LITERAL),
+        Attempt.id.not_in(sorted(skip)),
+    )
+    if after is not None:
+        query = query.where(
+            tuple_(Attempt.created_at, Attempt.id)
+            > tuple_(
+                literal(after[0], Attempt.created_at.type),
+                literal(after[1], Attempt.id.type),
+            )
+        )
+    return (
+        query.order_by(Attempt.created_at, Attempt.id)
+        .limit(batch)
+        .with_for_update(skip_locked=True, key_share=True)
+    )
 
 
 @dataclass(frozen=True, slots=True)

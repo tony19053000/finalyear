@@ -2,7 +2,7 @@
 run-set fingerprint.
 
 * an unchanged window answers ``no_new_runs`` without reading the outcomes
-  (``full_reads`` does not move) - the same answer a fresh store (no memo,
+  (``outcome_reads_total`` does not move) - the same answer a fresh store (no memo,
   the full pre-F-2 path) gives;
 * a new run, a phase row that makes an old run count, a changed setting and
   an unreadable newest row all still refit (the D306 / ``no_new_runs`` rules
@@ -73,7 +73,9 @@ async def test_an_unchanged_window_is_no_new_runs_without_a_read(
     await _seed(pg_settings, store, _planner(Manager([node])), [90.0] * 10)
     first = await calibrations.refresh(CFG)
     assert first.row is not None and first.matched_runs == 10
-    assert calibrations.full_reads == 1  # F-2 (b): no second read under the lock
+    assert (
+        calibrations.outcome_reads_total == 1
+    )  # F-2 (b): no second read under the lock
     for _ in range(3):
         again = await calibrations.refresh(CFG)
         assert (again.row, again.skipped, again.matched_runs) == (
@@ -81,7 +83,9 @@ async def test_an_unchanged_window_is_no_new_runs_without_a_read(
             "no_new_runs",
             10,
         )
-    assert calibrations.full_reads == 1  # F-2 (a): answered from the fingerprint
+    assert (
+        calibrations.outcome_reads_total == 1
+    )  # F-2 (a): answered from the fingerprint
     assert len(await _statuses(pg_settings)) == 1
 
 
@@ -97,7 +101,7 @@ async def test_the_early_out_gives_the_full_paths_answer(
     assert (await calibrations.refresh(CFG)).row is not None
     memo = await calibrations.refresh(CFG)
     full = await fresh.refresh(CFG)
-    assert fresh.full_reads == 1  # it did read
+    assert fresh.outcome_reads_total == 1  # it did read
     assert (memo.row, memo.skipped, memo.matched_runs) == (
         full.row,
         full.skipped,
@@ -209,9 +213,11 @@ async def test_a_run_landing_between_prepare_and_lock_is_re_read(
 
     monkeypatch.setattr(calibrations, "_prepare", prepare_then_a_run_lands)
     result = await calibrations.refresh(CFG)
-    assert calibrations.full_reads == 2  # the window moved: read again under the lock
+    assert (
+        calibrations.outcome_reads_total == 2
+    )  # the window moved: read again under the lock
     assert result.row is not None and result.row.fit_inputs["matched_runs"] == 11
     monkeypatch.undo()
     again = await calibrations.refresh(CFG)
     assert again.skipped == "no_new_runs" and again.matched_runs == 11
-    assert calibrations.full_reads == 2
+    assert calibrations.outcome_reads_total == 2

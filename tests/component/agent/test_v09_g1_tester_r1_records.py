@@ -188,6 +188,7 @@ async def test_lost_and_fenced_attempts_are_swept_as_infrastructure(
     await _quiet_runtime_recorder(runtime)
     async with engine.begin() as conn:
         await conn.execute(text("DELETE FROM run_record"))
+        await conn.execute(text("UPDATE attempt SET recorded = false"))  # F-4
         await conn.execute(
             text(
                 "UPDATE attempt SET state='lost', failure_type='node_lost', "
@@ -200,6 +201,7 @@ async def test_lost_and_fenced_attempts_are_swept_as_infrastructure(
     assert (lost["attempt_state"], lost["failure_class"]) == ("lost", "infrastructure")
     async with engine.begin() as conn:
         await conn.execute(text("DELETE FROM run_record"))
+        await conn.execute(text("UPDATE attempt SET recorded = false"))  # F-4
         await conn.execute(
             text(
                 "UPDATE attempt SET state='fenced', failure_type=NULL WHERE job_id=:j"
@@ -240,6 +242,7 @@ async def test_many_concurrent_sweepers_write_each_record_exactly_once_and_equal
     await _quiet_runtime_recorder(runtime)
     async with engine.begin() as conn:
         await conn.execute(text("DELETE FROM run_record"))
+        await conn.execute(text("UPDATE attempt SET recorded = false"))  # F-4
 
     sweepers = [
         RunRecorder(engine, batch=2) for _ in range(6)
@@ -275,6 +278,7 @@ async def test_a_sweep_killed_mid_transaction_leaves_nothing_and_the_next_sweep_
     await _quiet_runtime_recorder(runtime)
     async with engine.begin() as conn:
         await conn.execute(text("DELETE FROM run_record"))
+        await conn.execute(text("UPDATE attempt SET recorded = false"))  # F-4
 
     real = recorder_module._sources
     gate = asyncio.Event()
@@ -332,6 +336,7 @@ async def test_an_unbuildable_record_does_not_block_the_others_and_is_retried_af
     await _quiet_runtime_recorder(runtime)
     async with engine.begin() as conn:
         await conn.execute(text("DELETE FROM run_record"))
+        await conn.execute(text("UPDATE attempt SET recorded = false"))  # F-4
     victim = ids[1]
     real = recorder_module.build_record
 
@@ -363,6 +368,7 @@ async def test_defect_5_a_skipped_record_is_visible_to_an_operator(
     await _quiet_runtime_recorder(runtime)
     async with engine.begin() as conn:
         await conn.execute(text("DELETE FROM run_record"))
+        await conn.execute(text("UPDATE attempt SET recorded = false"))  # F-4
     monkeypatch.setattr(
         recorder_module,
         "build_record",

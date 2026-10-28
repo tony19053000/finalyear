@@ -189,9 +189,9 @@ async def test_a_different_read_bound_never_uses_the_memo(
     calibrations: CalibrationStore,
 ) -> None:
     await _setup(pg_settings, store, calibrations)
-    reads = calibrations.full_reads
+    reads = calibrations.outcome_reads_total
     smaller = await calibrations.refresh(CFG, max_runs=5)
-    assert calibrations.full_reads > reads  # limit differs: full path
+    assert calibrations.outcome_reads_total > reads  # limit differs: full path
     assert smaller.matched_runs in (5, 0) or smaller.skipped is not None
 
 

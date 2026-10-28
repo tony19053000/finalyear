@@ -122,6 +122,7 @@ async def test_a_refused_record_is_isolated_counted_alerted_and_retried(
     await asyncio.sleep(0.5)
     async with engine.begin() as conn:
         await conn.execute(text("DELETE FROM run_record"))
+        await conn.execute(text("UPDATE attempt SET recorded = false"))  # F-4
         await conn.execute(
             text("DELETE FROM audit_event WHERE action = 'telemetry_record_skipped'")
         )
@@ -182,6 +183,7 @@ async def test_a_database_outage_is_not_mistaken_for_a_refused_record(
     await asyncio.sleep(0.5)
     async with engine.begin() as conn:
         await conn.execute(text("DELETE FROM run_record"))
+        await conn.execute(text("UPDATE attempt SET recorded = false"))  # F-4
 
     from sqlalchemy.exc import OperationalError
 
@@ -233,6 +235,7 @@ async def test_a_skip_in_a_sweep_that_rolls_back_is_not_kept_without_its_alert(
     await asyncio.sleep(0.5)
     async with engine.begin() as conn:
         await conn.execute(text("DELETE FROM run_record"))
+        await conn.execute(text("UPDATE attempt SET recorded = false"))  # F-4
         await conn.execute(
             text("DELETE FROM audit_event WHERE action = 'telemetry_record_skipped'")
         )

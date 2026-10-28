@@ -507,8 +507,13 @@ class CalibrationStore:
         self._max_label_rows = max_label_rows
         # V1.0 G4 (F-2): the last no_new_runs/stored refresh (module docstring)
         self._seen: _Seen | None = None
-        self.full_reads = 0
-        """Outcome reads a refresh made (observability for the F-2 tests)."""
+        self._outcome_reads = 0
+
+    @property
+    def outcome_reads_total(self) -> int:
+        """Full outcome reads the refreshes made since start (a monotonic
+        counter: the F-2 early-out is visible as it not moving)."""
+        return self._outcome_reads
 
     async def matched_runs(self, config: CalibrationConfig) -> list[MatchedRun]:
         """V0.14 G4 (D316): the matched runs a refresh would read (newest
@@ -588,7 +593,7 @@ class CalibrationStore:
         async with self._sessions() as db:
             fingerprint = await window_fingerprint(db, limit)  # before the read
             outcomes = await read_outcomes(db, limit)
-            self.full_reads += 1
+            self._outcome_reads += 1
             current = (
                 await db.scalars(
                     select(PlannerCalibration).where(
@@ -655,7 +660,7 @@ class CalibrationStore:
 
     async def _read_matched(self, db: AsyncSession, limit: int) -> list[MatchedRun]:
         outcomes = await read_outcomes(db, limit)
-        self.full_reads += 1
+        self._outcome_reads += 1
         # pure CPU work off the event loop; the lock stays held (the
         # transaction is this coroutine's), nothing else uses ``db``
         return await asyncio.to_thread(_match_all, outcomes)

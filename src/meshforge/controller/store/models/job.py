@@ -296,6 +296,14 @@ LIVE_ATTEMPT_SQL: Final = (
 )
 """The non-terminal attempt states as SQL (partial-index predicates)."""
 
+UNRECORDED_ATTEMPT_SQL: Final = (
+    "NOT recorded AND state IN ("
+    + ", ".join(f"'{s.value}'" for s in sorted(ATTEMPT_TERMINAL_STATES))
+    + ")"
+)
+"""Terminal attempts whose run record is not written yet (V1.0 G4 F-4, D412):
+the telemetry recorder's work list and ``ix_attempt_unrecorded``'s predicate."""
+
 
 class Attempt(TimestampMixin, Base):
     __tablename__ = "attempt"
@@ -334,6 +342,15 @@ class Attempt(TimestampMixin, Base):
             "ix_attempt_live_created_at",
             "created_at",
             postgresql_where=text(LIVE_ATTEMPT_SQL),
+        ),
+        # V1.0 G4 F-4 (D412): the telemetry recorder's sweep (every 2 s) reads
+        # the terminal attempts with no run record; an anti-join of every
+        # attempt against run_record grew with history (migration 0037).
+        Index(
+            "ix_attempt_unrecorded",
+            "created_at",
+            "id",
+            postgresql_where=text(UNRECORDED_ATTEMPT_SQL),
         ),
     )
 
@@ -393,6 +410,12 @@ class Attempt(TimestampMixin, Base):
     terminal status (``results/workload.json``: family, params, seed, status,
     device, compute_ns, compute_iterations); NULL for every other job. Bounded by
     the report parser."""
+    recorded: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
+    """V1.0 G4 F-4 (D412, migration 0037): the telemetry recorder wrote this
+    attempt's ``run_record`` - set in the same transaction as the record
+    (:mod:`meshforge.controller.telemetry.recorder`), never cleared."""
 
 
 class AttemptPhaseRow(Base):

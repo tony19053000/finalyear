@@ -245,9 +245,14 @@ async def test_a_job_deleted_mid_sweep_is_skipped_and_the_rest_written(
     real_sources = recorder_module._sources
 
     async def deleting(db: Any, attempts: Any, campaign_of: Any) -> Any:
-        # another connection deletes the job (and, by cascade, its attempt)
-        # after the sweep read the attempts and before it reads the jobs
+        # another connection deletes the job after the sweep read the attempts
+        # and before it reads the jobs. Since F-4 (D412) the sweep row-locks
+        # its attempts, so a real cascading delete waits for the sweep
+        # (test_v10_g4_recorder_flag_pg); the job row is removed without its
+        # cascade (replica role skips FK triggers) to reach the defensive
+        # job_missing branch all the same.
         async with engine.begin() as conn:
+            await conn.execute(text("SET LOCAL session_replication_role = replica"))
             await conn.execute(text("DELETE FROM job WHERE id = :j"), {"j": victim_job})
         return await real_sources(db, attempts, campaign_of)
 

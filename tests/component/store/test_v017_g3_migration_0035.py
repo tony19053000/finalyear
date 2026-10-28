@@ -56,7 +56,7 @@ def test_0035_adds_display_name_without_backfill(pg_settings: DatabaseSettings) 
     asyncio.run(_sql(pg_settings, "UPDATE node SET display_name = :v", v="x" * 64))
     with pytest.raises(sa.exc.DBAPIError):
         asyncio.run(_sql(pg_settings, "UPDATE node SET display_name = :v", v="x" * 65))
-    command.check(cfg)
+    # ``check`` needs the head revision: done after the round trip below
     command.downgrade(cfg, "0034")
     command.upgrade(cfg, "head")
     command.check(cfg)

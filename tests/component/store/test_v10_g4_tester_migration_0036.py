@@ -93,18 +93,27 @@ def test_every_non_terminal_state_is_served_by_the_index_and_returns_its_rows(
     command.upgrade(alembic_config(pg_settings), "head")
     _seed_every_state(pg_settings)
     asyncio.run(_sql(pg_settings, "ANALYZE attempt"))
-    for _state in _NON_TERMINAL:
-        # force the planner off seq scans so only the predicate decides usability
+    for state in _NON_TERMINAL:
+        # force the planner off seq scans so only the predicate decides usability;
+        # a query for exactly this state must be provably inside the partial index
         plan = asyncio.run(
             _sql(
                 pg_settings,
                 "SET LOCAL enable_seqscan = off",
-                f"EXPLAIN SELECT id FROM attempt WHERE {LIVE_ATTEMPT_SQL} "
+                f"EXPLAIN SELECT id FROM attempt WHERE state = '{state}' "
                 "ORDER BY created_at",
             )
         )
         text = "\n".join(str(r[0]) for r in plan)
-        assert "ix_attempt_live_created_at" in text or "Seq Scan" in text, text
+        assert "ix_attempt_live_created_at" in text, (state, text)
+        rows = asyncio.run(
+            _sql(
+                pg_settings,
+                "SET LOCAL enable_seqscan = off",
+                f"SELECT state FROM attempt WHERE state = '{state}'",
+            )
+        )
+        assert [r[0] for r in rows] == [state], state
     # correctness: the filtered result equals the set of non-terminal rows
     got = asyncio.run(
         _sql(
