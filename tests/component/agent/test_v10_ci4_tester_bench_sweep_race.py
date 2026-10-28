@@ -3,6 +3,8 @@ controller + PostgreSQL, at many random interleavings. Invariants: exactly one
 ``submitted`` outcome per run, one job per run, no legit job ever cancelled by
 the orphan path, a job whose run moved on IS cancelled."""
 
+# ruff: noqa: F811, S311  # re-imported fixtures; seeded RNG for interleavings
+
 from __future__ import annotations
 
 import asyncio
@@ -12,9 +14,6 @@ from typing import Any
 
 import httpx
 import pytest
-
-from meshforge.controller.server import ControllerRuntime
-
 from test_v09_g3_forced_runs import (  # type: ignore[import-not-found]  # noqa: F401
     _agent,
     _create,
@@ -24,6 +23,8 @@ from test_v09_g3_forced_runs import (  # type: ignore[import-not-found]  # noqa:
     http,
     settings,
 )
+
+from meshforge.controller.server import ControllerRuntime
 
 pytestmark = [pytest.mark.component, pytest.mark.asyncio, pytest.mark.timeout(300)]
 

@@ -96,7 +96,7 @@ def test_eight_real_processes_one_migrates_rest_already(
 
 
 def test_sigkill_mid_run_leaves_no_stale_lock(tmp_path: Path) -> None:
-    source, node_id = _source(tmp_path)
+    _source_path, node_id = _source(tmp_path)
     hung = _spawn(tmp_path, "hang")
     assert hung.stdout is not None
     assert hung.stdout.readline().strip() == "INSIDE"
