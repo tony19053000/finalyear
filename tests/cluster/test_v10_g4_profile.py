@@ -20,7 +20,13 @@ and these phases, in order:
    downloaded.
 6. **memory** (``MESHFORGE_PROFILE_WAVES`` > 0) - waves of ``WAVE_JOBS`` jobs
    with a hook dump after each; ``MESHFORGE_PROFILE_IDLE_MIN`` minutes idle
-   with dumps; ``MESHFORGE_PROFILE_TRACEMALLOC=1`` traces the controller.
+   with dumps (``MESHFORGE_PROFILE_IDLE_DUMP_EVERY`` minutes; 0 = only the
+   sampler) and the idle RSS slope; ``MESHFORGE_PROFILE_TRACEMALLOC=1`` traces
+   the controller; ``MESHFORGE_PROFILE_EVENTS_RING`` shrinks the event bus
+   ring so it fills within the run; ``MESHFORGE_PROFILE_CALIBRATION_REFRESH_S``
+   makes the calibration refit (a one-off RSS step at 30 min) repeat. Each
+   dump carries the fill level of the controller's bounded stores
+   (``caches``).
 7. **db** - ``pg_stat_statements`` top statements with generic plans (needs a
    server with the module preloaded, e.g. ``MESHFORGE_TEST_PG=external`` on a
    ``postgres -c shared_preload_libraries=pg_stat_statements`` container;
@@ -92,6 +98,13 @@ IDLE_MIN: Final = _env_int("MESHFORGE_PROFILE_IDLE_MIN", 0)
 HISTORY: Final = _env_int("MESHFORGE_PROFILE_HISTORY", 0)
 """Jobs run (and kept) BEFORE the measured phases: the database of a long run."""
 TRACEMALLOC: Final = os.environ.get("MESHFORGE_PROFILE_TRACEMALLOC") == "1"
+IDLE_DUMP_EVERY: Final = _env_int("MESHFORGE_PROFILE_IDLE_DUMP_EVERY", 1)
+"""A hook dump every N idle minutes (and the last; 0 = none): a dump walks
+every object and allocates megabytes, which a pure-idle RSS slope must not
+include."""
+CALIBRATION_REFRESH_S: Final = _env_int("MESHFORGE_PROFILE_CALIBRATION_REFRESH_S", 0)
+"""``controller.planner.calibration_refresh_s`` override (0 = shipped 1800 s):
+a refit every minute shows whether its memory step repeats or plateaus."""
 EVENTS_RING: Final = _env_int("MESHFORGE_PROFILE_EVENTS_RING", 0)
 """``controller.events.ring_size`` override (0 = shipped 10 000): a small ring
 fills in minutes, so the memory phase can show the bus ring's plateau."""
@@ -274,6 +287,24 @@ def _event_latency(tap: EventTap, jobs: dict[str, dict[str, Any]]) -> dict[str, 
     }
 
 
+def _verdict(ok: bool) -> str:
+    """A D412 verdict - none with tracemalloc on: tracing every allocation
+    (and its multi-second snapshots on the loop) makes the controller many times
+    slower (measured: decision p95 1.5 -> 26 ms, idle CPU 3 -> 17 %)."""
+    if TRACEMALLOC:
+        return "N/A (tracemalloc on: timings not representative)"
+    return "PASS" if ok else "FAIL"
+
+
+def _controller_extra() -> dict[str, dict[str, Any]]:
+    extra: dict[str, dict[str, Any]] = {}
+    if EVENTS_RING:
+        extra["events"] = {"ring_size": EVENTS_RING}
+    if CALIBRATION_REFRESH_S:
+        extra["planner"] = {"calibration_refresh_s": float(CALIBRATION_REFRESH_S)}
+    return extra
+
+
 def _diff_top(
     a: dict[str, int], b: dict[str, int], n: int = 25
 ) -> list[tuple[str, int]]:
@@ -308,6 +339,8 @@ def test_profile_local_fabric(
             "transfer_mib": TRANSFER_MIB, "waves": WAVES, "wave_jobs": WAVE_JOBS,
             "idle_min": IDLE_MIN, "tracemalloc": TRACEMALLOC, "exec": EXEC,
             "history": HISTORY, "events_ring": EVENTS_RING or None,
+            "calibration_refresh_s": CALIBRATION_REFRESH_S or None,
+            "idle_dump_every": IDLE_DUMP_EVERY,
             "cpus": os.cpu_count(),
         },
     }  # fmt: skip
@@ -321,9 +354,7 @@ def test_profile_local_fabric(
         timing=SHIPPED,
         agent_execution=EXEC,
         agent_env={"DOCKER_HOST": "unix:///nonexistent/meshforge-test.sock"},
-        controller_extra={"events": {"ring_size": EVENTS_RING}}
-        if EVENTS_RING
-        else None,
+        controller_extra=_controller_extra(),
     )
     assert fabric.controller is not None
     ctl = fabric.controller
@@ -385,8 +416,8 @@ def test_profile_local_fabric(
             ctl_cpu_ms_s / hb_per_s, 3
         )
         idle["controller_rss_mib"] = round(dumps_first["rss_bytes"] / 2**20, 1)
-        idle["verdict_idle_cpu_lt_5pct"] = (
-            "PASS" if idle["processes"]["controller"]["cpu_pct"] < 5.0 else "FAIL"
+        idle["verdict_idle_cpu_lt_5pct"] = _verdict(
+            idle["processes"]["controller"]["cpu_pct"] < 5.0
         )
         results["idle"] = idle
         save()
@@ -450,8 +481,8 @@ def test_profile_local_fabric(
             ),
         }  # fmt: skip
         stored = results["burst"]["decision_ms_stored"]
-        results["burst"]["verdict_decision_p95_lt_200ms"] = (
-            "PASS" if stored.get("p95") is not None and stored["p95"] < 200 else "FAIL"
+        results["burst"]["verdict_decision_p95_lt_200ms"] = _verdict(
+            stored.get("p95") is not None and stored["p95"] < 200
         )
         save()
 
@@ -522,6 +553,9 @@ def test_profile_local_fabric(
         for m in range(IDLE_MIN):
             sampler.mark(f"idle{m}")
             time.sleep(60)
+            last_minute = m == IDLE_MIN - 1
+            if IDLE_DUMP_EVERY <= 0 or ((m + 1) % IDLE_DUMP_EVERY and not last_minute):
+                continue  # the sampler's RSS only: a dump is work of its own
             d = snap()
             mem_dumps.append(d)
             mem.append({"what": f"idle-min{m + 1}", "rss_mib": round(d["rss_bytes"] / mib, 1),
@@ -541,11 +575,8 @@ def test_profile_local_fabric(
             k: dumps_first[k] for k in ("rss_bytes", "threads", "gc_objects", "tasks")
         }
         results["events"] = _event_latency(tap, all_jobs)
-        results["events"]["verdict_p95_lt_500ms"] = (
-            "PASS"
-            if (results["events"]["job_state_from_transition_ms"].get("p95") or 1e9)
-            < 500
-            else "FAIL"
+        results["events"]["verdict_p95_lt_500ms"] = _verdict(
+            (results["events"]["job_state_from_transition_ms"].get("p95") or 1e9) < 500
         )
         save()
     finally:
