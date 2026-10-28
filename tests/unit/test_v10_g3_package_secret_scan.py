@@ -338,3 +338,98 @@ def test_every_builder_calls_the_scan(script: str, function: str) -> None:
         and n.func.id == "check_no_secrets"
     ]
     assert calls, f"{script}:{function} no longer scans its artefact"
+
+
+# ------------------------------------------------- fix round 1 (TG3-1..TG3-5)
+def _zip_bytes(files: dict[str, bytes]) -> bytes:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for name, data in files.items():
+            zf.writestr(name, data)
+    return buf.getvalue()
+
+
+@pytest.mark.parametrize(
+    "escape", [b"\\n", b"\\r\\n", b"\\\\n"], ids=["json", "crlf", "double"]
+)
+def test_a_real_key_escaped_onto_one_line_is_found(escape: bytes) -> None:
+    one_line = _pem_key().replace(b"\n", escape)
+    data = b'{"tls": {"key": "' + one_line + b'"}}'
+    hits = pss.check_member("a", "cfg.json", data)
+    assert _rules(hits) == {"pem_private_key"}
+
+
+def test_a_pem_body_of_only_breaks_is_not_a_key() -> None:
+    data = b"-----BEGIN PRIVATE KEY-----" + b"\\n" * 20 + b"-----END PRIVATE KEY-----"
+    assert pss.check_member("a", "doc.md", data) == []
+
+
+def test_a_wheel_inside_the_bundle_judges_its_own_paths(tmp_path: Path) -> None:
+    """Name rules see the path inside the nested wheel (its own
+    ``meshforge/tests``), and the report names ``outer!/inner``."""
+    wheel = _zip_bytes({"meshforge/tests/t.py": b"", "meshforge/x.py": API_TOKEN})
+    root = _tree(tmp_path / "b", {"wheels/meshforge-1.0-py3-none-any.whl": wheel})
+    hits = pss.scan(root)
+    assert {(h.member, h.rule) for h in hits} == {
+        ("wheels/meshforge-1.0-py3-none-any.whl!/meshforge/tests/t.py", "test_dir"),
+        ("wheels/meshforge-1.0-py3-none-any.whl!/meshforge/x.py", "api_token"),
+    }
+
+
+def test_nesting_deeper_than_the_bound_fails_closed(tmp_path: Path) -> None:
+    blob = _zip_bytes({"k.txt": b"clean"})
+    for level in range(pss.MAX_NESTING + 1):
+        blob = _zip_bytes({f"l{level}.zip": blob})
+    archive = tmp_path / "deep.zip"
+    archive.write_bytes(blob)
+    with pytest.raises(pss.ScanError, match="nested deeper"):
+        pss.scan(archive)
+    assert pss.main([str(archive)]) == 2
+
+
+def test_nesting_within_the_bound_is_scanned(tmp_path: Path) -> None:
+    blob = _zip_bytes({"k.txt": API_TOKEN})
+    for level in range(pss.MAX_NESTING - 1):
+        blob = _zip_bytes({f"l{level}.zip": blob})
+    archive = tmp_path / "ok.zip"
+    archive.write_bytes(blob)
+    assert _rules(pss.scan(archive)) == {"api_token"}
+
+
+def test_a_nested_archive_past_the_byte_budget_fails_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(pss, "MAX_NESTED_BYTES", 1000)
+    inner = _zip_bytes({"big.txt": b"0" * 5000})
+    root = _tree(tmp_path / "b", {"dep.zip": inner})
+    with pytest.raises(pss.ScanError, match="expand past"):
+        pss.scan(root)
+
+
+def test_a_corrupt_nested_archive_fails_closed(tmp_path: Path) -> None:
+    root = _tree(tmp_path / "b", {"dep.whl": b"PK\x03\x04 not really a zip"})
+    assert pss.main([str(root)]) == 2
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["x/.env.example", "x/.env.sample", "x/.env.template", "certifi/cacert.pem"],
+)
+def test_env_templates_and_ca_bundles_are_not_secret_files(
+    tmp_path: Path, name: str
+) -> None:
+    root = _tree(tmp_path / "b", {name: b"KEY=\n"})
+    assert pss.scan(root) == []
+
+
+@pytest.mark.parametrize(
+    "name", ["a/.env.production", "a/CERT.P12", "a/app.keystore", "a/id_dsa"]
+)
+def test_more_secret_names(tmp_path: Path, name: str) -> None:
+    root = _tree(tmp_path / "b", {name: b"opaque"})
+    assert _rules(pss.scan(root)) == {"secret_file"}
+
+
+def test_a_join_code_after_an_escaped_newline(tmp_path: Path) -> None:
+    hits = pss.check_member("a", "log.json", b'{"m": "x\\n' + JOIN_CODE + b'"}')
+    assert _rules(hits) == {"join_code"}

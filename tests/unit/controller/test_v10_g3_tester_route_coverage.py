@@ -15,12 +15,26 @@ import pytest
 
 pytest.importorskip("fastapi", reason="needs the controller extra")
 
-from test_v10_g3_route_inventory import _app, _http_cases, _ws_cases  # type: ignore[import-not-found]
+from test_v10_g3_route_inventory import (  # type: ignore[import-not-found]
+    _app,
+    _http_cases,
+    _ws_cases,
+)
 
 pytestmark = [pytest.mark.unit, pytest.mark.security]
 
 SRC = Path(__file__).resolve().parents[3] / "src" / "meshforge" / "controller"
-VERBS = {"get", "post", "put", "patch", "delete", "head", "options", "websocket", "api_route"}
+VERBS = {
+    "get",
+    "post",
+    "put",
+    "patch",
+    "delete",
+    "head",
+    "options",
+    "websocket",
+    "api_route",
+}
 
 
 def decorated_routes() -> list[tuple[str, str, str]]:
@@ -31,11 +45,22 @@ def decorated_routes() -> list[tuple[str, str, str]]:
             if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
                 continue
             for dec in node.decorator_list:
-                if (isinstance(dec, ast.Call) and isinstance(dec.func, ast.Attribute)
-                        and dec.func.attr in VERBS and dec.args
-                        and isinstance(dec.args[0], ast.Constant) and isinstance(dec.args[0].value, str)
-                        and dec.args[0].value.startswith("/")):
-                    out.append((dec.func.attr.upper(), dec.args[0].value, py.relative_to(SRC).as_posix()))
+                if (
+                    isinstance(dec, ast.Call)
+                    and isinstance(dec.func, ast.Attribute)
+                    and dec.func.attr in VERBS
+                    and dec.args
+                    and isinstance(dec.args[0], ast.Constant)
+                    and isinstance(dec.args[0].value, str)
+                    and dec.args[0].value.startswith("/")
+                ):
+                    out.append(  # noqa: PERF401 - nested loops, clearer as is
+                        (
+                            dec.func.attr.upper(),
+                            dec.args[0].value,
+                            py.relative_to(SRC).as_posix(),
+                        )
+                    )
     return out
 
 
@@ -51,7 +76,9 @@ def test_source_finds_a_plausible_number_of_routes() -> None:
     assert len(decorated_routes()) >= 70
 
 
-def test_every_decorated_route_is_in_the_inventory(inventory: set[tuple[str, str]]) -> None:
+def test_every_decorated_route_is_in_the_inventory(
+    inventory: set[tuple[str, str]],
+) -> None:
     missing = []
     for verb, path, where in decorated_routes():
         if where.startswith("setup/"):
@@ -60,7 +87,9 @@ def test_every_decorated_route_is_in_the_inventory(inventory: set[tuple[str, str
             kind_paths = [p for _, p in inventory]
         if not any(p == path or p.endswith(path) for p in kind_paths):
             missing.append((verb, path, where))
-    assert not missing, f"routes in source that the inventory app never exposes: {missing}"
+    assert not missing, (
+        f"routes in source that the inventory app never exposes: {missing}"
+    )
 
 
 def test_inventory_methods_match_source_verbs(inventory: set[tuple[str, str]]) -> None:
@@ -68,13 +97,18 @@ def test_inventory_methods_match_source_verbs(inventory: set[tuple[str, str]]) -
     for verb, path, where in decorated_routes():
         if verb == "API_ROUTE":
             continue
-        if not any(m in (verb, "WEBSOCKET") and (p == path or p.endswith(path)) for m, p in inventory):
+        if not any(
+            m in (verb, "WEBSOCKET") and (p == path or p.endswith(path))
+            for m, p in inventory
+        ):
             missing.append((verb, path, where))
     assert not missing, missing
 
 
 def test_agent_console_is_loopback_only_by_construction() -> None:
     """The agent console app has its own routes; it must never bind non-loopback."""
-    console = Path(__file__).resolve().parents[3] / "src" / "meshforge" / "agent" / "console"
+    console = (
+        Path(__file__).resolve().parents[3] / "src" / "meshforge" / "agent" / "console"
+    )
     text = "\n".join(p.read_text(encoding="utf-8") for p in console.rglob("*.py"))
-    assert "0.0.0.0" not in text and '"::"' not in text
+    assert "0.0.0.0" not in text and '"::"' not in text  # noqa: S104 - a search

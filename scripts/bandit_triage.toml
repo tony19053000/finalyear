@@ -2,7 +2,8 @@
 # `bandit -r src -ll` (medium + high severity) and fails on any finding that is
 # not listed here. A finding is keyed by its test id, its file and the stripped
 # text of the flagged source line, so it survives line shifts but a changed line
-# must be re-triaged. Every entry needs a `reason` (a sentence) and a `ref`
+# must be re-triaged. An entry covers exactly `count` occurrences of that key
+# (default 1): a copy of a triaged line is a new finding that must be triaged. Every entry needs a `reason` (a sentence) and a `ref`
 # (where the decision is recorded). Low-severity findings are not gated (see
 # docs/reports/release-v1.0-security.md "What was not done").
 #
@@ -98,7 +99,8 @@ ref = "V0.7 secret files; THREAT_MODEL; V1.0 G3 security report"
 test_id = "B604"
 file = "src/meshforge/cli/completion.py"
 line = "prog_name=prog_name, complete_var=complete_var, shell=shell"
-reason = "False positive: `shell` is Typer's get_completion_script() keyword naming the shell (bash/zsh/pwsh); no subprocess is started."
+count = 2
+reason = "False positive: `shell` is Typer's get_completion_script() keyword naming the shell (bash/zsh/pwsh); no subprocess is started. Two calls: install_powershell() and install_bash()."
 ref = "V0.8 G3 shell completion; V1.0 G3 security report"
 
 # --- B506: yaml.load -------------------------------------------------------

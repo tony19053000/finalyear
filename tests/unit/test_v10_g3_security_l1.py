@@ -274,3 +274,50 @@ def test_real_triage_file_is_well_formed() -> None:
     assert keys
     for _test_id, file, _line in keys:
         assert (REPO / file).is_file(), file
+
+
+# ------------------------------------------ one entry, one occurrence (TG3-6)
+def _repo_twice(tmp_path: Path, copies: int) -> Path:
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "a.py").write_text(
+        "x = 1\n" + "q = f'SELECT {T}'\n" * copies, encoding="utf-8"
+    )
+    return tmp_path
+
+
+def _results(copies: int) -> list[dict[str, object]]:
+    return [_result("src/a.py", 2 + i) for i in range(copies)]
+
+
+def test_a_copied_triaged_line_is_a_new_untriaged_finding(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    repo = _repo_twice(tmp_path, 2)
+    code, out = _run(repo, _report(repo, *_results(2)), _triage(repo, ENTRY), capsys)
+    assert code == 1
+    assert "UNTRIAGED MEDIUM B608 src/a.py:3" in out
+    assert "triaged   MEDIUM B608 src/a.py:2" in out
+
+
+@pytest.mark.parametrize(("copies", "code"), [(1, 1), (2, 0), (3, 1)])
+def test_count_covers_exactly_that_many_occurrences(
+    tmp_path: Path, copies: int, code: int, capsys: pytest.CaptureFixture[str]
+) -> None:
+    repo = _repo_twice(tmp_path, copies)
+    triage = _triage(repo, ENTRY + "count = 2\n")
+    got, out = _run(repo, _report(repo, *_results(copies)), triage, capsys)
+    assert got == code, out
+    if copies == 1:
+        assert "STALE" in out and "(covers 2, found 1)" in out
+    if copies == 3:
+        assert "UNTRIAGED MEDIUM B608 src/a.py:4" in out
+
+
+@pytest.mark.parametrize("count", ["0", "-1", '"2"', "true", "1.0"])
+def test_a_bad_count_is_a_malformed_triage(
+    tmp_path: Path, count: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    repo = _repo_twice(tmp_path, 1)
+    triage = _triage(repo, ENTRY + f"count = {count}\n")
+    code, _ = _run(repo, _report(repo, *_results(1)), triage, capsys)
+    assert code == 1

@@ -6,6 +6,11 @@ when an entry has the same ``test_id``, the same file (repository-relative,
 ``/``-separated) and the same stripped text of the flagged source line. Each
 entry must carry a ``reason`` (three or more words) and a ``ref``.
 
+An entry covers exactly ``count`` occurrences of its key (default 1, an
+optional positive integer): a copy of a triaged line pasted elsewhere in the
+same file is a new, untriaged finding, and an entry whose ``count`` exceeds the
+occurrences found is stale (V1.0 G3 fix TG3-6).
+
 Exit codes: 0 every finding triaged · 1 untriaged findings (printed as
 ready-to-paste ``[[finding]]`` blocks) or a malformed triage file · 2 bandit
 could not run. Stale entries (no longer matching a finding) are reported and
@@ -27,7 +32,8 @@ import re
 import subprocess
 import sys
 import tomllib
-from collections.abc import Iterable, Sequence
+from collections import Counter
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final
@@ -96,13 +102,16 @@ def findings_from_report(report: dict[str, Any], repo: Path) -> list[Finding]:
     return out
 
 
-def load_triage(path: Path) -> set[tuple[str, str, str]]:
-    """The triaged keys; :class:`TriageError` for a malformed entry."""
+TriageKey = tuple[str, str, str]
+
+
+def load_triage(path: Path) -> dict[TriageKey, int]:
+    """Triaged key -> occurrences it covers; :class:`TriageError` if malformed."""
     data = tomllib.loads(path.read_text(encoding="utf-8"))
     entries = data.get("finding", [])
     if not isinstance(entries, list):
         raise TriageError("[[finding]] must be an array of tables")
-    keys: set[tuple[str, str, str]] = set()
+    keys: dict[TriageKey, int] = {}
     for index, entry in enumerate(entries, start=1):
         if not isinstance(entry, dict):
             raise TriageError(f"entry {index}: not a table")
@@ -116,10 +125,15 @@ def load_triage(path: Path) -> set[tuple[str, str, str]]:
         words = {w.lower() for w in _WORD.findall(entry["reason"])}
         if len(words) < MIN_REASON_WORDS:
             raise TriageError(f"entry {index}: the reason is not a sentence")
+        count = entry.get("count", 1)
+        if isinstance(count, bool) or not isinstance(count, int) or count < 1:
+            raise TriageError(f"entry {index}: count must be a positive integer")
         key = (entry["test_id"], entry["file"], entry["line"].strip())
         if key in keys:
-            raise TriageError(f"entry {index}: duplicate of an earlier entry")
-        keys.add(key)
+            raise TriageError(
+                f"entry {index}: duplicate of an earlier entry (use count = N)"
+            )
+        keys[key] = count
     return keys
 
 
@@ -158,13 +172,23 @@ def _block(finding: Finding) -> str:
 
 
 def gate(
-    findings: Iterable[Finding], triaged: set[tuple[str, str, str]]
-) -> tuple[list[Finding], list[tuple[str, str, str]]]:
-    """(untriaged findings, stale triage keys)."""
-    found = list(findings)
-    untriaged = [f for f in found if f.key not in triaged]
-    seen = {f.key for f in found}
-    stale = sorted(k for k in triaged if k not in seen)
+    findings: Iterable[Finding], triaged: Mapping[TriageKey, int]
+) -> tuple[list[Finding], list[TriageKey]]:
+    """(untriaged findings, stale triage keys).
+
+    An entry covers at most its ``count`` occurrences (in line order); any
+    further occurrence of the same key is untriaged. An entry that covers more
+    occurrences than were found is stale.
+    """
+    found = sorted(findings, key=lambda f: (f.file, f.line_number, f.test_id))
+    used: Counter[TriageKey] = Counter()
+    untriaged: list[Finding] = []
+    for f in found:
+        if used[f.key] < triaged.get(f.key, 0):
+            used[f.key] += 1
+        else:
+            untriaged.append(f)
+    stale = sorted(k for k, count in triaged.items() if used[k] < count)
     return untriaged, stale
 
 
@@ -190,10 +214,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     findings = findings_from_report(report, args.repo)
     untriaged, stale = gate(findings, triaged)
     for f in findings:
-        mark = "UNTRIAGED" if f in untriaged else "triaged"
+        mark = "UNTRIAGED" if any(f is u for u in untriaged) else "triaged"
         print(f"{mark:9} {f.severity:6} {f.test_id} {f.file}:{f.line_number}")
     for key in stale:
-        print(f"STALE     {key[0]} {key[1]}: {key[2]!r}")
+        print(
+            f"STALE     {key[0]} {key[1]}: {key[2]!r} "
+            f"(covers {triaged[key]}, found {sum(f.key == key for f in findings)})"
+        )
     if untriaged:
         print("\nadd to scripts/bandit_triage.toml (with a real reason):\n")
         for f in untriaged:

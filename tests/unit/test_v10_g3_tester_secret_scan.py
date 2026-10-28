@@ -20,7 +20,8 @@ import pytest
 pytestmark = [pytest.mark.unit, pytest.mark.security]
 
 _SPEC = importlib.util.spec_from_file_location(
-    "tester_pss", Path(__file__).resolve().parents[2] / "scripts" / "package_secret_scan.py"
+    "tester_pss",
+    Path(__file__).resolve().parents[2] / "scripts" / "package_secret_scan.py",
 )
 assert _SPEC and _SPEC.loader
 pss = importlib.util.module_from_spec(_SPEC)
@@ -38,20 +39,40 @@ def rules(name: str, data: bytes) -> list[str]:
 
 
 @pytest.mark.parametrize(
-    "kind", ["PRIVATE KEY", "RSA PRIVATE KEY", "EC PRIVATE KEY", "ENCRYPTED PRIVATE KEY",
-             "OPENSSH PRIVATE KEY", "DSA PRIVATE KEY"]
+    "kind",
+    [
+        "PRIVATE KEY",
+        "RSA PRIVATE KEY",
+        "EC PRIVATE KEY",
+        "ENCRYPTED PRIVATE KEY",
+        "OPENSSH PRIVATE KEY",
+        "DSA PRIVATE KEY",
+    ],
 )
 @pytest.mark.parametrize("eol", [b"\n", b"\r\n"])
 def test_every_pem_flavour_is_caught(kind: str, eol: bytes) -> None:
-    pem = (b"-----BEGIN " + kind.encode() + b"-----" + eol + (b"A" * 64 + eol) * 5
-           + b"AAAA==" + eol + b"-----END " + kind.encode() + b"-----" + eol)
+    pem = (
+        b"-----BEGIN "
+        + kind.encode()
+        + b"-----"
+        + eol
+        + (b"A" * 64 + eol) * 5
+        + b"AAAA=="
+        + eol
+        + b"-----END "
+        + kind.encode()
+        + b"-----"
+        + eol
+    )
     assert "pem_private_key" in rules("blob.bin", pem)
 
 
 def test_pem_with_proc_type_headers() -> None:
-    pem = (b"-----BEGIN RSA PRIVATE KEY-----\nProc-Type: 4,ENCRYPTED\n"
-           b"DEK-Info: AES-128-CBC,0123456789ABCDEF\n\n" + BODY + b"\n"
-           b"-----END RSA PRIVATE KEY-----\n")
+    pem = (
+        b"-----BEGIN RSA PRIVATE KEY-----\nProc-Type: 4,ENCRYPTED\n"
+        b"DEK-Info: AES-128-CBC,0123456789ABCDEF\n\n" + BODY + b"\n"
+        b"-----END RSA PRIVATE KEY-----\n"
+    )
     assert "pem_private_key" in rules("k.txt", pem)
 
 
@@ -83,27 +104,39 @@ def test_join_code_upper_and_lower() -> None:
 
 
 def test_clean_third_party_text_has_no_hits() -> None:
-    assert rules("lib/x.py", b"# BEGIN PRIVATE KEY marker only\nre.compile('-----BEGIN PRIVATE KEY-----')") == []
+    assert (
+        rules(
+            "lib/x.py",
+            b"# BEGIN PRIVATE KEY marker only\nre.compile('-----BEGIN PRIVATE KEY-----')",
+        )
+        == []
+    )
     assert rules("lib/x.py", b"mfat_ short") == []
 
 
-@pytest.mark.xfail(strict=True, reason="TG3-1: a PEM key escaped onto one line (\\n) in .py/.json/.yaml is not found")
 def test_pem_with_escaped_newlines_in_source_or_json() -> None:
     escaped = PEM.replace(b"\n", b"\\n")
     assert "pem_private_key" in rules("cfg.json", b'{"k": "' + escaped + b'"}')
     assert "pem_private_key" in rules("cfg.py", b'KEY = "' + escaped + b'"')
 
 
-@pytest.mark.xfail(strict=True, reason="TG3-2: PEM body lines longer than 128 chars (or no newline before END) slip through")
 def test_pem_with_unusual_line_lengths() -> None:
-    long_lines = (b"-----BEGIN PRIVATE KEY-----\n" + b"A" * 200 + b"\n" + b"A" * 200
-                  + b"\n-----END PRIVATE KEY-----\n")
+    long_lines = (
+        b"-----BEGIN PRIVATE KEY-----\n"
+        + b"A" * 200
+        + b"\n"
+        + b"A" * 200
+        + b"\n-----END PRIVATE KEY-----\n"
+    )
     assert "pem_private_key" in rules("k", long_lines)
-    no_nl = b"-----BEGIN EC PRIVATE KEY-----\n" + b"A" * 70 + b"-----END EC PRIVATE KEY-----"
+    no_nl = (
+        b"-----BEGIN EC PRIVATE KEY-----\n"
+        + b"A" * 70
+        + b"-----END EC PRIVATE KEY-----"
+    )
     assert "pem_private_key" in rules("k", no_nl)
 
 
-@pytest.mark.xfail(strict=True, reason="TG3-3: a wheel/zip/tar nested inside a folder or another archive is not opened")
 def test_nested_compressed_archive_is_opened(tmp_path: Path) -> None:
     inner = io.BytesIO()
     with zipfile.ZipFile(inner, "w", zipfile.ZIP_DEFLATED) as z:
@@ -114,7 +147,6 @@ def test_nested_compressed_archive_is_opened(tmp_path: Path) -> None:
     assert pss.scan(folder), "a token inside a deflated wheel in the bundle went unseen"
 
 
-@pytest.mark.xfail(strict=True, reason="TG3-3: tar.gz nested in a zip is not opened")
 def test_tar_gz_inside_zip(tmp_path: Path) -> None:
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w:gz") as t:
@@ -127,13 +159,13 @@ def test_tar_gz_inside_zip(tmp_path: Path) -> None:
     assert pss.scan(outer)
 
 
-@pytest.mark.xfail(strict=True, reason="TG3-5: a token directly after a JSON-escaped newline (\\n) is not found (lookbehind sees 'n')")
 def test_token_after_an_escaped_newline() -> None:
     assert "api_token" in rules("x.json", b'{"log": "a\\n' + TOKEN + b'"}')
 
 
-@pytest.mark.parametrize("name", ["cert.p12", "store.pfx", "keystore.jks", "id_dsa", ".env.local"])
-@pytest.mark.xfail(strict=True, reason="TG3-4: .p12/.pfx/.jks/id_dsa/.env.* names are not in SECRET_NAMES")
+@pytest.mark.parametrize(
+    "name", ["cert.p12", "store.pfx", "keystore.jks", "id_dsa", ".env.local"]
+)
 def test_more_secret_file_names(name: str, tmp_path: Path) -> None:
     f = tmp_path / name
     f.parent.mkdir(parents=True, exist_ok=True)
@@ -141,7 +173,9 @@ def test_more_secret_file_names(name: str, tmp_path: Path) -> None:
     assert pss.scan(tmp_path)
 
 
-@pytest.mark.parametrize("name", ["deep/dir/fabric.token", "x/.pgpass", "a/b/secrets.key", "setup-token"])
+@pytest.mark.parametrize(
+    "name", ["deep/dir/fabric.token", "x/.pgpass", "a/b/secrets.key", "setup-token"]
+)
 def test_secret_names_at_any_depth(name: str, tmp_path: Path) -> None:
     f = tmp_path / name
     f.parent.mkdir(parents=True, exist_ok=True)
@@ -150,8 +184,12 @@ def test_secret_names_at_any_depth(name: str, tmp_path: Path) -> None:
 
 
 def test_windows_separators_in_member_names() -> None:
-    assert "secret_file" in [h.rule for h in pss.check_member("a", "dir\\sub\\fabric.token", None)]
-    assert "test_dir" in [h.rule for h in pss.check_member("a", "meshforge\\tests\\x.py", None)]
+    assert "secret_file" in [
+        h.rule for h in pss.check_member("a", "dir\\sub\\fabric.token", None)
+    ]
+    assert "test_dir" in [
+        h.rule for h in pss.check_member("a", "meshforge\\tests\\x.py", None)
+    ]
 
 
 def test_unicode_paths_do_not_crash(tmp_path: Path) -> None:
@@ -162,7 +200,9 @@ def test_unicode_paths_do_not_crash(tmp_path: Path) -> None:
     assert [h.rule for h in hits] == ["api_token"]
 
 
-def test_hits_never_leak_the_secret_in_render_or_json(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_hits_never_leak_the_secret_in_render_or_json(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     (tmp_path / "f.txt").write_bytes(TOKEN + b"\n" + SESSION + b"\n" + PEM)
     code = pss.main([str(tmp_path), "--json"])
     out = capsys.readouterr()
@@ -214,13 +254,21 @@ def test_deb_control_archive_secret_is_found(tmp_path: Path) -> None:
     def ar(members: list[tuple[str, bytes]]) -> bytes:
         out = b"!<arch>\n"
         for n, d in members:
-            out += f"{n:<16}0           0     0     100644  {len(d):<10}`\n".encode() + d
+            out += (
+                f"{n:<16}0           0     0     100644  {len(d):<10}`\n".encode() + d
+            )
             if len(d) % 2:
                 out += b"\n"
         return out
 
     deb = tmp_path / "p.deb"
-    deb.write_bytes(ar([("debian-binary", b"2.0\n"),
-                        ("control.tar", tar_bytes("./postinst", b"echo " + TOKEN)),
-                        ("data.tar", tar_bytes("./usr/x", b"ok"))]))
+    deb.write_bytes(
+        ar(
+            [
+                ("debian-binary", b"2.0\n"),
+                ("control.tar", tar_bytes("./postinst", b"echo " + TOKEN)),
+                ("data.tar", tar_bytes("./usr/x", b"ok")),
+            ]
+        )
+    )
     assert [h.rule for h in pss.scan(deb)] == ["api_token"]
