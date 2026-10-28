@@ -91,7 +91,12 @@ async def test_node_stays_online_while_an_all_threads_benchmark_runs(
     samples = 0
     loop = asyncio.get_running_loop()
     started = loop.time()
+    last = started
+    max_stall = 0.0  # the longest the event loop went without running us
     while not bench.done():
+        now = loop.time()
+        max_stall = max(max_stall, now - last - SAMPLE_S)
+        last = now
         live = runtime.manager.get(node_id)
         if live is None or live.state is not NodeState.ONLINE:
             leaves.append(f"controller:{None if live is None else live.state}")
@@ -108,7 +113,10 @@ async def test_node_stays_online_while_an_all_threads_benchmark_runs(
     assert scores.conditions.priority_lowered is lower_priority
     assert load_s > 3 * 0.6, f"the load lasted only {load_s:.2f} s"
     assert samples > 50
-    assert leaves == [], f"the node left ONLINE under load: {leaves[:5]}"
+    assert leaves == [], (
+        f"the node left ONLINE under load: {leaves[:5]}; "
+        f"longest event-loop stall {max_stall:.3f} s"
+    )
     assert running.client.stats.stream_ends == []
     node = await registry.get_node(node_id)
     assert node is not None and node.state is NodeState.ONLINE
