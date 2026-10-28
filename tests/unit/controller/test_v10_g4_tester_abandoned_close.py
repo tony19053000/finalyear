@@ -7,7 +7,7 @@ import asyncio
 import pytest
 import structlog
 from test_session_admission_deadline import Hang, drain_chains, make_slow
-from test_session_linger import admit, hello, make
+from test_session_linger import admit, hello
 from test_v10_g4_abandoned_close import _events, _StrictSessions
 
 from meshforge.common.errors import MeshForgeError
@@ -27,7 +27,7 @@ def test_the_flag_defaults_off_for_every_ordinary_session() -> None:
 async def test_an_abandoned_entrys_other_errors_are_still_failed_writes() -> None:
     """Only UnknownSessionError is quiet; a database failure on the abandoned
     entry's close is still ``registry.write_failed``."""
-    manager, reg, clock, timer = make_slow()
+    manager, reg, _clock, _timer = make_slow()
     sessions = _StrictSessions(reg)
     node = new_node_id()
     await admit(manager, node, 1)

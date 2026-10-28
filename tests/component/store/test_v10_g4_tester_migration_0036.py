@@ -1,6 +1,8 @@
 """V1.0 G4 tester: migration 0036 on a populated database, and the index
 predicate against the real attempt-state enum."""
 
+# ruff: noqa: S608  # SQL built from fixed state names and constants, no input
+
 from __future__ import annotations
 
 import asyncio
@@ -91,7 +93,7 @@ def test_every_non_terminal_state_is_served_by_the_index_and_returns_its_rows(
     command.upgrade(alembic_config(pg_settings), "head")
     _seed_every_state(pg_settings)
     asyncio.run(_sql(pg_settings, "ANALYZE attempt"))
-    for state in _NON_TERMINAL:
+    for _state in _NON_TERMINAL:
         # force the planner off seq scans so only the predicate decides usability
         plan = asyncio.run(
             _sql(
