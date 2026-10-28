@@ -31,9 +31,7 @@ pytestmark = [pytest.mark.component, pytest.mark.asyncio, pytest.mark.timeout(30
 async def _setup(
     http: httpx.AsyncClient, runtime: ControllerRuntime, a: Any, reps: int
 ) -> tuple[Any, Any, Any]:
-    created = await _create(
-        http, _spec(a.node_id, strategies="[local]", reps=reps)
-    )
+    created = await _create(http, _spec(a.node_id, strategies="[local]", reps=reps))
     submitter, store = runtime.bench_submitter, runtime.bench
     assert submitter is not None and store is not None
     campaign = await store.get_campaign(created["campaign_id"])
