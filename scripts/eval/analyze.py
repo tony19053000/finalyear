@@ -5,8 +5,10 @@
 
 ``--raw`` once per campaign (one per link for A7). ``--eval-report`` = the
 planner evaluator report of the L4 data campaign (``compute planner eval
---json``); ``--ml-report`` = ``report.json`` of ``compute planner ml compare
---ablations``. Both are optional; the report says what is missing.
+--json`` output as saved - its ``report`` object is taken out of the stored
+record - or the bare report); ``--ml-report`` = ``report.json`` of ``compute
+planner ml compare --ablations``. Both are optional; the report says what is
+missing.
 
 Writes ``OUT_DIR/analysis.json`` (canonical JSON), ``OUT_DIR/tables/*.csv``
 and ``OUT_DIR/SHA256SUMS`` (inputs and outputs). The same inputs give the
@@ -147,6 +149,20 @@ def _load_json(path: Path | None) -> Mapping[str, Any] | None:
     return value
 
 
+def _eval_report(value: Mapping[str, Any] | None) -> Mapping[str, Any] | None:
+    """The evaluator report itself. ``compute planner eval --json`` (and
+    ``GET /v1/planner/eval-reports/{id}``) wrap it in the stored record
+    (``{"id", "state", "report": {...}, ...}``); without unwrapping, every
+    field would read as missing and A4 / the evaluator rows would silently be
+    empty (V1.0 G6 prep). A bare report is used as given."""
+    if value is None:
+        return None
+    inner = value.get("report")
+    if isinstance(inner, dict) and not ({"policies", "groups"} & value.keys()):
+        return inner
+    return value
+
+
 def run_analysis(
     raw_dirs: Sequence[Path],
     out: Path,
@@ -162,7 +178,7 @@ def run_analysis(
     offline = None
     if eval_report is not None or ml_report is not None:
         offline = offline_block(
-            _load_json(eval_report),
+            _eval_report(_load_json(eval_report)),
             _load_json(ml_report),
             seed=settings.seed,
             resamples=settings.resamples,
