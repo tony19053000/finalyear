@@ -1,0 +1,1122 @@
+# V1.0 acceptance manifest (D407, ADR-0023). One row per success criterion of every
+# roadmap version below V1.0 (V0.1-V0.17, deferred versions included).
+#
+#   id           <version>-c<criterion number>, e.g. V0.6-c2
+#   text         the roadmap criterion, verbatim (the coverage test compares it, so a
+#                reworded criterion forces a re-review of its row)
+#   kind         auto   - evidence.tests (pytest node ids) and optional evidence.commands
+#                         (repo scripts, run with the release interpreter) are run by
+#                         scripts/release_check.py; evidence.flags opt into slow/chaos/perf
+#                lab    - evidence.section is a V1.0 lab campaign section (L0-L5, brief
+#                         §4); the verdict arrives as an evidence JSON in lab/reports/raw/
+#                         (`release_check.py record-lab` writes one); evidence.tests are
+#                         supporting harness tests, collected by the coverage test, not run
+#                waiver - not proven in v1.0: reason + decision (ADR-NNNN / DNNN) required
+#   affected_by  source globs (fnmatch: `*` also crosses `/`). For lab rows, evidence
+#                recorded at an older SHA stays valid only if no file matching these
+#                globs changed since (D406 redo rule).
+#
+# Gate: tests/unit/release/test_manifest_coverage.py. Runner: scripts/release_check.py.
+
+schema: meshforge.acceptance/1
+
+lab_sections:
+  L0: 'Hardware + network: inventory of all 4 laptops, GPU stack, switch/DHCP/Private profile, iperf matrix
+    (folds in 0.2.2-0.2.5, 0.2.11)'
+  L1: 'Fresh install of rc.N: controller .deb, Linux agents, Windows installer timed, join by code + QR,
+    upgrade rc.N-1 -> rc.N, uninstall verify, reinstall (folds in 0.17.8, SP1/SP3 labs, 0.3.2/0.3.13 Windows
+    checks, Q21 DB import)'
+  L2: 'Functional acceptance on the installed build: fabric, Mode 1 examples on each laptop (incl. GPU
+    job), datasets Wi-Fi + Ethernet, pairing/revoke/Wireshark, dashboard visual review, Mode 3 with a
+    node killed (folds in 0.3.15, 0.4.15, 0.4.8, 0.5.11, 0.7.12, 0.8.10, 0.10.10)'
+  L3: 72 h soak + chaos (D409-D411) on mains power, sleep disabled (folds in 1.0.2, 0.6.13, the V0.3 24
+    h soak criterion)
+  L4: 'Evaluation runs: overnight data campaign (also trains/validates ML), then the policy matrix + live
+    ablations (folds in 0.9.10, 0.14.8, 0.15.11, 1.0.6)'
+  L5: Demo rehearsal x2, fallback recordings (folds in 1.0.7)
+
+rows:
+- id: V0.1-c1
+  version: V0.1
+  criterion: 1
+  text: Fresh clone → `uv sync` → `pytest -m unit` passes on Linux **and** Windows.
+  kind: auto
+  evidence:
+    tests:
+    - tests/component/test_fresh_clone_unit_criterion.py::test_fresh_clone_uv_sync_pytest_unit_passes
+    - tests/unit/test_optional_imports_guarded.py
+    flags:
+    - --run-slow
+  affected_by:
+  - pyproject.toml
+  - uv.lock
+  - tests/conftest.py
+  - src/*
+  note: Linux half here; the Windows half is the CI `unit` job on windows-latest (and the no-extras `fresh-clone`
+    job) at the tagged SHA (Q43).
+- id: V0.1-c2
+  version: V0.1
+  criterion: 2
+  text: CI green on `main`; a deliberately bad commit (lint/type/import-boundary) is rejected.
+  kind: auto
+  evidence:
+    tests:
+    - tests/unit/test_quality_gates.py
+    - tests/unit/test_import_boundaries.py
+  affected_by:
+  - pyproject.toml
+  - .pre-commit-config.yaml
+  - .github/workflows/ci.yml
+  note: '''CI green on main'' itself is the ci-ok job of the tagged commit; these tests prove that a bad
+    lint/type/import-boundary commit is rejected.'
+- id: V0.1-c3
+  version: V0.1
+  criterion: 3
+  text: '`alembic upgrade head` and `downgrade base` succeed on a clean PostgreSQL.'
+  kind: auto
+  evidence:
+    tests:
+    - tests/component/store/test_store_migrations.py::test_upgrade_check_downgrade_on_clean_database
+    - tests/component/store/test_store_migrations.py::test_single_linear_head
+    - tests/component/store/test_store_migrations_adversarial.py::test_downgrade_base_is_idempotent_when_already_at_base
+  affected_by:
+  - src/meshforge/controller/store/*
+  - alembic.ini
+- id: V0.1-c4
+  version: V0.1
+  criterion: 4
+  text: Proto codegen is deterministic (regenerating produces no diff).
+  kind: auto
+  evidence:
+    tests:
+    - tests/unit/test_protos.py::test_check_passes_on_committed_tree
+    - tests/unit/test_protos.py::test_regeneration_is_byte_identical
+    - tests/unit/test_gen_protos_robustness.py::test_regeneration_is_byte_identical_across_five_runs
+    commands:
+    - - scripts/gen_protos.py
+      - --check
+  affected_by:
+  - proto/*
+  - scripts/gen_protos.py
+  - src/meshforge/common/proto/*
+- id: V0.2-c1
+  version: V0.2
+  criterion: 1
+  text: All NVIDIA laptops pass `nvidia-smi`, `torch.cuda.is_available()`, and GPU-in-container checks
+    (or documented exception with fallback).
+  kind: lab
+  evidence:
+    section: L0
+    checklist: lab/spikes/S6.md
+    analyzer: uv run python lab/inventory.py --out lab/reports/inventory/<host>.json; uv run python lab/spikes/s6_environments.py
+      run
+    tests:
+    - tests/component/lab/test_inventory_acceptance.py
+  affected_by:
+  - lab/inventory.py
+  - lab/_inventory/*
+  - lab/spikes/*
+  note: Open 🧑 0.2.1/0.2.3; a documented exception with a CPU fallback also satisfies the criterion.
+- id: V0.2-c2
+  version: V0.2
+  criterion: 2
+  text: '`docs/LAB.md` lists full inventory and the measured network matrix for Wi-Fi and Ethernet.'
+  kind: lab
+  evidence:
+    section: L0
+    checklist: lab/README.md#s1
+    analyzer: uv run python lab/spikes/s1_network.py run|report (Wi-Fi and Ethernet)
+    tests:
+    - tests/component/lab/test_s1_network.py
+  affected_by:
+  - lab/inventory.py
+  - lab/_inventory/*
+  - lab/spikes/s1_network.py
+  - lab/spikes/_s1/*
+  - docs/LAB.md
+- id: V0.2-c3
+  version: V0.2
+  criterion: 3
+  text: Every open question Q2–Q4 in ARCHITECTURE §27 has a recorded answer and decision.
+  kind: lab
+  evidence:
+    section: L0
+    checklist: lab/spikes/S6.md
+    analyzer: answers recorded in docs/ARCHITECTURE.md §27 from the L0 S2/S3/S6 runs
+  affected_by:
+  - docs/ARCHITECTURE.md
+  - lab/spikes/*
+  note: Q4 (PyTorch CUDA in a container) waits on the L0 S6 re-run; the answers are a Lead doc edit after
+    L0.
+- id: V0.2-c4
+  version: V0.2
+  criterion: 4
+  text: Calibrated thresholds for V0.5, V0.10–V0.13 written into this roadmap.
+  kind: lab
+  evidence:
+    section: L0
+    checklist: lab/spikes/S3.md
+    analyzer: calibrated thresholds written into the roadmap from the L0 S1/S3/S7 numbers
+  affected_by:
+  - docs/DEVELOPMENT_ROADMAP.md
+  - lab/spikes/*
+  note: The V0.11-V0.13 thresholds are waived with those versions (ADR-0012); V0.5 and V0.10 thresholds
+    come from L0/L2.
+- id: V0.3-c1
+  version: V0.3
+  criterion: 1
+  text: All 4 laptops appear with hardware matching `docs/LAB.md`.
+  kind: lab
+  evidence:
+    section: L2
+    checklist: lab/checklists/V0.3-fabric.md
+    analyzer: uv run python lab/fabric_check.py inventory
+    tests:
+    - tests/cluster/test_fabric_liveness.py::test_a_enrol_five_distinct_nodes_online_connected_with_samples
+  affected_by:
+  - src/meshforge/agent/hardware/*
+  - src/meshforge/agent/benchmarks/*
+  - src/meshforge/controller/api/*
+  - src/meshforge/controller/scores.py
+  - src/meshforge/controller/session/*
+  - src/meshforge/controller/liveness.py
+  - src/meshforge/controller/registry.py
+  - src/meshforge/agent/session/*
+  - src/meshforge/agent/runtime.py
+  - proto/*
+- id: V0.3-c2
+  version: V0.3
+  criterion: 2
+  text: Network cable pulled → node OFFLINE within **≤ 8 s**; restored → ONLINE within **≤ 10 s** with
+    no agent restart.
+  kind: lab
+  evidence:
+    section: L2
+    checklist: lab/checklists/V0.3-fabric.md
+    analyzer: uv run python lab/fabric_check.py watch --node HOST --link ethernet
+    tests:
+    - tests/cluster/test_fabric_slow.py::test_slow_d_cable_pull_offline_and_restore_at_shipped_timing
+    - tests/cluster/test_fabric_liveness.py::test_d_blackhole_offline_at_lease_edge_restore_online_no_restart
+  affected_by: &id001
+  - src/meshforge/controller/session/*
+  - src/meshforge/controller/liveness.py
+  - src/meshforge/controller/registry.py
+  - src/meshforge/agent/session/*
+  - src/meshforge/agent/runtime.py
+  - proto/*
+  note: Loopback timing is proven by the supporting cluster tests; the criterion names a real cable pull.
+- id: V0.3-c3
+  version: V0.3
+  criterion: 3
+  text: Controller killed and restarted → all agents reconnect within **≤ 15 s**, no manual action.
+  kind: lab
+  evidence:
+    section: L3
+    checklist: lab/checklists/V0.3-fabric.md
+    analyzer: uv run python lab/fabric_check.py restart-check --link ethernet (and the L3 chaos 'kill
+      -9 controller' actions)
+    tests:
+    - tests/cluster/test_fabric_slow.py::test_slow_i_controller_kill_restart_all_back_at_shipped_timing
+    - tests/cluster/test_fabric_restarts.py::test_i_controller_sigkill_restart_all_agents_back_none_restarted
+  affected_by: *id001
+- id: V0.3-c4
+  version: V0.3
+  criterion: 4
+  text: Agent restart keeps the same `node_id`.
+  kind: auto
+  evidence:
+    tests:
+    - tests/cluster/test_fabric_restarts.py::test_h_agent_restart_keeps_node_id_with_higher_epoch
+    - tests/component/agent/test_agent_session.py::test_restart_keeps_node_id
+    - tests/unit/agent/test_identity.py
+  affected_by:
+  - src/meshforge/agent/identity.py
+  - src/meshforge/common/atomic.py
+  - src/meshforge/common/filelock.py
+  - src/meshforge/controller/session/*
+  - src/meshforge/controller/liveness.py
+  - src/meshforge/controller/registry.py
+  - src/meshforge/agent/session/*
+  - src/meshforge/agent/runtime.py
+  - proto/*
+  note: Windows identity storage (icacls, msvcrt locking) runs in the CI unit job on windows-latest.
+- id: V0.3-c5
+  version: V0.3
+  criterion: 5
+  text: '24 h soak on Ethernet: zero false OFFLINE events; agent RSS growth < 10 %.'
+  kind: lab
+  evidence:
+    section: L3
+    checklist: lab/checklists/V0.3-fabric.md
+    analyzer: soak analyzer (G1, D410 rules) over the 72 h L3 run; supersedes `fabric_check.py soak --hours
+      24`
+    tests:
+    - tests/unit/lab/test_fabric_soak.py
+  affected_by:
+  - src/meshforge/controller/session/*
+  - src/meshforge/controller/liveness.py
+  - src/meshforge/controller/registry.py
+  - src/meshforge/agent/session/*
+  - src/meshforge/agent/runtime.py
+  - proto/*
+  - src/meshforge/agent/resources/*
+  note: 'The 72 h L3 soak (D409/D410: RSS < 10 %, no unattributed OFFLINE) is a superset of this 24 h
+    criterion.'
+- id: V0.4-c1
+  version: V0.4
+  criterion: 1
+  text: Example CPU and GPU projects run on every node type; outputs **byte-identical** to a local run
+    on the same hardware class (CPU example everywhere; PyTorch on CPU; GPU on the same GPU model + driver),
+    and **within the stated tolerance** of `workloads/examples/pytorch-train/compare.py` across different
+    CPU/GPU models (GPU kernels are not bit-reproducible across hardware — D76, 2026-09-29).
+  kind: lab
+  evidence:
+    section: L2
+    checklist: lab/checklists/V0.4-remote-exec.md
+    analyzer: compute run on each laptop + workloads/examples/pytorch-train/compare.py
+    tests:
+    - tests/cluster/test_fabric_outputs_logs.py::test_criterion_1_outputs_are_identical_remote_and_local
+    - tests/cluster/test_fabric_outputs_logs.py::test_criterion_1_pytorch_on_cpu
+    - tests/unit/workloads/test_cpu_example.py
+  affected_by:
+  - src/meshforge/controller/jobs/*
+  - src/meshforge/agent/execution/*
+  - src/meshforge/common/manifest.py
+  - src/meshforge/common/states.py
+  - src/meshforge/agent/envs/*
+  - src/meshforge/agent/execution/*
+  - workloads/examples/*
+  note: Every node type and the GPU example need the real laptops (open 0.4.8, 0.4.15).
+- id: V0.4-c2
+  version: V0.4
+  criterion: 2
+  text: Log lines appear on the client **≤ 1 s** after being printed remotely.
+  kind: auto
+  evidence:
+    tests:
+    - tests/cluster/test_fabric_outputs_logs.py::test_criterion_2_live_log_latency_under_one_second
+  affected_by:
+  - src/meshforge/controller/jobs/*
+  - src/meshforge/agent/execution/*
+  - src/meshforge/common/manifest.py
+  - src/meshforge/common/states.py
+  - src/meshforge/controller/api/*
+  - src/meshforge/cli/*
+  note: Loopback bound; the L2 run also records `lab/exec_check.py latency` on the LAN.
+- id: V0.4-c3
+  version: V0.4
+  criterion: 3
+  text: Cancel stops the workload **≤ 5 s**; timeout enforced within 2 s of limit.
+  kind: auto
+  evidence:
+    tests:
+    - tests/cluster/test_fabric_jobs.py::test_criterion_3_cancel_and_timeout_measured
+    - tests/component/agent/test_exec_e2e.py::test_cancel_mid_run_ends_cancelled_within_5_s_and_kills_the_process
+    - tests/component/agent/test_exec_e2e.py::test_timeout_is_deadline_exceeded_within_2_s_of_the_limit
+  affected_by:
+  - src/meshforge/controller/jobs/*
+  - src/meshforge/agent/execution/*
+  - src/meshforge/common/manifest.py
+  - src/meshforge/common/states.py
+- id: V0.4-c4
+  version: V0.4
+  criterion: 4
+  text: Repeated `POST` with the same `Idempotency-Key` → one job, one execution.
+  kind: auto
+  evidence:
+    tests:
+    - tests/cluster/test_fabric_jobs.py::test_criterion_4_one_key_five_posts_one_job_one_execution
+    - tests/component/agent/test_exec_e2e.py::test_start_attempt_delivered_twice_and_after_a_reconnect_runs_once
+  affected_by:
+  - src/meshforge/controller/jobs/*
+  - src/meshforge/agent/execution/*
+  - src/meshforge/common/manifest.py
+  - src/meshforge/common/states.py
+  - src/meshforge/controller/api/*
+- id: V0.4-c5
+  version: V0.4
+  criterion: 5
+  text: 'Sandbox test: workload cannot read/write outside its workdir or see host processes.'
+  kind: auto
+  evidence:
+    tests:
+    - tests/component/agent/test_docker_sandbox.py::test_the_workload_is_confined_to_its_workdir
+    - tests/component/agent/test_docker_sandbox.py::test_the_pids_limit_contains_a_fork_bomb
+    - tests/component/agent/test_docker_sandbox_g3_tester.py
+  affected_by:
+  - src/meshforge/agent/execution/*
+  note: Docker Desktop on Windows is proven in L2 (0.7.12 sandbox step).
+- id: V0.4-c6
+  version: V0.4
+  criterion: 6
+  text: Every attempt has complete phase timings in the DB.
+  kind: auto
+  evidence:
+    tests:
+    - tests/cluster/test_fabric_jobs.py::test_criterion_6_every_attempt_has_a_row_per_phase
+    - tests/component/agent/test_exec_e2e.py::test_submit_runs_to_succeeded_with_five_phase_rows
+  affected_by:
+  - src/meshforge/controller/jobs/*
+  - src/meshforge/agent/execution/*
+  - src/meshforge/common/manifest.py
+  - src/meshforge/common/states.py
+  - src/meshforge/controller/telemetry/*
+- id: V0.5-c1
+  version: V0.5
+  criterion: 1
+  text: Resubmitting an unchanged project transfers **0 bytes** of source/data; changing one file transfers
+    only that file.
+  kind: auto
+  evidence:
+    tests:
+    - tests/component/agent/test_v05_tree_exec.py::test_tree_job_resubmit_fetches_nothing_and_one_change_one_blob
+    - tests/component/controller/test_v05_cli_transfer.py::test_resubmit_uploads_nothing_and_one_change_uploads_one_file
+  affected_by: &id002
+  - src/meshforge/controller/blobs.py
+  - src/meshforge/agent/cas/*
+  - src/meshforge/agent/peer/*
+  - src/meshforge/common/cas.py
+  - src/meshforge/common/tree.py
+  - src/meshforge/cli/*
+- id: V0.5-c2
+  version: V0.5
+  criterion: 2
+  text: 5 GB transfer on Ethernet reaches **≥ 80 %** of iperf3-measured bandwidth *(calibrate)*.
+  kind: lab
+  evidence:
+    section: L2
+    checklist: lab/checklists/V0.5-data-plane.md
+    analyzer: 5 GB dataset transfer on Ethernet vs the L0 iperf3 matrix (checklist V0.5-data-plane)
+    tests:
+    - tests/component/agent/test_v05_large_blob.py
+  affected_by: *id002
+  note: Needs the Ethernet switch (Q46); the supporting test proves a > 5 GB file round-trips with default
+    limits.
+- id: V0.5-c3
+  version: V0.5
+  criterion: 3
+  text: Interrupted transfer resumes without re-sending completed chunks.
+  kind: auto
+  evidence:
+    tests:
+    - tests/component/agent/test_v05_tree_exec.py::test_killed_agent_fetch_resumes_without_refetching_chunks
+    - tests/component/controller/test_v05_cli_transfer.py::test_killed_upload_resumes_without_resending_completed_parts
+    - tests/component/agent/test_v05_g4_peer_fetch.py::test_peer_killed_mid_transfer_controller_finishes_without_resending
+  affected_by: *id002
+- id: V0.5-c4
+  version: V0.5
+  criterion: 4
+  text: A corrupted blob is detected and never used.
+  kind: auto
+  evidence:
+    tests:
+    - tests/component/agent/test_v05_tree_exec.py::test_a_corrupt_blob_at_the_controller_fails_integrity_and_never_runs
+    - tests/component/agent/test_v05_g4_peer_fetch.py::test_corrupt_peer_detected_per_chunk_dropped_never_materialised
+  affected_by: *id002
+- id: V0.5-c5
+  version: V0.5
+  criterion: 5
+  text: 'Warm env cache: job start overhead **≤ 3 s** *(calibrate)*; cold build time recorded.'
+  kind: lab
+  evidence:
+    section: L2
+    checklist: lab/checklists/V0.5-data-plane.md
+    analyzer: attempt phase timings (env phase) of warm and cold jobs on each laptop
+    tests:
+    - tests/component/agent/test_v05_venv_e2e.py
+    - tests/component/envs/test_envs_runtimes.py::test_subprocess_second_job_installs_nothing
+  affected_by:
+  - src/meshforge/agent/envs/*
+  - src/meshforge/agent/execution/*
+  note: 'The threshold is ''(calibrate)'': it is judged on the real laptops.'
+- id: V0.5-c6
+  version: V0.5
+  criterion: 6
+  text: Data fetched from a peer when the peer is closer/faster than the controller.
+  kind: auto
+  evidence:
+    tests:
+    - tests/component/agent/test_v05_g4_peer_fetch.py::test_criterion_6_most_bytes_from_the_peer_when_the_controller_is_slow
+  affected_by:
+  - src/meshforge/controller/blobs.py
+  - src/meshforge/agent/cas/*
+  - src/meshforge/agent/peer/*
+  - src/meshforge/common/cas.py
+  - src/meshforge/common/tree.py
+  - src/meshforge/cli/*
+  - src/meshforge/controller/cache_index.py
+- id: V0.6-c1
+  version: V0.6
+  criterion: 1
+  text: '100 mixed jobs across 4 laptops with random agent kills: **0 lost, 0 duplicated** executions;
+    all reach correct terminal states.'
+  kind: lab
+  evidence:
+    section: L3
+    checklist: lab/checklists/V0.6-scheduling.md
+    analyzer: uv run python lab/sched_check.py submit|wait|check (the L3 soak load is a superset)
+    tests:
+    - tests/cluster/chaos/test_v06_chaos.py
+  affected_by:
+  - src/meshforge/controller/jobs/*
+  - src/meshforge/agent/execution/*
+  - src/meshforge/common/manifest.py
+  - src/meshforge/common/states.py
+  - src/meshforge/controller/planner/*
+  - src/meshforge/controller/calibration_store.py
+  - src/meshforge/controller/planner_calibration_task.py
+  - src/meshforge/controller/session/*
+  - src/meshforge/controller/liveness.py
+  - src/meshforge/controller/registry.py
+  - src/meshforge/agent/session/*
+  - src/meshforge/agent/runtime.py
+  - proto/*
+  note: The seeded chaos suite (--run-chaos) proves the same invariant on the harness.
+- id: V0.6-c2
+  version: V0.6
+  criterion: 2
+  text: Controller `kill -9` with 20 running jobs → after restart every job reaches the correct state;
+    no duplicate runs.
+  kind: auto
+  evidence:
+    tests:
+    - tests/cluster/test_v06_g3_criterion2_controller_kill.py::test_controller_sigkill_with_20_running_jobs_every_side_effect_once
+  affected_by:
+  - src/meshforge/controller/jobs/*
+  - src/meshforge/agent/execution/*
+  - src/meshforge/common/manifest.py
+  - src/meshforge/common/states.py
+  - src/meshforge/controller/session/*
+  - src/meshforge/controller/liveness.py
+  - src/meshforge/controller/registry.py
+  - src/meshforge/agent/session/*
+  - src/meshforge/agent/runtime.py
+  - proto/*
+- id: V0.6-c3
+  version: V0.6
+  criterion: 3
+  text: '`compute explain` shows every candidate, rejections with reasons, and predicted breakdown.'
+  kind: auto
+  evidence:
+    tests:
+    - tests/component/controller/test_v06_g2_policies_explain.py::test_decisions_show_every_candidate_and_explain_prints_them
+  affected_by:
+  - src/meshforge/controller/planner/*
+  - src/meshforge/controller/calibration_store.py
+  - src/meshforge/controller/planner_calibration_task.py
+  - src/meshforge/cli/*
+  - src/meshforge/common/explain_text.py
+- id: V0.6-c4
+  version: V0.6
+  criterion: 4
+  text: For a tiny job whose transfer dominates, planner selects **Local** (test case).
+  kind: auto
+  evidence:
+    tests:
+    - tests/component/controller/test_v06_g4_criterion4.py::test_criterion_4_tiny_job_large_project_stays_local
+    - tests/unit/controller/test_v06_g4_estimator.py::test_criterion_4_tiny_job_large_tree_stays_local
+  affected_by:
+  - src/meshforge/controller/planner/*
+  - src/meshforge/controller/calibration_store.py
+  - src/meshforge/controller/planner_calibration_task.py
+- id: V0.6-c5
+  version: V0.6
+  criterion: 5
+  text: All baseline policies selectable and covered by tests.
+  kind: auto
+  evidence:
+    tests:
+    - tests/unit/controller/test_v06_g2_planner.py
+    - tests/component/controller/test_v06_g2_policies_explain.py::test_each_policy_per_request_places_where_the_planner_says
+    - tests/component/controller/test_v06_g2_policies_explain.py::test_precedence_request_over_manifest_over_global
+  affected_by:
+  - src/meshforge/controller/planner/*
+  - src/meshforge/controller/calibration_store.py
+  - src/meshforge/controller/planner_calibration_task.py
+  - src/meshforge/common/manifest.py
+- id: V0.7-c1
+  version: V0.7
+  criterion: 1
+  text: Unenrolled agent cannot connect; revoked node rejected within one heartbeat.
+  kind: auto
+  evidence:
+    tests:
+    - tests/component/agent/test_v07_g3_agent_mtls.py::test_unenrolled_agent_stops_with_the_join_command
+    - tests/component/controller/test_v07_g3_mtls_session.py
+    - tests/component/controller/test_v07_g3_revocation.py::test_revoke_cuts_the_live_session_within_one_heartbeat
+    - tests/component/controller/test_v07_g7_criterion1_https.py
+    - tests/component/agent/test_v07_g7_criterion1_peer.py
+  affected_by:
+  - src/meshforge/controller/server_tls.py
+  - src/meshforge/controller/http_tls.py
+  - src/meshforge/controller/fabric_ca.py
+  - src/meshforge/controller/enrollment/*
+  - src/meshforge/controller/revocation.py
+  - src/meshforge/agent/enrollment.py
+  - src/meshforge/agent/http_tls.py
+  - src/meshforge/common/pki.py
+  - src/meshforge/common/fabric_tls.py
+- id: V0.7-c2
+  version: V0.7
+  criterion: 2
+  text: Join code works once and expires as configured.
+  kind: auto
+  evidence:
+    tests:
+    - tests/component/controller/test_v07_g2_invites.py::test_single_use_under_a_16_way_race
+    - tests/component/controller/test_v07_g2_invites.py::test_ttl_bounds
+    - tests/component/controller/test_v07_g2_enroll.py::test_used_expired_and_revoked_codes
+    - tests/cluster/test_v07_g2_join.py::test_two_agents_join_with_two_codes
+  affected_by:
+  - src/meshforge/controller/server_tls.py
+  - src/meshforge/controller/http_tls.py
+  - src/meshforge/controller/fabric_ca.py
+  - src/meshforge/controller/enrollment/*
+  - src/meshforge/controller/revocation.py
+  - src/meshforge/agent/enrollment.py
+  - src/meshforge/agent/http_tls.py
+  - src/meshforge/common/pki.py
+  - src/meshforge/common/fabric_tls.py
+  - src/meshforge/common/join_code.py
+- id: V0.7-c3
+  version: V0.7
+  criterion: 3
+  text: Packet capture shows no plaintext job data or credentials on any plane.
+  kind: lab
+  evidence:
+    section: L2
+    checklist: lab/checklists/V0.7-security.md
+    analyzer: Wireshark capture of one full fabric run, searched for the run's plaintext markers (checklist
+      V0.7-security)
+    tests:
+    - tests/cluster/test_v07_g7_criterion3_recorder.py
+    - tests/cluster/test_v07_g3_plaintext_recorder.py
+  affected_by:
+  - src/meshforge/controller/server_tls.py
+  - src/meshforge/controller/http_tls.py
+  - src/meshforge/controller/fabric_ca.py
+  - src/meshforge/controller/enrollment/*
+  - src/meshforge/controller/revocation.py
+  - src/meshforge/agent/enrollment.py
+  - src/meshforge/agent/http_tls.py
+  - src/meshforge/common/pki.py
+  - src/meshforge/common/fabric_tls.py
+  - src/meshforge/agent/peer/*
+  - src/meshforge/controller/http.py
+  note: The recorder tests prove it on loopback links; the criterion names a packet capture.
+- id: V0.7-c4
+  version: V0.7
+  criterion: 4
+  text: Secrets never appear in logs or telemetry.
+  kind: auto
+  evidence:
+    tests:
+    - tests/cluster/test_v07_g7_criterion4_secret_surfaces.py::test_a_secret_is_on_no_surface_after_a_failed_and_a_cancelled_run
+    - tests/unit/agent/test_v07_g6_tester_r1_vault.py
+  affected_by:
+  - src/meshforge/controller/secret_box.py
+  - src/meshforge/controller/secret_store.py
+  - src/meshforge/common/secret_redaction.py
+  - src/meshforge/common/redaction.py
+  - src/meshforge/agent/execution/*
+- id: V0.7-c5
+  version: V0.7
+  criterion: 5
+  text: Security suite green; threat-model review items closed or accepted with rationale.
+  kind: auto
+  evidence:
+    tests:
+    - tests/unit/test_threat_model_check.py::test_the_real_threat_model_has_every_row_closed
+    commands:
+    - - scripts/threat_model_check.py
+  affected_by:
+  - docs/THREAT_MODEL.md
+  - scripts/threat_model_check.py
+  note: The whole `-m security` suite runs in the CI unit/component/cluster jobs of the tagged SHA; the
+    threat-model check proves every row is mitigated by a collected security test or accepted.
+- id: V0.8-c1
+  version: V0.8
+  criterion: 1
+  text: Every Mode 1 operation available from the UI and the CLI.
+  kind: auto
+  evidence:
+    tests:
+    - tests/unit/test_v08_g7_cli_ui_parity.py
+    - tests/e2e/test_v08_g7_mode1_flows.py::test_mode1_job_life_cycle_in_the_browser_matches_the_api_and_the_cli
+  affected_by:
+  - frontend/src/*
+  - src/meshforge/cli/*
+  - src/meshforge/controller/api/*
+- id: V0.8-c2
+  version: V0.8
+  criterion: 2
+  text: Live metrics update within 2 s; UI remains responsive with 4 nodes × 100 jobs history.
+  kind: auto
+  evidence:
+    tests:
+    - tests/e2e/test_v08_g3_overview_nodes.py::test_a_killed_node_changes_in_the_page_within_2_s
+    - tests/e2e/test_v08_g3_overview_nodes.py::test_a_heartbeat_sample_is_visible_within_2_s
+    - tests/e2e/test_v08_g7_perf.py::test_dashboard_stays_responsive_at_4x100_history_and_10k_jobs
+    flags:
+    - --run-perf
+  affected_by:
+  - frontend/src/*
+  - src/meshforge/controller/events/*
+  - src/meshforge/controller/api/*
+- id: V0.8-c3
+  version: V0.8
+  criterion: 3
+  text: e2e suite green; no console errors; keyboard navigation for core flows.
+  kind: auto
+  evidence:
+    tests:
+    - tests/e2e
+  affected_by:
+  - frontend/src/*
+  - src/meshforge/controller/api/*
+  - src/meshforge/controller/web/*
+  note: 'The whole e2e tier: console errors and axe checks are asserted by the e2e fixtures; keyboard
+    flows by test_v08_g7_mode1_flows.'
+- id: V0.8-c4
+  version: V0.8
+  criterion: 4
+  text: 🧑 Team visual review passes (no "AI-dashboard" styling, per brief).
+  kind: lab
+  evidence:
+    section: L2
+    checklist: lab/checklists/V0.8-visual.md
+    analyzer: team visual review against brief §24, signed in the checklist
+  affected_by:
+  - frontend/src/*
+- id: V0.9-c1
+  version: V0.9
+  criterion: 1
+  text: Unattended campaign of **≥ 1,000 runs** across 4 laptops with **< 2 %** infrastructure failures.
+  kind: lab
+  evidence:
+    section: L4
+    checklist: lab/checklists/V0.9-campaign.md
+    analyzer: 'compute bench report <campaign> (quality report: infrastructure failure rate < 2 %)'
+    tests:
+    - tests/cluster/test_v09_g7_campaign_e2e.py
+    - tests/unit/bench/test_v09_g5c_quality.py::test_criterion_one_uses_the_exact_fraction_not_the_display_rate
+  affected_by: &id003
+  - src/meshforge/bench/*
+  - src/meshforge/controller/bench/*
+  - src/meshforge/controller/telemetry/*
+- id: V0.9-c2
+  version: V0.9
+  criterion: 2
+  text: Export reproducible (same campaign ID → same dataset rows).
+  kind: auto
+  evidence:
+    tests:
+    - tests/cluster/test_v09_g1_telemetry_export.py::test_three_real_jobs_export_twice_to_identical_parquet
+  affected_by: *id003
+- id: V0.9-c3
+  version: V0.9
+  criterion: 3
+  text: Each configuration has ≥ 3 repetitions and reported CV.
+  kind: auto
+  evidence:
+    tests:
+    - tests/unit/bench/test_v09_g5c_quality.py::test_one_or_two_repetitions_flag_reps
+    - tests/unit/bench/test_v09_g5c_quality.py::test_clean_campaign_meets_both_criteria
+    - tests/component/agent/test_v09_g5c_quality_api.py::test_quality_of_a_real_campaign
+  affected_by: *id003
+  note: The real campaign's own quality report is part of L4 (V0.9-c1).
+- id: V0.9-c4
+  version: V0.9
+  criterion: 4
+  text: Every later mode version adds its benchmark families here (tracked in cross-cutting tracks).
+  kind: auto
+  evidence:
+    tests:
+    - tests/unit/bench/test_v09_g2_families.py::test_the_v1_family_set_is_registered_sorted_by_name
+    - tests/unit/bench/test_v10_g8_split_families.py::test_the_four_families_are_registered_apart_from_the_whole_run_ones
+  affected_by:
+  - src/meshforge/bench/*
+  note: Mode 3 (V0.10) added its families; Mode 2/4 families are waived with those versions (ADR-0012).
+- id: V0.10-c1
+  version: V0.10
+  criterion: 1
+  text: 3,000-image classification split over 3 heterogeneous laptops produces output **identical** to
+    a single-laptop run.
+  kind: lab
+  evidence:
+    section: L2
+    checklist: lab/checklists/V0.10-mode3.md
+    analyzer: uv run python lab/mode3_check.py verify split.image_classify OUTDIR --seed N
+    tests:
+    - tests/cluster/test_v010_mode3.py::test_c1_split_over_three_agents_equals_one_agent_byte_for_byte
+    - tests/unit/bench/test_v10_g8_split_families.py::test_criterion_one_workload_is_the_3000_image_default
+  affected_by: &id004
+  - src/meshforge/controller/split/*
+  - src/meshforge/workqueue/*
+  - src/meshforge/agent/execution/*
+  - src/meshforge/controller/planner/*
+  - src/meshforge/bench/*
+- id: V0.10-c2
+  version: V0.10
+  criterion: 2
+  text: Makespan **≤ 1.25 ×** the ideal Σ-throughput bound *(calibrate)*.
+  kind: lab
+  evidence:
+    section: L2
+    checklist: lab/checklists/V0.10-mode3.md
+    analyzer: uv run python lab/mode3_check.py criteria (makespan vs Σ-throughput bound)
+    tests:
+    - tests/unit/lab/test_mode3_check.py
+  affected_by: *id004
+- id: V0.10-c3
+  version: V0.10
+  criterion: 3
+  text: Speedup vs best single laptop **≥ 2.0 ×** on 3 laptops for CPU/GPU-bound tasks *(calibrate)*.
+  kind: lab
+  evidence:
+    section: L2
+    checklist: lab/checklists/V0.10-mode3.md
+    analyzer: uv run python lab/mode3_check.py criteria (speedup vs best single laptop)
+    tests:
+    - tests/unit/lab/test_mode3_check.py
+  affected_by: *id004
+- id: V0.10-c4
+  version: V0.10
+  criterion: 4
+  text: Killing one laptop mid-run still yields correct, complete output.
+  kind: lab
+  evidence:
+    section: L2
+    checklist: lab/checklists/V0.10-mode3.md
+    analyzer: uv run python lab/mode3_check.py verify after a laptop is killed mid-run
+    tests:
+    - tests/cluster/test_v010_mode3.py::test_c4_kill9_of_a_lane_agent_at_half_way_gives_the_same_output_once
+    - tests/cluster/test_v010_g9_tester_failures.py
+  affected_by: *id004
+- id: V0.10-c5
+  version: V0.10
+  criterion: 5
+  text: Planner picks "don't split" when splitting is predicted slower (test case).
+  kind: auto
+  evidence:
+    tests:
+    - tests/unit/controller/test_v10_g3_split_planner.py::test_c5_tiny_items_do_not_split
+    - tests/unit/controller/test_v10_g3_split_planner.py::test_c5_slow_link_does_not_split_but_a_fast_one_does
+    - tests/unit/controller/test_v10_g3_split_planner.py::test_c5_one_dominating_node_does_not_split
+    - tests/cluster/test_v010_mode3.py::test_c5_slow_link_planner_does_not_split_and_explain_says_why
+  affected_by: *id004
+- id: V0.11-c1
+  version: V0.11
+  criterion: 1
+  text: 'ResNet-50 and BERT-base inference via Remote GPU: outputs match local reference (**atol 1e-4**,
+    fp32).'
+  kind: waiver
+  reason: 'Mode 2 Remote GPU is deferred: nothing of V0.11 is built in v1.0; the design stays in ARCHITECTURE
+    as future work.'
+  decision:
+  - ADR-0012
+- id: V0.11-c2
+  version: V0.11
+  criterion: 2
+  text: Measured call time within **20 %** of the bandwidth+compute model prediction *(calibrate)*.
+  kind: waiver
+  reason: 'Mode 2 Remote GPU is deferred: nothing of V0.11 is built in v1.0; the design stays in ARCHITECTURE
+    as future work.'
+  decision:
+  - ADR-0012
+- id: V0.11-c3
+  version: V0.11
+  criterion: 3
+  text: Remote OOM surfaces as a clear typed exception; killing the GPU laptop never hangs the client
+    beyond the configured timeout.
+  kind: waiver
+  reason: 'Mode 2 Remote GPU is deferred: nothing of V0.11 is built in v1.0; the design stays in ARCHITECTURE
+    as future work.'
+  decision:
+  - ADR-0012
+- id: V0.11-c4
+  version: V0.11
+  criterion: 4
+  text: Two clients share one GPU safely under VRAM limits.
+  kind: waiver
+  reason: 'Mode 2 Remote GPU is deferred: nothing of V0.11 is built in v1.0; the design stays in ARCHITECTURE
+    as future work.'
+  decision:
+  - ADR-0012
+- id: V0.11-c5
+  version: V0.11
+  criterion: 5
+  text: Speedup over local CPU demonstrated for compute-heavy cases; planner keeps small/chatty cases
+    local.
+  kind: waiver
+  reason: 'Mode 2 Remote GPU is deferred: nothing of V0.11 is built in v1.0; the design stays in ARCHITECTURE
+    as future work.'
+  decision:
+  - ADR-0012
+- id: V0.12-c1
+  version: V0.12
+  criterion: 1
+  text: Results identical and in order vs single-GPU reference.
+  kind: waiver
+  reason: 'Mode 4 Combined GPU inference is deferred: nothing of V0.12 is built in v1.0; the design stays
+    in ARCHITECTURE as future work.'
+  decision:
+  - ADR-0012
+- id: V0.12-c2
+  version: V0.12
+  criterion: 2
+  text: Throughput with all GPUs on Ethernet **≥ 75 %** of the sum of individually measured throughputs
+    for compute-heavy batch workloads *(calibrate)*.
+  kind: waiver
+  reason: 'Mode 4 Combined GPU inference is deferred: nothing of V0.12 is built in v1.0; the design stays
+    in ARCHITECTURE as future work.'
+  decision:
+  - ADR-0012
+- id: V0.12-c3
+  version: V0.12
+  criterion: 3
+  text: Across the benchmark suite, planner never chooses a pool slower than the best single GPU by more
+    than **10 %**.
+  kind: waiver
+  reason: 'Mode 4 Combined GPU inference is deferred: nothing of V0.12 is built in v1.0; the design stays
+    in ARCHITECTURE as future work.'
+  decision:
+  - ADR-0012
+- id: V0.12-c4
+  version: V0.12
+  criterion: 4
+  text: Killing a member mid-run → job still completes correctly.
+  kind: waiver
+  reason: 'Mode 4 Combined GPU inference is deferred: nothing of V0.12 is built in v1.0; the design stays
+    in ARCHITECTURE as future work.'
+  decision:
+  - ADR-0012
+- id: V0.13-c1
+  version: V0.13
+  criterion: 1
+  text: Pooled training reaches the same accuracy (**± 1 %**) as single-GPU training with identical global
+    batch/hyperparameters.
+  kind: waiver
+  reason: 'Mode 4 Combined GPU training is deferred: nothing of V0.13 is built in v1.0; the design stays
+    in ARCHITECTURE as future work.'
+  decision:
+  - ADR-0012
+- id: V0.13-c2
+  version: V0.13
+  criterion: 2
+  text: Step-time speedup on Ethernet ≥ *(calibrate from S5)* for compute-heavy models.
+  kind: waiver
+  reason: 'Mode 4 Combined GPU training is deferred: nothing of V0.13 is built in v1.0; the design stays
+    in ARCHITECTURE as future work.'
+  decision:
+  - ADR-0012
+- id: V0.13-c3
+  version: V0.13
+  criterion: 3
+  text: Member failure mid-epoch → training continues from last checkpoint automatically.
+  kind: waiver
+  reason: 'Mode 4 Combined GPU training is deferred: nothing of V0.13 is built in v1.0; the design stays
+    in ARCHITECTURE as future work.'
+  decision:
+  - ADR-0012
+- id: V0.13-c4
+  version: V0.13
+  criterion: 4
+  text: On Wi-Fi where pooling is slower, planner correctly keeps training on a single GPU.
+  kind: waiver
+  reason: 'Mode 4 Combined GPU training is deferred: nothing of V0.13 is built in v1.0; the design stays
+    in ARCHITECTURE as future work.'
+  decision:
+  - ADR-0012
+- id: V0.14-c1
+  version: V0.14
+  criterion: 1
+  text: On held-out benchmark groups, chosen plan within **15 %** of oracle in **≥ 80 %** of cases *(calibrate)*.
+  kind: lab
+  evidence:
+    section: L4
+    checklist: lab/checklists/V0.14-planner.md
+    analyzer: compute planner eval --held-out (criterion 1 line)
+    tests:
+    - tests/unit/planner/test_v014_g4_heldout.py::test_criterion_1_boundary_80_percent_passes
+    - tests/cluster/test_v014_planner_e2e.py
+  affected_by:
+  - src/meshforge/controller/planner/*
+  - src/meshforge/controller/calibration_store.py
+  - src/meshforge/controller/planner_calibration_task.py
+  - src/meshforge/controller/planner_eval/*
+- id: V0.14-c2
+  version: V0.14
+  criterion: 2
+  text: Mean regret lower than every rule baseline.
+  kind: lab
+  evidence:
+    section: L4
+    checklist: lab/checklists/V0.14-planner.md
+    analyzer: compute planner eval --held-out (paired criterion 2 line, D322)
+    tests:
+    - tests/unit/planner/test_v014_g4_heldout.py::test_criterion_2_paired_pass_fail_and_not_separable
+  affected_by:
+  - src/meshforge/controller/planner/*
+  - src/meshforge/controller/calibration_store.py
+  - src/meshforge/controller/planner_calibration_task.py
+  - src/meshforge/controller/planner_eval/*
+- id: V0.14-c3
+  version: V0.14
+  criterion: 3
+  text: Decision latency **< 100 ms** for 4 nodes.
+  kind: lab
+  evidence:
+    section: L4
+    checklist: lab/checklists/V0.14-planner.md
+    analyzer: 'compute planner eval (latency block: p99 decision_ms of live 4-node decisions, D324/D332)'
+    tests:
+    - tests/unit/planner/test_v014_g6_latency.py
+    - tests/component/controller/test_v014_g6_latency_pg.py::test_a_real_dispatch_stores_decision_ms_and_the_evaluator_reads_it
+  affected_by:
+  - src/meshforge/controller/planner/*
+  - src/meshforge/controller/calibration_store.py
+  - src/meshforge/controller/planner_calibration_task.py
+  - src/meshforge/controller/planner_eval/*
+  - src/meshforge/controller/ml/*
+  note: Live 4-node decisions on the controller laptop; the unit benchmark tests/unit/planner/test_v014_latency.py
+    is a perf-marked guard.
+- id: V0.14-c4
+  version: V0.14
+  criterion: 4
+  text: Every decision explainable in UI and `compute explain`.
+  kind: auto
+  evidence:
+    tests:
+    - tests/unit/test_v014_g5_explain_contract.py
+    - tests/e2e/test_v014_g5_plan_planner.py::test_plan_tab_of_a_split_job_and_the_planner_page
+  affected_by:
+  - src/meshforge/controller/planner/*
+  - src/meshforge/controller/calibration_store.py
+  - src/meshforge/controller/planner_calibration_task.py
+  - src/meshforge/cli/*
+  - frontend/src/*
+  - src/meshforge/common/explain_text.py
+- id: V0.15-c1
+  version: V0.15
+  criterion: 1
+  text: ML-hybrid planner reduces mean regret vs analytical v2 on held-out workload groups, reported with
+    95 % confidence intervals.
+  kind: lab
+  evidence:
+    section: L4
+    checklist: lab/checklists/V0.15-ml-planner.md
+    analyzer: compute planner eval with ML rows (criterion 1 verdict with the 95 % paired bootstrap CI,
+      D357)
+    tests:
+    - tests/unit/planner/test_v015_g5a_eval_ml.py::test_criterion_1_verdicts
+    - tests/unit/planner/test_v015_g5a_eval_ml.py::test_criterion_1_is_paired_on_common_groups
+  affected_by: &id005
+  - src/meshforge/controller/ml/*
+  - src/meshforge/controller/ml_retrain_task.py
+  - src/meshforge/controller/planner/*
+  - src/meshforge/controller/planner_eval/*
+  note: A `not_separable` verdict is a valid, reported result (brief §0 truth 2); calibration then stays
+    the default.
+- id: V0.15-c2
+  version: V0.15
+  criterion: 2
+  text: Never worse than fallback beyond a set tolerance on any benchmark family.
+  kind: lab
+  evidence:
+    section: L4
+    checklist: lab/checklists/V0.15-ml-planner.md
+    analyzer: 'compute planner eval with ML rows (criterion 2: per-family tolerance)'
+    tests:
+    - tests/unit/planner/test_v015_g5a_eval_ml.py::test_criterion_2_on_two_families_through_evaluate
+  affected_by: *id005
+- id: V0.15-c3
+  version: V0.15
+  criterion: 3
+  text: Retraining automated and reproducible.
+  kind: auto
+  evidence:
+    tests:
+    - tests/unit/ml/test_v015_g3_fit_gate.py::test_fit_in_fresh_processes_is_byte_identical
+    - tests/unit/ml/test_v015_g3_tester_r1_determinism.py::test_in_process_repeat_and_row_permutation_give_the_same_set
+    - tests/component/controller/test_v015_g3_registry_pg.py::test_retrain_task_end_to_end
+  affected_by: *id005
+- id: V0.16-c1
+  version: V0.16
+  criterion: 1
+  text: A model larger than any single available GPU runs across ≥ 2 GPUs with reference-equal outputs.
+  kind: waiver
+  reason: 'Model splitting (Mode 4 stage 3) is deferred: nothing of V0.16 is built in v1.0; the design
+    stays in ARCHITECTURE as future work.'
+  decision:
+  - ADR-0012
+- id: V0.16-c2
+  version: V0.16
+  criterion: 2
+  text: Partitioner beats equal-layer split in throughput on heterogeneous GPUs.
+  kind: waiver
+  reason: 'Model splitting (Mode 4 stage 3) is deferred: nothing of V0.16 is built in v1.0; the design
+    stays in ARCHITECTURE as future work.'
+  decision:
+  - ADR-0012
+- id: V0.17-c1
+  version: V0.17
+  criterion: 1
+  text: A fresh Windows laptop goes from download to joined fabric in **< 10 minutes** with no terminal
+    use.
+  kind: lab
+  evidence:
+    section: L1
+    checklist: lab/checklists/V0.17-install.md
+    analyzer: timed Windows install -> joined (stopwatch + screenshots), checklist V0.17-install
+    tests:
+    - tests/unit/test_v017_g4_windows_packaging.py
+  affected_by: &id006
+  - packaging/*
+  - scripts/build_*.py
+  - scripts/bundle_lib.py
+  - scripts/pg_bundle.py
+  - src/meshforge/agent/win*.py
+  - src/meshforge/controller/system_install.py
+  - src/meshforge/controller/setup/*
+  - src/meshforge/controller/db_managed/*
+  - src/meshforge/agent/console/*
+- id: V0.17-c2
+  version: V0.17
+  criterion: 2
+  text: Uninstall leaves no running services or firewall rules.
+  kind: lab
+  evidence:
+    section: L1
+    checklist: lab/checklists/V0.17-install.md
+    analyzer: uv run python lab/verify_uninstall.py [--data-removed] (Linux); lab/verify_uninstall_windows.ps1
+      (Windows)
+    tests:
+    - tests/unit/lab/test_v017_g1_verify_uninstall.py
+    - tests/component/packaging/test_v017_g5_tester_verify_uninstall.py
+  affected_by:
+  - packaging/*
+  - scripts/build_*.py
+  - scripts/bundle_lib.py
+  - scripts/pg_bundle.py
+  - src/meshforge/agent/win*.py
+  - src/meshforge/controller/system_install.py
+  - src/meshforge/controller/setup/*
+  - src/meshforge/controller/db_managed/*
+  - src/meshforge/agent/console/*
+  - lab/verify_uninstall.py
+  - lab/verify_uninstall_windows.ps1
+- id: V0.17-c3
+  version: V0.17
+  criterion: 3
+  text: Install/upgrade/uninstall tested on fresh machines for both OSes.
+  kind: lab
+  evidence:
+    section: L1
+    checklist: lab/checklists/V0.17-install.md
+    analyzer: install / upgrade rc.N-1 -> rc.N / uninstall on a fresh Linux and a fresh Windows laptop
+      (checklist V0.17-install)
+    tests:
+    - tests/component/packaging/test_v017_g5_upgrade_rollback.py
+    - tests/component/packaging/test_v017_g1_deb_package.py
+  affected_by: *id006

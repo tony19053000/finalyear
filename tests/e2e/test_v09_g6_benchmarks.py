@@ -148,7 +148,10 @@ def test_seeded_campaign_list_detail_pause_resume_labels_download(
     # Start -> the runner owns it; Pause -> paused; Resume -> active again.
     page.get_by_role("button", name="Start campaign g6-e2e").click()
     expect(
-        page.get_by_text("Campaign started: the controller's runner submits its runs")
+        # exact: the toast's aria-live announcer repeats it with a "Notification" prefix
+        page.get_by_text(
+            "Campaign started: the controller's runner submits its runs", exact=True
+        )
     ).to_be_visible()
     pause = page.get_by_role("button", name="Pause campaign g6-e2e")
     expect(pause).to_be_visible()
@@ -320,8 +323,9 @@ def test_controls_follow_state_refusals_toast_and_users_see_no_benchmarks(
     )
     start.click()
     expect(page.get_by_text("Start refused", exact=True)).to_be_visible()
+    # anchored: Radix's aria-live announcer repeats it as "Notification ..."
     expect(
-        page.get_by_text(re.compile(r"the campaign is cancelled; it cannot start"))
+        page.get_by_text(re.compile(r"^the campaign is cancelled; it cannot start"))
     ).to_be_visible()
     # The refresh after the refusal shows the real state: no controls left.
     page.reload()

@@ -49,6 +49,7 @@ class Fabric:
     def __init__(self, built: BuiltTree, hosts: dict[str, Host]) -> None:
         self.blobs = {h: p.read_bytes() for h, p in built.sources.items()}
         self.blobs[built.tree.tree_id.hex] = built.manifest
+        self.manifest_hex = built.tree.tree_id.hex
         self.hosts = hosts
         self.tokens = {"ctl": "tc", "pa": "ta", "pb": "tb"}
 
@@ -299,8 +300,8 @@ async def test_peer_killed_mid_transfer_controller_resumes_verified_chunks(
     assert cas.store.path_for(sha256_bytes(data)).read_bytes() == data
     total = 12 * CS + len(b"small file\n")
     sent = fabric.hosts["ctl"].served + fabric.hosts["pa"].served
-    manifest = len(
-        fabric.blobs[next(h for h in fabric.blobs if fabric.blobs[h].startswith(b"{"))]
-    )
+    # By its id, not "the blob starting with '{'": the project is os.urandom
+    # data, so 1 run in ~256 the whole-file blob starts with '{' too (V1.0 G0).
+    manifest = len(fabric.blobs[fabric.manifest_hex])
     # Everything was sent exactly once (plus the manifest once): no chunk twice.
     assert sent == total + manifest

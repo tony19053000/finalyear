@@ -28,7 +28,9 @@ check for "failed" also matched "2 xfailed"):
   "skip reason shows the original repo's path" observation in the 0.1.8 CI run.
 * A cold-cache ``uv sync`` plus two full test runs cannot fit the suite-wide
   300 s pytest-timeout (which also covers fixture setup), so this module gets
-  its own larger budget; each subprocess keeps its own 300 s timeout.
+  its own larger budget. ``uv sync`` keeps 300 s; the two in-clone test runs get
+  ``SUITE_RUN_TIMEOUT_S`` (the unit tier grew from ~100 to ~27k items by V1.0, and
+  300 s no longer fits a no-extras run even on an idle machine - V1.0 G0).
 * Marked ``slow`` (opt-in, ``--run-slow``): a bare ``pytest`` skips it. CI runs it
   in the ``fresh-clone`` job on Linux and Windows.
 * Cross-platform: the venv's script dir is ``Scripts`` with ``.exe`` suffixes on
@@ -48,12 +50,14 @@ from pathlib import Path
 import pytest
 
 CHILD_ENV_FLAG = "MESHFORGE_FRESH_CLONE_CHILD"
+#: per in-clone pytest run (``pytest -m unit`` / bare ``pytest -q``), seconds
+SUITE_RUN_TIMEOUT_S = 1800
 
 pytestmark = [
     pytest.mark.component,
     pytest.mark.slow,
-    # uv sync (cold cache) 300 s + two pytest runs 300 s each, plus copy slack.
-    pytest.mark.timeout(1000),
+    # uv sync (cold cache) 300 s + two pytest runs, plus copy slack.
+    pytest.mark.timeout(300 + 2 * 1800 + 400),
     pytest.mark.skipif(
         os.environ.get(CHILD_ENV_FLAG) == "1",
         reason="already running inside a fresh-clone child run (no recursion)",
@@ -169,7 +173,7 @@ def test_fresh_clone_uv_sync_pytest_unit_passes(plain_sync_clone: Path) -> None:
         env=env,
         capture_output=True,
         text=True,
-        timeout=300,
+        timeout=SUITE_RUN_TIMEOUT_S,
         check=False,
     )
     assert result.returncode == 0, (
@@ -196,7 +200,7 @@ def test_fresh_clone_docker_unreachable_bare_pytest_has_no_failures(
         env=env,
         capture_output=True,
         text=True,
-        timeout=300,
+        timeout=SUITE_RUN_TIMEOUT_S,
         check=False,
     )
     assert result.returncode == 0, (

@@ -19,6 +19,14 @@ TERMINAL: Final = frozenset({"succeeded", "failed", "cancelled"})
 #: Cancelled jobs added to the run history so a state filter has two
 #: non-empty answers to switch between (succeeded <-> cancelled).
 MIXED_CANCELLED: Final = 20
+#: A pinned submit refused only because its node is SUSPECT for a moment is
+#: retried this long (V1.0 G0). Under the 4x100 burst the test fabric's FAST
+#: liveness (SUSPECT after 0.25 s of silence: a 50 ms allowance) sees heartbeats
+#: a few tens of ms late; the node is SUSPECT for ~3 ms and back ONLINE on the
+#: next heartbeat. Measured: 0 transitions with the shipped 0.5 s allowance,
+#: 1 per run with FAST. Seeding history is not the measurement - wait it out.
+SUSPECT_RETRY_S: Final = 10.0
+SUSPECT_RETRY_PAUSE_S: Final = 0.05
 
 
 @dataclasses.dataclass
@@ -72,13 +80,43 @@ class Api:
         }
         if node_id is not None:
             body["placement"] = {"node_id": node_id}
-        return str(self.ok("POST", "/v1/jobs", json=body)["job_id"])
+        deadline = time.monotonic() + SUSPECT_RETRY_S
+        while True:
+            resp = self.http.post("/v1/jobs", json=body)
+            if not (
+                node_id is not None
+                and is_transient_suspect(resp)
+                and time.monotonic() < deadline
+            ):
+                break
+            time.sleep(SUSPECT_RETRY_PAUSE_S)
+        if resp.status_code >= 400:
+            raise RuntimeError(f"POST /v1/jobs -> {resp.status_code}: {resp.text}")
+        return str(resp.json()["job_id"])
 
     def cancel(self, job_id: str) -> None:
         self.ok("POST", f"/v1/jobs/{job_id}/cancel")
 
     def job(self, job_id: str) -> dict[str, Any]:
         return dict(self.ok("GET", f"/v1/jobs/{job_id}"))
+
+
+def is_transient_suspect(resp: httpx.Response) -> bool:
+    """``409 no_feasible_plan`` because the pinned node is SUSPECT - the one
+    refusal :meth:`Api.submit` retries (any other error is raised at once)."""
+    if resp.status_code != 409:
+        return False
+    try:
+        body = resp.json()
+    except ValueError:
+        return False
+    error = body.get("error") if isinstance(body, dict) else None
+    if not isinstance(error, dict):
+        return False
+    return bool(
+        error.get("code") == "no_feasible_plan"
+        and error.get("message") == "the node is suspect, not online"
+    )
 
 
 def tiny_project(root: Path) -> Path:

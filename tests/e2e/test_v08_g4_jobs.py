@@ -158,7 +158,9 @@ def test_submit_a_folder_run_follow_logs_download_outputs(
     (attempt,) = job["attempts"]
     digest = attempt["output_digest"]
     assert digest and digest.startswith("sha256:")
-    expect(page.get_by_text(digest)).to_be_visible()
+    # The digest is shown in the attempt summary too; check the Outputs panel.
+    outputs = page.get_by_role("tabpanel", name="Outputs")
+    expect(outputs.get_by_text(digest)).to_be_visible()
     with page.expect_download() as info:
         page.get_by_role("link", name="Download outputs").click()
     saved = info.value.path()
