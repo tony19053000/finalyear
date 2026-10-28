@@ -122,4 +122,3 @@ By kind: `{'kill_agent': 2, 'kill_controller': 1, 'kill_job_tree': 2, 'net_down_
 | sampler | ticks | covered_share | largest_gap_s | verdict |
 |---|---|---|---|---|
 | ctl | 797 | 1.0063 | 10.1 | PASS |
-
