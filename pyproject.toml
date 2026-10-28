@@ -155,6 +155,8 @@ dev = [
     "import-linter>=2.15",
     "pytest-timeout>=2.4",
     "pytest-playwright>=0.7",
+    # V1.0 G3 (D413): `scripts/bandit_gate.py` - medium/high findings must be triaged.
+    "bandit>=1.9.4",
 ]
 # V1.0 G2 (D419): the evaluation report's figures (scripts/eval/make_report.py).
 # A separate group - not installed by a plain `uv sync`, never in a package:
@@ -176,6 +178,12 @@ evaluation = [
 # Import mode stays `prepend` (pytest's default, set explicitly): tests/ has no
 # __init__.py and tests/unit/_import_guard.py is imported as a top-level module.
 # ---------------------------------------------------------------------------
+[tool.uv]
+# V1.0 G3 (D413, reviewer H1/M1): security floors for transitive dependencies,
+# so a later `uv lock` can never resolve back to a vulnerable version.
+# The floors are the versions the review bumped to (pip-audit clean, 2026-10-28).
+constraint-dependencies = ["urllib3>=2.8.0", "certifi>=2026.10.23"]
+
 [tool.pytest.ini_options]
 minversion = "9.0"
 testpaths = ["tests"]

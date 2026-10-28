@@ -8,8 +8,11 @@
 
 [python]
 # python-build-standalone "install_only_stripped" CPython. 3.12.14 / PBS 20260929
-# is what the lock-pinned uv (0.12.21) installs for "3.12" (SP3); the sha256
-# values below match the release's own SHA256SUMS file (checked 2026-10-24).
+# is what uv 0.12.21 installed for "3.12" (SP3); the sha256 values below match the
+# release's own SHA256SUMS file (checked 2026-10-24). V1.0 G3 bumped uv to 0.13.6
+# (security, D413), whose own "3.12" download is 3.12.16 - irrelevant to the
+# bundle, which always runs this pinned interpreter (agent envs use it for
+# "3.12"/"3.12.14", builder.find_interpreter). Bumping Python is its own decision.
 version = "3.12.14"
 pbs_release = "20260929"
 
@@ -25,7 +28,7 @@ sha256 = "f38e68f4d612ade6dd50c894fc80b14c0be0c3b5201145d6fff5f20b9323204d"
 # The uv binary in the bundle is the `uv` wheel locked in uv.lock (agent extra):
 # its URL and sha256 are in uv.lock and `uv pip install --require-hashes` checks
 # them. The builder refuses to run unless the lock pins exactly this version.
-version = "0.12.21"
+version = "0.13.6"
 source = "uv.lock"
 
 [nfpm]

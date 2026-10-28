@@ -42,7 +42,9 @@ repos:
             unit/agent/test_identity\.py|
             unit/controller/test_v07_g3_tester_forged_certs\.py|
             component/controller/test_v07_g1_tester_cli\.py|
-            unit/test_v08_g7_fix_r1_leaks\.py
+            unit/test_v08_g7_fix_r1_leaks\.py|
+            unit/test_v10_g3_package_secret_scan\.py|
+            unit/test_v10_g3_tester_secret_scan\.py
           )$
 
   - repo: local

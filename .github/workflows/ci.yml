@@ -65,6 +65,11 @@ jobs:
       - name: import boundaries (lint-imports)
         if: ${{ !cancelled() }}
         run: uv run lint-imports
+      # V1.0 G3 (D413): every medium/high bandit finding in src/ is triaged in
+      # scripts/bandit_triage.toml (reason + decision ref) or this step fails.
+      - name: bandit gate (no untriaged medium/high)
+        if: ${{ !cancelled() }}
+        run: uv run python scripts/bandit_gate.py
       # Regenerates from proto/ into a temp dir and byte-compares with the
       # committed src/meshforge/common/proto/ tree (never overwrites it): a
       # hand-edited generated file, or a .proto change without regeneration,
@@ -415,6 +420,13 @@ jobs:
           uv run python scripts/build_deb.py --role controller --bundle "$bundle" --out dist/controller/ --revision 2
       - name: lintian, controller (errors fail)
         run: lintian --fail-on error --tag-display-limit 0 dist/controller/meshforge-controller_*-1_amd64.deb
+      # V1.0 G3 (D413): the builders already refuse a hit; this re-scans the
+      # artefacts exactly as they will be uploaded (keys, tokens, join codes,
+      # secret files, MeshForge tests, dev passwords - never prints a value).
+      - name: package secret scan (built artefacts)
+        run: >-
+          uv run python scripts/package_secret_scan.py
+          dist/*.deb dist/*.tar.xz dist/controller/*.deb dist/controller/*.tar.xz
       - name: package tests (systemd containers, real fabric)
         env:
           MESHFORGE_TEST_DEB_DIR: dist
@@ -496,6 +508,11 @@ jobs:
           uv run python scripts/build_windows_installer.py --bundle $bundle --out dist/ --revision 2 --cache "$env:LOCALAPPDATA\meshforge-bundle"
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           Get-ChildItem dist\*.exe | Format-Table Name, Length
+      # V1.0 G3 (D413): the bundle the installer packs + the .exe (raw bytes)
+      - name: package secret scan (bundle + installer)
+        run: |
+          uv run python scripts/package_secret_scan.py $env:BUNDLE (Get-ChildItem dist\*.exe).FullName
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: a developer laptop (user-mode identity + dev scheduled task)
         run: |
           New-Item -ItemType Directory -Force reports | Out-Null
