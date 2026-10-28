@@ -195,12 +195,10 @@ async def test_real_tc_runner_kills_its_process_when_cancelled(tmp_path: Path) -
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
-    import psutil
+    from mf_procs import pid_gone  # needs psutil (agent extra), like the old check
 
-    pid = int(pid_file.read_text())
-    assert not psutil.pid_exists(pid) or (
-        psutil.Process(pid).status() == psutil.STATUS_ZOMBIE
-    )
+    # zombie, "dead" (being reaped) or missing - never a check-then-read race
+    assert pid_gone(int(pid_file.read_text()))
 
 
 # ------------------------------------------------ 2: installed bit
