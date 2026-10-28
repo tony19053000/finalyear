@@ -60,6 +60,16 @@ needs_torch = pytest.mark.skipif(
     not _torch_available(), reason="torch is not installed"
 )
 
+_NEEDS_NUMPY = {f.name for f in FAMILIES if f.needs_numpy}
+
+
+def skip_without_numpy(*names: str) -> None:
+    """Skip when one of ``names`` is a numpy family and numpy is missing (a
+    fresh clone without the agent extra): its job reports ``unavailable``
+    (exit 3), so nothing about the run can be judged here."""
+    if _NEEDS_NUMPY.intersection(names):
+        pytest.importorskip("numpy", reason="the numpy families need the agent extra")
+
 
 def _env(**extra: str) -> dict[str, str]:
     env = {k: v for k, v in os.environ.items() if k not in ("PYTHONHASHSEED",)}

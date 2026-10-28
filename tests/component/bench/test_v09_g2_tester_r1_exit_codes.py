@@ -21,6 +21,7 @@ from mf_bench_procs import (  # tests/_support, shared by the split files
     _job_with_request,
     _torch_available,
     needs_torch,
+    skip_without_numpy,
 )
 
 from meshforge.bench.workloads import (
@@ -37,6 +38,7 @@ pytestmark = [pytest.mark.component, pytest.mark.timeout(300)]
 
 
 def test_exit_0_for_a_verified_run(tmp_path: Path) -> None:
+    skip_without_numpy("cpu.sort")
     job = _job_with_request(
         tmp_path,
         "cpu.sort",
@@ -114,6 +116,10 @@ def test_exit_0_for_a_verified_run(tmp_path: Path) -> None:
 def test_exit_2_and_a_bad_params_document_for_a_damaged_request(
     label: str, request_doc: Any, raw: str | None, tmp_path: Path
 ) -> None:
+    if label == "missing param":
+        # an absent key is the kernel's to report (runner.check_params), and
+        # the cpu.sort kernel needs numpy to get that far
+        skip_without_numpy("cpu.sort")
     job = _job_with_request(tmp_path, "cpu.sort", request_doc, raw=raw)
     done = _entry(job)
     assert done.returncode == runner.EXIT_BAD_PARAMS, (label, done.stderr)
@@ -213,6 +219,7 @@ def test_exit_3_when_torch_itself_is_missing(tmp_path: Path) -> None:
 def test_exit_4_and_a_check_failed_document_when_the_kernel_output_is_wrong(
     tamper: str, tmp_path: Path
 ) -> None:
+    skip_without_numpy("cpu.sort")
     job = _job_with_request(
         tmp_path,
         "cpu.sort",
@@ -256,6 +263,7 @@ def test_default_run_time_on_this_host_is_near_the_calibration_hint(
     """The hints were calibrated on Laptop 1. This host may be a different, busier
     machine, so the band is wide (0.3x - 3x); it still catches an efficiency that
     is off by an order of magnitude, which would silently move runs out of 5 s - 3 min."""
+    skip_without_numpy(name)
     family = get_family(name)
     built = build_job(name, {}, 9, tmp_path / "job")
     done = _entry(built.path)

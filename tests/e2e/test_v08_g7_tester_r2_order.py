@@ -19,6 +19,7 @@ import subprocess
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
+from xml.etree import ElementTree
 
 import pytest
 
@@ -69,10 +70,22 @@ def test_c_clean_with_a_page(fabric, new_page) -> None:
 """
 
 
-def _run(*args: str) -> subprocess.CompletedProcess[str]:
+LEAKER = "test_a_first_leaks_then_cleans_up"
+
+
+def _run(junit: Path, *args: str) -> subprocess.CompletedProcess[str]:
     env = {k: v for k, v in os.environ.items() if not k.startswith("PYTEST_")}
-    return subprocess.run(
-        [sys.executable, "-m", "pytest", "-p", "no:cacheprovider", "-q", *args],
+    done = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pytest",
+            "-p",
+            "no:cacheprovider",
+            "-q",
+            f"--junitxml={junit}",
+            *args,
+        ],
         cwd=ROOT,
         capture_output=True,
         text=True,
@@ -80,6 +93,24 @@ def _run(*args: str) -> subprocess.CompletedProcess[str]:
         env=env,
         check=False,
     )
+    _skip_if_the_leaker_could_not_run(junit)
+    return done
+
+
+def _skip_if_the_leaker_could_not_run(junit: Path) -> None:
+    """The planted leak needs everything a dashboard test needs (the
+    controller extra, the built SPA, axe-core, Chromium, PostgreSQL). Where
+    the child skipped the leaking test for want of one, there is no verdict to
+    judge: skip with the child's reason instead of failing (a fresh clone
+    without extras)."""
+    if not junit.is_file():
+        return
+    tree = ElementTree.parse(junit)  # noqa: S314 - our own child pytest's report
+    for case in tree.getroot().iter("testcase"):
+        skipped = case.find("skipped")
+        name = str(case.get("name", "")).split("[", 1)[0]  # "...[chromium]"
+        if name == LEAKER and skipped is not None:
+            pytest.skip(f"the planted leak could not run: {skipped.get('message')}")
 
 
 @pytest.fixture
@@ -115,10 +146,10 @@ def _forms() -> list[str]:
     ids=["alone", "subset", "leaker-deselected-is-clean"],
 )
 def test_t1_a_real_page_leak_fails_the_run_and_prints_no_value(
-    planted: Path, selection: list[str]
+    planted: Path, selection: list[str], tmp_path: Path
 ) -> None:
     rel = str(planted.relative_to(ROOT))
-    done = _run(rel, *selection)
+    done = _run(tmp_path / "junit.xml", rel, *selection)
     output = done.stdout + done.stderr
     if "not test_a_first" in selection:
         assert done.returncode == 0, output[-3000:]
@@ -132,12 +163,12 @@ def test_t1_a_real_page_leak_fails_the_run_and_prints_no_value(
 
 
 def test_t1_the_leaker_running_first_or_last_gives_the_same_verdict(
-    planted: Path,
+    planted: Path, tmp_path: Path
 ) -> None:
     rel = str(planted.relative_to(ROOT))
-    leaker = f"{rel}::test_a_first_leaks_then_cleans_up"
+    leaker = f"{rel}::{LEAKER}"
     clean = f"{rel}::test_c_clean_with_a_page"
-    for order in ([leaker, clean], [clean, leaker]):
-        done = _run("-p", "no:randomly", *order)
+    for i, order in enumerate(([leaker, clean], [clean, leaker])):
+        done = _run(tmp_path / f"junit-{i}.xml", "-p", "no:randomly", *order)
         assert done.returncode != 0, (order, (done.stdout + done.stderr)[-2000:])
         assert "credentials reached the browser" in done.stdout + done.stderr
