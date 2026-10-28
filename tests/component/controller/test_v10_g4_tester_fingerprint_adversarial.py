@@ -61,9 +61,9 @@ async def _fp(pg: DatabaseSettings, limit: int = 4000) -> tuple[int, str | None]
 
 async def _agree(memo: RefreshResult, fresh: CalibrationStore, **kw: int) -> None:
     """The memo answer must be the full path's answer (see module docstring)."""
-    from test_v014_g2_calibration_pg import CFG as cfg
+    from test_v014_g2_calibration_pg import CFG
 
-    full = await fresh.refresh(cfg, **kw)
+    full = await fresh.refresh(CFG, **kw)
     if memo.row is None:
         assert memo.skipped == full.skipped and full.row is None, (memo, full)
         assert memo.matched_runs == full.matched_runs
@@ -147,7 +147,9 @@ async def test_memo_agrees_with_the_full_path_after_a_mutation(
     assert again.skipped in {"no_new_runs", "too_few_runs", "nothing_to_fit"}
 
 
-@pytest.mark.parametrize("name", ["phase_duration_changed", "candidates_changed_same_count"])
+@pytest.mark.parametrize(
+    "name", ["phase_duration_changed", "candidates_changed_same_count"]
+)
 async def test_same_count_different_content_changes_the_fingerprint(
     name: str,
     pg_settings: DatabaseSettings,
@@ -187,9 +189,9 @@ async def test_a_different_read_bound_never_uses_the_memo(
     calibrations: CalibrationStore,
 ) -> None:
     await _setup(pg_settings, store, calibrations)
-    reads = calibrations.full_reads
+    reads = calibrations.outcome_reads_total
     smaller = await calibrations.refresh(CFG, max_runs=5)
-    assert calibrations.full_reads > reads  # limit differs: full path
+    assert calibrations.outcome_reads_total > reads  # limit differs: full path
     assert smaller.matched_runs in (5, 0) or smaller.skipped is not None
 
 
@@ -267,9 +269,13 @@ async def test_run_landing_between_fingerprint_and_read_is_never_lost(
     nxt = await calibrations.refresh(CFG)
     await _agree(nxt, fresh)
     # whatever happened, the stored run sets cover all 11 runs eventually
-    assert max(
-        int(r.n) for r in await _sql(
-            pg_settings,
-            "SELECT (fit_inputs->>'matched_runs')::int AS n FROM planner_calibration",
+    assert (
+        max(
+            int(r.n)
+            for r in await _sql(
+                pg_settings,
+                "SELECT (fit_inputs->>'matched_runs')::int AS n FROM planner_calibration",
+            )
         )
-    ) == 11
+        == 11
+    )

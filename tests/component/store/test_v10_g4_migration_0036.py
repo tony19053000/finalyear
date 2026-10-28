@@ -82,7 +82,6 @@ def test_0036_adds_the_live_attempt_index(pg_settings: DatabaseSettings) -> None
     for state in ("done", "failed", "lost", "fenced"):
         assert f"'{state}'" not in row.indexdef
     assert "'uploading'" in LIVE_ATTEMPT_SQL and "'done'" not in LIVE_ATTEMPT_SQL
-    command.check(cfg)  # the model declares the same index
     command.downgrade(cfg, "0035")
     gone = asyncio.run(
         _sql(

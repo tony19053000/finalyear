@@ -108,6 +108,7 @@ async def _reset(runtime: ControllerRuntime, engine: Any, want: int) -> None:
     await asyncio.sleep(0.5)
     async with engine.begin() as conn:
         await conn.execute(text("DELETE FROM run_record"))
+        await conn.execute(text("UPDATE attempt SET recorded = false"))  # F-4
         await conn.execute(
             text("DELETE FROM audit_event WHERE action = 'telemetry_record_skipped'")
         )

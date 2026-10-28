@@ -880,7 +880,9 @@ Benchmarks run through **the same code paths as users** — so benchmark data re
 - **Record = `run_record`** (migration 0021), one row per terminal attempt of every job, built by a pure function
   (`controller/telemetry/record.py`) from persisted rows and written by a **reconciler sweep**
   (`telemetry/recorder.py`: terminal attempts with no record, `ON CONFLICT DO NOTHING`, every 2 s and on any
-  attempt change). Chosen over "in the terminal transaction" because attempts end in many places (agent report,
+  attempt change; since V1.0 G4 F-4 (D412, migration 0037) "no record" is the `attempt.recorded` flag, set in the
+  record's own transaction and read through the partial index `ix_attempt_unrecorded` with `FOR NO KEY UPDATE SKIP
+  LOCKED`, so the sweep's cost no longer grows with history). Chosen over "in the terminal transaction" because attempts end in many places (agent report,
   node loss, restart recovery, backstops, cancel, retry fencing): a sweep by state cannot miss one, survives a
   crash, and a telemetry bug never rolls back a job transition. Untrusted workload values are bounded or nulled by
   the builder; a record PostgreSQL still refuses is isolated (savepoint, then row by row), skipped until restart and

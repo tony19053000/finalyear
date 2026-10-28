@@ -141,7 +141,11 @@ async def test_every_job_of_the_batch_missing_is_all_skips_and_no_crash(
     real = recorder_module._sources
 
     async def deleting(db: Any, attempts: Any, campaign_of: Any) -> Any:
+        # F-4 (D412): the sweep row-locks its attempts, so a cascading delete
+        # would wait for it; remove the job rows without the cascade (replica
+        # role skips FK triggers) to reach the job_missing branch
         async with engine.begin() as conn:
+            await conn.execute(text("SET LOCAL session_replication_role = replica"))
             await conn.execute(text("DELETE FROM job"))
         return await real(db, attempts, campaign_of)
 
