@@ -2,7 +2,8 @@
 
 Docker containers starting/stopping on the host change its network interfaces;
 Chromium then aborts in-flight fetches with ``net::ERR_NETWORK_CHANGED``. Only
-that exact error on a failed resource load is excused - every other console error still fails a test.
+that exact error on a failed resource load is excused - every other console
+error still fails a test.
 """
 
 from __future__ import annotations
