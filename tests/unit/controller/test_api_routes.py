@@ -39,6 +39,7 @@ from mf_api_records import (
 )
 from mf_users import ADMIN_TOKEN, bearer, static_auth
 
+from meshforge import __version__
 from meshforge.common.errors import FailureType
 from meshforge.common.ids import new_node_id
 from meshforge.controller.api.routes import (
@@ -255,7 +256,7 @@ async def test_node_detail_returns_the_stored_hardware_and_session_fields(
     client, _ = populated
     body = (await client.get(f"/v1/nodes/{NODE_A}")).json()
     assert body["hardware"] == {"cpu_threads": 8}
-    assert body["agent_version"] == "0.1.0.dev0"
+    assert body["agent_version"] == __version__
     assert body["protocol_version"] == 1
     assert body["session_epoch"] == 3
     assert body["last_session_id"] == "s-a"

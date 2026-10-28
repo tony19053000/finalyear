@@ -20,6 +20,7 @@ from typing import Any, cast
 import pytest
 from pydantic import ValidationError
 
+from meshforge import __version__
 from meshforge.common.errors import ConfigError
 from meshforge.common.ids import new_command_id, new_node_id
 from meshforge.common.netaddr import parse_bind
@@ -186,7 +187,7 @@ def hello(node_id: str, epoch: int = 1, version: int = 1) -> agent_pb2.Hello:
     return agent_pb2.Hello(
         node_id=node_id,
         protocol_version=version,
-        agent_version="0.1.0.dev0",
+        agent_version=__version__,
         hostname="laptop",
         session_epoch=epoch,
         os="Ubuntu 24.04",

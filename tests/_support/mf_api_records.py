@@ -14,6 +14,7 @@ from __future__ import annotations
 import datetime as dt
 from typing import Any, cast
 
+from meshforge import __version__
 from meshforge.common.ids import new_node_id, new_session_id
 from meshforge.controller.liveness import NodeState
 from meshforge.controller.registry import NodeRecord, SessionRecord, SnapshotRecord
@@ -92,7 +93,7 @@ def session_record(node_id: str, **overrides: Any) -> SessionRecord:
         "ended_at": None,
         "end_reason": None,
         "peer_address": "127.0.0.1:50001",
-        "agent_version": "0.1.0.dev0",
+        "agent_version": __version__,
         "protocol_version": 1,
         "last_rtt_ms": 7.0,
         "rtt_ewma_ms": 8.0,

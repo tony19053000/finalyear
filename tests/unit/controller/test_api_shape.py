@@ -22,6 +22,7 @@ from mf_api_records import (
     snapshot_record,
 )
 
+from meshforge import __version__
 from meshforge.controller.api.models import NodeDetail, NodeSummary
 from meshforge.controller.api.shape import (
     node_detail,
@@ -212,7 +213,7 @@ def test_node_detail_falls_back_to_the_stored_peer_address_when_disconnected() -
     )
     assert detail.connected is False
     assert detail.peer_address == "10.0.0.8:1"
-    assert detail.agent_version == "0.1.0.dev0"
+    assert detail.agent_version == __version__
 
 
 def test_node_detail_copies_the_hardware_mapping_rather_than_aliasing_it() -> None:

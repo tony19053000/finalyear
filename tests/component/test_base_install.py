@@ -20,6 +20,8 @@ from pathlib import Path
 import pytest
 from mf_fabric import ca_file
 
+import meshforge
+
 pytestmark = pytest.mark.component
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -114,7 +116,7 @@ def test_base_install_script_version_works(base_install: Path, script: str) -> N
         [str(exe), "--version"], capture_output=True, text=True, timeout=30, check=False
     )
     assert result.returncode == 0, result.stderr
-    assert result.stdout.strip() == f"{script} 0.1.0.dev0"
+    assert result.stdout.strip() == f"{script} {meshforge.__version__}"
     assert result.stderr == ""
 
 
@@ -183,4 +185,4 @@ def test_base_install_python_dash_m_works(base_install: Path) -> None:
             check=False,
         )
         assert result.returncode == 0, result.stderr
-        assert result.stdout.strip() == f"{prog} 0.1.0.dev0"
+        assert result.stdout.strip() == f"{prog} {meshforge.__version__}"

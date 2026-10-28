@@ -27,6 +27,7 @@ from collections.abc import AsyncIterator
 import pytest_asyncio
 from sqlalchemy import text
 
+from meshforge import __version__
 from meshforge.common.ids import new_node_id, new_session_id
 from meshforge.controller.liveness import NodeState
 from meshforge.controller.registry import Registry
@@ -81,7 +82,7 @@ async def _node_with_sessions(store: Registry, count: int) -> tuple[str, list[st
             node_id=node_id,
             session_epoch=epoch,
             peer_address="ipv4:127.0.0.1:1",
-            agent_version="0.1.0.dev0",
+            agent_version=__version__,
             protocol_version=1,
         )
     return node_id, session_ids

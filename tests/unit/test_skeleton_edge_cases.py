@@ -305,5 +305,10 @@ def test_an_unreachable_index_without_a_cache_skips_never_fails(
 
 def test_version_string_matches_pyproject_scheme() -> None:
     """`--version` output must follow "<prog> <version>"; the version itself
-    must be the dev0 scheme this task specifies, not a stray build tag."""
-    assert meshforge.__version__ == "0.1.0.dev0"
+    must be pyproject's [project].version (the single source, Q36), not a
+    stray build tag."""
+    import tomllib
+
+    with (REPO_ROOT / "pyproject.toml").open("rb") as fh:
+        declared = tomllib.load(fh)["project"]["version"]
+    assert meshforge.__version__ == declared

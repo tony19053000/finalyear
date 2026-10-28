@@ -15,6 +15,7 @@ from typing import Any, cast
 import pytest
 import structlog
 
+from meshforge import __version__
 from meshforge.common.ids import new_command_id, new_node_id
 from meshforge.common.proto.meshforge.v1 import agent_pb2
 from meshforge.controller.liveness import LivenessConfig, LivenessEvent, NodeState
@@ -125,7 +126,7 @@ def hello(node_id: str, epoch: int = 1) -> agent_pb2.Hello:
     return agent_pb2.Hello(
         node_id=node_id,
         protocol_version=1,
-        agent_version="0.1.0.dev0",
+        agent_version=__version__,
         hostname="laptop",
         session_epoch=epoch,
         os="Ubuntu 24.04",
