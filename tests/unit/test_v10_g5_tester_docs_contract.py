@@ -25,6 +25,9 @@ sys.path.insert(0, str(SCRIPTS))
 import changelog as cl  # noqa: E402
 
 # ---------------------------------------------------------------- api-docs drift
+# gen_api_docs.py imports the controller and agent apps (their option types and
+# OpenAPI documents), so every test that runs it needs both extras: without them
+# it exits 2, which is "cannot generate", not drift (D399: skip, not fail).
 
 
 @pytest.fixture(scope="module")
@@ -65,11 +68,13 @@ def _mutate(path: Path, old: str, new: str) -> str:
     return text
 
 
+@pytest.mark.extras("controller", "agent")
 def test_baseline_copy_is_up_to_date(repo_copy: Path) -> None:
     r = _run_check(repo_copy)
     assert r.returncode == 0, r.stdout + r.stderr
 
 
+@pytest.mark.extras("controller", "agent")
 def test_drift_detected_when_proto_field_added(repo_copy: Path) -> None:
     proto = repo_copy / "proto" / "meshforge" / "v1" / "enroll.proto"
     original = _mutate(
@@ -85,6 +90,7 @@ def test_drift_detected_when_proto_field_added(repo_copy: Path) -> None:
         proto.write_text(original, encoding="utf-8", newline="\n")
 
 
+@pytest.mark.extras("controller", "agent")
 def test_drift_detected_when_cli_flag_added(repo_copy: Path) -> None:
     cmd = repo_copy / "src" / "meshforge" / "cli" / "fabric_commands.py"
     text = cmd.read_text(encoding="utf-8")
@@ -105,6 +111,7 @@ def test_drift_detected_when_cli_flag_added(repo_copy: Path) -> None:
         cmd.write_text(text, encoding="utf-8", newline="\n")
 
 
+@pytest.mark.extras("controller", "agent")
 def test_drift_detected_when_route_added(repo_copy: Path) -> None:
     http = repo_copy / "src" / "meshforge" / "controller" / "http.py"
     text = http.read_text(encoding="utf-8")
@@ -127,6 +134,7 @@ def test_drift_detected_when_route_added(repo_copy: Path) -> None:
         http.write_text(text, encoding="utf-8", newline="\n")
 
 
+@pytest.mark.extras("controller", "agent")
 def test_drift_detected_for_hand_edit_and_stray_page(repo_copy: Path) -> None:
     page = repo_copy / "docs" / "api" / "cli.md"
     original = page.read_text(encoding="utf-8")
@@ -146,6 +154,7 @@ def test_drift_detected_for_hand_edit_and_stray_page(repo_copy: Path) -> None:
         stray.unlink(missing_ok=True)
 
 
+@pytest.mark.extras("controller", "agent")
 def test_generation_is_idempotent(tmp_path: Path) -> None:
     env = dict(os.environ)
     for _ in range(2):

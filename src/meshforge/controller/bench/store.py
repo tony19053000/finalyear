@@ -836,6 +836,26 @@ class BenchStore:
             job = await db.scalar(select(BenchRun.job_id).where(BenchRun.id == run_id))
         return None if job is None else str(job)
 
+    @_typed
+    async def run_link(self, run_id: str) -> tuple[str | None, bool]:
+        """``(job_id, by_sweep)``: the job ``run_id`` is linked to now (None =
+        none) and whether :meth:`_link_orphans` made that link - it alone sets
+        ``submitted_at`` to the job's ``created_at``; :meth:`mark_submitted`
+        sets it to the time of its own, later, transaction (CI fix round 4)."""
+        async with self._sessions() as db:
+            row = (
+                await db.execute(
+                    select(BenchRun.job_id, BenchRun.submitted_at, Job.created_at)
+                    .outerjoin(Job, Job.id == BenchRun.job_id)
+                    .where(BenchRun.id == run_id)
+                )
+            ).first()
+        if row is None or row[0] is None:
+            return None, False
+        job_id, submitted_at, created_at = row
+        swept = submitted_at is not None and submitted_at == created_at
+        return str(job_id), swept
+
     async def _settle_runner_runs(
         self, db: AsyncSession, campaign_id: str | None
     ) -> int:

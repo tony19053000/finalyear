@@ -108,7 +108,9 @@ print("CORES", round(cores, 2), "THREADS", threads, "BURNERS", len(burners))
 print("DENIED", len(denied))
 # The cap is 1 core of `threads`; uncapped the burners would use ~`threads`
 # cores. A busy runner only lowers `cores`, so load can never fail this check.
-hard_cap = bool(in_job.value) and threads >= 2 and cores <= 1.5
+# With 2 threads an uncapped run on a loaded runner can also stay under 1.5
+# cores: only >= 3 tells the cap from the load (reviewer note, CI fix round 4).
+hard_cap = bool(in_job.value) and threads >= 3 and cores <= 1.5
 in_bundle = sys.base_prefix.lower().startswith(program.lower())
 sys.exit(0 if hard_cap and in_bundle and len(denied) == 2 else 3)
 """
@@ -210,6 +212,11 @@ def test_installed_service_joins_and_runs_a_venv_job(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     assert SHIM.is_file(), "run the installer first (package-windows CI job)"
+    if (os.cpu_count() or 1) < 3:
+        pytest.skip(
+            "the CPU-cap effect check needs >= 3 logical CPUs to tell a 1-core "
+            f"cap from load (this machine: {os.cpu_count()})"
+        )
     fabric = make_fabric(
         agents=0,
         fabric_ca=True,

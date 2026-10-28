@@ -542,6 +542,20 @@ class BenchSubmitter:
         linked = await self._store.mark_submitted(
             run.id, job.id, generation=run.generation
         )
+        swept = False
+        if not linked:
+            # CI fix round 4: the store's orphan sweep (``sync()``, every runner
+            # tick) can link the run to the job this call just created between
+            # the job's commit and this link. The run then IS submitted by this
+            # call: report ``submitted``, not ``already`` (which stopped the
+            # batch as stale). Only the creator may claim it, and only a
+            # sweep's link: a concurrent submit that linked the same job itself
+            # already reported ``submitted`` - one run is counted once.
+            linked_to, by_sweep = await self._store.run_link(run.id)
+            if created and linked_to == job.id and by_sweep:
+                linked = swept = True
+            elif created and linked_to != job.id:
+                await self._unlinked(run, job.id, linked_to)
         log.info(
             "controller.bench.run_submitted",
             campaign_id=campaign.id,
@@ -552,23 +566,20 @@ class BenchSubmitter:
             strategy=run.strategy,
             replay=not created,
             linked=linked,
+            linked_by_sweep=swept,
             generation=run.generation,
         )
         if not linked:
-            if created:
-                await self._unlinked(run, job.id)
             return RunOutcome(run.id, run.seq, "already", job_id=job.id)
         return RunOutcome(run.id, run.seq, "submitted", job_id=job.id)
 
-    async def _unlinked(self, run: RunRow, job_id: str) -> None:
+    async def _unlinked(self, run: RunRow, job_id: str, linked_to: str | None) -> None:
         """Fix r1 (D250 D-1): this call created ``job_id`` but the run had moved
-        on (cancelled -> skipped, or linked elsewhere). Unless the run is linked
-        to that very job, it is an orphan: cancel it now (``sync()`` is the
-        backstop if this cancel fails)."""
+        on (cancelled -> skipped, or linked to another job: ``linked_to``) - the
+        job is an orphan: cancel it now (``sync()`` is the backstop if this
+        cancel fails). A run linked to ``job_id`` itself is not an orphan and
+        never gets here."""
         self._store.expect_orphans()  # G5c item 0.7: the backstop looks now
-        linked_to = await self._store.linked_job(run.id)
-        if linked_to == job_id:
-            return
         log.warning(
             "controller.bench.orphan_job_cancelled",
             run_id=run.id,

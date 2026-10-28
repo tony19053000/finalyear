@@ -9,11 +9,44 @@ project, and ``NO_COLOR``/``COLUMNS`` cannot reach a Click context made here).
 from __future__ import annotations
 
 from collections.abc import Iterator
+from contextlib import contextmanager
+from pathlib import PurePath, PurePosixPath
 from typing import Any, Final
 
 import typer
 
 WIDTH: Final = 100
+
+
+def _posix(value: Any) -> Any:
+    """``value`` with every :class:`~pathlib.PurePath` written with ``/``."""
+    if isinstance(value, PurePath):
+        return PurePosixPath(value.as_posix())
+    if isinstance(value, (list, tuple)):
+        return type(value)(_posix(v) for v in value)
+    return value
+
+
+@contextmanager
+def _portable_defaults(command: Any) -> Iterator[None]:
+    """Show ``Path`` defaults the same on every OS while the help is built.
+
+    Click prints a default with ``str()``, so ``Path("/etc/x.toml")`` reads
+    ``\\etc\\x.toml`` on Windows and the page would differ per machine. The
+    defaults are swapped for their POSIX spelling and restored afterwards (the
+    app object is the real one, imported from ``meshforge``).
+    """
+    saved: list[tuple[Any, Any]] = []
+    for param in getattr(command, "params", ()):
+        portable = _posix(param.default)
+        if portable is not param.default:
+            saved.append((param, param.default))
+            param.default = portable
+    try:
+        yield
+    finally:
+        for param, default in saved:
+            param.default = default
 
 
 def _walk(
@@ -35,7 +68,8 @@ def _walk(
     if saved is not None:
         command.rich_markup_mode = None
     try:
-        text = command.get_help(ctx)
+        with _portable_defaults(command):
+            text = command.get_help(ctx)
     finally:
         if saved is not None:
             command.rich_markup_mode = saved
