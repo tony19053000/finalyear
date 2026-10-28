@@ -511,7 +511,7 @@ files = ["src", "scripts", "lab"]
 # lab helper package `_inventory` resolves like at runtime; scripts/ so
 # build_bundle.py's sibling import `bundle_lib` (V0.17 SP3) resolves. Separator ","
 # works on Windows too.
-mypy_path = "$MYPY_CONFIG_FILE_DIR/src,$MYPY_CONFIG_FILE_DIR/tests/unit,$MYPY_CONFIG_FILE_DIR/tests/_support,$MYPY_CONFIG_FILE_DIR/lab,$MYPY_CONFIG_FILE_DIR/scripts,$MYPY_CONFIG_FILE_DIR/scripts/eval"
+mypy_path = "$MYPY_CONFIG_FILE_DIR/src,$MYPY_CONFIG_FILE_DIR/tests/unit,$MYPY_CONFIG_FILE_DIR/tests/_support,$MYPY_CONFIG_FILE_DIR/lab,$MYPY_CONFIG_FILE_DIR/scripts,$MYPY_CONFIG_FILE_DIR/scripts/eval,$MYPY_CONFIG_FILE_DIR/scripts/demo"
 explicit_package_bases = true
 plugins = ["pydantic.mypy"]
 strict = true
