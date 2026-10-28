@@ -40,6 +40,7 @@ if str(_SCRIPTS) not in sys.path:
 from bundle_lib import (  # noqa: E402
     BUILDINFO_NAME,
     BundleError,
+    check_no_secrets,
     check_size_budget,
     load_pins,
     pinned,
@@ -192,6 +193,9 @@ def build(
             f"{bundle} differs from its MANIFEST.sha256 ({len(differences)})",
             reason="bundle_modified",
         )
+    # V1.0 G3 (D413): the installer's inputs - the bundle and packaging/windows
+    # (the .exe is compressed, so its content cannot be scanned afterwards)
+    check_no_secrets(bundle, ISS.parent)
     version = str(info["version"])
     names = installer_names(version, revision)
     pins = load_pins(pins_path)
@@ -211,6 +215,7 @@ def build(
         raise BundleError(
             f"ISCC reported success but {exe} is missing", reason="tool_failed"
         )
+    check_no_secrets(exe)  # raw bytes: whatever Inno Setup stored uncompressed
     digest = sha256_file(exe)
     (out / f"{exe.name}.sha256").write_text(f"{digest}  {exe.name}\n", encoding="utf-8")
     size = exe.stat().st_size

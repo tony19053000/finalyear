@@ -669,3 +669,22 @@ def check_size_budget(size: int, budget_mb: float, what: str) -> None:
             "download budget (Q17); see the size table in lab/spikes/SP3.md",
             reason="size_budget",
         )
+
+
+# ------------------------------------------------------------- secret scan
+def check_no_secrets(*artefacts: Path) -> None:
+    """V1.0 G3 (D413): fail the build when ``scripts/package_secret_scan.py``
+    finds a secret or MeshForge test material in any of ``artefacts`` (a bundle
+    folder, a ``.deb``, an archive, the installer's inputs)."""
+    import package_secret_scan
+
+    hits: list[package_secret_scan.Hit] = []
+    for artefact in artefacts:
+        try:
+            hits += package_secret_scan.scan(artefact)
+        except package_secret_scan.ScanError as exc:
+            raise BundleError(str(exc), reason="secret_scan") from None
+    if hits:
+        raise BundleError(
+            package_secret_scan.failure_message(hits), reason="secret_found"
+        )
