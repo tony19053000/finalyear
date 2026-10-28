@@ -33,10 +33,14 @@ Remote GPU test can be ``component`` + ``gpu`` and a Mode 4 test ``cluster`` + `
 * ``slow`` — skipped unless ``--run-slow`` (minutes of wall time, network or cold
   caches; e.g. the fresh-clone ``uv sync`` test). Combines with any tier, so
   ``pytest -m component --run-slow`` runs component tests including slow ones.
-* ``perf`` — UI performance measurements with thresholds (V0.8 G7,
-  ``scripts/ui_perf/``): minutes of seeding (4 nodes x 100 jobs, 10 000
-  jobs). Skipped unless ``--run-perf`` is given or the ``-m`` expression
-  selects it (``pytest -m perf``) - a bare run never pays for it.
+* ``perf`` — performance measurements with thresholds: the UI perf run (V0.8 G7,
+  ``scripts/ui_perf/``, minutes of seeding), planner latency budgets, and
+  every **load-sensitive timing assertion** (D422: wall-clock bands, p95
+  latencies, "stays ONLINE under an un-niced all-threads load") - those are not
+  CI gates on shared runners; they run on a quiet lab machine
+  (``docs/LAB.md`` "Load-sensitive timing tests"). Skipped unless
+  ``--run-perf`` is given or the ``-m`` expression selects it
+  (``pytest -m perf``) - a bare run never pays for it.
 * ``extras("controller", ...)`` — the test needs those optional extras
   (pyproject ``[project.optional-dependencies]``) in a way an import cannot
   show: a subprocess or CLI run, or a whole-repo check. Skipped with the
@@ -104,7 +108,8 @@ OPT_IN: Final = {
     "chaos": "long-running chaos test",
     "gpu": "needs an NVIDIA GPU with CUDA",
     "slow": "slow test (minutes; network or cold caches)",
-    "perf": "UI performance run (minutes: seeds 10 000 jobs; `pytest -m perf`)",
+    "perf": "performance / load-sensitive timing threshold, not a CI gate (D422; "
+    "`pytest -m perf` on a quiet machine)",
 }
 
 #: Opt-in markers that a ``-m`` expression naming them also enables (V0.8 G7):

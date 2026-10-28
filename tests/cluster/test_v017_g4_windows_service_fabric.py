@@ -12,7 +12,9 @@ an elevated prompt on ``windows-latest``), after the installer put
    running service notices the enrolment and connects as that node;
 3. the CPU cap is reported honestly (V0.7 G6 on Windows: job objects with a hard
    CPU-rate cap, so no ``max_cpu_percent`` in ``not_enforced``) - and the job
-   below proves it from inside: its own job object has the hard cap;
+   below proves it from inside by its effect: one busy process per logical CPU
+   gets about one core in total (the venv launcher's own nested job hides the
+   agent's job from a direct query);
 4. a requirements job pinned to the node succeeds through the **venv** runtime,
    the env built by the bundle's uv on the bundled interpreter, offline from a
    wheelhouse in the service's cache; the job runs as the service account (it
@@ -55,18 +57,27 @@ PROGRAM: Final = Path(os.environ.get("PROGRAMFILES", r"C:\Program Files")) / "Me
 SHIM: Final = PROGRAM / "bin" / "meshforge-agent.cmd"
 WHEELS: Final = DATA / "cache" / "wheels"
 MAIN: Final = r"""
-import ctypes, os, sys
+import ctypes, os, subprocess, sys, time
 from ctypes import wintypes
 import mfwindemo
 
+# A venv's python.exe is a launcher that runs the real interpreter inside a job
+# object of its own, nested in the agent's: the immediate job (read below with a
+# NULL handle) is the launcher's and has no CPU rate. That line is diagnostic
+# only; the agent's hard cap (cpus = 1 here) binds from the parent job and is
+# proven by its effect: one busy process per logical CPU for BURN_S seconds
+# gets about one core in total, not one each.
 class Rate(ctypes.Structure):
     _fields_ = [("ControlFlags", wintypes.DWORD), ("CpuRate", wintypes.DWORD)]
 
 rate, size = Rate(), wintypes.DWORD()
 kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+kernel32.GetCurrentProcess.restype = wintypes.HANDLE
 ok = kernel32.QueryInformationJobObject(
     None, 15, ctypes.byref(rate), ctypes.sizeof(rate), ctypes.byref(size)
 )
+in_job = wintypes.BOOL()
+kernel32.IsProcessInJob(kernel32.GetCurrentProcess(), None, ctypes.byref(in_job))
 program = os.path.join(os.environ.get("ProgramFiles", r"C:\Program Files"), "MeshForge")
 config = os.path.join(os.environ.get("ProgramData", r"C:\ProgramData"), "MeshForge", "config")
 denied = []
@@ -76,10 +87,25 @@ for folder in (program, config):
             handle.write("x")
     except OSError:
         denied.append(folder)
+BURN_S = 3.0
+burn = (
+    "import time\nend = time.monotonic() + %r\n"
+    "while time.monotonic() < end: pass\nprint(time.process_time())" % BURN_S
+)
+threads = os.cpu_count() or 1
+burners = [
+    subprocess.Popen([sys.executable, "-c", burn], stdout=subprocess.PIPE, text=True)
+    for _ in range(max(2, threads))
+]
+cpu_s = sum(float(p.communicate()[0].strip() or "nan") for p in burners)
+cores = cpu_s / BURN_S
 print("VERSION", mfwindemo.VERSION, "BASE", sys.base_prefix)
-print("CPURATE", int(ok), rate.ControlFlags, rate.CpuRate)
+print("CPURATE", int(ok), rate.ControlFlags, rate.CpuRate, "IN_JOB", int(in_job.value))
+print("CORES", round(cores, 2), "THREADS", threads, "BURNERS", len(burners))
 print("DENIED", len(denied))
-hard_cap = bool(ok) and rate.ControlFlags & 0x5 == 0x5 and 0 < rate.CpuRate <= 10000
+# The cap is 1 core of `threads`; uncapped the burners would use ~`threads`
+# cores. A busy runner only lowers `cores`, so load can never fail this check.
+hard_cap = bool(in_job.value) and threads >= 2 and cores <= 1.5
 in_bundle = sys.base_prefix.lower().startswith(program.lower())
 sys.exit(0 if hard_cap and in_bundle and len(denied) == 2 else 3)
 """
@@ -234,12 +260,14 @@ def test_installed_service_joins_and_runs_a_venv_job(
     job_id = submit(fabric, MANIFEST, upload_folder(fabric, project), node_id=node_id)
     job = wait_job(fabric, job_id, within=300)
     if job["state"] != "succeeded":
-        # The job's own lines (VERSION / CPURATE / DENIED) say which check
-        # failed; the agent log tail last (the message is long).
+        # The job's own lines (VERSION / CPURATE / CORES / DENIED) say which
+        # check failed; the agent log tail last (the message is long). The exit
+        # code is the attempt's (the job view has none of its own).
         output = fabric.call("GET", f"/v1/jobs/{job_id}/logs?stream=both").text
+        attempts = job.get("attempts") or [{}]
         raise AssertionError(
             f"job {job['state']} ({job.get('failure_type')}, exit "
-            f"{job.get('exit_code')})\njob output:\n{output[-4000:]}\n"
+            f"{attempts[-1].get('exit_code')})\njob output:\n{output[-4000:]}\n"
             f"agent log:\n{_log_tail()}"
         )
     events = _agent_events(offset)

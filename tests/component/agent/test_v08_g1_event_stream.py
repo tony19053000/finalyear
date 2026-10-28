@@ -2,7 +2,11 @@
 PostgreSQL, a real HTTPS controller, real users, a real agent.
 
 * job state changes arrive as events after commit, p95 < 500 ms on loopback
-  (the exit-list latency gate; the dashboard's criterion 2 is <= 2 s);
+  (the exit-list latency budget; the dashboard's criterion 2 is <= 2 s) -
+  ``perf`` since D422: on a shared CI runner it measures the runner's load, so
+  it runs on a quiet lab laptop (``docs/LAB.md`` "Load-sensitive timing
+  tests"); delivery and ``seq`` order are still gated by the other tests
+  here;
 * a user receives only their own jobs' events; an admin every job's;
 * resume with ``since``/``epoch`` delivers exactly the missed events; a
   foreign epoch is ``resync``;
@@ -140,6 +144,7 @@ def _queued(job_id: str) -> Any:
     )
 
 
+@pytest.mark.perf  # D422: a p95 latency budget - not a gate on shared CI runners
 async def test_job_events_arrive_after_commit_p95_under_500_ms(
     runtime: ControllerRuntime, anon: httpx.AsyncClient, users: dict[str, str]
 ) -> None:
