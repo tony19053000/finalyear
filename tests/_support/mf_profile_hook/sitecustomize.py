@@ -1,0 +1,248 @@
+"""V1.0 G4 (D412) profiling hook - TEST/LAB ONLY, never shipped.
+
+Put this folder first on ``PYTHONPATH`` of a fabric's processes and set
+``MF_PROFILE_DIR``; Python imports ``sitecustomize`` at start-up, so every
+controller / agent process then:
+
+* answers ``SIGUSR2`` by writing ``<dir>/<role>-<pid>-<n>.json``: RSS, threads
+  by name, live objects per type (``gc``), asyncio tasks per coroutine (the
+  loop running in the main thread), and - when ``PYTHONTRACEMALLOC`` is set -
+  the top allocation sites plus a ``.tracemalloc`` snapshot file for
+  ``Snapshot.compare_to``;
+* (controller) times every dispatch pass (``DispatchSteps._dispatch``), every
+  ``ExecutionStore.dispatch_planned`` with its parts (``queued_jobs``,
+  ``read_fabric``, ``_create_dispatched``, ``_record_decision``,
+  ``_send_start``) and every planner ``decide`` call - including the ``Wait``
+  answers that write no decision row - and puts the numbers into the same file.
+* ``MF_PROFILE_TRACEMALLOC=<role>`` starts ``tracemalloc`` in that role;
+  ``MF_PROFILE_PTRACER=1`` lets a sibling ``py-spy`` attach (Yama scope 1).
+
+Nothing here changes behaviour: the wrappers call the original and only add
+``time.perf_counter`` around it. Without ``MF_PROFILE_DIR`` this file does
+nothing (the import is a no-op).
+"""
+
+from __future__ import annotations
+
+import os
+import sys
+
+_DIR = os.environ.get("MF_PROFILE_DIR")
+
+
+def _role() -> str:
+    argv = " ".join(getattr(sys, "orig_argv", sys.argv))
+    if "meshforge.controller" in argv:
+        return "controller"
+    if "meshforge.agent" in argv:
+        return "agent"
+    return "other"
+
+
+if _DIR:
+    import collections
+    import gc
+    import importlib.abc
+    import importlib.machinery
+    import json
+    import signal
+    import threading
+    import time
+    import tracemalloc
+    from typing import Any
+
+    _ROLE = _role()
+    _TIMINGS: collections.defaultdict[str, collections.deque[float]] = (
+        collections.defaultdict(lambda: collections.deque(maxlen=500_000))
+    )
+    _SEQ = [0]
+
+    def _rss_bytes() -> int:
+        try:
+            with open("/proc/self/statm") as fh:
+                return int(fh.read().split()[1]) * os.sysconf("SC_PAGE_SIZE")
+        except OSError:
+            return -1
+
+    def _tasks() -> dict[str, int]:
+        import asyncio
+
+        loop = asyncio.events._get_running_loop()
+        if loop is None:
+            return {}
+        names: collections.Counter[str] = collections.Counter()
+        for task in asyncio.all_tasks(loop):
+            coro = task.get_coro()
+            names[getattr(coro, "__qualname__", type(coro).__name__)] += 1
+        return dict(names.most_common())
+
+    def _fill(obj: object, attr: str, cap: object) -> dict[str, Any] | None:
+        held = getattr(obj, attr, None)
+        if held is None:
+            return None
+        return {"len": len(held), "cap": cap}
+
+    def _const(module: str, name: str) -> object:
+        found = sys.modules.get(f"meshforge.controller.{module}")
+        return getattr(found, name, None)
+
+    def _caches() -> dict[str, Any]:
+        """Fill level vs cap of the controller's long-lived bounded stores (the
+        warm-up a memory rule must not read as a leak): the event bus ring,
+        LogHub's ended attempts, the live resource rings, the progress-kind
+        cache. Found by type name through ``gc`` (read-only)."""
+        out: dict[str, Any] = {}
+        wanted = {"EventBus", "LogHub", "ResourceTracker", "ProgressTracker"}
+        for obj in gc.get_objects():
+            name = type(obj).__name__
+            if name not in wanted or name in out:
+                continue
+            if name == "EventBus":
+                ring = obj._ring  # type: ignore[attr-defined]
+                out[name] = {
+                    "ring": {"len": len(ring), "cap": ring.maxlen},
+                    "seq": obj.seq,  # type: ignore[attr-defined]
+                }
+            elif name == "LogHub":
+                out[name] = {
+                    "ended": _fill(obj, "_ended", _const("jobs.logs", "_ENDED_KEPT")),
+                    "attempts": _fill(obj, "_attempts", None),
+                }
+            elif name == "ResourceTracker":
+                rings = getattr(obj, "_rings", {})
+                out[name] = {
+                    "nodes": len(rings),
+                    "samples": sum(
+                        len(getattr(r, "_samples", ())) for r in rings.values()
+                    ),
+                    "cap_per_node": getattr(obj, "_ring_size", None),
+                }
+            else:
+                out[name] = {
+                    "is_split": _fill(
+                        obj,
+                        "_is_split",
+                        _const("split.progress_events", "MAX_KIND_CACHE"),
+                    ),
+                    "seen": _fill(obj, "_seen", None),
+                }
+        return out
+
+    def _dump(signum: int, frame: object) -> None:
+        _SEQ[0] += 1
+        stem = os.path.join(_DIR, f"{_ROLE}-{os.getpid()}-{_SEQ[0]:04d}")
+        types: collections.Counter[str] = collections.Counter(
+            type(o).__qualname__ for o in gc.get_objects()
+        )
+        doc: dict[str, Any] = {
+            "role": _ROLE,
+            "pid": os.getpid(),
+            "seq": _SEQ[0],
+            "at": time.time(),
+            "rss_bytes": _rss_bytes(),
+            "threads": dict(
+                collections.Counter(
+                    t.name.rsplit("_", 1)[0] for t in threading.enumerate()
+                )
+            ),
+            "gc_objects": sum(types.values()),
+            "gc_top": dict(types.most_common(80)),
+            "tasks": _tasks(),
+            "caches": _caches() if _ROLE == "controller" else {},
+            "timings": {k: list(v) for k, v in _TIMINGS.items() if v},
+        }
+        if tracemalloc.is_tracing():
+            snap = tracemalloc.take_snapshot()
+            snap.dump(stem + ".tracemalloc")
+            doc["tracemalloc_traced_bytes"] = tracemalloc.get_traced_memory()[0]
+            doc["tracemalloc_top"] = [
+                {"site": str(s.traceback), "bytes": s.size, "count": s.count}
+                for s in snap.statistics("lineno")[:40]
+            ]
+        tmp = stem + ".json.tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(doc, fh)
+        os.replace(tmp, stem + ".json")
+
+    def _timed_sync(fn: Any, key: str) -> Any:
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            started = time.perf_counter()
+            try:
+                return fn(*args, **kwargs)
+            finally:
+                _TIMINGS[key].append((time.perf_counter() - started) * 1000.0)
+
+        wrapper.__wrapped__ = fn  # type: ignore[attr-defined]
+        return wrapper
+
+    def _timed_async(fn: Any, key: str) -> Any:
+        async def wrapper(*args: Any, **kwargs: Any) -> Any:
+            started = time.perf_counter()
+            try:
+                return await fn(*args, **kwargs)
+            finally:
+                _TIMINGS[key].append((time.perf_counter() - started) * 1000.0)
+
+        wrapper.__wrapped__ = fn  # type: ignore[attr-defined]
+        return wrapper
+
+    def _patch(name: str, module: Any) -> None:
+        if name == "meshforge.controller.jobs.dispatch":
+            cls = module.DispatchSteps
+            cls._dispatch = _timed_async(cls._dispatch, "dispatch_pass_ms")
+            cls._send_start = _timed_async(cls._send_start, "send_start_ms")
+        elif name == "meshforge.controller.jobs.execution_store":
+            cls = module.ExecutionStore
+            cls.dispatch_planned = _timed_async(
+                cls.dispatch_planned, "dispatch_planned_ms"
+            )
+            cls._create_dispatched = _timed_async(
+                cls._create_dispatched, "create_dispatched_ms"
+            )
+            # the pass's reads, by the names execution_store imported them as
+            module.queued_jobs = _timed_async(module.queued_jobs, "queued_jobs_ms")
+            module.read_fabric = _timed_async(module.read_fabric, "read_fabric_ms")
+            module._record_decision = _timed_async(
+                module._record_decision, "record_decision_ms"
+            )
+        elif name == "meshforge.controller.jobs.planning":
+            cls = module.DispatchPlanner
+            cls.decide = _timed_sync(cls.decide, "decide_ms")
+
+    _WANTED = {
+        "meshforge.controller.jobs.dispatch",
+        "meshforge.controller.jobs.execution_store",
+        "meshforge.controller.jobs.planning",
+    }
+
+    class _Finder(importlib.abc.MetaPathFinder):
+        def find_spec(self, name: str, path: Any, target: Any = None) -> Any:
+            if name not in _WANTED:
+                return None
+            spec = importlib.machinery.PathFinder.find_spec(name, path)
+            if spec is None or spec.loader is None:
+                return spec
+            loader = spec.loader
+            original = loader.exec_module
+
+            def exec_module(module: Any) -> None:
+                original(module)
+                _patch(name, module)
+
+            loader.exec_module = exec_module  # type: ignore[method-assign]
+            return spec
+
+    if _ROLE in ("controller", "agent"):
+        os.makedirs(_DIR, exist_ok=True)
+        signal.signal(signal.SIGUSR2, _dump)
+        if _ROLE == "controller":
+            sys.meta_path.insert(0, _Finder())
+        if os.environ.get("MF_PROFILE_PTRACER") == "1":
+            # Yama ptrace_scope=1: let a sibling py-spy (started by the test
+            # process for one phase) attach to this process.
+            import ctypes
+
+            pr_set_ptracer, pr_set_ptracer_any = 0x59616D61, ctypes.c_ulong(-1)
+            ctypes.CDLL(None).prctl(pr_set_ptracer, pr_set_ptracer_any, 0, 0, 0)
+        if os.environ.get("MF_PROFILE_TRACEMALLOC") == _ROLE:
+            tracemalloc.start(int(os.environ.get("MF_PROFILE_TRACEMALLOC_FRAMES", "8")))

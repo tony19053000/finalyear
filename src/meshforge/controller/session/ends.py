@@ -33,7 +33,11 @@ from meshforge.controller.liveness import (
     NodeState,
     next_state,
 )
-from meshforge.controller.registry import Registry, SessionEndReason
+from meshforge.controller.registry import (
+    Registry,
+    SessionEndReason,
+    UnknownSessionError,
+)
 from meshforge.controller.session.admission import AdmissionAttempt
 from meshforge.controller.session.claims import AdmissionClaims
 from meshforge.controller.session.live import Accepted, LiveSession, end_event
@@ -180,7 +184,7 @@ class SessionEnds:
         if event is not None:
             self.apply_event(live, event, silence_s=live.tracker.silence(self._clock()))
         linger = event is LivenessEvent.STREAM_LOST and live.state is NodeState.SUSPECT
-        close = functools.partial(self._registry.close_session, live.session_id, reason)
+        close = functools.partial(self._close_session, live, reason)
         if linger:
             # The loss already counts as the miss; LEASE_EXPIRED is all that is
             # left, at last heartbeat + offline_after_s. close_session is written
@@ -248,6 +252,28 @@ class SessionEnds:
             pending_writes=entry.writer.pending,
         )
 
+    async def _close_session(self, live: LiveSession, reason: SessionEndReason) -> bool:
+        """``close_session`` for ``live``; quiet when an abandoned admission's
+        ``open_session`` never committed (V1.0 G4 F-1).
+
+        The abandoned entry's chain first waits for the cancelled admission
+        task, so by now its ``node_session`` row either exists (closed as
+        usual) or never will: no row is the expected outcome, not a failed
+        write. Any other session's missing row is still an error.
+        """
+        try:
+            return await self._registry.close_session(live.session_id, reason)
+        except UnknownSessionError:
+            if not live.open_uncertain:
+                raise
+            log.info(
+                "session.close_skipped_never_opened",
+                node_id=live.node_id,
+                session_id=live.session_id,
+                end_reason=reason.value,
+            )
+            return False
+
     # ------------------------------------------------- abandoned admissions
 
     def close_orphaned_admission(self, body: asyncio.Task[Any]) -> None:
@@ -301,6 +327,7 @@ class SessionEnds:
             self.end_linger(lingering, cause="replaced")
         entry = new_session(attempt)
         entry.fence_ids = tuple(fences)
+        entry.open_uncertain = True
         entry.writer.enqueue(
             "await_abandoned_admission",
             WriteKind.STATE,

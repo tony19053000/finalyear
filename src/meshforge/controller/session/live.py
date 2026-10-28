@@ -167,6 +167,10 @@ class LiveSession:
     abandoned admission cannot know whether its row write committed, so it writes
     for its own id *and* for the sessions the row may still name; at most one
     matches."""
+    open_uncertain: bool = False
+    """An abandoned admission's entry (D41): its ``open_session`` may never have
+    committed, so its ``close_session`` finding no row is expected, not a failure
+    (V1.0 G4 F-1)."""
     # counters
     heartbeats: int = 0
     stale_messages: int = 0
