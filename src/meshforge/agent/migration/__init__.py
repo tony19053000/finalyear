@@ -6,6 +6,10 @@ A laptop that already joined as a user-unit agent must keep its ``node_id``: a
 silent re-enrolment would split its telemetry history and the ML training data,
 so ADR-0013's "never silently mint" rule is applied to the move as well.
 
+**One run at a time.** A real run holds ``migrate-identity.lock`` (beside the
+target identity folder) from its plan to the end of its execute; a concurrent
+run waits, then plans against what the first one left (CI fix round 4).
+
 **Plan first, then act.** Everything is decided read-only (``plan``): the
 target, the candidate identities, each one's validity, the config file. Any
 refusal stops *before* the first write to a source:
