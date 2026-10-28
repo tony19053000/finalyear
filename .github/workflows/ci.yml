@@ -65,6 +65,11 @@ jobs:
       - name: import boundaries (lint-imports)
         if: ${{ !cancelled() }}
         run: uv run lint-imports
+      # V1.0 G3 (D413): every medium/high bandit finding in src/ is triaged in
+      # scripts/bandit_triage.toml (reason + decision ref) or this step fails.
+      - name: bandit gate (no untriaged medium/high)
+        if: ${{ !cancelled() }}
+        run: uv run python scripts/bandit_gate.py
       # Regenerates from proto/ into a temp dir and byte-compares with the
       # committed src/meshforge/common/proto/ tree (never overwrites it): a
       # hand-edited generated file, or a .proto change without regeneration,

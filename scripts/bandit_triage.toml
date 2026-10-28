@@ -1,0 +1,127 @@
+# Triaged bandit findings (V1.0 G3, D413). `scripts/bandit_gate.py` runs
+# `bandit -r src -ll` (medium + high severity) and fails on any finding that is
+# not listed here. A finding is keyed by its test id, its file and the stripped
+# text of the flagged source line, so it survives line shifts but a changed line
+# must be re-triaged. Every entry needs a `reason` (a sentence) and a `ref`
+# (where the decision is recorded). Low-severity findings are not gated (see
+# docs/reports/release-v1.0-security.md "What was not done").
+#
+# To add one: run `uv run python scripts/bandit_gate.py`, copy the printed
+# `[[finding]]` block of the untriaged finding here, and write why it is safe.
+
+# --- B608: SQL built with string operations --------------------------------
+# Verified (V1.0 G3): every interpolated value is a module-level constant of the
+# same file - never a request, a node or a user value.
+
+[[finding]]
+test_id = "B608"
+file = "src/meshforge/common/_gc_schema.py"
+line = "_TRIGGERS: Final = \"\"\""
+reason = "@HELD is replaced by _held() with the module constant _HELD_SQL and a fixed column name; no runtime value reaches the SQL text."
+ref = "D91, D119; V1.0 G3 security report"
+
+[[finding]]
+test_id = "B608"
+file = "src/meshforge/common/_gc_schema.py"
+line = "\"INSERT INTO blob_lru SELECT key, last_use, @HELD FROM item WHERE kind = 'blob'\""
+reason = "_MIRROR is a module constant; @HELD is the constant _HELD_SQL for the fixed column item.key."
+ref = "D91, D119; V1.0 G3 security report"
+
+[[finding]]
+test_id = "B608"
+file = "src/meshforge/common/_gc_schema.py"
+line = "_REHOLD: Final = \"UPDATE blob_lru SET held = @HELD WHERE key = ?\".replace("
+reason = "_REHOLD is a module constant; the blob key is a bound parameter (?), @HELD is the constant _HELD_SQL."
+ref = "D91, D119; V1.0 G3 security report"
+
+[[finding]]
+test_id = "B608"
+file = "src/meshforge/common/_gc_schema.py"
+line = "\"UPDATE blob_lru SET held = @HELD \""
+reason = "_REHOLD_MEMBERS is a module constant; the tree key is a bound parameter (?), @HELD is the constant _HELD_SQL."
+ref = "D91, D119; V1.0 G3 security report"
+
+[[finding]]
+test_id = "B608"
+file = "src/meshforge/common/_gc_schema.py"
+line = "_BLOB_VICTIMS: Final = \"\"\""
+reason = "_BLOB_VICTIMS is a module constant; cutoff and limit are named bound parameters, @HELD is the constant _HELD_SQL."
+ref = "D91, D119; V1.0 G3 security report"
+
+[[finding]]
+test_id = "B608"
+file = "src/meshforge/controller/store/migrations/versions/0018_rotation_users.py"
+line = "sa.text(f\"DELETE FROM audit_event WHERE action IN ({new_actions})\")  # noqa: S608 - frozen literals"
+reason = "new_actions is _listed() of the frozen module tuples ACTIONS_0016/ACTIONS_0018 (fixed audit action names); a migration takes no input."
+ref = "migration 0018; V1.0 G3 security report"
+
+[[finding]]
+test_id = "B608"
+file = "src/meshforge/controller/store/migrations/versions/0028_split_combine.py"
+line = "f\"UPDATE {table} SET failure_type = 'internal_error' \"  # noqa: S608 - constant table names"
+reason = "table iterates over the literal tuple (\"job\", \"attempt\") in the same statement; a migration takes no input."
+ref = "migration 0028; V1.0 G3 security report"
+
+# --- B108: hard-coded temp paths -------------------------------------------
+
+[[finding]]
+test_id = "B108"
+file = "src/meshforge/agent/execution/docker_runtime.py"
+line = "_CONTAINER_TMP: Final = \"/tmp\"  # noqa: S108 - a private tmpfs inside the container"
+reason = "A path inside the job container, mounted as a private size-capped tmpfs; it never names a host directory."
+ref = "D51 (container sandbox); V1.0 G3 security report"
+
+[[finding]]
+test_id = "B108"
+file = "src/meshforge/agent/execution/sandbox_check.py"
+line = "_TMP: Final = \"/tmp\"  # noqa: S108 - the container's own tmpfs, not a host path"
+reason = "The sandbox checker verifies the container's own /tmp is a size-capped tmpfs; it is a mount point name, not a host file."
+ref = "D51 (container sandbox); V1.0 G3 security report"
+
+[[finding]]
+test_id = "B108"
+file = "src/meshforge/agent/execution/sandbox_check.py"
+line = "raise SandboxViolationError(\"tmpfs\", \"/tmp is not a size-capped tmpfs\")  # noqa: S108"
+reason = "An error message text naming the container mount; no file is opened."
+ref = "D51 (container sandbox); V1.0 G3 security report"
+
+[[finding]]
+test_id = "B108"
+file = "src/meshforge/agent/execution/secret_files.py"
+line = "_SHM: Final = Path(\"/dev/shm\")  # noqa: S108 - a private 0700 subfolder, owner-checked"
+reason = "Secrets are written to a private 0700 subfolder of /dev/shm whose owner and mode are checked before use (no shared predictable file)."
+ref = "V0.7 secret files; THREAT_MODEL; V1.0 G3 security report"
+
+# --- B604: "shell=True" ----------------------------------------------------
+
+[[finding]]
+test_id = "B604"
+file = "src/meshforge/cli/completion.py"
+line = "prog_name=prog_name, complete_var=complete_var, shell=shell"
+reason = "False positive: `shell` is Typer's get_completion_script() keyword naming the shell (bash/zsh/pwsh); no subprocess is started."
+ref = "V0.8 G3 shell completion; V1.0 G3 security report"
+
+# --- B506: yaml.load -------------------------------------------------------
+
+[[finding]]
+test_id = "B506"
+file = "src/meshforge/common/manifest.py"
+line = "data = yaml.load(text, Loader=_StrictSafeLoader)  # noqa: S506 - SafeLoader subclass"
+reason = "_StrictSafeLoader subclasses yaml.SafeLoader (no arbitrary object construction) and also refuses aliases and duplicate keys; a unit test pins the base class."
+ref = "tests/unit/test_v10_g3_security_l1.py; V1.0 G3 security report"
+
+# --- B104: binding to all interfaces ---------------------------------------
+
+[[finding]]
+test_id = "B104"
+file = "src/meshforge/controller/enrollment/codes.py"
+line = "_WILDCARDS = frozenset({\"0.0.0.0\", \"::\"})  # noqa: S104 - recognising wildcards"
+reason = "The set is used to recognise a wildcard bind so it is never advertised in a join code; nothing binds to it here."
+ref = "D389; V1.0 G3 security report"
+
+[[finding]]
+test_id = "B104"
+file = "src/meshforge/controller/fabric_ca.py"
+line = "if host not in (\"0.0.0.0\", \"::\"):  # noqa: S104 - filtering wildcards out"
+reason = "Wildcard binds are filtered out of the server certificate's names; nothing binds here."
+ref = "D134; V1.0 G3 security report"

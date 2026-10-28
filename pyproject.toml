@@ -155,6 +155,8 @@ dev = [
     "import-linter>=2.15",
     "pytest-timeout>=2.4",
     "pytest-playwright>=0.7",
+    # V1.0 G3 (D413): `scripts/bandit_gate.py` - medium/high findings must be triaged.
+    "bandit>=1.9.4",
 ]
 # V1.0 G2 (D419): the evaluation report's figures (scripts/eval/make_report.py).
 # A separate group - not installed by a plain `uv sync`, never in a package:

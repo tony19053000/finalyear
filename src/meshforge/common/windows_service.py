@@ -46,7 +46,9 @@ def service_sid(name: str = SERVICE_NAME) -> str:
     """The per-service SID ``NT SERVICE\\<name>``: ``S-1-5-80-`` + the SHA-1 of the
     upper-cased name in UTF-16LE, as five little-endian 32-bit sub-authorities
     (the documented derivation; checked against ``sc showsid`` in SP1)."""
-    digest = hashlib.sha1(name.upper().encode("utf-16-le")).digest()  # noqa: S324
+    digest = hashlib.sha1(  # noqa: S324 - a fixed Windows SID derivation, not a MAC
+        name.upper().encode("utf-16-le"), usedforsecurity=False
+    ).digest()
     subs = struct.unpack("<5I", digest)
     return "S-1-5-80-" + "-".join(str(s) for s in subs)
 
