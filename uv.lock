@@ -870,7 +870,7 @@ controller = [
     { name = "numpy" },
     { name = "pyarrow" },
     { name = "sqlalchemy", extra = ["asyncio"] },
-    { name = "tzdata", marker = "sys_platform == 'win32'" },
+    { name = "tzdata" },
     { name = "uvicorn", extra = ["standard"] },
     { name = "zeroconf" },
 ]
@@ -943,7 +943,7 @@ requires-dist = [
     { name = "threadpoolctl", marker = "extra == 'ml'", specifier = ">=3.5,<4" },
     { name = "torch", marker = "extra == 'gpu'", specifier = ">=2.14" },
     { name = "typer", specifier = ">=0.27" },
-    { name = "tzdata", marker = "sys_platform == 'win32' and extra == 'controller'", specifier = ">=2025.2" },
+    { name = "tzdata", marker = "extra == 'controller'", specifier = ">=2025.2" },
     { name = "uv", marker = "extra == 'agent'", specifier = ">=0.10" },
     { name = "uvicorn", marker = "extra == 'agent'", specifier = ">=0.53" },
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'controller'", specifier = ">=0.53" },

@@ -66,8 +66,10 @@ controller = [
     # controller (controller extra only) could not start without it.
     "numpy>=2.3,<3",
     # pyarrow resolves timestamp time zones through zoneinfo, which has no
-    # system database on Windows (D399: every Parquet export failed there).
-    "tzdata>=2025.2; sys_platform == 'win32'",
+    # system database on Windows (D399: every Parquet export failed there) nor
+    # on a minimal Linux without the tzdata package (V1.0 G7: the packaged
+    # controller could not read its own ML dataset) - the bundle brings its own.
+    "tzdata>=2025.2",
 ]
 agent = [
     "psutil>=7.2",

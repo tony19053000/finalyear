@@ -12,16 +12,20 @@ for a single-shot "it is gone" assertion.
 
 from __future__ import annotations
 
-import psutil  # type: ignore[import-untyped]
+from typing import Final
 
 __all__ = ["GONE_STATUSES", "pid_gone"]
 
-#: States of a process that has exited and is only waiting to be (or being) reaped.
-GONE_STATUSES = frozenset({psutil.STATUS_ZOMBIE, psutil.STATUS_DEAD})
+#: States of a process that has exited and is only waiting to be (or being)
+#: reaped: ``psutil.STATUS_ZOMBIE`` and ``psutil.STATUS_DEAD`` (plain strings, so
+#: importing this module needs no psutil - the agent extra).
+GONE_STATUSES: Final = frozenset({"zombie", "dead"})
 
 
 def pid_gone(pid: int) -> bool:
     """True once ``pid`` has exited: missing, zombie, or being reaped (``dead``)."""
+    import psutil  # type: ignore[import-untyped]  # agent extra; callers skip without it
+
     try:
         return psutil.Process(pid).status() in GONE_STATUSES
     except psutil.NoSuchProcess:  # includes psutil.ZombieProcess

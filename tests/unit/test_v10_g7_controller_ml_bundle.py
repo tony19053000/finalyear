@@ -274,3 +274,16 @@ def test_recompress_refuses_what_is_not_a_deb(tmp_path: Path) -> None:
 
 def test_the_preset_is_the_measured_one() -> None:
     assert bd.DATA_XZ_PRESET == 9
+
+
+def test_the_controller_brings_its_own_time_zone_database() -> None:
+    # pyarrow turns tz-aware timestamps into datetimes through zoneinfo; a
+    # minimal Ubuntu has no /usr/share/zoneinfo, so the installed controller
+    # could not read its own ML dataset (G7, found by the packaging test)
+    data = tomllib.loads((REPO / "pyproject.toml").read_text(encoding="utf-8"))
+    (spec,) = [
+        r
+        for r in data["project"]["optional-dependencies"]["controller"]
+        if r.startswith("tzdata")
+    ]
+    assert ";" not in spec, spec  # every OS, not only Windows (D399)
