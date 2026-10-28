@@ -46,6 +46,17 @@ half of V1.0 (D415–D419) has its own harness (G2) and is out of scope here.
    - **D406 redo rule:** lab evidence counts only from a release package (`package_version` not `dev`), and
      only if it was recorded at the target SHA **or** no file matching the row's `affected_by` changed between
      its SHA and the target (`git diff --name-only`); otherwise the row is MISSING ("stale");
+     - the evidence `sha` must be a full 40-hex commit SHA - a movable ref (`HEAD`, a branch) would resolve
+       to the current checkout and never go stale, so it is invalid evidence;
+     - `pyproject.toml` and `uv.lock` (the dependency set) count as affected for **every** lab row backed
+       by source (any `affected_by` glob under `src/`), without each row listing them;
+     - a `package_version` different from the release's (`--package-version`) does **not** by itself
+       stale the evidence: the SHA diff decides, since an rc rebuilt from the same SHA ships the same code.
+       The mismatch is printed in the row's detail so a reviewer sees it;
+     - the newest entry decides; equal `recorded_at` timestamps tie-break on the evidence file path, so the
+       verdict never depends on directory order;
+   - a selection that leaves no row of the requested kind (`--rows` / `--only`) is a usage error (exit 2):
+     a gate that judged nothing never exits 0;
    - writes `docs/reports/release-v1.0-acceptance.{md,json}` (SHA, package version, dirty-tree flag, per-row
      PASS/FAIL/MISSING/WAIVED/NOT_RUN) and exits 0 only when no evaluated row is FAIL or MISSING
      (`--only auto|lab` counts that kind only). `--sha` must equal the checked-out HEAD when auto rows run.
