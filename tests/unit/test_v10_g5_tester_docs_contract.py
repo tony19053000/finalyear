@@ -24,7 +24,6 @@ SCRIPTS = ROOT / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 import changelog as cl  # noqa: E402
 
-
 # ---------------------------------------------------------------- api-docs drift
 
 
