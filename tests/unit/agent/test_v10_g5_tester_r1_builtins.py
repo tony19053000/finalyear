@@ -480,6 +480,7 @@ def test_unix_socket_is_refused(tmp_path: Path) -> None:
     try:
         s.bind(str(base / "00000" / "s"))
     except OSError:
+        s.close()  # a leaked socket warns later, failing an unrelated test
         pytest.skip("path too long for a unix socket")
     try:
         _expect_unsafe(base, out)

@@ -22,7 +22,7 @@ pytest.importorskip(
     "playwright", reason="needs the dev dependency group (pytest-playwright)"
 )
 
-from mf_dashboard import PageWatch
+from mf_dashboard import AXE_JS, PageWatch
 from mf_leaks import LeakWatch
 
 if TYPE_CHECKING:
@@ -219,6 +219,12 @@ def test_a_page_the_test_closed_before_teardown_is_still_snapshotted(
 
 
 def _guarded(browser: Browser) -> tuple[Page, PageWatch]:
+    # final_problems() runs axe-core (vendored by frontend/node_modules): the
+    # same skip as the shared ``dashboard_dist`` fixture (a fresh clone has none)
+    if not AXE_JS.is_file():
+        pytest.skip(
+            "frontend/node_modules is missing (axe-core) - run `cd frontend && npm ci`"
+        )
     page = _routed_page(browser)
     watch = PageWatch.attach(page)
     page.goto(ORIGIN + "/")

@@ -99,6 +99,8 @@ def test_docker_states(
     words: str,
 ) -> None:
     _docker(monkeypatch, result)
+    # The Linux report (on Windows a seccomp reason reads "not running").
+    monkeypatch.setattr(checks_mod.sys, "platform", "linux")
     check = checks_mod.check_docker(_settings(tmp_path))
     assert check.status.value == status and words in check.why
 

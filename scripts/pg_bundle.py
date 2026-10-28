@@ -61,6 +61,7 @@ __all__ = [
     "TrimmedBundle",
     "cache_root",
     "dir_size",
+    "drop_library_exec_bits",
     "ensure_trimmed",
     "fetch",
     "install_pgsql",
@@ -385,7 +386,31 @@ def install_pgsql(trimmed: TrimmedBundle, bundle_root: Path) -> Path:
         symlinks=True,
         ignore=lambda _dir, names: [n for n in names if n == MARKER],
     )
+    if os.name != "nt":
+        drop_library_exec_bits(dest / "lib")
     return dest
+
+
+def drop_library_exec_bits(lib_dir: Path) -> int:
+    """Shared objects in ``lib_dir`` lose their execute bits (0755 -> 0644);
+    returns how many changed.
+
+    The upstream archive ships some of them executable (``libpq.so.5``, the
+    conversion modules); ``normalise_tree`` keeps an existing execute bit, and
+    lintian refuses an executable shared library (``shared-library-is-executable``,
+    an error). ``dlopen`` and the dynamic loader never need the bit, so this is
+    a pure packaging fix. Symlinks and subfolders are left alone."""
+    changed = 0
+    if not lib_dir.is_dir():
+        return changed
+    for item in sorted(lib_dir.iterdir()):
+        if item.is_symlink() or not item.is_file():
+            continue
+        mode = item.stat().st_mode & 0o7777
+        if mode & 0o111:
+            item.chmod(mode & ~0o111)
+            changed += 1
+    return changed
 
 
 # ----------------------------------------------------------------------- CLI

@@ -18,6 +18,7 @@ from mf_agent_harness import (
     AgentFactory,
     make_controller_settings,
 )
+from mf_controller_harness import tolerant_liveness
 from mf_session_client import poll_until
 
 pytest.importorskip("sqlalchemy", reason="needs the controller extra")
@@ -256,14 +257,31 @@ async def test_agent_starts_before_controller_and_connects_when_it_appears(
 
 @pytest.mark.asyncio
 async def test_stale_epoch_is_bumped_until_admitted(
-    runtime: ControllerRuntime,
+    pg_settings: DatabaseSettings,
+    registry: Registry,
+    agents: AgentFactory,
+    identity: NodeIdentity,
+) -> None:
+    """The registry already knows a higher epoch (a previous life of this node);
+    the agent's first Hello is STALE_EPOCH, it bumps and retries at once.
+
+    The subject is the epoch rule, not liveness: TOLERANT_LIVENESS, so a slow
+    admission on a loaded runner (FAST_LIVENESS allows only 0.5 s) cannot turn
+    the admitted Hello into UNAVAILABLE + BACKOFF and an extra epoch."""
+    async with ControllerRuntime.start(
+        make_controller_settings(pg_settings, **tolerant_liveness())
+    ) as runtime:
+        await _stale_epoch_is_bumped_until_admitted(
+            registry, agents, f"127.0.0.1:{runtime.grpc_port}", identity
+        )
+
+
+async def _stale_epoch_is_bumped_until_admitted(
     registry: Registry,
     agents: AgentFactory,
     grpc_target: str,
     identity: NodeIdentity,
 ) -> None:
-    """The registry already knows a higher epoch (a previous life of this node);
-    the agent's first Hello is STALE_EPOCH, it bumps and retries at once."""
     node_id = str(identity.node_id)
     await registry.upsert_node_on_hello(
         node_id=node_id,

@@ -59,10 +59,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import platform
 import subprocess
 import sys
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Final
@@ -258,6 +259,14 @@ def evaluate_windows(
     return verdict
 
 
+def windows_powershell_env(environ: Mapping[str, str]) -> dict[str, str]:
+    """``environ`` without ``PSModulePath``: a ``powershell.exe`` (5.1) started
+    from PowerShell 7 (CI ``shell: pwsh``) would otherwise find 7's Core-only
+    modules first and fail to autoload a cmdlet (``CouldNotAutoloadMatchingModule``);
+    without it 5.1 builds its own default module path."""
+    return {k: v for k, v in environ.items() if k.upper() != "PSMODULEPATH"}
+
+
 def run_windows_probe() -> str:
     try:
         done = subprocess.run(
@@ -274,6 +283,7 @@ def run_windows_probe() -> str:
             text=True,
             timeout=180,
             check=False,
+            env=windows_powershell_env(os.environ),
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise SystemExit(f"verify_uninstall: the probe could not run: {exc}") from None

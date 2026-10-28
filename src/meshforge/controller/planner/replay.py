@@ -48,6 +48,11 @@ and an absent key always decodes to the uncalibrated / pre-G3 planner. The
 bump marks "written by a planner that knows every V0.14 key"; it changes no
 byte of what a v1 replay decodes to.
 
+**V1.0 G2 optional key (D418).** The configuration's ``disabled_modes``
+(the A5/A6 evaluation ablations) is written only when not empty, as a sorted
+list; absent = every mode, so every replay before it (and every replay of a
+controller that disables nothing) is byte-identical and decodes unchanged.
+
 **V0.15 G4 optional key (D364).** A decision planned with an ML model adds
 ``ml: {version}`` (the model set's version) and, when its predictor failed
 and it fell back to calibration (D363), ``ml.fallback`` (the error) - absent
@@ -239,6 +244,8 @@ REPLAY_FIELDS: Final[Mapping[type, frozenset[str]]] = {
             "min_useful_bw_bytes_s",
             "min_useful_bytes",
             "prune_dominated",
+            # V1.0 G2 (D418: optional, written only when not empty)
+            "disabled_modes",
         }
     ),
     SplitConfig: frozenset(
@@ -470,7 +477,7 @@ def _node(node: NodeSnapshot) -> dict[str, Any]:
 
 def _config(config: PlannerConfig) -> dict[str, Any]:
     split = config.split
-    return {
+    out: dict[str, Any] = {
         "default_bw_bytes_s": _num(config.default_bw_bytes_s),
         "default_compute_s": _num(config.default_compute_s),
         "default_env_s": _num(config.default_env_s),
@@ -497,6 +504,9 @@ def _config(config: PlannerConfig) -> dict[str, Any]:
         "min_useful_bytes": config.min_useful_bytes,
         "prune_dominated": config.prune_dominated,
     }
+    if config.disabled_modes:  # V1.0 G2: absent = every mode (older replays too)
+        out["disabled_modes"] = sorted(config.disabled_modes)
+    return out
 
 
 def _snapshot(snapshot: ClusterSnapshot) -> dict[str, Any]:
@@ -787,6 +797,13 @@ def _g3_config(data: Mapping[str, Any]) -> dict[str, Any]:
         out["min_useful_bytes"] = _int(data["min_useful_bytes"])
     if "prune_dominated" in data:
         out["prune_dominated"] = _bool(data["prune_dominated"])
+    if "disabled_modes" in data:  # V1.0 G2 (D418)
+        modes = data["disabled_modes"]
+        # kept as stored: a name the planner does not know disables nothing
+        # (the generator only tests membership of "mode1" / "mode3")
+        if not isinstance(modes, list) or not all(isinstance(m, str) for m in modes):
+            raise ReplayError("the replay's disabled_modes is not a list of names")
+        out["disabled_modes"] = frozenset(modes)
     return out
 
 

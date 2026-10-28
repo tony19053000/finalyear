@@ -360,6 +360,8 @@ class DispatchPlanner:
             min_useful_bw_bytes_s=planner.min_useful_bw_bytes_s,
             min_useful_bytes=planner.min_useful_bytes,
             prune_dominated=True,
+            # V1.0 G2 (D418 A5/A6): evaluation ablation switches
+            disabled_modes=frozenset(planner.disabled_modes),
         )
 
     # ------------------------------------------------------------ snapshot

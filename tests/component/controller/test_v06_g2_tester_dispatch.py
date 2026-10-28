@@ -337,9 +337,24 @@ async def test_revoked_only_capable_node_fails_a_waiting_auto_job_and_waiting_is
         j=waiting,
     )
     assert [o[0] for o in outcomes][-1] == "failed" and outcomes[-1][1] is None
+
     # the job that held the slot lost its attempt with the node. Since V0.6 G3
     # a loss is retried (D110): it is queued behind its backoff, or already
     # failed no_feasible_plan like the waiting job - never running.
+    # The two are independent reactions to the revoke: the planner tick fails
+    # the waiting job, the session-end hook loses the first job's attempt (seen
+    # on a CI runner ~20 ms apart, either order). Wait for the loss itself.
+    async def first_lost() -> bool:
+        rows = await _sql(
+            fabric.pg,
+            "SELECT a.state, j.state FROM attempt a JOIN job j ON j.id = a.job_id "
+            "WHERE a.job_id = :j",
+            j=first,
+        )
+        settled = rows and rows[0][1] not in ("preparing", "retrying", "planning")
+        return bool(settled) and all(r[0] == "lost" for r in rows)
+
+    await _until(first_lost, timeout_s=30)
     st = await _sql(fabric.pg, "SELECT state FROM job WHERE id = :j", j=first)
     assert st[0][0] in ("queued", "failed")
     lost = await _sql(fabric.pg, "SELECT state FROM attempt WHERE job_id = :j", j=first)

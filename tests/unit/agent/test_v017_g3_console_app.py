@@ -508,7 +508,12 @@ async def test_docker_access_explains_instead_of_doing(
 ) -> None:
     await _sign_in(http, ctx)
     body = (await http.get("/console/v1/docker-access")).json()
-    assert "usermod -aG docker meshforge" in body["command"]
+    expected = (
+        "net localgroup docker-users"
+        if sys.platform == "win32"
+        else "usermod -aG docker meshforge"
+    )
+    assert expected in body["command"]
     assert body["menu_action"]
 
 

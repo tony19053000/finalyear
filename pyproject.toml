@@ -156,6 +156,13 @@ dev = [
     "pytest-timeout>=2.4",
     "pytest-playwright>=0.7",
 ]
+# V1.0 G2 (D419): the evaluation report's figures (scripts/eval/make_report.py).
+# A separate group - not installed by a plain `uv sync`, never in a package:
+# `uv sync --group evaluation`. Pinned below the next major: figure bytes (the
+# CI eval-repro hashes) hold for one matplotlib version, like D352's reports.
+evaluation = [
+    "matplotlib>=3.10,<4",
+]
 
 # ---------------------------------------------------------------------------
 # pytest (roadmap 0.1.8, "Test tiers" in DEVELOPMENT_ROADMAP quality gates).
@@ -504,7 +511,7 @@ files = ["src", "scripts", "lab"]
 # lab helper package `_inventory` resolves like at runtime; scripts/ so
 # build_bundle.py's sibling import `bundle_lib` (V0.17 SP3) resolves. Separator ","
 # works on Windows too.
-mypy_path = "$MYPY_CONFIG_FILE_DIR/src,$MYPY_CONFIG_FILE_DIR/tests/unit,$MYPY_CONFIG_FILE_DIR/tests/_support,$MYPY_CONFIG_FILE_DIR/lab,$MYPY_CONFIG_FILE_DIR/scripts"
+mypy_path = "$MYPY_CONFIG_FILE_DIR/src,$MYPY_CONFIG_FILE_DIR/tests/unit,$MYPY_CONFIG_FILE_DIR/tests/_support,$MYPY_CONFIG_FILE_DIR/lab,$MYPY_CONFIG_FILE_DIR/scripts,$MYPY_CONFIG_FILE_DIR/scripts/eval"
 explicit_package_bases = true
 plugins = ["pydantic.mypy"]
 strict = true
@@ -549,5 +556,8 @@ module = [
     # lightgbm / xgboost stubs are partial), only under controller.ml.train
     "sklearn", "sklearn.*", "lightgbm", "lightgbm.*", "xgboost", "xgboost.*",
     "threadpoolctl",
+    # V1.0 G2: the `evaluation` group (scripts/eval figures) - not installed
+    # by the CI types job
+    "matplotlib", "matplotlib.*",
 ]
 ignore_missing_imports = true

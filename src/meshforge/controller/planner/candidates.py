@@ -60,6 +60,16 @@ one set was skipped for, with the lane that dominates it
   generator runs on the feasible, costed lanes: the sets are a function of the
   nodes, never of the policy.
 
+**Disabled modes** (V1.0 G2, D418 ablations A5/A6:
+``PlannerConfig.disabled_modes``). ``mode1`` disabled: a job's node
+candidates are the Local one only, and a split job's one-lane candidates its
+Local lane only (its Mode 3 sets still use every feasible lane - the first
+pass is not filtered). ``mode3`` disabled: a split job gets no set
+(``forced: mode3_disabled``) and runs on its best single lane. A pinned job
+and a forced node set are never affected. With ``mode1`` disabled and no
+submitter node a job has no candidate at all (it cannot run: the switch is
+an evaluation ablation, not a user setting).
+
 Stored values do not change: :attr:`Candidate.stored_mode` maps ``mode1`` to
 the ``offload`` and ``mode3`` to the ``split`` that ``plan_decision`` rows,
 run records and ``compute explain`` have always shown (D291).
@@ -91,6 +101,7 @@ from meshforge.controller.planner.types import (
 
 __all__ = [
     "FORCED_SET",
+    "MODE3_DISABLED",
     "STORED_MODE",
     "Candidate",
     "CandidateMode",
@@ -114,6 +125,8 @@ FORCED_SET: Final = "node_set"
 ``mode3`` run (V0.10 G8)."""
 
 _PINNED: Final = "pinned"
+MODE3_DISABLED: Final = "mode3_disabled"
+"""``MarginTest.forced`` when ``disabled_modes`` holds ``mode3`` (V1.0 G2)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -188,13 +201,19 @@ def _single(node_id: str, request: PlanRequest) -> Candidate:
     return Candidate(mode, (node_id,))
 
 
-def _nodes(request: PlanRequest, snapshot: ClusterSnapshot) -> tuple[Candidate, ...]:
+def _nodes(
+    request: PlanRequest, snapshot: ClusterSnapshot, *, kind: RequestKind
+) -> tuple[Candidate, ...]:
     nodes = sorted(snapshot.nodes, key=lambda n: n.node_id)
     if request.pinned_node_id is not None:
         nodes = [n for n in nodes if n.node_id == request.pinned_node_id]
     elif request.node_set:  # V0.10 G8: a forced mode3 run - exactly its set
         wanted = set(request.node_set)
         nodes = [n for n in nodes if n.node_id in wanted]
+    elif kind is RequestKind.JOB and "mode1" in snapshot.config.disabled_modes:
+        # V1.0 G2 (D418 A6): Local only; a split job's first pass keeps every
+        # node (its Mode 3 sets need the lanes)
+        nodes = [n for n in nodes if n.node_id == request.submitter_node_id]
     return tuple(_single(n.node_id, request) for n in nodes)
 
 
@@ -315,14 +334,21 @@ def _split(
     split = request.split
     if split is None:  # pragma: no cover - request_kind checked it
         raise ValueError("a split job's candidates need request.split")
+    disabled = snapshot.config.disabled_modes
+    free = request.pinned_node_id is None and not request.node_set
     singles = tuple(
-        Candidate("local" if item.local else "mode1", (item.node_id,)) for item in lanes
+        Candidate("local" if item.local else "mode1", (item.node_id,))
+        for item in lanes
+        # V1.0 G2 (D418 A6): no Mode 1 one-lane plan
+        if item.local or not (free and "mode1" in disabled)
     )
     sets: tuple[Candidate, ...] = ()
     forced: str | None = None
     pruned: tuple[Pruned, ...] = ()
     if request.pinned_node_id is not None:
         forced = _PINNED
+    elif free and "mode3" in disabled:
+        forced = MODE3_DISABLED  # V1.0 G2 (D418 A5): no set at all
     elif request.node_set:
         # V0.10 G8 (D271): every node of the forced set, or nothing (never a
         # different set, never "don't split")
@@ -402,7 +428,7 @@ def candidates(
             ),
         )
     if lanes is None:
-        return CandidateSet(kind, _nodes(request, snapshot))
+        return CandidateSet(kind, _nodes(request, snapshot, kind=kind))
     if kind is not RequestKind.SPLIT:
         raise ValueError("lanes are only given for a split job")
     return _split(request, lanes, snapshot)

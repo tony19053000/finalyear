@@ -24,6 +24,7 @@ from mf_bench_procs import (  # tests/_support, shared by the split files
     _env,
     _py,
     needs_torch,
+    skip_without_numpy,
 )
 
 from meshforge.bench.workloads import (
@@ -130,6 +131,7 @@ def test_numpy_family_checksums_repeat_across_processes_hashseeds_cwd_and_thread
     tmp_path: Path,
 ) -> None:
     names = list(CPU_NAMES)
+    skip_without_numpy(*names)
     (tmp_path / "a").mkdir()
     (tmp_path / "b with space").mkdir()
     first = _run_all(names, 11, tmp_path / "a", PYTHONHASHSEED="0")
@@ -171,6 +173,7 @@ def test_torch_family_checksums_repeat_across_processes_on_cpu(tmp_path: Path) -
 
 
 def test_in_process_run_equals_the_subprocess_job_run(tmp_path: Path) -> None:
+    skip_without_numpy("cpu.sort")
     (tmp_path / "w").mkdir()
     sub = _run_all(["cpu.sort", "cpu.zlib"], 21, tmp_path / "w")
     for name in ("cpu.sort", "cpu.zlib"):

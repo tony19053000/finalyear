@@ -20,6 +20,7 @@ from typing import Any, Literal
 from meshforge.common.owner_policy import OwnerPolicy
 
 __all__ = [
+    "DISABLEABLE_MODES",
     "STATIC_CODES",
     "AcceleratorRequest",
     "CandidateEval",
@@ -507,6 +508,11 @@ class RiskConfig:
 # --- end V0.14 G3 -------------------------------------------------------------
 
 
+DISABLEABLE_MODES: frozenset[str] = frozenset({"mode1", "mode3"})
+"""V1.0 G2 (D418): the candidate modes ``PlannerConfig.disabled_modes`` may
+name (``local`` is the baseline and can never be disabled)."""
+
+
 @dataclass(frozen=True, slots=True)
 class PlannerConfig:
     """``[controller.planner]`` values the pure planner needs."""
@@ -540,6 +546,14 @@ class PlannerConfig:
     prune_dominated: bool = False
     """D294: Mode 3 sets skip a node that can never get a chunk
     (:func:`~.candidates.dominated_lanes`); False = every prefix set."""
+    # --- V1.0 G2 (D418 A5/A6): evaluation ablation switches -------------------
+    disabled_modes: frozenset[str] = frozenset()
+    """``[controller.planner] disabled_modes``: candidate modes the generator
+    leaves out (:data:`DISABLEABLE_MODES`) - ``mode1`` = no Mode 1 offload
+    (Local, and Mode 3 for a split job), ``mode3`` = no Mode 3 sets (a split
+    job runs unsplit). Empty (the default, and every replay that lacks the
+    key) = every mode. A pinned job and a campaign's forced node set are
+    never affected (the user named the nodes)."""
 
 
 @dataclass(frozen=True, slots=True)

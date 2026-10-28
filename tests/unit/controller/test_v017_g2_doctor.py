@@ -7,6 +7,7 @@ bin folder (missing programs) - the real bundle is component-tested.
 from __future__ import annotations
 
 import json
+import os
 import socket
 from pathlib import Path
 
@@ -78,6 +79,9 @@ def test_port_in_use_by_another_program_fails(tmp_path: Path) -> None:
         assert _by_name(report)["database port"].status is CheckStatus.OK
 
 
+@pytest.mark.skipif(
+    os.name == "nt", reason="POSIX file modes (the controller is Linux-only, D398)"
+)
 def test_password_files_must_be_private(tmp_path: Path) -> None:
     settings = _settings(tmp_path)
     root = settings.db_root

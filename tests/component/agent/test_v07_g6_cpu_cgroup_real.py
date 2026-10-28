@@ -103,12 +103,25 @@ async def main():
     report["uncapped"] = await run(cgroups, "plain", None, work)
     report["escape"] = await run(cgroups, "escape", 0.5, work)
     esc = report["escape"]["escaped"]
-    try:
-        os.kill(esc, 0)
-        with open(f"/proc/{esc}/stat") as fh:
-            alive = fh.read().rsplit(")", 1)[1].split()[0] not in ("Z", "X")
-    except (ProcessLookupError, FileNotFoundError, TypeError):
-        alive = False
+
+    def alive_now():
+        try:
+            os.kill(esc, 0)
+            with open(f"/proc/{esc}/stat") as fh:
+                return fh.read().rsplit(")", 1)[1].split()[0] not in ("Z", "X")
+        except (ProcessLookupError, FileNotFoundError, TypeError):
+            return False
+
+    # cgroup.kill only queues SIGKILL, and the kernel detaches a dying task
+    # from its cgroup (so the rmdir succeeds) before the task is a zombie: for
+    # a moment it still reads "R"/"D" (seen on a loaded CI runner). Killed
+    # means gone or a zombie within a few seconds; a survivor stays alive.
+    alive = alive_now()
+    for _ in range(100):
+        if not alive:
+            break
+        await asyncio.sleep(0.05)
+        alive = alive_now()
     report["escape_alive"] = alive
 
     class Broken(CpuCgroups):

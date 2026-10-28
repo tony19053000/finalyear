@@ -113,6 +113,9 @@ def test_single_letter_admin_name_does_not_make_every_password_unusable() -> Non
 
 
 # --------------------------------------------------------------- token file
+@pytest.mark.skipif(
+    os.name == "nt", reason="POSIX file modes (the controller is Linux-only, D398)"
+)
 def test_token_is_private_random_and_stable(tmp_path: Path) -> None:
     path = tmp_path / "controller" / "setup-token"
     first, created = ensure_setup_token(path)
