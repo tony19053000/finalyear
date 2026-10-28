@@ -18,9 +18,11 @@ Ask user: OK to delete packaging/linux/meshforge-agent.path and /tmp/mfpg-suite-
 ```
 >
 > **SESSION 9 UPDATE (2026-10-28, supersedes the prompt above where they differ):**
-> - V1.0 G2 MERGED to local main a8180fc7 (tester PASS, reviewer APPROVE; full unit 27517 green on main). NOT pushed.
-> - CI-fix worktree agent-acf9ed2d27b3f026a @d80a63b7 (7 commits, 8e228bff rewritten): reviewer APPROVE; tester running → merge → push main → watch CI. Non-blocking: clear _revoke_cuts on reinstate; pg_bundle recursive *.so chmod. Open question to user: move V0.8 p95<500ms event test out of CI gate?
-> - G0 (agent-a2e637b9695f93353) and G1 (agent-aab06fbf3cde54efb, @9d7f73b3) implementers resumed; not finished.
+> - origin/main = c1b0c837 (V0.17 CI fixes + V1.0 G2 merged). CI run 40578290555 on it FAILED (G2 tests on Windows/no-extras, lint hygiene, package-windows venv job, component shards 4/6/7). CI-fix implementer in worktree agent-ade01eac5b86dd6f9 (also owns no-extras fresh-clone failures, ~29F/14E).
+> - Local main 44d1e0ae = + V1.0 G1 merged (2 fix rounds, reviewer APPROVE; unit 27730 green). NOT pushed (waiting for CI fix).
+> - G0 worktree agent-a2e637b9695f93353 @4358a295: rows V0.1-c1 (AF_UNIX socket leak) + V0.8-c2 (ERR_NETWORK_CHANGED allow-list; investigate "node suspect" 409 under 100-job burst) still FAIL; implementer working.
+> - Lead TODO: record D410 clarification (per-lifetime leak rules, too_short/excluded_share) and D411 (disk_fill leave_free_mib=512 + disk_full proof; sudoers limited to lab/mf-chaos, its arg rules are the security boundary). Follow-ups: revocation D1 xfail (stale _revoke_cuts after reinstate); pg_bundle recursive *.so chmod; agent free-disk floor configurable.
+> - Open user questions: V0.8 p95<500ms CI gate vs lab; deletions; worktree cleanup.
 
 > Order of truth: `PROJECT_BRIEF → ARCHITECTURE → ROADMAP → STATUS → this file`. If this file
 > disagrees with the roadmap, the roadmap wins and this file is stale — fix it.
