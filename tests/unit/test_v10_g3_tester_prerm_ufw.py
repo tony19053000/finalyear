@@ -11,6 +11,7 @@ from __future__ import annotations
 import shutil
 import stat
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -18,7 +19,10 @@ import pytest
 pytestmark = [
     pytest.mark.unit,
     pytest.mark.security,
-    pytest.mark.skipif(shutil.which("sh") is None, reason="needs POSIX sh"),
+    pytest.mark.skipif(
+        sys.platform == "win32" or shutil.which("sh") is None,
+        reason="runs the Linux prerm under POSIX sh (Git sh on Windows lacks the stubbed tools)",
+    ),
 ]
 
 PRERM = Path(__file__).resolve().parents[2] / "packaging/linux/controller/scripts/prerm"
