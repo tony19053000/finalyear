@@ -45,6 +45,17 @@ for Linux and Windows.
   against a real local fabric; no demo for Mode 2/4 (G5, D420).
 - Changelog tooling (`scripts/changelog.py`), the ADR index with every ADR's status, ARCHITECTURE sections
   marked current or deferred (G5, D414, D421).
+- The packaged controller trains the ML planner's models: the `meshforge-controller` bundle and `.deb` carry
+  the `ml` extra (scikit-learn, LightGBM, XGBoost), the package depends on `libgomp1`, and the `.deb` stays
+  inside the 150 MB budget (unused pyarrow Flight/S3 parts and library test suites are not shipped; the data
+  member is recompressed with liblzma) (G7, D423).
+- `scripts/release_check.py` refuses to run the automatic rows in an environment without every extra or
+  without the built dashboard, and says how to fix it (G7).
+
+### Fixed
+
+- A controller whose own event loop stalled (GC pause, starved machine) no longer marks live nodes OFFLINE:
+  the lease timer listens for one heartbeat interval after a late wake-up before it judges a lease (G7, D424).
 
 ### Deferred
 

@@ -1796,7 +1796,9 @@ The ML planner learns, per estimate term, how far the analytical model is off on
 it where it is trusted (the details are in section 0c, "ML training dataset" to "Is the model better where
 it is used?"). This is the day-to-day runbook. Every command is **admin**, run on any machine with the CLI.
 
-**1. Install (controller only).** The agents need nothing. On the controller laptop (Linux):
+**1. Install (controller only).** The agents need nothing. The **packaged controller** (`meshforge-controller`
+.deb) already carries the `ml` extra (V1.0 G7, D423) - skip the `uv sync` line and run only the check. On a
+source checkout of the controller (Linux):
 
 ```bash
 uv sync --extra controller --extra ml      # or --all-extras; adds numpy, scikit-learn, LightGBM, XGBoost (CPU)
@@ -1887,7 +1889,7 @@ rates) is in the report's `ml.terms` (`--json`, or the Markdown).
 
 | Symptom | Cause / what to do |
 |---|---|
-| `compute planner ml train` -> 409 `ml extra is not installed` | step 1 on the controller |
+| `compute planner ml train` -> 409 `ml extra is not installed` | step 1 on the controller (a source checkout; the .deb has it since D423) |
 | every fold `eval_budget_exhausted` | many families / a big dataset: raise `ml_eval_timeout_s` (and `--timeout`), or evaluate one family with `--holdout` |
 | `controller.jobs.ml_predictor_error` in the log, `ml_fallback: predictor_error` on decisions | a model error or a predict over the 20 ms wall-clock budget (busy controller): check `in_use.ml_predict_last_ms` on `compute planner ml models --json`; raise `ml_predict_budget_ms` or pin a smaller set |
 | `serving set ... not loaded (...)` in `compute planner ml models` | the set's artefacts are gone or its library is missing (`library_missing`): pin another set or retrain |
