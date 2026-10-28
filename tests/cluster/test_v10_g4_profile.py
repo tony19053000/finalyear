@@ -53,6 +53,7 @@ from mf_profile import (
     HOOK_DIR,
     CpuWindow,
     EventTap,
+    PySpy,
     Sampler,
     dump,
     pg_stat_reset,
@@ -84,7 +85,11 @@ TRANSFER_MIB: Final = _env_int("MESHFORGE_PROFILE_TRANSFER_MIB", 128)
 WAVES: Final = _env_int("MESHFORGE_PROFILE_WAVES", 0)
 WAVE_JOBS: Final = _env_int("MESHFORGE_PROFILE_WAVE_JOBS", 60)
 IDLE_MIN: Final = _env_int("MESHFORGE_PROFILE_IDLE_MIN", 0)
+HISTORY: Final = _env_int("MESHFORGE_PROFILE_HISTORY", 0)
+"""Jobs run (and kept) BEFORE the measured phases: the database of a long run."""
 TRACEMALLOC: Final = os.environ.get("MESHFORGE_PROFILE_TRACEMALLOC") == "1"
+PYSPY: Final = os.environ.get("MESHFORGE_PROFILE_PYSPY") or None
+"""A py-spy binary: the controller is recorded per phase (``pyspy-<phase>.txt``)."""
 EXEC: Final = {
     "enabled": True,
     "allow_unsandboxed": True,
@@ -93,7 +98,7 @@ EXEC: Final = {
     "max_concurrent_attempts": 4,
 }
 TERMINAL: Final = {"succeeded", "failed", "cancelled"}
-CHUNK: Final = 256 * 1024
+POLL_S: Final = 10.0
 
 MAIN: Final = """\
 import os, sys, time
@@ -114,8 +119,9 @@ with open("out/result.bin", "wb") as fh:
 
 
 class Api:
-    def __init__(self, fabric: Fabric) -> None:
+    def __init__(self, fabric: Fabric, tap: EventTap | None = None) -> None:
         self.fabric = fabric
+        self.tap = tap
 
     def client(self, timeout_s: float = 600) -> ControllerClient:
         return ControllerClient(
@@ -132,7 +138,7 @@ class Api:
             with (root / "data.bin").open("wb") as fh:
                 for _ in range(data_mib):
                     fh.write(os.urandom(1 << 20))
-        built = build_tree(root, chunk_size=CHUNK)
+        built = build_tree(root)  # the product default (8 MiB chunks), as `compute run`
         client = self.client()
         started = time.perf_counter()
         try:
@@ -167,9 +173,18 @@ class Api:
         return dict(resp.json())
 
     def wait(self, ids: list[str], within_s: float) -> dict[str, dict[str, Any]]:
+        """Until every job is terminal: watched on the event stream (the tap),
+        so the measurement does not load the controller with polling; a REST
+        check every ``POLL_S`` is the fallback (a missed frame)."""
         deadline = time.monotonic() + within_s
         done: dict[str, dict[str, Any]] = {}
+        next_poll = time.monotonic() + POLL_S
         while time.monotonic() < deadline:
+            if self.tap is not None and time.monotonic() < next_poll:
+                if not set(ids) <= self.tap.terminal:
+                    time.sleep(0.05)
+                    continue
+            next_poll = time.monotonic() + POLL_S
             for job_id in [i for i in ids if i not in done]:
                 job = self.job(job_id)
                 if job["state"] in TERMINAL:
@@ -270,12 +285,16 @@ def test_profile_local_fabric(
     )
     if TRACEMALLOC:
         monkeypatch.setenv("MF_PROFILE_TRACEMALLOC", "controller")
+    if PYSPY:
+        monkeypatch.setenv("MF_PROFILE_PTRACER", "1")
+    spy = PySpy(PYSPY, out)
     results: dict[str, Any] = {
         "started": dt.datetime.now(dt.UTC).isoformat(),
         "config": {
             "agents": AGENTS, "idle_s": IDLE_S, "seq_jobs": SEQ_JOBS, "burst": BURST,
             "transfer_mib": TRANSFER_MIB, "waves": WAVES, "wave_jobs": WAVE_JOBS,
             "idle_min": IDLE_MIN, "tracemalloc": TRACEMALLOC, "exec": EXEC,
+            "history": HISTORY,
             "cpus": os.cpu_count(),
         },
     }  # fmt: skip
@@ -290,9 +309,16 @@ def test_profile_local_fabric(
         agent_execution=EXEC,
         agent_env={"DOCKER_HOST": "unix:///nonexistent/meshforge-test.sock"},
     )
-    api = Api(fabric)
     assert fabric.controller is not None
     ctl = fabric.controller
+
+    def snap() -> dict[str, Any]:
+        """A controller dump. It runs on the event loop's thread: with
+        tracemalloc on it blocks the loop for seconds (heartbeats wait, a node
+        may read OFFLINE), so the fabric is waited back to all-online."""
+        found = dump(ctl.pid, dumps, role="controller")
+        fabric.wait_all_connected(within=120)
+        return found
 
     def pids() -> dict[str, int]:
         found = {"controller": ctl.pid} if ctl.running else {}
@@ -304,15 +330,35 @@ def test_profile_local_fabric(
     tap = EventTap(fabric)
     tap.start()
     assert tap.ready.wait(20)
+    api = Api(fabric, tap)
     all_jobs: dict[str, dict[str, Any]] = {}
     try:
+        # ------------------------------------------------------- history
+        if HISTORY:
+            sampler.mark("history")
+            seed_tree, _ = api.tree(tmp_path / "history")
+            t0 = time.perf_counter()
+            for start in range(0, HISTORY, 200):
+                batch = [
+                    api.submit(seed_tree, f"history-{i}", 0.0)[0]
+                    for i in range(start, min(HISTORY, start + 200))
+                ]
+                api.wait(batch, 1800)
+            results["history"] = {
+                "jobs": HISTORY, "s": round(time.perf_counter() - t0, 1),
+                "jobs_per_s": round(HISTORY / (time.perf_counter() - t0), 2),
+            }  # fmt: skip
+            save()
         # ---------------------------------------------------------- idle
         time.sleep(15)
-        dumps_first = dump(ctl.pid, dumps, role="controller")
+        dumps_first = snap()
         sampler.mark("idle")
         window = CpuWindow(pids()).start()
         time.sleep(IDLE_S)
         idle = window.stop()
+        spy.start("idle", ctl.pid)
+        time.sleep(IDLE_S)
+        spy.stop()
         hb_per_s = AGENTS / SHIPPED.heartbeat_s
         ctl_cpu_ms_s = 1000.0 * idle["processes"]["controller"]["cpu_s"] / idle["wall_s"]
         idle["controller_cpu_ms_per_heartbeat_upper_bound"] = round(ctl_cpu_ms_s / hb_per_s, 3)
@@ -346,35 +392,40 @@ def test_profile_local_fabric(
 
         # --------------------------------------------------------- burst
         sampler.mark("burst")
-        before = dump(ctl.pid, dumps, role="controller")
-        n_pass = len(before["timings"].get("dispatch_pass_ms", []))
-        n_dec = len(before["timings"].get("decide_ms", []))
-        n_planned = len(before["timings"].get("dispatch_planned_ms", []))
+        before = snap()
+        seen = {k: len(v) for k, v in before["timings"].items()}
         db_before = len(_decisions(pg_settings))
+        spy.start("burst", ctl.pid)
         window = CpuWindow({"controller": ctl.pid}).start()
         t0 = time.perf_counter()
         ids = [api.submit(small, f"burst-{i}", BURST_SLEEP_S)[0] for i in range(BURST)]
         submit_s = time.perf_counter() - t0
         burst = api.wait(ids, 900)
-        makespan = time.perf_counter() - t0
         cpu = window.stop()
-        after = dump(ctl.pid, dumps, role="controller")
+        spy.stop()
+        after = snap()
         all_jobs.update(burst)
         decided = _decisions(pg_settings)[db_before:]
         btimes = [_job_times(j) for j in burst.values()]
+        ends = [
+            _ts(t["at"]) for j in burst.values() for t in j["transitions"]
+            if t["to_state"] in TERMINAL
+        ]  # fmt: skip
+        makespan = max(ends) - min(_ts(j["created_at"]) for j in burst.values())
         results["burst"] = {
             "jobs": BURST,
             "succeeded": sum(1 for j in burst.values() if j["state"] == "succeeded"),
             "submit_all_s": round(submit_s, 2),
             "makespan_s": round(makespan, 2),
-            "ideal_makespan_s": round(BURST / (AGENTS * 4) * BURST_SLEEP_S, 2),
+            "ideal_makespan_s": -(-BURST // (AGENTS * 4)) * BURST_SLEEP_S,
             "controller_cpu": cpu["processes"]["controller"],
-            "decide_ms_all_calls": summary(after["timings"].get("decide_ms", [])[n_dec:]),
             "decision_ms_stored": summary(decided),
-            "dispatch_pass_ms": summary(after["timings"].get("dispatch_pass_ms", [])[n_pass:]),
-            "dispatch_planned_ms": summary(
-                after["timings"].get("dispatch_planned_ms", [])[n_planned:]
-            ),
+            # the hook's timings over the burst: decide_ms = every call (incl.
+            # waits); dispatch_pass_ms = DispatchSteps._dispatch; its parts
+            "hook": {
+                k: {**summary(v[seen.get(k, 0):]), "sum_ms": round(sum(v[seen.get(k, 0):]), 1)}
+                for k, v in sorted(after["timings"].items())
+            },
             "submit_to_running_ms": summary(
                 [t["submit_to_running_ms"] for t in btimes if t["submit_to_running_ms"]]
             ),
@@ -387,10 +438,14 @@ def test_profile_local_fabric(
 
         # ------------------------------------------------------ transfer
         sampler.mark("transfer")
-        big, up_s = api.tree(tmp_path / "big", data_mib=TRANSFER_MIB)
         node = fabric.nodes[0]
+        spy.start("upload", ctl.pid, idle=True)
+        big, up_s = api.tree(tmp_path / "big", data_mib=TRANSFER_MIB)
+        spy.stop()
+        spy.start("staging", ctl.pid, idle=True, agent=node.pid)
         job_id, _ = api.submit(big, "transfer", 0.0, TRANSFER_MIB // 2, node.node_id)
         tjob = api.wait([job_id], 900)[job_id]
+        spy.stop()
         all_jobs[job_id] = tjob
         attempt = tjob["attempts"][-1]
         staged = [x for x in attempt.get("transfers", []) if x["tree_id"] == str(big.tree.tree_id)]
@@ -422,14 +477,14 @@ def test_profile_local_fabric(
 
         # -------------------------------------------------------- memory
         mem: list[dict[str, Any]] = []
-        mem_dumps = [dump(ctl.pid, dumps, role="controller")]
+        mem_dumps = [snap()]
         mem.append({"what": "after-transfer", "rss_mib": round(mem_dumps[0]["rss_bytes"] / mib, 1)})
         for w in range(WAVES):
             sampler.mark(f"wave{w}")
             wave = [api.submit(small, f"wave{w}-{i}", 0.2)[0] for i in range(WAVE_JOBS)]
             all_jobs.update(api.wait(wave, 900))
             time.sleep(10)
-            d = dump(ctl.pid, dumps, role="controller")
+            d = snap()
             mem_dumps.append(d)
             mem.append({"what": f"wave{w}", "rss_mib": round(d["rss_bytes"] / mib, 1),
                         "gc_objects": d["gc_objects"], "tasks": sum(d["tasks"].values()),
@@ -438,7 +493,7 @@ def test_profile_local_fabric(
         for m in range(IDLE_MIN):
             sampler.mark(f"idle{m}")
             time.sleep(60)
-            d = dump(ctl.pid, dumps, role="controller")
+            d = snap()
             mem_dumps.append(d)
             mem.append({"what": f"idle-min{m + 1}", "rss_mib": round(d["rss_bytes"] / mib, 1),
                         "gc_objects": d["gc_objects"], "tasks": sum(d["tasks"].values()),
@@ -463,6 +518,7 @@ def test_profile_local_fabric(
         )
         save()
     finally:
+        spy.stop()
         tap.stop()
         sampler.stop()
         results["samples"] = {
@@ -473,6 +529,7 @@ def test_profile_local_fabric(
             label: sampler.series(label, "threads")[-1:] for label in ("controller", "agent0")
         }
         results["marks"] = sampler.marks
+        results["pyspy"] = spy.files
         results["db"] = {"unavailable": pg_reason} if pg_reason else pg_top(pg_settings)
         results["finished"] = dt.datetime.now(dt.UTC).isoformat()
         save()

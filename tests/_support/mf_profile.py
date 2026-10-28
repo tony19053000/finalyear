@@ -150,6 +150,8 @@ class EventTap(threading.Thread):
         self.frames: list[tuple[float, dict[str, Any]]] = []
         self.error: str | None = None
         self.ready = threading.Event()
+        self.terminal: set[str] = set()
+        """Jobs seen reaching a terminal state (so waiting needs no polling)."""
 
     def run(self) -> None:
         from websockets.sync.client import connect
@@ -168,7 +170,13 @@ class EventTap(threading.Thread):
                 while not self._stop_evt.is_set():
                     with contextlib.suppress(TimeoutError):
                         raw = ws.recv(timeout=0.5)
-                        self.frames.append((time.time(), json.loads(raw)))
+                        frame = json.loads(raw)
+                        self.frames.append((time.time(), frame))
+                        data = frame.get("data") or {}
+                        if frame.get("type") == "job.state" and data.get("state") in (
+                            "succeeded", "failed", "cancelled"
+                        ):
+                            self.terminal.add(str(data.get("job_id")))
         except Exception as exc:  # noqa: BLE001 - reported in the results
             self.error = f"{type(exc).__name__}: {exc}"
             self.ready.set()
@@ -189,6 +197,48 @@ def dump(pid: int, out_dir: Path, *, role: str, timeout_s: float = 120.0) -> dic
             return dict(json.loads(new[-1].read_text("utf-8")))
         time.sleep(0.2)
     raise AssertionError(f"no profile dump from {role} {pid} within {timeout_s} s")
+
+
+class PySpy:
+    """``py-spy record`` of some processes for one phase (``binary`` None =
+    off): ``pyspy-<phase>[-<label>].txt``. Attaching needs the hook's
+    ``MF_PROFILE_PTRACER=1`` under Yama ptrace scope 1."""
+
+    def __init__(self, binary: str | None, out_dir: Path) -> None:
+        self.binary = binary
+        self.out_dir = out_dir
+        self._procs: list[Any] = []
+        self.files: dict[str, str] = {}
+
+    def start(self, phase: str, pid: int, *, idle: bool = False, **more: int) -> None:
+        """``idle``: also sample waiting threads (``--idle``: wall time, I/O)."""
+        import subprocess
+
+        if not self.binary:
+            return
+        for label, target in {"": pid, **more}.items():
+            name = phase if not label else f"{phase}-{label}"
+            path = self.out_dir / f"pyspy-{name}.txt"
+            self._procs.append(
+                subprocess.Popen(
+                    [self.binary, "record", "--pid", str(target), "-r", "100",
+                     "-f", "raw", "--nonblocking", "-o", str(path),
+                     *(["--idle"] if idle else [])],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT,
+                )  # fmt: skip
+            )
+            self.files[name] = str(path)
+        time.sleep(1.0)
+
+    def stop(self) -> None:
+        for proc in self._procs:
+            proc.send_signal(signal.SIGINT)
+        for proc in self._procs:
+            try:
+                proc.wait(30)
+            except Exception:  # noqa: BLE001 - never leave it behind
+                proc.kill()
+        self._procs = []
 
 
 async def _pg(settings: Any, fn: Callable[[Any], Any]) -> Any:
@@ -282,3 +332,39 @@ def pg_top(settings: Any, limit: int = 15, explain: int = 10) -> list[dict[str, 
         return [{"total_ms_all": round(total, 2), "statements": len(rows)}, *out]
 
     return list(pg_run(settings, go))
+
+
+def pyspy_top(
+    path: Path, match: str, *, top: int = 30, skip_idle: bool = True
+) -> dict[str, Any]:
+    """Self and inclusive sample shares per function of the processes whose
+    ``process N:"cmdline"`` frame contains ``match`` (a ``py-spy record
+    --subprocesses -f raw`` file: one ``frame;frame;... count`` per line).
+    ``skip_idle``: samples parked in the selector (an idle event loop) are
+    left out, so the shares are of busy time."""
+    from collections import Counter
+
+    self_c: Counter[str] = Counter()
+    incl: Counter[str] = Counter()
+    total = 0
+    for line in path.read_text("utf-8", errors="replace").splitlines():
+        stack, _, count_s = line.rpartition(" ")
+        if match not in stack or not count_s.isdigit():
+            continue
+        frames = [f for f in stack.split(";") if not f.startswith("process ")]
+        if not frames:
+            continue
+        if skip_idle and any(
+            k in frames[-1] for k in ("select (selectors.py", "poll (selectors.py")
+        ):
+            continue
+        n = int(count_s)
+        total += n
+        self_c[frames[-1]] += n
+        for f in set(frames):
+            incl[f] += n
+
+    def rows(c: Counter[str]) -> list[tuple[str, float]]:
+        return [(k, round(100.0 * v / max(1, total), 2)) for k, v in c.most_common(top)]
+
+    return {"samples": total, "self_pct": rows(self_c), "inclusive_pct": rows(incl)}

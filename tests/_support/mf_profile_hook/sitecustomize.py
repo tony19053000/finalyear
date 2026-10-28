@@ -10,9 +10,12 @@ controller / agent process then:
   the top allocation sites plus a ``.tracemalloc`` snapshot file for
   ``Snapshot.compare_to``;
 * (controller) times every dispatch pass (``DispatchSteps._dispatch``), every
-  ``ExecutionStore.dispatch_planned`` and every planner ``decide`` call -
-  including the ``Wait`` answers that write no decision row - and puts the
-  numbers into the same file.
+  ``ExecutionStore.dispatch_planned`` with its parts (``queued_jobs``,
+  ``read_fabric``, ``_create_dispatched``, ``_record_decision``,
+  ``_send_start``) and every planner ``decide`` call - including the ``Wait``
+  answers that write no decision row - and puts the numbers into the same file.
+* ``MF_PROFILE_TRACEMALLOC=<role>`` starts ``tracemalloc`` in that role;
+  ``MF_PROFILE_PTRACER=1`` lets a sibling ``py-spy`` attach (Yama scope 1).
 
 Nothing here changes behaviour: the wrappers call the original and only add
 ``time.perf_counter`` around it. Without ``MF_PROFILE_DIR`` this file does
@@ -49,11 +52,9 @@ if _DIR:
     from typing import Any
 
     _ROLE = _role()
-    _TIMINGS: dict[str, collections.deque[float]] = {
-        "dispatch_pass_ms": collections.deque(maxlen=200_000),
-        "dispatch_planned_ms": collections.deque(maxlen=200_000),
-        "decide_ms": collections.deque(maxlen=500_000),
-    }
+    _TIMINGS: collections.defaultdict[str, collections.deque[float]] = (
+        collections.defaultdict(lambda: collections.deque(maxlen=500_000))
+    )
     _SEQ = [0]
 
     def _rss_bytes() -> int:
@@ -136,10 +137,20 @@ if _DIR:
         if name == "meshforge.controller.jobs.dispatch":
             cls = module.DispatchSteps
             cls._dispatch = _timed_async(cls._dispatch, "dispatch_pass_ms")
+            cls._send_start = _timed_async(cls._send_start, "send_start_ms")
         elif name == "meshforge.controller.jobs.execution_store":
             cls = module.ExecutionStore
             cls.dispatch_planned = _timed_async(
                 cls.dispatch_planned, "dispatch_planned_ms"
+            )
+            cls._create_dispatched = _timed_async(
+                cls._create_dispatched, "create_dispatched_ms"
+            )
+            # the pass's reads, by the names execution_store imported them as
+            module.queued_jobs = _timed_async(module.queued_jobs, "queued_jobs_ms")
+            module.read_fabric = _timed_async(module.read_fabric, "read_fabric_ms")
+            module._record_decision = _timed_async(
+                module._record_decision, "record_decision_ms"
             )
         elif name == "meshforge.controller.jobs.planning":
             cls = module.DispatchPlanner
@@ -173,5 +184,12 @@ if _DIR:
         signal.signal(signal.SIGUSR2, _dump)
         if _ROLE == "controller":
             sys.meta_path.insert(0, _Finder())
+        if os.environ.get("MF_PROFILE_PTRACER") == "1":
+            # Yama ptrace_scope=1: let a sibling py-spy (started by the test
+            # process for one phase) attach to this process.
+            import ctypes
+
+            pr_set_ptracer, pr_set_ptracer_any = 0x59616D61, ctypes.c_ulong(-1)
+            ctypes.CDLL(None).prctl(pr_set_ptracer, pr_set_ptracer_any, 0, 0, 0)
         if os.environ.get("MF_PROFILE_TRACEMALLOC") == _ROLE:
             tracemalloc.start(int(os.environ.get("MF_PROFILE_TRACEMALLOC_FRAMES", "8")))
