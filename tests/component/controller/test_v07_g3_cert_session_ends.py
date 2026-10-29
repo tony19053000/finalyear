@@ -27,7 +27,11 @@ import pytest
 pytest.importorskip("sqlalchemy", reason="needs the controller extra")
 
 from mf_forged_certs import Forged, forge, grpc_credentials
-from mf_session_client import FakeAgent
+from mf_session_client import (
+    GRPC_CLIENT_RELABEL_DETAILS,
+    FakeAgent,
+    ended_by_client_write_relabel,
+)
 
 from meshforge.common import pki
 from meshforge.controller.revocation import supersede
@@ -76,6 +80,29 @@ async def _trailer(agent: FakeAgent) -> str | None:
     return dict(metadata or ()).get("meshforge-reason")
 
 
+async def _assert_cut(agent: FakeAgent, code: grpc.StatusCode, reason: str) -> None:
+    """The cut reached the agent as ``code`` + ``meshforge-reason: reason``.
+
+    V1.0 G8 F3: a heartbeat in flight at the cut fails in grpc core and
+    grpc.aio's *client* relabels the call INTERNAL "Internal error from Core"
+    with no trailers - before the reader saw the server's status (then the
+    end itself is relabelled) or after it (then only the trailer is lost).
+    Either is accepted only with that exact evidence on this agent's own
+    write; the caller always checks the session row's ``end_reason``."""
+    if ended_by_client_write_relabel(agent):
+        return
+    assert agent.end_code is code, (agent.end_code, agent.end_details)
+    assert agent.end_details.startswith(reason)
+    trailer = await _trailer(agent)
+    err = agent.write_error
+    relabelled_later = (
+        err is not None
+        and err.code() is grpc.StatusCode.INTERNAL
+        and err.details() == GRPC_CLIENT_RELABEL_DETAILS
+    )
+    assert trailer == reason or (trailer is None and relabelled_later), trailer
+
+
 @pytest.mark.security
 async def test_superseded_cert_cuts_its_live_session_within_the_poll_interval(
     runtime: ControllerRuntime, pg_settings: DatabaseSettings
@@ -106,9 +133,9 @@ async def test_superseded_cert_cuts_its_live_session_within_the_poll_interval(
             await asyncio.wait_for(agent.ended.wait(), timeout=5)
             took = time.monotonic() - started
             assert took < 1.0 + 1.0, f"cut after {took:.2f} s"
-            assert agent.end_code is grpc.StatusCode.PERMISSION_DENIED
-            assert agent.end_details.startswith("cert_superseded")
-            assert await _trailer(agent) == "cert_superseded"
+            await _assert_cut(
+                agent, grpc.StatusCode.PERMISSION_DENIED, "cert_superseded"
+            )
             await asyncio.sleep(0.5)
             assert not other.ended.is_set(), "the bystander was cut too"
         finally:
@@ -156,9 +183,7 @@ async def test_a_session_is_cut_at_its_certificates_not_after(
                 dt.datetime.now(dt.UTC) - short.cert.not_valid_after_utc
             ).total_seconds()
             assert late < 1.5, f"cut {late:.2f} s after not_after"
-            assert agent.end_code is grpc.StatusCode.UNAUTHENTICATED
-            assert agent.end_details.startswith("cert_expired")
-            assert await _trailer(agent) == "cert_expired"
+            await _assert_cut(agent, grpc.StatusCode.UNAUTHENTICATED, "cert_expired")
         finally:
             await agent.close()
     await _eventually(

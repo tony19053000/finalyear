@@ -24,12 +24,45 @@ if TYPE_CHECKING:
     from meshforge.controller.registry import Registry, SessionEndReason
 
 __all__ = [
+    "GRPC_CLIENT_RELABEL_DETAILS",
     "FakeAgent",
+    "ended_by_client_write_relabel",
     "free_port_pair",
     "make_hello",
     "poll_until",
     "wait_session_end_reason",
 ]
+
+
+GRPC_CLIENT_RELABEL_DETAILS = "Internal error from Core"
+"""``details()`` of a call grpc.aio's *client* ended INTERNAL itself because a
+write of ours failed in core (``grpc/aio/_call.py`` ``_write``: ``cygrpc.
+InternalError`` -> ``set_internal_error``), not a status the server sent.
+Checked against grpc 1.84. If a grpc upgrade changes this string, the tests
+that accept the relabel fail (they no longer recognise it); they never hide
+a real INTERNAL."""
+
+
+def ended_by_client_write_relabel(agent: FakeAgent) -> bool:
+    """True when the stream's end status was made up by grpc.aio's client.
+
+    A write in flight when the server ends the call fails in grpc core
+    (``Failed "execute_batch"``); grpc.aio then sets the call's status to
+    INTERNAL "Internal error from Core" with no trailing metadata, and that is
+    what the reader sees instead of the status (and ``meshforge-reason``) the
+    server sent. This is a client-side artefact, never a server status. It is
+    accepted only with all the evidence: the end is exactly that INTERNAL, and a
+    write of this agent raised it. Tests that accept it must still check the
+    server's truth (the session row's ``end_reason``).
+    """
+    err = agent.write_error
+    return (
+        agent.end_code is grpc.StatusCode.INTERNAL
+        and agent.end_details == GRPC_CLIENT_RELABEL_DETAILS
+        and err is not None
+        and err.code() is grpc.StatusCode.INTERNAL
+        and err.details() == GRPC_CLIENT_RELABEL_DETAILS
+    )
 
 
 def make_hello(node_id: str, epoch: int, **overrides: Any) -> agent_pb2.Hello:
@@ -69,6 +102,9 @@ class FakeAgent:
     ended: asyncio.Event = field(default_factory=asyncio.Event)
     end_code: grpc.StatusCode | None = None
     end_details: str = ""
+    write_error: grpc.aio.AioRpcError | None = None
+    """The first ``AioRpcError`` a write of ours raised (see
+    :func:`ended_by_client_write_relabel`)."""
     _call: Any = None
     # grpc.aio allows one in-flight write per call; the heartbeat loop and the
     # auto-pong in the reader both write, so writes are serialised.
@@ -90,7 +126,12 @@ class FakeAgent:
     async def write(self, msg: agent_pb2.AgentMessage) -> None:
         assert self._call is not None
         async with self._write_lock:
-            await self._call.write(msg)
+            try:
+                await self._call.write(msg)
+            except grpc.aio.AioRpcError as exc:
+                if self.write_error is None:
+                    self.write_error = exc
+                raise
 
     async def read(self) -> agent_pb2.ControllerMessage | None:
         """One controller message, or None at EOF (records the final status)."""

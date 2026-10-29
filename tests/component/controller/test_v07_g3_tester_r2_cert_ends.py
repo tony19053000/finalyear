@@ -23,7 +23,13 @@ import grpc
 import pytest
 from mf_controller_harness import make_settings, tolerant_liveness
 from mf_forged_certs import Forged, forge, grpc_credentials
-from mf_session_client import FakeAgent, make_hello
+from mf_session_client import (
+    GRPC_CLIENT_RELABEL_DETAILS,
+    FakeAgent,
+    ended_by_client_write_relabel,
+    make_hello,
+    wait_session_end_reason,
+)
 
 pytest.importorskip("sqlalchemy", reason="needs the controller extra")
 
@@ -32,6 +38,7 @@ from sqlalchemy import text
 from meshforge.common import pki
 from meshforge.common.ids import new_command_id
 from meshforge.common.proto.meshforge.v1 import agent_pb2, agent_pb2_grpc
+from meshforge.controller.registry import Registry, SessionEndReason
 from meshforge.controller.revocation import supersede
 from meshforge.controller.server import ControllerRuntime
 from meshforge.controller.settings import ControllerSettings
@@ -101,15 +108,47 @@ async def _wait(predicate: Any, timeout_s: float, what: str) -> None:
 async def _hello_once(
     rt: ControllerRuntime, forged: Forged
 ) -> tuple[grpc.StatusCode | None, str | None]:
+    """One Hello on a fresh call: its status and ``meshforge-reason``.
+
+    V1.0 G8 F3: the interceptor refuses the call at once, so the Hello can
+    still be in flight; its write then fails in grpc core and grpc.aio's
+    client relabels the call INTERNAL "Internal error from Core" with no
+    trailers - the server's answer is lost on the client, not wrong. Only
+    that exact case is probed again (a write cannot be refused unless the
+    call already ended, so it was never an admission)."""
+    # Only ``call.write`` can relabel (grpc.aio ``_write``); ``read()`` never
+    # does, so _hello_probe lets only the write's error out. Do not widen the
+    # retry to the read path: that would hide a real INTERNAL from the server.
+    for _ in range(5):
+        try:
+            return await _hello_probe(rt, forged)
+        except grpc.aio.AioRpcError as exc:
+            if not (
+                exc.code() is grpc.StatusCode.INTERNAL
+                and exc.details() == GRPC_CLIENT_RELABEL_DETAILS
+            ):
+                md = dict(exc.trailing_metadata() or ())
+                return exc.code(), md.get("meshforge-reason")
+    raise AssertionError("every Hello write was relabelled by the client")
+
+
+async def _hello_probe(
+    rt: ControllerRuntime, forged: Forged
+) -> tuple[grpc.StatusCode | None, str | None]:
     async with _channel(rt, forged) as channel:
         call = agent_pb2_grpc.AgentControlStub(channel).Session(timeout=10)
         try:
+            # A failed write raises out of the probe (see _hello_once).
             await call.write(
                 agent_pb2.AgentMessage(
                     message_id=new_command_id(),
                     hello=make_hello(forged.node_id, 1),
                 )
             )
+        except BaseException:
+            call.cancel()
+            raise
+        try:
             reply = await call.read()
             if (
                 reply is not grpc.aio.EOF
@@ -168,6 +207,11 @@ async def test_the_cut_old_laptop_is_refused_again_at_every_hello(
             s="abc123",
             n=node.node_id,
         )
+        # V1.0 G8 F3: a heartbeat in flight at the cut makes grpc.aio's client
+        # relabel the call INTERNAL with no trailers (even after the reader
+        # got the real status), losing meshforge-reason. Stop writing first;
+        # liveness here is tolerant (10 s lease).
+        await agent.finish_heartbeats()
         await _supersede(pg_settings, node)
         await asyncio.wait_for(agent.ended.wait(), timeout=5)
         assert await _reason_of(agent) == "cert_superseded"
@@ -227,7 +271,10 @@ async def test_a_replaced_sessions_expiry_timer_never_cuts_its_replacement(
 
 @pytest.mark.parametrize("margin_s", [0.05, 0.2, 0.5, 1.0])
 async def test_a_certificate_with_milliseconds_left_never_leaves_a_zombie(
-    runtime: ControllerRuntime, pg_settings: DatabaseSettings, margin_s: float
+    runtime: ControllerRuntime,
+    pg_settings: DatabaseSettings,
+    registry: Registry,
+    margin_s: float,
 ) -> None:
     cert = forge(
         now=dt.datetime.now(dt.UTC) - dt.timedelta(seconds=60 - margin_s),
@@ -245,11 +292,23 @@ async def test_a_certificate_with_milliseconds_left_never_leaves_a_zombie(
             pass  # refused at the handshake / Hello: also correct
         if connected:
             await asyncio.wait_for(agent.ended.wait(), timeout=margin_s + 4)
+            # V1.0 G8 F3: a heartbeat written while the controller cuts the
+            # stream fails in grpc core, and grpc.aio's *client* then ends the
+            # call INTERNAL "Internal error from Core" itself, hiding the
+            # UNAUTHENTICATED cert_expired the controller sent (CI run
+            # 40871951455; ~1 in 200 runs under load). Accepted only with that
+            # exact evidence; the controller's own record must say cert_expired.
             assert agent.end_code in (
                 grpc.StatusCode.UNAUTHENTICATED,
                 grpc.StatusCode.UNAVAILABLE,
                 grpc.StatusCode.CANCELLED,
-            ), agent.end_code
+            ) or ended_by_client_write_relabel(agent), (
+                agent.end_code,
+                agent.end_details,
+                agent.write_error,
+            )
+            reason = await wait_session_end_reason(registry, agent.session_id)
+            assert reason is SessionEndReason.CERT_EXPIRED, reason
         with contextlib.suppress(Exception):
             await agent.close()
     await _wait(
