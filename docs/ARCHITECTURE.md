@@ -576,6 +576,8 @@ stateDiagram-v2
 
 **Fenced state writes (D20).** Every node-state write that comes from a session is `UPDATE node SET state = … WHERE node_id = :n AND last_session_id = :s`. Writes are ordered *within* a session by its write chain, but nothing orders an old session's late write against a new session's admission (which updates the row directly, not on a chain). Without the fence, a backlogged `OFFLINE` from the old session could land after the reconnect's `ONLINE` and leave a connected node reading `OFFLINE` indefinitely: heartbeats are self-loops, so nothing would ever rewrite it. A fenced write that matches 0 rows was superseded; it is logged, not an error.
 
+**Node state leads the session row (V1.0 G8 F2).** On a session's chain the end's state write (`OFFLINE`, or `SUSPECT` for a loss) commits **before** `close_session`, in its own transaction, and the gRPC status can reach the agent before either commits; so a reader can briefly see `node.state = offline` (or the agent's status) while `node_session.end_reason` is still null. That is by design: no product reader (REST `/v1/sessions`, CLI, dashboard) treats "OFFLINE with an open session row" as an error, and tests wait for the row to close before judging `end_reason`.
+
 ---
 
 ## 13. Failure model, retries, idempotency

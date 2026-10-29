@@ -18,7 +18,12 @@ import grpc
 import pytest
 from mf_controller_harness import FAST_LIVENESS, HELLO_TIMEOUT_S
 from mf_fabric import NodeChannels
-from mf_session_client import FakeAgent, make_hello, poll_until
+from mf_session_client import (
+    FakeAgent,
+    make_hello,
+    poll_until,
+    wait_session_end_reason,
+)
 
 from meshforge.common.ids import new_command_id
 from meshforge.common.proto.meshforge.v1 import agent_pb2, common_pb2
@@ -45,19 +50,6 @@ async def wait_state(
         return await node_state(registry, node_id) is state
 
     return await poll_until(is_state, timeout_s=timeout_s)
-
-
-async def wait_closed(
-    registry: Registry, session_id: str, timeout_s: float = 5.0
-) -> SessionEndReason:
-    async def closed() -> bool:
-        rec = await registry.get_session(session_id)
-        return rec is not None and rec.ended_at is not None
-
-    await poll_until(closed, timeout_s=timeout_s)
-    rec = await registry.get_session(session_id)
-    assert rec is not None and rec.end_reason is not None
-    return rec.end_reason
 
 
 # ---------------------------------------------------------------- admission
@@ -183,7 +175,8 @@ async def test_higher_epoch_supersedes_and_old_stream_ends(
     assert all(m.session_id in ("", old_ack.session_id) for m in old.received)
 
     assert (
-        await wait_closed(registry, old_ack.session_id) is SessionEndReason.SUPERSEDED
+        await wait_session_end_reason(registry, old_ack.session_id)
+        is SessionEndReason.SUPERSEDED
     )
     new_session = await registry.get_session(new_ack.session_id)
     assert new_session is not None and new_session.is_open
@@ -230,7 +223,10 @@ async def test_silence_walks_suspect_then_offline_and_persists_both(
     offline_at = loop.time() - t0
     assert OFFLINE_AT * 0.9 <= offline_at <= OFFLINE_AT + 1.0, offline_at
 
-    assert await wait_closed(registry, ack.session_id) is SessionEndReason.LEASE_EXPIRED
+    assert (
+        await wait_session_end_reason(registry, ack.session_id)
+        is SessionEndReason.LEASE_EXPIRED
+    )
     await agent.wait_ended()
     assert agent.end_code is grpc.StatusCode.ABORTED  # review NB1: not a clean end
     assert agent.end_details == SessionEndReason.LEASE_EXPIRED.value
@@ -246,7 +242,7 @@ async def test_reconnect_after_offline_is_online_again(
     await first.wait_ended()
     # OFFLINE is committed before close_session (D19 chain order).
     assert (
-        await wait_closed(registry, first_ack.session_id)
+        await wait_session_end_reason(registry, first_ack.session_id)
         is SessionEndReason.LEASE_EXPIRED
     )
 
@@ -313,7 +309,8 @@ async def test_second_hello_on_open_stream_is_protocol_error(
     )
     await agent.wait_ended()
     assert (
-        await wait_closed(registry, ack.session_id) is SessionEndReason.PROTOCOL_ERROR
+        await wait_session_end_reason(registry, ack.session_id)
+        is SessionEndReason.PROTOCOL_ERROR
     )
     assert agent.end_code is grpc.StatusCode.ABORTED  # review NB1
     assert agent.end_details == SessionEndReason.PROTOCOL_ERROR.value
@@ -327,7 +324,10 @@ async def test_agent_disconnect_closes_session_as_agent_closed(
     # Half-close and wait for the final status, like the real agent's stop. (A
     # cancel right after the half-close is stream_lost since G6 / D19.)
     await agent.close(graceful=True)
-    assert await wait_closed(registry, ack.session_id) is SessionEndReason.AGENT_CLOSED
+    assert (
+        await wait_session_end_reason(registry, ack.session_id)
+        is SessionEndReason.AGENT_CLOSED
+    )
 
     async def unregistered() -> bool:
         return runtime.manager is not None and len(runtime.manager) == 0

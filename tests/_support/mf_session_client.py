@@ -332,17 +332,17 @@ async def wait_session_end_reason(
     can have its status, while ``end_reason`` is still null (V1.0 G8 F2). Wait
     for the close, then judge the reason it was closed with.
     """
-    seen: list[SessionEndReason] = []
+    reason: SessionEndReason | None = None
 
     async def closed() -> bool:
+        nonlocal reason
         rec = await registry.get_session(session_id)
-        if rec is None or rec.end_reason is None:
-            return False
-        seen.append(rec.end_reason)
-        return True
+        reason = None if rec is None else rec.end_reason
+        return reason is not None
 
     await poll_until(closed, timeout_s=timeout_s, interval_s=0.01)
-    return seen[-1]
+    assert reason is not None
+    return reason
 
 
 def free_port_pair() -> tuple[int, int]:

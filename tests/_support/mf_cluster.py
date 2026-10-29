@@ -1143,6 +1143,29 @@ class Fabric:
                 return dict(record)
         self.fail(f"{node.name}: session {session_id} not listed over REST")
 
+    def wait_session_end(
+        self, node: Node, session_id: str | None, *, within: float = 5.0
+    ) -> str:
+        """``session_id``'s ``end_reason`` over REST once its row is closed.
+
+        The session row trails what a test waits on: the node's state write
+        (OFFLINE / SUSPECT) commits before ``close_session`` on the session's
+        write chain (D19 order), and a new session can be admitted before the
+        old chain's close lands. A one-shot read can see ``null`` (V1.0 G8 F2).
+        """
+        reason: str | None = None
+
+        def closed() -> bool:
+            nonlocal reason
+            reason = self.session(node, session_id)["end_reason"]
+            return reason is not None
+
+        self.wait_until(
+            closed, within=within, what=f"{node.name}: session {session_id} closed"
+        )
+        assert reason is not None
+        return reason
+
     def resources(self, node: Node, **params: Any) -> dict[str, Any] | None:
         body = self.get(f"/v1/nodes/{node.node_id}/resources", **params)
         return body if isinstance(body, dict) else None

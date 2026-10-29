@@ -119,7 +119,7 @@ def test_b_sigkill_one_agent_suspect_then_offline_others_untouched(
     view = fabric.node_view(victim)
     assert view is not None and view["connected"] is False
     lost = fabric.new_transitions(victim, baseline)[0].session_id
-    assert fabric.session(victim, lost)["end_reason"] == "stream_lost"
+    assert fabric.wait_session_end(victim, lost) == "stream_lost"
 
     time.sleep(QUIET_WINDOW_S)
     fabric.assert_quiet(_others(fabric, victim), baseline)
@@ -189,7 +189,7 @@ def test_d_blackhole_offline_at_lease_edge_restore_online_no_restart(
         ("offline", "online", "reconnected"),
     ]
     lost = fabric.new_transitions(victim, baseline)[0].session_id
-    assert fabric.session(victim, lost)["end_reason"] == "lease_expired"
+    assert fabric.wait_session_end(victim, lost) == "lease_expired"
     assert victim.link.counters().bytes_dropped > 0  # the blackhole really ate bytes
     fabric.assert_quiet(_others(fabric, victim), baseline)
     record_timing("d blackhole -> OFFLINE", offline_s, OFFLINE_WITHIN_S, FAST.name)
@@ -231,7 +231,7 @@ def test_e_reset_peer_suspect_then_online_without_offline(
     sessions = fabric.sessions(victim)
     assert len(sessions) == sessions_before + 1
     lost = fabric.new_transitions(victim, baseline)[0].session_id
-    assert fabric.session(victim, lost)["end_reason"] == "stream_lost"
+    assert fabric.wait_session_end(victim, lost) == "stream_lost"
     assert victim.pid == pid
     # The linger ended because the new session arrived, not because the lease ran out.
     linger_ends = [
@@ -277,7 +277,7 @@ def test_g_graceful_stop_offline_promptly_connected_false(
     assert all(to != "online" for _f, to, _e in arrows), arrows
     assert len(arrows) <= 2, arrows
     closed = fabric.new_transitions(victim, baseline)[-1].session_id
-    assert fabric.session(victim, closed)["end_reason"] == "agent_closed"
+    assert fabric.wait_session_end(victim, closed) == "agent_closed"
     time.sleep(QUIET_WINDOW_S)
     assert fabric.arrows(victim, baseline) == arrows
     fabric.assert_quiet(_others(fabric, victim), baseline)
@@ -343,7 +343,7 @@ def test_l_sigterm_goodbye_offline_within_1s_sigkill_suspect_then_lease(
     record_timing("l SIGTERM -> OFFLINE", offline_s, 1.0, FAST.name)
     assert fabric.arrows(clean, baseline) == [("online", "offline", "stream_closed")]
     closed = fabric.new_transitions(clean, baseline)[-1].session_id
-    assert fabric.session(clean, closed)["end_reason"] == "agent_closed"
+    assert fabric.wait_session_end(clean, closed) == "agent_closed"
 
     t1 = killed.kill()
     fabric.wait_state(killed, "offline", within=OFFLINE_WITHIN_S, since=t1)

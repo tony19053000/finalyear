@@ -20,7 +20,7 @@ pytest.importorskip("sqlalchemy", reason="needs the controller extra")
 pytest.importorskip("fastapi", reason="needs the controller extra")
 pytest.importorskip("testcontainers", reason="needs the dev dependency group")
 
-from mf_session_client import FakeAgent, poll_until
+from mf_session_client import FakeAgent, poll_until, wait_session_end_reason
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
@@ -41,17 +41,6 @@ pytestmark = [pytest.mark.component, pytest.mark.docker, pytest.mark.asyncio]
 RejectCode = agent_pb2.HelloAck.RejectCode
 
 
-async def wait_closed(registry: Registry, session_id: str) -> SessionEndReason | None:
-    async def closed() -> bool:
-        rec = await registry.get_session(session_id)
-        return rec is not None and not rec.is_open
-
-    await poll_until(closed, timeout_s=3.0)
-    rec = await registry.get_session(session_id)
-    assert rec is not None
-    return rec.end_reason
-
-
 # ------------------------------------------------------------ DEFECT-1 fencing
 
 
@@ -61,7 +50,10 @@ async def test_lower_or_equal_epoch_after_disconnect_is_stale_over_the_wire(
     winner: FakeAgent = agents(epoch=5)
     ack = await winner.connect()
     await winner.close(graceful=True)
-    assert await wait_closed(registry, ack.session_id) is SessionEndReason.AGENT_CLOSED
+    assert (
+        await wait_session_end_reason(registry, ack.session_id)
+        is SessionEndReason.AGENT_CLOSED
+    )
 
     for epoch in (5, 4):
         stale: FakeAgent = agents(node_id=winner.node_id, epoch=epoch)
