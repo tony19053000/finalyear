@@ -138,6 +138,7 @@ meshforge-console-open = "meshforge.agent.console.launcher:main"
 # Roadmap 0.1.2 says "extra dev"; a PEP 735 dependency group is used instead so dev
 # tools are not published as a user-facing extra and `uv sync` installs them by default.
 dev = [
+    "packaging>=24",  # release_check.py preflight parses requirements
     "pytest>=9.1",
     "pytest-asyncio>=1.4",
     "pytest-cov>=7.1",
