@@ -263,10 +263,15 @@ def test_http_port_is_tls_and_every_api_call_needs_a_token(
     foreign = _ca_context(controller, alpn=["http/1.1"])
     foreign.load_cert_chain(*_foreign_identity(tmp_path))
     # a client certificate is optional here (agents present one for blobs) -
-    # but a foreign one either fails the handshake or is no credential
+    # but a foreign one either fails the handshake or is no credential.
+    # TLS 1.3: the client's handshake is done before the server has checked the
+    # client certificate, so a refusal surfaces on the first read, as one of: a
+    # TLS alert (SSLError); a bare EOF (asyncio closes without the alert) -> 0;
+    # or EPIPE / ECONNRESET when OpenSSL answers that EOF with its own alert
+    # after our request bytes drew a RST (ConnectionError). All mean refused.
     try:
         status = _https(host, port, foreign, "/v1/nodes")
-    except (ssl.SSLError, ConnectionResetError):
+    except (ssl.SSLError, ConnectionError):
         status = 0
     assert status in (0, 401)
 
