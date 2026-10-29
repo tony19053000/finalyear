@@ -6,8 +6,7 @@
 # pins.toml): tests/_support/mf_previous_release.py downloads it into the
 # shared cache and refuses a byte that does not match.
 #
-# EMPTY UNTIL THE FIRST RELEASE EXISTS. No GitHub Release has been published
-# yet, so `version` is "" and the jobs SKIP with a warning that says so (they
+# Pinned 2026-10-29 to v0.17.0 (first release). Before that, `version` is "" and the jobs SKIP with a warning that says so (they
 # never pass silently). After `.github/workflows/release.yml` publishes
 # v0.17.0 (tag it from main once package-windows is green, Q36), fill in the
 # version and the three assets from the release page (the release workflow
@@ -19,17 +18,17 @@
 #   MESHFORGE_TEST_PREVIOUS_CONTROLLER_DEB=/path/meshforge-controller_<old>_amd64.deb
 # (see docs/briefs/progress/V0.17-G5.md for how the G5 run built them).
 
-version = ""
-tag = ""
+version = "0.17.0"
+tag = "v0.17.0"
 
 [agent_deb]
-url = ""
-sha256 = ""
+url = "https://github.com/tony19053000/finalyear/releases/download/v0.17.0/meshforge-agent_0.17.0-1_amd64.deb"
+sha256 = "0458b39f7e98e79c5962c0d6798f07ee8bffb2031309a3c3ecd8ac8efa6f96b2"
 
 [controller_deb]
-url = ""
-sha256 = ""
+url = "https://github.com/tony19053000/finalyear/releases/download/v0.17.0/meshforge-controller_0.17.0-1_amd64.deb"
+sha256 = "55460b9d8903b885708d941c8c7c118247a1a72df977a132739953371b231a9c"
 
 [windows_exe]
-url = ""
-sha256 = ""
+url = "https://github.com/tony19053000/finalyear/releases/download/v0.17.0/MeshForge-Agent-Setup-0.17.0-1.exe"
+sha256 = "3e95eb452108b6bb0d53a54cbf1830986f6ea634522f06788250aa4bc183753d"
