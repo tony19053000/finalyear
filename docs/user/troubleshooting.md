@@ -159,6 +159,15 @@ administrator). For everyday things use the MeshForge page from the Start menu i
 ### "cannot listen on 127.0.0.1:47130 for the local console ... is another MeshForge agent running here?"
 Another program (often a second MeshForge agent) uses the console's port. Stop the other agent.
 
+### A job fails with "... refused this laptop's certificate - wrong fabric or expired certificate?"
+The controller (or the other laptop named in the message) would not accept this laptop's certificate when a job
+fetched or uploaded files. Run `meshforge-agent identity show`: if the fabric is not the one this controller
+runs, or the certificate has expired, **Leave the fabric** and join again with a new code from this fabric's
+admin. When the message says "closed the connection right after the TLS handshake without answering: it most
+likely refused ...", MeshForge is inferring the refusal: a controller or laptop that crashed or restarted just
+then looks the same. If `identity show` looks right, retry the job and check the controller's log
+(`journalctl -u meshforge-controller`).
+
 ## The controller's database
 
 `sudo meshforge-controller doctor` and `journalctl -u meshforge-controller -n 80` show these. Codes:

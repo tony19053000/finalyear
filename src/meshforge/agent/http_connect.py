@@ -30,6 +30,11 @@ event loop itself shuts down is cancelled by the loop and can leak as before
 Only the agent's HTTPS clients use it (:meth:`AgentHttpTls.transport`). The
 controller makes no outgoing HTTP requests; the plain-HTTP dev mode keeps
 httpx's default transport.
+
+Every TLS stream it opens is wrapped in
+:class:`~meshforge.agent.http_refusal.RefusalWatchStream` (V1.0 G8 F1): a
+server closing the connection right after the handshake - its way of refusing
+our certificate - is marked as a certificate refusal.
 """
 
 from __future__ import annotations
@@ -41,6 +46,8 @@ from typing import Any
 
 import httpcore
 import httpx
+
+from meshforge.agent.http_refusal import RefusalWatchStream
 
 __all__ = ["CancelSafeBackend", "cancel_safe_transport"]
 
@@ -99,9 +106,12 @@ class _CancelSafeStream(httpcore.AsyncNetworkStream):
         server_hostname: str | None = None,
         timeout: float | None = None,  # noqa: ASYNC109
     ) -> httpcore.AsyncNetworkStream:
-        return await _uncancellable(
+        tls = await _uncancellable(
             self._inner.start_tls(ssl_context, server_hostname, timeout)
         )
+        # V1.0 G8 F1: a server that refuses our certificate after the TLS 1.3
+        # handshake reads as a typed refusal, not a network fault.
+        return RefusalWatchStream(tls, server_hostname)
 
     def get_extra_info(self, info: str) -> Any:
         return self._inner.get_extra_info(info)

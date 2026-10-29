@@ -69,6 +69,7 @@ from meshforge.agent.cas.materialise import materialise_subset
 from meshforge.agent.cas.sources import TokenLookup
 from meshforge.agent.cas.store import DEFAULT_FREE_DISK_FLOOR_BYTES
 from meshforge.agent.execution.failure_evidence import DISK_FULL_ERRNOS
+from meshforge.agent.http_refusal import CONTROLLER_LABEL, transport_failure
 from meshforge.agent.threads import uninterrupted
 from meshforge.common.errors import FailureType, MeshForgeError
 from meshforge.common.hashing import Digest
@@ -204,7 +205,8 @@ async def fetch_bundle(
             "timed out fetching the bundle", failure_type=FailureType.TIMEOUT
         ) from None
     except httpx.HTTPError as exc:
-        raise FetchError(f"bundle fetch failed: {type(exc).__name__}") from None
+        failure = transport_failure(exc, server=CONTROLLER_LABEL)
+        raise FetchError(f"bundle fetch failed: {failure}") from None
     except OSError as exc:
         # The local side (the part file): typed, never an untyped crash (D116).
         full = exc.errno in DISK_FULL_ERRNOS
@@ -265,7 +267,7 @@ async def upload_blob(
             except httpx.TimeoutException:
                 last = "timed out"
             except httpx.HTTPError as exc:
-                last = type(exc).__name__
+                last = transport_failure(exc, server=CONTROLLER_LABEL)
             else:
                 status = response.status_code
                 if status in (200, 201):

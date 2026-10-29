@@ -41,6 +41,7 @@ from typing import Final
 import httpx
 
 from meshforge.agent.execution.fetch import UploadError, upload_blob
+from meshforge.agent.http_refusal import CONTROLLER_LABEL, transport_failure
 from meshforge.common.cas import MAX_CHUNK_SIZE, MIN_CHUNK_SIZE, chunk_span
 from meshforge.common.hashing import Digest
 
@@ -188,7 +189,8 @@ async def upload_parts(
         raise UploadError("the upload timed out", retryable=True) from None
     except httpx.HTTPError as exc:
         raise UploadError(
-            f"the upload failed: {type(exc).__name__}", retryable=True
+            f"the upload failed: {transport_failure(exc, server=CONTROLLER_LABEL)}",
+            retryable=True,
         ) from None
     except OSError as exc:  # the local file (not the network): no retry helps
         raise UploadError(

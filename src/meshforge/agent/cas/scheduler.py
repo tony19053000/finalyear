@@ -40,6 +40,7 @@ from meshforge.agent.cas.sources import (
     status_error,
 )
 from meshforge.agent.cas.store import AgentCas
+from meshforge.agent.http_refusal import transport_failure
 from meshforge.common.cas import (
     CasError,
     CasIntegrityError,
@@ -535,7 +536,7 @@ class TransferScheduler:
             ) from None
         except httpx.HTTPError as exc:
             raise FetchError(
-                f"blob fetch failed: {type(exc).__name__}",
+                f"blob fetch failed: {transport_failure(exc, server=source.label)}",
                 details={"source": source.name},
             ) from None
 

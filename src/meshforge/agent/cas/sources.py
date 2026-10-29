@@ -20,6 +20,7 @@ from typing import Any, Final
 
 import httpx
 
+from meshforge.agent.http_refusal import CONTROLLER_LABEL, transport_failure
 from meshforge.common.errors import FailureType, MeshForgeError
 from meshforge.common.fabric_tls import peer_server_name
 from meshforge.common.hashing import Digest
@@ -156,6 +157,12 @@ class Source:
     def controller(self) -> bool:
         return not self.src.node_id
 
+    @property
+    def label(self) -> str:
+        """Who this source is, for messages (``the controller`` /
+        ``peer node node_...``)."""
+        return CONTROLLER_LABEL if self.controller else f"peer node {self.src.node_id}"
+
     def headers(self, extra: dict[str, str] | None = None) -> dict[str, str]:
         return {"authorization": f"Bearer {self.token}", **(extra or {})}
 
@@ -214,7 +221,7 @@ async def get_range(
         ) from None
     except httpx.HTTPError as exc:
         raise FetchError(
-            f"chunk fetch failed: {type(exc).__name__}",
+            f"chunk fetch failed: {transport_failure(exc, server=source.label)}",
             details={"source": source.name},
         ) from None
     if len(data) != length:

@@ -24,6 +24,7 @@ from typing import Final
 import httpx
 
 from meshforge.agent.cas.sources import STREAM, FetchError, Source, status_error
+from meshforge.agent.http_refusal import transport_failure
 from meshforge.common.errors import FailureType
 from meshforge.common.hashing import Digest
 from meshforge.common.tree import Tree, TreeLimits, parse_tree
@@ -95,7 +96,7 @@ async def get_manifest(
         ) from None
     except httpx.HTTPError as exc:
         raise FetchError(
-            f"manifest fetch failed: {type(exc).__name__}",
+            f"manifest fetch failed: {transport_failure(exc, server=source.label)}",
             details={"source": source.name},
         ) from None
     finally:
