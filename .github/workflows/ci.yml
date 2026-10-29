@@ -764,10 +764,11 @@ jobs:
           $p = Start-Process $old -ArgumentList "$env:SETUP_ARGS /LOG=`"$pwd\reports\g5-release-old.log`"" -Wait -PassThru
           "previous release installer exit code: $($p.ExitCode)"
           if ($p.ExitCode -ne 0) { exit 1 }
-          $p = Start-Process "dist\MeshForge-Agent-Setup-$env:MF_VERSION-1.exe" -ArgumentList "$env:SETUP_ARGS /LOG=`"$pwd\reports\g5-release-new.log`"" -Wait -PassThru
+          # revision 2: always newer than the pinned release, even when this build has the same version (v0.17.0 pinned while main is still 0.17.0)
+          $p = Start-Process "dist\MeshForge-Agent-Setup-$env:MF_VERSION-2.exe" -ArgumentList "$env:SETUP_ARGS /LOG=`"$pwd\reports\g5-release-new.log`"" -Wait -PassThru
           "this build's installer exit code: $($p.ExitCode)"
           if ($p.ExitCode -ne 0) { exit 1 }
-          uv run python lab/windows/package_check.py upgraded --state reports/windows-state-release.json --version-dir "$env:MF_VERSION-1"
+          uv run python lab/windows/package_check.py upgraded --state reports/windows-state-release.json --version-dir "$env:MF_VERSION-2"
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           $p = Start-Process "$env:ProgramFiles\MeshForge\unins000.exe" -ArgumentList "$env:SETUP_ARGS /REMOVEDATA" -Wait -PassThru
           $deadline = (Get-Date).AddSeconds(120)
