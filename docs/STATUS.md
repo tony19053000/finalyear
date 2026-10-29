@@ -2,7 +2,7 @@
 
 > Concise current state. Long-term plan: [`DEVELOPMENT_ROADMAP.md`](DEVELOPMENT_ROADMAP.md). Update at the end of every work session.
 
-**Last updated:** 2026-10-27 (session 8: G5 merged e173ad13 (tester r1+r2 PASS, reviewer APPROVE, D405); 0.17.6/0.17.7 [~]; gates green on main: unit 26734, ruff, mypy)
+**Last updated:** 2026-10-29 (session 12: V1.0 G7+G8 done; v0.17.0 published; G8 F1–F3 merged; 0.1.10 [x] — V0.1 100%; agent work done — READY FOR 🧑 LAB CAMPAIGN)
 
 ```
 TOTAL   ██████████████▒▒▒░░░  71%  113/159 done, 21 in progress
@@ -27,12 +27,12 @@ V1.0    ░░░░░░░░░░░░░░░░░░░░   0%   0/8 
 ## Progress
 
 ```
-TOTAL   ██████████████▒▒▒░░░  71%  113/159 done, 27 in progress
+TOTAL   ███████████████▒▒▒░░  72%  116/159 done, 24 in progress
 
-V0.1    █████████████████▒▒▒  83%  10/12  Foundations & engineering system
+V0.1    ████████████████████ 100%  12/12  Foundations & engineering system
 V0.2    ██▒▒▒▒▒▒▒▒▒▒▒▒▒░░░░░   9%   1/11  Lab setup & feasibility validation
 V0.3    ███████████████▒▒▒▒░  73%  11/15  Fabric core: controller ⇄ agent
-V0.4    ███████████████▒▒▒▒░  76%  13/17  Remote execution core (Mode 1 foundation)
+V0.4    ████████████████▒▒░░  82%  14/17  Remote execution core (Mode 1 foundation)
 V0.5    ██████████████████░░  90%  10/11  Data plane & environments
 V0.6    ███████████████████░  92%  13/14  Scheduling & reliability — Mode 1 complete
 V0.7    ██████████████████░░  91%  11/12  Security & pairing
@@ -47,6 +47,7 @@ V1.0    ▒▒▒▒▒▒▒▒░░░░░░░░░░░░   0%   0/8 
 █ done `[x]` · ▒ in progress or waiting on a 🧑 lab step `[~]` · ░ not started
 
 ## Current Version
+**V1.0 — Release hardening & final evaluation** · brief `docs/briefs/V1.0-release.md` (APPROVED, D406–D424) · **G0–G5, G7, G8 merged** · v0.17.0 tagged + published (GitHub release: agent/controller .deb, Windows .exe, SHA256SUMS) · **only G6 left (needs lab data)** · all 🧑 lab steps open — no real-laptop test done yet
 **V0.17 — Productization** · brief `docs/briefs/V0.17-productization.md` (APPROVED, D384–D402) · G0 [~] (CI green, SP1–SP3 merged) · **G1 merged** (0.17.2 [~]) · **G2 merged** (0.17.3 [~], D401) · **G3 merged** (0.17.4/0.17.5 [~], D402) · **G4 merged** (0.17.1 [~], e41f1031; needs `package-windows` CI + 🧑 lab) · next **G5** · all lab steps 🧑 open
 **V0.15 — ML planner** · started 2026-10-22 (team: approve all, start G1) · brief `docs/briefs/V0.15-ml-planner.md` (D333–D344, APPROVED) · ADR-0021 Proposed · 0.15.11 🧑 lab added (D344) · **G1 CLOSED** (0.15.1–0.15.3 `[x]`, merge `420a3a24`, D345/D346) · **G2 CLOSED** (0.15.4/0.15.5 `[x]`, merge `43aeec43`, D347–D357) · **G3 + G4 CLOSED** (0.15.6 `[x]` merge `80767722`, 0.15.7 `[x]` merge `2eb065b2`, D362–D367; ML now live in the controller via `server.ml_source`) · **G5 CLOSED** (0.15.8 `[x]` merge `193e008d`, 0.15.9 `[x]` merge `086a1b4b`, D368–D374) · **G6 brief APPROVED** (§5h, D375–D380); G6a ∥ G6b implementers STOPPED by user (wip committed in worktrees)
 **V0.14 — Unified planner v2** · started 2026-10-21 (team: "start V0.14", §7 on Lead recommendations) · brief `docs/briefs/V0.14-unified-planner-v2.md` (D290–D303) · ADR-0020 Proposed · **G1 CLOSED** (0.14.1 `[x]`, merge `f72681c0`) · **G2 CLOSED** (0.14.3 `[x]`, merge `092b60c7`, 2026-10-22) · **G3 CLOSED** (0.14.2/0.14.4/0.14.5 `[x]`, merge `3392fe49`, REPLAY_VERSION 2, D309–D312) · **G4+G5 CLOSED** (0.14.6/0.14.7 `[x]`, D321–D323) · **G6 MERGED** (`dbfe3a59`, D324–D331; 0.14.8 `[~]`) · **agent-side complete** · closes on 🧑 0.14.8 (`lab/checklists/V0.14-planner.md`)
@@ -67,6 +68,8 @@ V0.1 — code-complete; closes when the 🧑 first GitHub CI run is green (0.1.4
 > V0.10. 129 tasks vs 140–180 capacity → **~1.5 tasks/session**. Needs the other three team members' approval.
 
 ## Current Task
+
+- **2026-10-29 (latest):** **Agent-side work complete; team starts the 🧑 lab campaign** version by version (V0.2 → V1.0; V0.1 needs no lab). Install v0.17.0 from the GitHub release. Session 12 merged G8 flake/diagnostic fixes: **F1** agent typed "certificate refused" hint (`a8b894ac`), **F2** end_reason read race in 8 component + 5 cluster tests (`c2cfade4`, `55e50800`), **F3** grpc.aio client INTERNAL relabel in cert-end tests (`6600e1ab`). **CI run 40888385341 on 0e7fc7e5 fully green.** CI fix: Windows release-upgrade installs revision 2 (`9c84f99e`).
 
 - **2026-10-26 (latest):** **V0.17 G4 MERGED** `e41f1031` (Windows bundle, service, Inno Setup installer, firewall, checks, console). Fix r1 (B1 no-follow data removal — icacls never /T, junctions unlinked; rollback stop check; migration-raise handling; console reader = session user; `-- run` refusal G4-T1) + fix r2 (netsh exit-code-only, locale-safe). Tester r2 PASS (646 G4 tests), reviewer APPROVE. Worktree unit 26425 passed. Windows behaviour UNPROVEN until `package-windows` CI runs (needs push) + 🧑 Q34 lab.
 
@@ -304,6 +307,6 @@ Reviewer non-blocking follow-ups (carry into G2/G3): (1) `mint` should carry `pe
 
 ## Next Recommended Task
 
-1. Push main (user OK needed) → CI incl. package-windows green.
-2. Version-bump commit (replace hard-coded agent_version="0.1.0.dev0" test Hellos with meshforge.__version__) → tag v0.17.0 → run upgrade-from-release tests.
-3. 🧑 lab/checklists/V0.17-install.md (0.17.8).
+1. 🧑 Lab campaign, version by version: V0.2 (lab setup + spikes) → V0.3 → V0.4 → V0.5 → V0.6 → V0.7 → V0.8 → V0.9 → V0.10 → V0.14 → V0.15 → V0.17 (fresh installs) → V1.0 (`lab/checklists/V1.0-campaign.md`). Paste outputs back; agent fixes lab-found bugs.
+2. Then V1.0 G6 (analysis, evaluation + release report) → team approval (Q54) → tag v1.0.0.
+3. Follow-ups (non-blocking): D399 agent heartbeat write INTERNAL relabel loses the cut reason (reconnect one round later); G7 notes (identity_lock root cause, empty index.html preflight, build_deb RAM, stall_deferred log level); older list in SESSION_HANDOFF.
