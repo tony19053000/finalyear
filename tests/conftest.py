@@ -347,9 +347,9 @@ EXTRA_IMPORTS: Final[Mapping[str, str]] = {
     # it counts for `extras("agent")` only there (elsewhere it is never
     # installed nor imported - listing it would skip every agent test).
     **({"win32service": "agent"} if sys.platform == "win32" else {}),
-    # tzdata (`sys_platform == 'win32'`, controller extra) likewise: listed
-    # everywhere it skipped every extras("controller") test on Linux (V1.0 G0).
-    **({"tzdata": "controller"} if sys.platform == "win32" else {}),
+    # tzdata: a controller requirement on every OS since V1.0 G7 (it was
+    # win32-only, so listing it on Linux skipped every extras("controller") test)
+    "tzdata": "controller",
 }
 
 #: Packages of this repository: pure Python, so their modules left behind by an

@@ -44,30 +44,61 @@ def id_dir(tmp_path: Path) -> Path:
 # ------------------------------------------------------------- a real lock holder
 
 
-def _hold_lock(lock_path: str, held: Any, release: Any) -> None:
-    """Child: take the lock, signal ``held``, keep it until ``release`` is set."""
+# The parent and the child talk over a ``Pipe``, not ``multiprocessing.Event``s:
+# an Event is five named POSIX semaphores whose finalizers unregister them with the
+# multiprocessing resource tracker. ``pytest.raises(...) as info`` makes a
+# frame -> exception -> traceback -> frame cycle that keeps the yielded Event alive
+# until a later cyclic GC, and when that GC fires inside the next test's
+# ``ctx.Event()`` (the tracker is mid-``_send`` under its lock) every finalizer
+# re-enters the tracker: "ReentrantCallError ... semaphore might leak", raised by
+# pytest as 5 unraisable exceptions at the next setup (CI run 40733787742). A pipe
+# is two plain fds: nothing registers with the tracker, nothing can re-enter it.
+_HELD = "held"
+
+
+def _hold_lock(lock_path: str, conn: Any) -> None:
+    """Child: take the lock, report ``held``, keep it until the parent sends
+    anything or closes its end (``poll`` returns on EOF as well)."""
     with locked(Path(lock_path), timeout_s=5.0):
-        held.set()
-        release.wait(timeout=30)
+        conn.send(_HELD)
+        conn.poll(30)
+    conn.close()
+
+
+class _Release:
+    """What the fixture yields: ``set()`` lets the child release the lock
+    (idempotent, like the ``Event`` it replaces)."""
+
+    def __init__(self, conn: Any) -> None:
+        self._conn = conn
+
+    def set(self) -> None:
+        if not self._conn.closed:
+            self._conn.send("release")
+            self._conn.close()
 
 
 @pytest.fixture
 def lock_holder(id_dir: Path) -> Iterator[Any]:
-    """A child process holding ``identity.lock``; yields the event that releases it."""
+    """A child process holding ``identity.lock``; yields the handle that releases it."""
     load_or_create(id_dir)  # identity + lock file exist
     ctx = multiprocessing.get_context("spawn")
-    held, release = ctx.Event(), ctx.Event()
+    parent_conn, child_conn = ctx.Pipe()
     proc = ctx.Process(
-        target=_hold_lock, args=(str(id_dir / ident.LOCK_FILE_NAME), held, release)
+        target=_hold_lock, args=(str(id_dir / ident.LOCK_FILE_NAME), child_conn)
     )
     proc.start()
-    assert held.wait(timeout=30), "child never acquired the lock"
+    child_conn.close()  # the child has its own copy; EOF reaches it if we die
+    release = _Release(parent_conn)
     try:
+        assert parent_conn.poll(30), "child never acquired the lock"
+        assert parent_conn.recv() == _HELD
         yield release
     finally:
         release.set()
         proc.join(timeout=10)
         assert proc.exitcode == 0
+        proc.close()
 
 
 def test_lock_held_by_another_process_gives_identity_error_after_bounded_wait(

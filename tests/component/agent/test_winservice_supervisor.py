@@ -22,6 +22,8 @@ from meshforge.agent.winservice_supervisor import Supervisor
 
 psutil = pytest.importorskip("psutil", reason="needs the agent extra")
 
+from mf_procs import pid_gone  # noqa: E402 - needs psutil (the skip above)
+
 pytestmark = pytest.mark.component
 
 READY_TIMEOUT_S = 60.0
@@ -53,10 +55,8 @@ def _run_in_thread(sup: Supervisor) -> tuple[threading.Thread, list[object]]:
 
 
 def _gone(pid: int) -> bool:
-    try:
-        return psutil.Process(pid).status() == psutil.STATUS_ZOMBIE
-    except psutil.NoSuchProcess:
-        return True
+    # zombie, "dead" (being reaped) or missing: see mf_procs (V1.0 G7 flake)
+    return pid_gone(pid)
 
 
 @pytest.mark.parametrize(

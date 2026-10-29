@@ -46,6 +46,7 @@ import argparse
 import gzip
 import io
 import json
+import lzma
 import os
 import re
 import shutil
@@ -388,6 +389,71 @@ def read_ar(data: bytes) -> dict[str, bytes]:
     return members
 
 
+#: V1.0 G7 (D423): nfpm's pure-Go xz writes data.tar.xz ~26 % larger than
+#: liblzma (controller with the ml extra: 177.2 MB vs 140.2 MB at preset 6,
+#: 132.6 MB at 9); the member is recompressed with Python's lzma at this preset.
+#: Decompressing needs the preset's dictionary (64 MiB at 9) - fine for dpkg.
+DATA_XZ_PRESET: Final = 9
+_AR_HEADER: Final = 60
+_CHUNK: Final = 1 << 20
+
+
+def recompress_data_member(deb: Path, preset: int = DATA_XZ_PRESET) -> tuple[int, int]:
+    """Rewrite ``deb``'s ``data.tar.xz`` with liblzma at ``preset``, in place.
+
+    Every other byte stays: the ar magic, each member's header (name, mtime,
+    owner, mode) with only the size field of the data member updated, the
+    control member, the padding. Same input -> same output (lzma is
+    deterministic), so a reproducible .deb stays reproducible. Returns the data
+    member's (old, new) size; an unexpected archive raises ``bad_deb``.
+    """
+    blob = deb.read_bytes()
+    if not blob.startswith(b"!<arch>\n"):
+        raise BundleError("not an ar archive (.deb)", reason="bad_deb")
+    out = bytearray(blob[:8])
+    offset = 8
+    sizes: tuple[int, int] | None = None
+    while offset < len(blob):
+        header = blob[offset : offset + _AR_HEADER]
+        if len(header) < _AR_HEADER or header[58:60] != b"`\n":
+            raise BundleError("truncated or corrupt .deb (ar header)", reason="bad_deb")
+        name = header[:16].decode("ascii").strip().rstrip("/")
+        size = int(header[48:58].decode("ascii").strip())
+        start = offset + _AR_HEADER
+        payload = blob[start : start + size]
+        if name == "data.tar.xz":
+            new = _recompress_xz(payload, preset)
+            sizes = (size, len(new))
+            header = header[:48] + f"{len(new):<10}".encode("ascii") + header[58:]
+            payload = new
+        out += header + payload
+        if len(payload) % 2:
+            out += b"\n"
+        offset = start + size + (size % 2)
+    if sizes is None:
+        raise BundleError("the .deb has no data.tar.xz member", reason="bad_deb")
+    tmp = deb.with_name(deb.name + ".recompress")
+    tmp.write_bytes(bytes(out))
+    tmp.replace(deb)
+    return sizes
+
+
+def _recompress_xz(payload: bytes, preset: int) -> bytes:
+    """Stream ``payload`` (an .xz) through a decompressor into a compressor."""
+    source = lzma.LZMADecompressor(format=lzma.FORMAT_XZ)
+    sink = lzma.LZMACompressor(format=lzma.FORMAT_XZ, preset=preset)
+    view = memoryview(payload)
+    # no max_length: each call returns all the output its input produces
+    parts = [
+        sink.compress(source.decompress(view[start : start + _CHUNK]))
+        for start in range(0, len(view), _CHUNK)
+    ]
+    if not source.eof:
+        raise BundleError("the .deb's data.tar.xz is truncated", reason="bad_deb")
+    parts.append(sink.flush())
+    return b"".join(parts)
+
+
 def _open_tar(blob: bytes) -> tarfile.TarFile:
     return tarfile.open(fileobj=io.BytesIO(blob), mode="r:*")
 
@@ -489,6 +555,9 @@ SYSTEM_LIBS: Final[Mapping[str, str]] = {
     "libgcc_s.so.1": "libgcc-s1",
     "libstdc++.so.6": "libstdc++6",
     "libz.so.1": "zlib1g",
+    # V1.0 G7 (D423): LightGBM's OpenMP runtime (the controller's `ml` extra;
+    # the manylinux wheel does not vendor it)
+    "libgomp.so.1": "libgomp1",
 }
 """Every library the bundle may take from the system. Anything else must be
 inside the bundle (wheels vendor theirs): a new one fails the build, so a
@@ -738,6 +807,11 @@ def build_deb(options: DebOptions) -> Path:
             env=build_bundle.clean_env({"SOURCE_DATE_EPOCH": str(epoch)}),
             what="nfpm package",
             cwd=Path(tmp),
+        )
+        old, new = recompress_data_member(built)
+        log(
+            f"data.tar.xz recompressed (liblzma preset {DATA_XZ_PRESET}): "
+            f"{old / 1e6:.1f} -> {new / 1e6:.1f} MB"
         )
         problems = check_contents(inspect_deb(built), version, deb_version, spec)
         if problems:

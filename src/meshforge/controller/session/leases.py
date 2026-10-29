@@ -30,6 +30,20 @@ sets ``wake``. On each tick it
    that Hello owns the node's state, so no lease event is decided against it
    meanwhile. The admission wakes the timer when it returns.
 
+**A stall of the controller is not silence of the agent (V1.0 G7, D424).** The
+timer sleeps until a known deadline; if it wakes up more than
+``stall_tolerance_s`` *after* that deadline, the controller's own event loop was
+not running (a GC pause, a VM steal, a CPU-starved host, a blocking call) and the
+heartbeats that arrived meanwhile may still sit unread in the sockets. Judging a
+lease at that instant expires live nodes (CI run 40733787742: a 1.3 s stall,
+``lease_expired``, the agent in BACKOFF). So when such a late wake-up finds a lease
+event due, the timer first *listens* for one heartbeat interval and judges the
+leases afterwards; a node that is really silent is still expired, one interval
+later. At most ``max_stall_deferrals`` deferrals in a row, so a controller that
+keeps stalling still expires dead nodes (worst-case extra delay
+``max_stall_deferrals x heartbeat_interval_s``). Each deferral logs
+``lease_timer.stall_deferred`` and counts in :attr:`LeaseTimer.stall_deferrals`.
+
 The timer never awaits the database: every write it causes is queued on the
 session's :class:`~.writer.WriteChain`, so one node's slow row can never delay
 another node's lease evaluation (review B1).
@@ -50,9 +64,12 @@ from meshforge.controller.liveness import LivenessEvent, NodeState
 from meshforge.controller.registry import SessionEndReason
 from meshforge.controller.session.manager import LiveSession, SessionManager
 
-__all__ = ["LeaseTimer"]
+__all__ = ["STALL_TOLERANCE_SHARE", "LeaseTimer"]
 
 log = get_logger(__name__)
+
+#: D424: a wake-up later than this share of a heartbeat interval is a stall.
+STALL_TOLERANCE_SHARE = 0.1
 
 
 class LeaseTimer:
@@ -64,13 +81,27 @@ class LeaseTimer:
         *,
         clock: Callable[[], float],
         max_idle_s: float = 1.0,
+        stall_tolerance_s: float | None = None,
+        max_stall_deferrals: int = 2,
     ) -> None:
         if not max_idle_s > 0:
             raise ValueError("max_idle_s must be > 0")
+        interval = manager.liveness.heartbeat_interval_s
+        if stall_tolerance_s is None:
+            # ordinary wake-up jitter is milliseconds; 10 % of an interval is a stall
+            stall_tolerance_s = STALL_TOLERANCE_SHARE * interval
+        if not stall_tolerance_s >= 0:
+            raise ValueError("stall_tolerance_s must be >= 0")
+        if max_stall_deferrals < 0:
+            raise ValueError("max_stall_deferrals must be >= 0")
         self._manager = manager
         self._clock = clock
         self._max_idle_s = max_idle_s
+        self._stall_tolerance_s = stall_tolerance_s
+        self._max_stall_deferrals = max_stall_deferrals
         self.ticks = 0
+        self.stall_deferrals = 0
+        """Lease judgements put off because the timer itself woke up late (D424)."""
 
     async def tick(self, now: float) -> float | None:
         """Process everything due at ``now``; return the next monotonic deadline.
@@ -138,11 +169,58 @@ class LeaseTimer:
             return self._max_idle_s
         return max(next_deadline - now, 0.0)
 
+    def lease_event_due(self, now: float) -> bool:
+        """Would :meth:`tick` at ``now`` decide a lease event for a live session?
+
+        Read-only (``deadline()`` never mutates a tracker). Lingering entries are
+        not counted: their stream is gone, so no heartbeat can be waiting for them.
+        """
+        for live in self._manager.snapshot():
+            if live.ended or self._manager.admission_pending(live):
+                continue
+            deadline = live.tracker.deadline()
+            if deadline is not None and deadline <= now:
+                return True
+        return False
+
+    def stall_deferral(
+        self, now: float, expected: float | None, deferred: int
+    ) -> float:
+        """D424: how long to listen before judging leases (0 = judge now).
+
+        ``expected`` is when the timer meant to wake up (None: no scheduled
+        wake-up, e.g. the first tick); ``deferred`` counts the deferrals in a row
+        so far.
+        """
+        if expected is None or deferred >= self._max_stall_deferrals:
+            return 0.0
+        late = now - expected
+        if late <= self._stall_tolerance_s or not self.lease_event_due(now):
+            return 0.0
+        return self._manager.liveness.heartbeat_interval_s
+
     async def run(self) -> None:
         """Loop forever (cancelled by the server on shutdown)."""
         wake = self._manager.wake
+        expected: float | None = None  # when the last sleep meant to end
+        deferred = 0  # D424 deferrals in a row
         while True:
             now = self._clock()
+            listen = self.stall_deferral(now, expected, deferred)
+            if listen > 0:
+                deferred += 1
+                self.stall_deferrals += 1
+                log.warning(
+                    "lease_timer.stall_deferred",
+                    late_s=round(now - (expected or now), 3),
+                    listen_s=round(listen, 3),
+                    deferral=deferred,
+                )
+                expected = now + listen
+                # not woken by ``wake``: a new session cannot need judging sooner
+                await asyncio.sleep(listen)
+                continue
+            deferred = 0
             try:
                 next_deadline = await self.tick(now)
             except asyncio.CancelledError:
@@ -150,7 +228,11 @@ class LeaseTimer:
             except Exception:  # the timer must outlive any bug in a tick
                 log.exception("lease_timer.tick_failed")
                 next_deadline = None
-            timeout = self.timeout_until(next_deadline, self._clock())
+            after = self._clock()
+            timeout = self.timeout_until(next_deadline, after)
+            # Woken early by ``wake`` (a new session) is not lateness: ``now`` is
+            # then before ``expected`` and :meth:`stall_deferral` returns 0.
+            expected = after + timeout
             with contextlib.suppress(TimeoutError):
                 await asyncio.wait_for(wake.wait(), timeout)
             wake.clear()

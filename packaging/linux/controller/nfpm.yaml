@@ -26,11 +26,13 @@ description: |-
 license: Proprietary (no license chosen yet)
 # D398: the bundled PostgreSQL needs glibc >= 2.36 (Ubuntu 24.04+); agents keep
 # 22.04. The other libraries are checked with ldd on every build
-# (scripts/build_deb.py SYSTEM_LIBS). passwd: useradd/groupadd.
+# (scripts/build_deb.py SYSTEM_LIBS). passwd: useradd/groupadd. libgomp1:
+# LightGBM's OpenMP runtime (V1.0 G7, D423: the bundle carries the ml extra).
 depends:
   - libc6 (>= 2.36)
   - libcrypt1
   - libgcc-s1
+  - libgomp1
   - libstdc++6
   - zlib1g
   - passwd

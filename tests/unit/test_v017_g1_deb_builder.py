@@ -525,11 +525,20 @@ def test_classify_ldd(tmp_path: Path) -> None:
     ]
 
 
+def _depends(nfpm_yaml: Path) -> set[str]:
+    return {d.split(" ", 1)[0] for d in bd.nfpm_depends(nfpm_yaml.read_text("utf-8"))}
+
+
 def test_every_known_system_library_is_declared() -> None:
-    depends = bd.nfpm_depends((PACKAGING / "nfpm.yaml").read_text("utf-8"))
-    names = {d.split(" ", 1)[0] for d in depends}
-    assert set(bd.SYSTEM_LIBS.values()) <= names
-    assert "passwd" in names
+    agent = _depends(PACKAGING / "nfpm.yaml")
+    controller = _depends(PACKAGING / "controller" / "nfpm.yaml")
+    # V1.0 G7 (D423): libgomp1 (LightGBM, the controller's ml extra) is the one
+    # system library only the controller needs; check_shared_libs still fails a
+    # build whose bundle needs a package its own nfpm.yaml does not declare.
+    assert set(bd.SYSTEM_LIBS.values()) - {"libgomp1"} <= agent
+    assert set(bd.SYSTEM_LIBS.values()) <= controller
+    assert "libgomp1" not in agent  # the agent bundle has no LightGBM
+    assert "passwd" in agent and "passwd" in controller
 
 
 @pytest.mark.skipif(
