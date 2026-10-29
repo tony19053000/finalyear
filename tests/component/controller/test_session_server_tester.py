@@ -23,7 +23,12 @@ pytest.importorskip("fastapi", reason="needs the controller extra")
 pytest.importorskip("testcontainers", reason="needs the dev dependency group")
 
 from mf_fabric import NodeChannels
-from mf_session_client import FakeAgent, make_hello, poll_until
+from mf_session_client import (
+    FakeAgent,
+    make_hello,
+    poll_until,
+    wait_session_end_reason,
+)
 from sqlalchemy import text
 
 from meshforge.common.ids import new_command_id, new_node_id
@@ -139,9 +144,11 @@ async def test_second_hello_on_open_stream_with_extreme_epoch_is_protocol_error(
     assert code is grpc.StatusCode.ABORTED, code
     assert await call.details() == SessionEndReason.PROTOCOL_ERROR.value
     session_id = ack.hello_ack.session_id
+    # The ABORTED status reaches the agent before close_session commits.
+    reason = await wait_session_end_reason(registry, session_id)
+    assert reason is SessionEndReason.PROTOCOL_ERROR
     rec = await registry.get_session(session_id)
     assert rec is not None and not rec.is_open
-    assert rec.end_reason is SessionEndReason.PROTOCOL_ERROR
     node_rec = await registry.get_node(node_id)
     assert node_rec is not None and node_rec.session_epoch == 1
 
@@ -162,9 +169,9 @@ async def test_agent_message_with_empty_message_id_closes_protocol_error(
         )
     )
     await agent.wait_ended(timeout_s=5.0)
-    rec = await registry.get_session(session_id)
-    assert rec is not None
-    assert rec.end_reason is SessionEndReason.PROTOCOL_ERROR
+    # The ABORTED status reaches the agent before close_session commits.
+    reason = await wait_session_end_reason(registry, session_id)
+    assert reason is SessionEndReason.PROTOCOL_ERROR
 
 
 @pytest.mark.asyncio

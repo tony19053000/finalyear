@@ -241,9 +241,14 @@ async def test_reconnect_after_offline_is_online_again(
     runtime: ControllerRuntime, agents: Any, registry: Registry
 ) -> None:
     first: FakeAgent = agents(epoch=1)
-    await first.connect()
+    first_ack = await first.connect()
     await wait_state(registry, first.node_id, NodeState.OFFLINE, 3.0)
     await first.wait_ended()
+    # OFFLINE is committed before close_session (D19 chain order).
+    assert (
+        await wait_closed(registry, first_ack.session_id)
+        is SessionEndReason.LEASE_EXPIRED
+    )
 
     second: FakeAgent = agents(node_id=first.node_id, epoch=2)
     ack = await second.connect()

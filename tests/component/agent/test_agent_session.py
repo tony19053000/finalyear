@@ -19,7 +19,7 @@ from mf_agent_harness import (
     make_controller_settings,
 )
 from mf_controller_harness import tolerant_liveness
-from mf_session_client import poll_until
+from mf_session_client import poll_until, wait_session_end_reason
 
 pytest.importorskip("sqlalchemy", reason="needs the controller extra")
 
@@ -331,8 +331,9 @@ async def test_second_agent_with_same_identity_supersedes_first_which_exits_conf
     end = first.client.stats.stream_ends[-1]
     assert end.code is grpc.StatusCode.ABORTED and end.details == "superseded"
 
-    old = await registry.get_session(first_session)
-    assert old is not None and old.end_reason is SessionEndReason.SUPERSEDED
+    # The ABORTED status reaches the agent before close_session commits.
+    reason = await wait_session_end_reason(registry, first_session)
+    assert reason is SessionEndReason.SUPERSEDED
     assert second.client.state is AgentState.ONLINE
     assert second.client.identity.session_epoch > first.client.identity.session_epoch
 

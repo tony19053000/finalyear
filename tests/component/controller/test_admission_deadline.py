@@ -22,7 +22,7 @@ import grpc
 import pytest
 import structlog
 from mf_fabric import NodeChannels
-from mf_session_client import FakeAgent, poll_until
+from mf_session_client import FakeAgent, poll_until, wait_session_end_reason
 
 pytest.importorskip("sqlalchemy", reason="needs the controller extra")
 
@@ -106,8 +106,9 @@ async def test_a_hung_registry_refuses_the_hello_unavailable_and_the_goodbye_is_
                 return rec is not None and rec.state is NodeState.OFFLINE
 
             await poll_until(offline, timeout_s=5.0, interval_s=0.01)
-            rec = await registry.get_session(old_ack.session_id)
-            assert rec is not None and rec.end_reason is SessionEndReason.AGENT_CLOSED
+            # OFFLINE is committed before close_session (D19 chain order).
+            reason = await wait_session_end_reason(registry, old_ack.session_id)
+            assert reason is SessionEndReason.AGENT_CLOSED
             assert runtime.manager._pending_hellos == {}  # the claim was released
             await new.close()
         finally:

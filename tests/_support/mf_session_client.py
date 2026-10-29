@@ -12,7 +12,7 @@ import asyncio
 import contextlib
 import socket
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import grpc
 
@@ -20,7 +20,16 @@ from meshforge import __version__
 from meshforge.common.ids import new_command_id, new_node_id
 from meshforge.common.proto.meshforge.v1 import agent_pb2, agent_pb2_grpc, common_pb2
 
-__all__ = ["FakeAgent", "free_port_pair", "make_hello", "poll_until"]
+if TYPE_CHECKING:
+    from meshforge.controller.registry import Registry, SessionEndReason
+
+__all__ = [
+    "FakeAgent",
+    "free_port_pair",
+    "make_hello",
+    "poll_until",
+    "wait_session_end_reason",
+]
 
 
 def make_hello(node_id: str, epoch: int, **overrides: Any) -> agent_pb2.Hello:
@@ -308,6 +317,32 @@ async def poll_until(
         if loop.time() - start > timeout_s:
             raise AssertionError(f"condition not met within {timeout_s} s")
         await asyncio.sleep(interval_s)
+
+
+async def wait_session_end_reason(
+    registry: Registry, session_id: str, *, timeout_s: float = 5.0
+) -> SessionEndReason:
+    """The ``node_session`` row's ``end_reason`` once the row is closed.
+
+    The persistent half of a session end trails everything else a test can
+    observe: the node's state write (OFFLINE / SUSPECT) is committed first and
+    ``close_session`` is a second transaction behind it on the session's write
+    chain (D19 order, ``controller/session/ends.py``), and the gRPC status the
+    agent sees is sent before either. So the node can read OFFLINE, or the agent
+    can have its status, while ``end_reason`` is still null (V1.0 G8 F2). Wait
+    for the close, then judge the reason it was closed with.
+    """
+    seen: list[SessionEndReason] = []
+
+    async def closed() -> bool:
+        rec = await registry.get_session(session_id)
+        if rec is None or rec.end_reason is None:
+            return False
+        seen.append(rec.end_reason)
+        return True
+
+    await poll_until(closed, timeout_s=timeout_s, interval_s=0.01)
+    return seen[-1]
 
 
 def free_port_pair() -> tuple[int, int]:

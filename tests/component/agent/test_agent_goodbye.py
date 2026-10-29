@@ -14,7 +14,7 @@ from typing import Any
 import pytest
 import structlog
 from mf_agent_harness import AgentFactory
-from mf_session_client import poll_until
+from mf_session_client import poll_until, wait_session_end_reason
 
 from meshforge.agent.session.state import AgentState
 from meshforge.controller.liveness import NodeState
@@ -55,8 +55,9 @@ async def test_a_real_agents_requested_stop_is_offline_now_and_agent_closed(
 
         await poll_until(offline, timeout_s=lease_s, interval_s=0.01)
 
-    rec = await registry.get_session(session_id)
-    assert rec is not None and rec.end_reason is SessionEndReason.AGENT_CLOSED
+    # OFFLINE is committed before close_session (D19 chain order): wait for it.
+    reason = await wait_session_end_reason(registry, session_id)
+    assert reason is SessionEndReason.AGENT_CLOSED
     # Straight ONLINE -> OFFLINE by the Goodbye: never through SUSPECT, never
     # by the lease, and nothing left lingering.
     assert transitions(logs, node_id) == [("online", "offline", "stream_closed")]

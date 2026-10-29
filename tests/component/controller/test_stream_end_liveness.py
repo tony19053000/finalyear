@@ -27,7 +27,12 @@ import grpc
 import pytest
 import structlog
 from mf_fabric import NodeChannels
-from mf_session_client import FakeAgent, make_hello, poll_until
+from mf_session_client import (
+    FakeAgent,
+    make_hello,
+    poll_until,
+    wait_session_end_reason,
+)
 
 pytest.importorskip("sqlalchemy", reason="needs the controller extra")
 
@@ -88,7 +93,10 @@ async def test_graceful_close_is_offline_at_once_and_agent_closed(
     await agent.close(graceful=True)  # Goodbye, half-close, wait for the status
     assert agent.end_code is grpc.StatusCode.OK
     await wait_state(registry, agent.node_id, NodeState.OFFLINE, timeout_s=LEASE_S)
-    assert await end_reason(registry, ack.session_id) is SessionEndReason.AGENT_CLOSED
+    assert (
+        await wait_session_end_reason(registry, ack.session_id)
+        is SessionEndReason.AGENT_CLOSED
+    )
     assert runtime.manager is not None
     assert runtime.manager.get(agent.node_id) is None
     assert runtime.manager.get_lingering(agent.node_id) is None
@@ -115,7 +123,8 @@ async def test_goodbye_then_cancel_is_still_agent_closed(
                 registry, agent.node_id, NodeState.OFFLINE, timeout_s=LEASE_S
             )
         assert (
-            await end_reason(registry, ack.session_id) is SessionEndReason.AGENT_CLOSED
+            await wait_session_end_reason(registry, ack.session_id)
+            is SessionEndReason.AGENT_CLOSED
         )
         assert changes_for(logs, agent.node_id) == [("online", "offline")]
         assert not [
