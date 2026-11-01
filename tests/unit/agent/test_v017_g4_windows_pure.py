@@ -14,6 +14,7 @@ import sys
 from pathlib import Path, PureWindowsPath
 
 import pytest
+from mf_symlinks import make_symlink
 
 from meshforge.agent import system_cli as agent_cli
 from meshforge.agent import wininstall as wi
@@ -461,7 +462,7 @@ def test_a_root_that_is_itself_a_link_is_only_unlinked(tmp_path: Path) -> None:
     target.mkdir()
     (target / "f").write_text("x")
     root = tmp_path / "MeshForge"
-    root.symlink_to(target, target_is_directory=True)
+    make_symlink(root, target, target_is_directory=True)
     assert wi.remove_tree_no_follow(root, lambda p: None) == 1
     assert (target / "f").read_text() == "x"
 
