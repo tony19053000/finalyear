@@ -159,3 +159,12 @@ commands:
     (human, Administrator PowerShell) New-NetFirewallRule "MeshForge S1 TCP" / "MeshForge S1 UDP" (port 47201, 192.168.31.0/24, Private)
 result: both rules created (Enabled True, Private, Inbound, Allow). First attempt in a non-admin window: "Access is denied" for both; retried as Administrator.
 evidence: this entry
+
+### C2.5-a - S1 server (0.2.5) - OK (running)
+when: 2026-11-01 11:08 (local)
+laptop: L2 (Windows 11, hostname AILESH)
+commands:
+    uv run python lab/spikes/s1_network.py serve --bind 192.168.31.155 --idle 3600 --duration 14400   (own terminal window)
+result: "S1 server 'AILESH' listening on 192.168.31.155 port 47201 (TCP + UDP); LAN clients only; stops after 3600 s idle or 14400 s total."
+BUG: (environment) in the user's interactive PowerShell, uv printed "Ignoring existing virtual environment linked to non-existent Python interpreter: .venv\Scripts\python.exe", re-downloaded cpython 3.12.16 and rebuilt .venv (82 packages). Same uv-managed-Python link problem as R1-2. The rebuilt .venv may lack the `agent` extra; will re-run `uv sync --extra agent` before steps that need it.
+SIGNAL: s1-serve-up L2 ip=192.168.31.155
