@@ -188,3 +188,10 @@ evidence: lab/reports/raw/2026-11-01-V0.17-install/L1-download.txt
 
 ### C17-b - Stop the old dev services - OK
 result: no `uv run meshforge-*` process running, no systemd --user meshforge units loaded, dev Compose stack has no running containers. Q21 dev-DB import: NOT done (default).
+
+### C17-c - Controller install (0.17.3) - OK
+commands:
+    HUMAN: cd ~/mf-pkgs && sudo apt install ./meshforge-controller_0.17.0-1_amd64.deb
+result: installed 0.17.0-1 (657 MB). Preflight "all checks passed" (3 expected warns: DB passwords/files/CA created later). "is running version 0.17.0" and "Create your fabric" shown.
+    Harmless apt note: "_apt couldn't access ~/mf-pkgs" (home dir permissions; download done as root).
+evidence: lab/reports/raw/2026-11-01-V0.17-install/L1-controller-install.txt

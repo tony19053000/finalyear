@@ -1,0 +1,16 @@
+(last lines of: sudo apt install ./meshforge-controller_0.17.0-1_amd64.deb, run by the human, copied from the terminal)
+[  ok] glibc: glibc 2.39
+[  ok] postgresql binaries: PostgreSQL 16.15 in /opt/meshforge/controller/0.17.0/pgsql/bin
+[  ok] database port: 127.0.0.1:47150 is free
+[warn] database passwords: not created yet -> created on the first start
+[warn] database files: not initialised yet -> created on the first start
+[  ok] free disk: 27.3 GiB free at /var/lib/meshforge
+[warn] fabric CA: not created yet -> create the fabric on the setup page (or meshforge-controller fabric create)
+[  ok] dashboard: built and installed
+all checks passed
+meshforge-controller: service meshforge-controller.service is running version 0.17.0 (logs: journalctl -u meshforge-controller)
+meshforge-controller: Create your fabric: run this to get the one-time setup link, then open it
+meshforge-controller: in a browser ON THIS COMPUTER:
+meshforge-controller:     sudo meshforge-controller setup url
+Processing triggers for ufw (0.36.2-6) ...
+N: Download is performed unsandboxed as root as file '/home/aayush/mf-pkgs/meshforge-controller_0.17.0-1_amd64.deb' couldn't be accessed by user '_apt'. - pkgAcquire::Run (13: Permission denied)
