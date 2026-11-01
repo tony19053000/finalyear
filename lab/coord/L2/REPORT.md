@@ -231,3 +231,17 @@ SIGNAL: s3-done L2
 
 ### C2.3-a - GPU exception (0.2.3) - OK
 result: L2 GPU stack: nvidia-smi OK (RTX 2050, driver 581.83, CUDA 13.0, R1-4); torch: not installed yet (R1b-3 approved, download after the V0.2 measurements). Docker GPU container: not tested - no Docker on L2 (Lead decision); CPU/venv fallback. S6/S7 ran in rounds 1/1b.
+
+### R1b-3 - CUDA torch + GPU score - OK, run 1 with thermal-throttling warning
+when: 2026-11-01 14:52-15:01 (local)
+laptop: L2 (Windows 11, hostname AILESH); human approved the ~2.5 GB download; done after the V0.2 measurements
+commands:
+    uv pip install "torch==2.14.*" --index-url https://download.pytorch.org/whl/cu126
+    uv run --no-sync python -c "import torch; print(torch.__version__, torch.cuda.is_available(), torch.cuda.get_device_name(0))"
+    uv pip install numpy   (numpy was missing: the .venv rebuilt in C2.5-a had no agent extra; --no-sync so uv does not remove torch)
+    uv run --no-sync python lab/spikes/s7_hardware.py run --name L2
+result: torch 2.14.1+cu126, cuda True, NVIDIA GeForce RTX 2050. S7 exit 0:
+    GPU float32 4.84 +- 0.01 TFLOP/s; float16 11.36 +- 0.47; bfloat16 11.54 +- 0.30; device copy 103.06 GB/s.
+    CPU float32 1t 76.77, all 99.09 GFLOP/s (much lower than R1b-2's 315.80); float64 1t 36.16, all 127.48. Memory copy 9.34 GB/s.
+    "!! thermal throttling suspected (last repetition much slower than the first): cpu-float32-1t". Asking the human to fix and rerun.
+evidence: lab/reports/raw/2026-11-01-S7-hardware/l2-d76354d8__run3.json
