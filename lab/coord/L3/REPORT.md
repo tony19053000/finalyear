@@ -189,3 +189,8 @@ when: 2026-11-01 11:39 (local)
 result: Seen SIGNAL s1-client-done L1 and s1-client-done L2. L3 S1 server stopped (port 47201 closed). Server writes no result file on L3 (results are on the client side). Human asked to remove the S1 firewall rules.
 
 C2.5-b addendum (2026-11-01 11:42): HUMAN ran Remove-NetFirewallRule -DisplayName "MeshForge S1 TCP","MeshForge S1 UDP" (admin). Check: no "MeshForge S1*" rules left.
+
+### C2.r-a - Push all raw files - OK
+when: 2026-11-01 11:43 (local)
+result: All L3 raw files are on origin/lab/L3: inventory TIWARI_JI.json, S7 hardware (l3-842983de*.json), S6 environments (l3-842983de*.json), network facts L3.txt. L3 ran no S1 client (only L3->L4, L4 absent). S2 pair with L1 (C2.6-a, optional) not started yet - its file will be pushed later if L1 runs it.
+SIGNAL: v02-raw-pushed L3
