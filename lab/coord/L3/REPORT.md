@@ -12,3 +12,14 @@ result: CPU AMD Ryzen 7 5800HS (8c/16t), RAM 15.4 GB, GPU AMD Radeon integrated 
   Same room as L1: not answered yet.
 evidence: this entry
 QUESTIONS: Network profile left Public by human decision - Lead please note for round 2.
+
+R1-1 addendum (2026-11-01 10:21): human confirmed L3 IS in the same room as L1.
+
+### R1-2 - Tools - FAIL
+when: 2026-11-01 10:21 (local)
+laptop: L3 (Windows 11, hostname TIWARI_JI)
+commands:
+    git --version ; uv --version ; uv sync ; uv run python --version ; docker version
+result: git 2.52.0.windows.1 OK. uv NOT INSTALLED ("The term 'uv' is not recognized"), so uv sync / uv run did not run. Docker NOT INSTALLED. System Python 3.12 exists (AppData\Local\Programs\Python\Python312).
+evidence: this entry
+BUG: not a code bug - uv missing on L3 blocks R1-2..R1-6. Asking human whether to install uv (official installer).
