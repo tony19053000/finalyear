@@ -190,3 +190,14 @@ commands:
     (human, Administrator) Remove-NetFirewallRule -DisplayName "MeshForge S1 TCP","MeshForge S1 UDP"
     Get-NetFirewallRule -Group "MeshForge lab"; Get-NetFirewallRule -Direction Inbound -Action Block -Enabled True | Where-Object DisplayName -like "*python*"
 result: no "MeshForge lab" rules left; no inbound block rule for python.
+
+### C2.6-a - S2 client L2 -> L1 (0.2.6) - OK
+when: 2026-11-01 11:44-12:16 (local)
+laptop: L2 (Windows 11, hostname AILESH), Wi-Fi 5 GHz, same room; no inbound firewall rule on L2
+commands:
+    uv run python lab/spikes/s2_crossos.py client --server 192.168.31.13 --link wifi --name L2 --no-inbound-rule --note "Defender prompt: none seen by agent at start; human watching"
+result: exit 0. Windows 11 client -> Linux 6.8.0-147 server: http-ping, http-blob, grpc-unary, grpc-stream, grpc-bidi idle 30 s / 120 s with keepalive on and off: all "yes"; outbound-only (ADR-0002) yes.
+    HTTP first byte 3.68 ms, HTTP stream 300.4 Mbit/s, gRPC unary RTT 4.89 ms, gRPC stream 319.3 Mbit/s.
+    Defender prompt: none reported by the human during the run.
+evidence: lab/reports/raw/2026-11-01-S2-crossos/l2-d76354d8__to-l1_wifi-3b3edc51.json
+SIGNAL: s2-done L2-to-L1
