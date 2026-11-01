@@ -183,3 +183,10 @@ result: exit 0. TCP x1 L3->L2 207.97 +- 5.90 Mbit/s; x4 L3->L2 247.44 +- 11.88; 
     UDP echo: RTT mean 2.274 ms, p95 3.457 ms, jitter 0.740 ms, loss 0 %.
 evidence: lab/reports/raw/2026-11-01-S1-network/ailesh-1ad242f0__to-tiwari_ji_wifi-3f7a2a51.json
 SIGNAL: s1-client-done L2
+
+### C2.5-c - Remove S1 rules - OK
+when: 2026-11-01 11:43 (local)
+commands:
+    (human, Administrator) Remove-NetFirewallRule -DisplayName "MeshForge S1 TCP","MeshForge S1 UDP"
+    Get-NetFirewallRule -Group "MeshForge lab"; Get-NetFirewallRule -Direction Inbound -Action Block -Enabled True | Where-Object DisplayName -like "*python*"
+result: no "MeshForge lab" rules left; no inbound block rule for python.
