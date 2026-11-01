@@ -23,3 +23,12 @@ commands:
 result: git 2.52.0.windows.1 OK. uv NOT INSTALLED ("The term 'uv' is not recognized"), so uv sync / uv run did not run. Docker NOT INSTALLED. System Python 3.12 exists (AppData\Local\Programs\Python\Python312).
 evidence: this entry
 BUG: not a code bug - uv missing on L3 blocks R1-2..R1-6. Asking human whether to install uv (official installer).
+
+### R1-2 - Tools (attempt 2, after installing uv) - OK
+when: 2026-11-01 10:26 (local)
+laptop: L3 (Windows 11, hostname TIWARI_JI)
+commands:
+    winget install --id astral-sh.uv -e   (human approved)
+    uv --version ; uv sync ; uv run python --version ; docker version
+result: uv 0.13.6 installed. uv sync exit 0 (all packages installed, no errors). uv run python = 3.12.10. git 2.52.0. Docker still NOT INSTALLED (not installed, per TODO).
+evidence: this entry
