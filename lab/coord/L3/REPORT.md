@@ -226,3 +226,9 @@ SIGNAL: V0.2-done
 ### C17-b - WAIT controller-up - WAITING
 when: 2026-11-01 15:14 (local)
 result: L1 is at C17-b (stopped old dev services); no controller-up yet. Human asked to get an invite code from L1's human ahead of the timed run.
+
+### C17-b - WAIT controller-up - OK
+- time: 2026-11-01 18:55
+- L1 signal seen: controller-up url=https://192.168.31.13:47110 (fp in L1 report)
+- invite code: to be given verbally by L1 human, not recorded
+
