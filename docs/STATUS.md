@@ -4,25 +4,6 @@
 
 **Last updated:** 2026-11-01 (🧑 lab campaign RUNNING on L1–L3 via lab/coord (D425 Wi-Fi only, D426 git coordination); V0.2 in progress: 0.2.1 [x], S1 Wi-Fi matrix L1–L3 done; lab-found fixes eadd62fc, ef2d0421)
 
-```
-TOTAL   ██████████████▒▒▒░░░  71%  113/159 done, 21 in progress
-
-V0.1    █████████████████▒▒▒  83%  10/12  Foundations & engineering system
-V0.2    ██▒▒▒▒▒▒▒▒▒▒▒▒▒░░░░░   9%   1/11  Lab setup & feasibility validation
-V0.3    ███████████████▒▒▒▒░  73%  11/15  Fabric core: controller ⇄ agent
-V0.4    ███████████████▒▒▒▒░  76%  13/17  Remote execution core (Mode 1 foundation)
-V0.5    ██████████████████░░  90%  10/11  Data plane & environments
-V0.6    ███████████████████░  92%  13/14  Scheduling & reliability — Mode 1 complete
-V0.7    ██████████████████░░  91%  11/12  Security & pairing
-V0.8    ██████████████████░░  90%   9/10  Dashboard & CLI v1
-V0.9    ██████████████████░░  90%   9/10  Benchmark & telemetry system v1
-V0.10   ██████████████████░░  90%   9/10  Mode 3 Task Splitting
-V0.14   ██████████████████▒▒  87%   7/8   Unified planner v2
-V0.15   █████████████████░░░  83%  10/12  ML planner
-V0.17   ▒▒▒▒▒▒▒▒▒▒▒░░░░░░░░░   0%   0/9   Productization
-V1.0    ░░░░░░░░░░░░░░░░░░░░   0%   0/8   Release hardening & final evaluation
-```
-█ done `[x]` · ▒ in progress or waiting on a 🧑 lab step `[~]` · ░ not started
 
 ## Progress
 
