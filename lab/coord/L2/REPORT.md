@@ -245,3 +245,23 @@ result: torch 2.14.1+cu126, cuda True, NVIDIA GeForce RTX 2050. S7 exit 0:
     CPU float32 1t 76.77, all 99.09 GFLOP/s (much lower than R1b-2's 315.80); float64 1t 36.16, all 127.48. Memory copy 9.34 GB/s.
     "!! thermal throttling suspected (last repetition much slower than the first): cpu-float32-1t". Asking the human to fix and rerun.
 evidence: lab/reports/raw/2026-11-01-S7-hardware/l2-d76354d8__run3.json
+
+### R1b-3 (run 2) - GPU score after cooling - OK, throttling warning again
+when: 2026-11-01 15:15-15:18 (local)
+laptop: L2; human: plugged in (PowerOnline True), hard surface, ~5 min cool-down
+commands:
+    uv run --no-sync python lab/spikes/s7_hardware.py run --name L2
+result: exit 0. GPU float32 4.85 +- 0.02 TFLOP/s; float16 11.26 +- 0.23; bfloat16 11.29 +- 0.15; copy 103.04 GB/s (GPU numbers stable across both runs).
+    CPU float32 1t 96.58, all 240.89 GFLOP/s; float64 1t 49.58, all 133.85; memory copy 9.06 GB/s.
+    "!! thermal throttling suspected: cpu-float64-1t, cpu-python-1t" (different cases than run 1). Not rerun again: this laptop seems to throttle on CPU under sustained load; for the Lead to judge. CPU all-core float32 varies a lot between runs: 315.80 (R1b-2), 99.09 (run 1), 240.89 (run 2).
+evidence: lab/reports/raw/2026-11-01-S7-hardware/l2-d76354d8__run4.json
+QUESTIONS: Should L2's S7 CPU numbers be taken from R1b-2 (no GPU load before, no warning) or from run 2?
+
+### R1b-4 - Round 1b done
+## DONE round 1b
+
+### C2.r-a - Push all raw files - OK
+result: pushed lab/reports/raw/2026-11-01-S1-network, -S2-crossos, -S3-transport, -V0.2-network-facts, -S6-environments, -S7-hardware, lab/reports/inventory/AILESH.json, lab/reports/gpu/.
+SIGNAL: v02-raw-pushed L2
+    Open: firewall rule "MeshForge S2" still present on L2 (human asked to remove it).
+SIGNAL: V0.2-done
