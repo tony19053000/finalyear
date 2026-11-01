@@ -49,3 +49,19 @@ result: quick exit 3: python 1t 48.62±1.98 MFLOP/s, all 423.12±13.49 MFLOP/s, 
     full exit 3: python 1t 51.22±0.29 MFLOP/s, all 298.93±102.27 MFLOP/s (high spread), mem copy 37.05±0.31 GB/s.
     Exit 3 = typed skips: no_blas_backend (no torch/numpy), gpu_skipped (driver not loaded, R1-1). No ON BATTERY / throttling warning.
 evidence: lab/reports/raw/2026-11-01-S7-hardware/l1-dffe8596__quick.json, lab/reports/raw/2026-11-01-S7-hardware/l1-dffe8596.json
+
+### R1-6 - Environments (0.2.10) - OK (GPU cases skipped)
+when: 2026-11-01 (local)
+laptop: L1 (Ubuntu 24.04.4, JARVISM3)
+commands:
+    uv run python lab/spikes/s6_environments.py run --quick --name L1
+    uv run python lab/spikes/s6_environments.py run --name L1
+result: quick exit 3 (all rows INVALID n=2, as expected). full exit 3: recommendation docker; container start 261.60±10.72 ms,
+    venv start 110.29±10.98 ms, small image cold pull 10.05±0.37 s, venv cold install 6.82±2.64 s, warm 0.09 s; warm start overhead within 3 s target.
+    Skipped (typed): docker-gpu-smi and docker-gpu-torch = no_gpu_on_host (driver not loaded, R1-1 BUG).
+evidence: lab/reports/raw/2026-11-01-S6-environments/l1-dffe8596__quick.json, lab/reports/raw/2026-11-01-S6-environments/l1-dffe8596.json
+
+### R1-7 - Push - OK
+result: all round-1 evidence pushed to lab/L1. Open item: NVIDIA driver not loaded (R1-1 BUG) - needs human/Lead before C2.1-a.
+
+## DONE (round 1)

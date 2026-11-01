@@ -1,0 +1,607 @@
+{
+  "cases": {
+    "docker-gpu-smi": {
+      "aborted": true,
+      "attrs": {},
+      "errors": [
+        {
+          "failure_type": "no_gpu_on_host",
+          "fatal": true,
+          "message": "nvidia-smi -L failed: NVIDIA-SMI has failed because it couldn't communicate with the NVIDIA driver. Make sure that the latest NVIDIA driver is installed and running. [fix: no NVIDIA GPU visible to the host driver: GPU-in-container is n/a here (if the laptop has one, install the NVIDIA driver and check nvidia-smi)]",
+          "phase": "setup",
+          "rep": 0
+        }
+      ],
+      "label": "nvidia-smi inside a CUDA base container (--gpus all)",
+      "metrics": {
+        "start_to_exit_ms": "ms"
+      },
+      "requested_reps": 2,
+      "requested_warmup": 1,
+      "samples": [],
+      "summary": {
+        "start_to_exit_ms": {
+          "max": null,
+          "mean": null,
+          "median": null,
+          "min": null,
+          "n": 0,
+          "p95": null,
+          "stdev": null
+        }
+      },
+      "warmup": []
+    },
+    "docker-gpu-torch": {
+      "aborted": true,
+      "attrs": {},
+      "errors": [
+        {
+          "failure_type": "skipped_by_flag",
+          "fatal": true,
+          "message": "--quick",
+          "phase": "setup",
+          "rep": 0
+        }
+      ],
+      "label": "PyTorch-CUDA container: import torch + first CUDA matmul",
+      "metrics": {
+        "first_cuda_op_s": "s",
+        "import_s": "s",
+        "start_to_ready_ms": "ms",
+        "total_ms": "ms"
+      },
+      "requested_reps": 2,
+      "requested_warmup": 1,
+      "samples": [],
+      "summary": {
+        "first_cuda_op_s": {
+          "max": null,
+          "mean": null,
+          "median": null,
+          "min": null,
+          "n": 0,
+          "p95": null,
+          "stdev": null
+        },
+        "import_s": {
+          "max": null,
+          "mean": null,
+          "median": null,
+          "min": null,
+          "n": 0,
+          "p95": null,
+          "stdev": null
+        },
+        "start_to_ready_ms": {
+          "max": null,
+          "mean": null,
+          "median": null,
+          "min": null,
+          "n": 0,
+          "p95": null,
+          "stdev": null
+        },
+        "total_ms": {
+          "max": null,
+          "mean": null,
+          "median": null,
+          "min": null,
+          "n": 0,
+          "p95": null,
+          "stdev": null
+        }
+      },
+      "warmup": []
+    },
+    "docker-pull-cold": {
+      "aborted": false,
+      "attrs": {
+        "image": "python:3.12-slim"
+      },
+      "errors": [],
+      "label": "cold pull of the small image (rmi, then pull)",
+      "metrics": {
+        "bytes_on_disk": "B",
+        "pull_s": "s"
+      },
+      "requested_reps": 2,
+      "requested_warmup": 1,
+      "samples": [
+        {
+          "bytes_on_disk": 43284989,
+          "digest": "python@sha256:aa943ce411423c7582288f18707ff66eddcbaeb510502d747a72aeb34f30d159",
+          "pull_s": 10.07845929999985
+        },
+        {
+          "bytes_on_disk": 43284989,
+          "digest": "python@sha256:aa943ce411423c7582288f18707ff66eddcbaeb510502d747a72aeb34f30d159",
+          "pull_s": 11.824368630999743
+        }
+      ],
+      "summary": {
+        "bytes_on_disk": {
+          "max": 43284989.0,
+          "mean": 43284989.0,
+          "median": 43284989.0,
+          "min": 43284989.0,
+          "n": 2,
+          "p95": 43284989.0,
+          "stdev": 0.0
+        },
+        "pull_s": {
+          "max": 11.824368630999743,
+          "mean": 10.951413965499796,
+          "median": 10.951413965499796,
+          "min": 10.07845929999985,
+          "n": 2,
+          "p95": 11.737073164449749,
+          "stdev": 1.2345443272868932
+        }
+      },
+      "warmup": [
+        {
+          "bytes_on_disk": 43284989,
+          "digest": "python@sha256:aa943ce411423c7582288f18707ff66eddcbaeb510502d747a72aeb34f30d159",
+          "pull_s": 18.149021684000218
+        }
+      ]
+    },
+    "docker-start": {
+      "aborted": false,
+      "attrs": {
+        "command": "python -c print('ok')",
+        "daemon_warnings": [],
+        "image": {
+          "digest": "python@sha256:dddfd7e07f9d15aeeca61529320492139d21cac7f0070c00609243e51e4e0016",
+          "image": "python:3.12-slim",
+          "size_bytes": 46237854
+        },
+        "sandbox_flags": [
+          "--network",
+          "none",
+          "--cpus",
+          "1",
+          "--memory",
+          "512m",
+          "--pids-limit",
+          "64",
+          "--user",
+          "65534:65534",
+          "--read-only",
+          "--tmpfs",
+          "/tmp"
+        ]
+      },
+      "errors": [],
+      "label": "warm container start, sandboxed python -c print",
+      "metrics": {
+        "start_to_exit_ms": "ms"
+      },
+      "requested_reps": 2,
+      "requested_warmup": 1,
+      "samples": [
+        {
+          "exit_code": 0,
+          "start_to_exit_ms": 252.61403099921154
+        },
+        {
+          "exit_code": 0,
+          "start_to_exit_ms": 256.6002009998556
+        }
+      ],
+      "summary": {
+        "start_to_exit_ms": {
+          "max": 256.6002009998556,
+          "mean": 254.60711599953356,
+          "median": 254.60711599953356,
+          "min": 252.61403099921154,
+          "n": 2,
+          "p95": 256.4008924998234,
+          "stdev": 2.8186478384177933
+        }
+      },
+      "warmup": [
+        {
+          "exit_code": 0,
+          "start_to_exit_ms": 259.2911339997954
+        }
+      ]
+    },
+    "venv-cold": {
+      "aborted": false,
+      "attrs": {
+        "offline": false,
+        "pinned_requirements": [
+          "numpy==2.2.6",
+          "grpcio==1.84.0",
+          "pydantic==2.13.5"
+        ],
+        "python_request": "3.12",
+        "uv_version": "uv 0.10.12 (x86_64-unknown-linux-gnu)"
+      },
+      "errors": [],
+      "label": "uv venv + install, fresh empty cache per repetition",
+      "metrics": {
+        "cache_bytes": "B",
+        "create_s": "s",
+        "install_s": "s",
+        "site_packages_bytes": "B",
+        "total_s": "s"
+      },
+      "requested_reps": 2,
+      "requested_warmup": 1,
+      "samples": [
+        {
+          "cache_bytes": 101422784,
+          "create_s": 0.05189274100030161,
+          "install_s": 7.828429402999973,
+          "site_packages_bytes": 82881824,
+          "total_s": 7.880322144000274
+        },
+        {
+          "cache_bytes": 101422784,
+          "create_s": 0.05814862299939705,
+          "install_s": 5.9875721110001905,
+          "site_packages_bytes": 82881824,
+          "total_s": 6.0457207339995875
+        }
+      ],
+      "summary": {
+        "cache_bytes": {
+          "max": 101422784.0,
+          "mean": 101422784.0,
+          "median": 101422784.0,
+          "min": 101422784.0,
+          "n": 2,
+          "p95": 101422784.0,
+          "stdev": 0.0
+        },
+        "create_s": {
+          "max": 0.05814862299939705,
+          "mean": 0.05502068199984933,
+          "median": 0.05502068199984933,
+          "min": 0.05189274100030161,
+          "n": 2,
+          "p95": 0.057835828899442276,
+          "stdev": 0.004423576583863238
+        },
+        "install_s": {
+          "max": 7.828429402999973,
+          "mean": 6.908000757000082,
+          "median": 6.908000757000082,
+          "min": 5.9875721110001905,
+          "n": 2,
+          "p95": 7.736386538399984,
+          "stdev": 1.3016826743697505
+        },
+        "site_packages_bytes": {
+          "max": 82881824.0,
+          "mean": 82881824.0,
+          "median": 82881824.0,
+          "min": 82881824.0,
+          "n": 2,
+          "p95": 82881824.0,
+          "stdev": 0.0
+        },
+        "total_s": {
+          "max": 7.880322144000274,
+          "mean": 6.963021438999931,
+          "median": 6.963021438999931,
+          "min": 6.0457207339995875,
+          "n": 2,
+          "p95": 7.78859207350024,
+          "stdev": 1.2972590977858873
+        }
+      },
+      "warmup": [
+        {
+          "cache_bytes": 101422784,
+          "create_s": 0.05794599300043046,
+          "install_s": 10.497073915000328,
+          "site_packages_bytes": 82881824,
+          "total_s": 10.555019908000759
+        }
+      ]
+    },
+    "venv-start": {
+      "aborted": false,
+      "attrs": {
+        "offline": true,
+        "pinned_requirements": [
+          "numpy==2.2.6",
+          "grpcio==1.84.0",
+          "pydantic==2.13.5"
+        ],
+        "python_request": "3.12",
+        "script": "import numpy; import grpc; print('ok')",
+        "uv_version": "uv 0.10.12 (x86_64-unknown-linux-gnu)"
+      },
+      "errors": [],
+      "label": "venv interpreter: import numpy, grpc (process start)",
+      "metrics": {
+        "start_to_exit_ms": "ms"
+      },
+      "requested_reps": 2,
+      "requested_warmup": 1,
+      "samples": [
+        {
+          "exit_code": 0,
+          "start_to_exit_ms": 108.8384180002322
+        },
+        {
+          "exit_code": 0,
+          "start_to_exit_ms": 97.30729300008534
+        }
+      ],
+      "summary": {
+        "start_to_exit_ms": {
+          "max": 108.8384180002322,
+          "mean": 103.07285550015877,
+          "median": 103.07285550015877,
+          "min": 97.30729300008534,
+          "n": 2,
+          "p95": 108.26186175022485,
+          "stdev": 8.153736682313571
+        }
+      },
+      "warmup": [
+        {
+          "exit_code": 0,
+          "start_to_exit_ms": 220.60487300041132
+        }
+      ]
+    },
+    "venv-warm": {
+      "aborted": false,
+      "attrs": {
+        "offline": true,
+        "pinned_requirements": [
+          "numpy==2.2.6",
+          "grpcio==1.84.0",
+          "pydantic==2.13.5"
+        ],
+        "python_request": "3.12",
+        "uv_version": "uv 0.10.12 (x86_64-unknown-linux-gnu)",
+        "warm_setup": {
+          "cache_bytes": 101422764,
+          "create_s": 0.05282085099952383,
+          "install_s": 4.829591378000259,
+          "note": "the one online install that warmed the cache",
+          "site_packages_bytes": 82881824,
+          "total_s": 4.882412228999783
+        }
+      },
+      "errors": [],
+      "label": "uv venv + install --offline from a cache warmed once",
+      "metrics": {
+        "cache_bytes": "B",
+        "create_s": "s",
+        "install_s": "s",
+        "site_packages_bytes": "B",
+        "total_s": "s"
+      },
+      "requested_reps": 2,
+      "requested_warmup": 1,
+      "samples": [
+        {
+          "cache_bytes": 101425680,
+          "create_s": 0.027330449000146473,
+          "install_s": 0.06366867499946238,
+          "site_packages_bytes": 82881824,
+          "total_s": 0.09099912399960886
+        },
+        {
+          "cache_bytes": 101427138,
+          "create_s": 0.03149873099937395,
+          "install_s": 0.06382732999918517,
+          "site_packages_bytes": 82881824,
+          "total_s": 0.09532606099855911
+        }
+      ],
+      "summary": {
+        "cache_bytes": {
+          "max": 101427138.0,
+          "mean": 101426409.0,
+          "median": 101426409.0,
+          "min": 101425680.0,
+          "n": 2,
+          "p95": 101427065.1,
+          "stdev": 1030.9616869699862
+        },
+        "create_s": {
+          "max": 0.03149873099937395,
+          "mean": 0.02941458999976021,
+          "median": 0.02941458999976021,
+          "min": 0.027330449000146473,
+          "n": 2,
+          "p95": 0.03129031689941257,
+          "stdev": 0.0029474204675515665
+        },
+        "install_s": {
+          "max": 0.06382732999918517,
+          "mean": 0.06374800249932377,
+          "median": 0.06374800249932377,
+          "min": 0.06366867499946238,
+          "n": 2,
+          "p95": 0.06381939724919902,
+          "stdev": 0.00011218602617313099
+        },
+        "site_packages_bytes": {
+          "max": 82881824.0,
+          "mean": 82881824.0,
+          "median": 82881824.0,
+          "min": 82881824.0,
+          "n": 2,
+          "p95": 82881824.0,
+          "stdev": 0.0
+        },
+        "total_s": {
+          "max": 0.09532606099855911,
+          "mean": 0.09316259249908398,
+          "median": 0.09316259249908398,
+          "min": 0.09099912399960886,
+          "n": 2,
+          "p95": 0.09510971414861161,
+          "stdev": 0.0030596064937246977
+        }
+      },
+      "warmup": [
+        {
+          "cache_bytes": 101424222,
+          "create_s": 0.030420793000303092,
+          "install_s": 0.06486767899968982,
+          "site_packages_bytes": 82881824,
+          "total_s": 0.09528847199999291
+        }
+      ]
+    }
+  },
+  "errors": [
+    {
+      "failure_type": "no_gpu_on_host",
+      "message": "docker-gpu-smi: nvidia-smi -L failed: NVIDIA-SMI has failed because it couldn't communicate with the NVIDIA driver. Make sure that the latest NVIDIA driver is installed and running. [fix: no NVIDIA GPU visible to the host driver: GPU-in-container is n/a here (if the laptop has one, install the NVIDIA driver and check nvidia-smi)]"
+    }
+  ],
+  "extra": {
+    "budget_remaining_s": 826.257,
+    "docker": {
+      "cgroup_driver": "systemd",
+      "cgroup_version": "2",
+      "client_os_arch": "linux/amd64",
+      "client_version": "29.7.2",
+      "default_runtime": "runc",
+      "docker_desktop": false,
+      "docker_root_dir": "/var/lib/docker",
+      "driver": "overlayfs",
+      "kernel_version": "6.8.0-147-generic",
+      "mem_total_bytes": 16413949952,
+      "ncpu": 16,
+      "nvidia_runtime": true,
+      "ok": true,
+      "operating_system": "Ubuntu 24.04.4 LTS",
+      "os_type": "linux",
+      "parsed": true,
+      "runtimes": [
+        "io.containerd.runc.v2",
+        "nvidia",
+        "runc"
+      ],
+      "security_options": [
+        "name=apparmor",
+        "name=seccomp,profile=builtin",
+        "name=cgroupns"
+      ],
+      "server_errors": [],
+      "server_os_arch": "linux/amd64",
+      "server_version": "29.7.2",
+      "wsl2_backend": false
+    },
+    "facts": {
+      "cpu_count": 16,
+      "disk_free_bytes": {
+        "docker_root": 42527297536,
+        "temp_dir": 42527297536
+      },
+      "gpu": {
+        "devices": [],
+        "failure_type": "no_gpu_on_host",
+        "fix": "no NVIDIA GPU visible to the host driver: GPU-in-container is n/a here (if the laptop has one, install the NVIDIA driver and check nvidia-smi)",
+        "message": "nvidia-smi -L failed: NVIDIA-SMI has failed because it couldn't communicate with the NVIDIA driver. Make sure that the latest NVIDIA driver is installed and running.",
+        "present": false
+      },
+      "is_wsl": false,
+      "machine": "x86_64",
+      "memory_total_bytes": 16413949952,
+      "python": "3.12.13",
+      "release": "6.8.0-147-generic",
+      "system": "Linux",
+      "uv_version": "uv 0.10.12 (x86_64-unknown-linux-gnu)",
+      "version": "#147-Ubuntu SMP PREEMPT_DYNAMIC Thu Sep 24 11:33:16 UTC 2026",
+      "wsl": {
+        "distro": null,
+        "evidence": {
+          "WSL_DISTRO_NAME": null,
+          "WSL_INTEROP": false,
+          "osrelease": "6.8.0-147-generic",
+          "proc_version": "Linux version 6.8.0-147-generic (buildd@lcy02-amd64-081) (x86_64-linux-gnu-gcc-13 (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0, GNU ld (GNU Binutils for Ubuntu) 2.42) #147-Ubuntu SMP PREEMPT_DYNAMIC Thu Se"
+        },
+        "is_wsl": false,
+        "native": true,
+        "platform": "linux",
+        "wsl_version": null
+      }
+    },
+    "gpu_torch_cold_pull_note": "docker-gpu-torch.attrs.cold_pull is one informational pull (n=1) and is never a row of the results table",
+    "images": {
+      "python:3.12-slim": {
+        "digest": "python@sha256:dddfd7e07f9d15aeeca61529320492139d21cac7f0070c00609243e51e4e0016",
+        "image": "python:3.12-slim",
+        "size_bytes": 46237854
+      }
+    },
+    "metric_units": {
+      "bytes_on_disk": "B",
+      "cache_bytes": "B",
+      "create_s": "s",
+      "first_cuda_op_s": "s",
+      "import_s": "s",
+      "install_s": "s",
+      "pull_s": "s",
+      "site_packages_bytes": "B",
+      "start_to_exit_ms": "ms",
+      "start_to_ready_ms": "ms",
+      "total_ms": "ms",
+      "total_s": "s"
+    },
+    "pinned_requirements": [
+      "numpy==2.2.6",
+      "grpcio==1.84.0",
+      "pydantic==2.13.5"
+    ],
+    "quick": true,
+    "skipped": {
+      "docker-gpu-torch": "--quick"
+    },
+    "warnings": [
+      "QUICK RUN: 2 repetitions per case (< 5, every row INVALID) and no gpu-torch case: a smoke test, not a measurement",
+      "no NVIDIA GPU on this host: nvidia-smi -L failed: NVIDIA-SMI has failed because it couldn't communicate with the NVIDIA driver. Make sure that the latest NVIDIA driver is installed and running.",
+      "no_gpu_on_host: docker-gpu-smi: nvidia-smi -L failed: NVIDIA-SMI has failed because it couldn't communicate with the NVIDIA driver. Make sure that the latest NVIDIA driver is installed and running. [fix: no NVIDIA GPU visible to the host driver: GPU-in-container is n/a here (if the laptop has one, install the NVIDIA driver and check nvidia-smi)]"
+    ]
+  },
+  "git": {
+    "commit": "b8ba4e6f",
+    "dirty": false,
+    "modified_files": 0,
+    "untracked_files": 0
+  },
+  "host": {
+    "hostname": "JARVISM3",
+    "label": "L1",
+    "machine": "x86_64",
+    "os": "Linux",
+    "os_release": "6.8.0-147-generic",
+    "python": "3.12.13"
+  },
+  "link": null,
+  "params": {
+    "budget_s": 900.0,
+    "gpu_torch_image": "pytorch/pytorch:2.8.0-cuda12.6-cudnn9-runtime",
+    "no_network": false,
+    "pause_s": 0.2,
+    "quick": true,
+    "reps": 2,
+    "skip_docker": false,
+    "skip_gpu": false,
+    "skip_gpu_torch": false,
+    "warmup": 1
+  },
+  "schema_version": 1,
+  "spike": "S6",
+  "timestamp_utc": "2026-11-01T05:17:33Z",
+  "tool": {
+    "script": "lab/spikes/s6_environments.py",
+    "spike": "S6"
+  },
+  "topic": "S6-environments"
+}
