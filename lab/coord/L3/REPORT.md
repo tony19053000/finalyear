@@ -194,3 +194,15 @@ C2.5-b addendum (2026-11-01 11:42): HUMAN ran Remove-NetFirewallRule -DisplayNam
 when: 2026-11-01 11:43 (local)
 result: All L3 raw files are on origin/lab/L3: inventory TIWARI_JI.json, S7 hardware (l3-842983de*.json), S6 environments (l3-842983de*.json), network facts L3.txt. L3 ran no S1 client (only L3->L4, L4 absent). S2 pair with L1 (C2.6-a, optional) not started yet - its file will be pushed later if L1 runs it.
 SIGNAL: v02-raw-pushed L3
+
+### C4.15-g - Windows part G tests (attempt 2, Lead's new command) - OK
+when: 2026-11-01 12:15 (local)
+commands:
+    uv sync --extra agent --extra controller --group dev
+    uv run pytest tests/unit/common/test_bundle_case_insensitive.py tests/component/agent/test_docker_sandbox.py -q -rs
+result: exit 0. 3 passed, 9 skipped. Docker tests SKIPPED (7, no Docker daemon on L3); GPU tests SKIPPED (2, no NVIDIA GPU).
+SIGNAL: v04-g-done L3
+
+C3.2-a rerun: waiting for Lead commit "test: skip symlink tests without privilege" (not on origin/main yet).
+
+WAIT status (2026-11-01 12:15): no new S2 signal for ~40 min. L1 last: s2-serve-up L1 (waiting for L2's S2 client). L2 last: C2.5-c. Waiting for L3's S2 turn and controller-up.
