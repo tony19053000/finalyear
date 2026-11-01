@@ -106,3 +106,11 @@ result: exit 3 (not measured: gpu_skipped). float32 1t 95.59 +- 6.06 GFLOP/s, al
     Memory: copy 14.51 +- 1.20 GB/s, scale 8.72, add 9.11, triad 5.49. No battery/throttling warnings.
     The new harness wrote a new file (__run2) instead of overwriting, so the round-1 bug is fixed on main.
 evidence: lab/reports/raw/2026-11-01-S7-hardware/l2-d76354d8__run2.json (numpy), l2-d76354d8__nonumpy.json + l2-d76354d8.json (round-1 full run, identical copies)
+
+### R1b-1 - Wi-Fi profile Private - OK
+when: 2026-11-01 10:54 (local)
+laptop: L2 (Windows 11, hostname AILESH)
+commands:
+    Get-NetConnectionProfile
+result: human switched it. Name JARVIS, InterfaceAlias Wi-Fi, NetworkCategory Private.
+evidence: this entry
