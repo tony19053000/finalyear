@@ -95,3 +95,15 @@ result: all lab/reports + REPORT.md pushed to lab/L3.
 Summary for Lead: L3 = Windows 11, no NVIDIA GPU (AMD iGPU), Ryzen 7 5800HS 8c/16t, 15.4 GiB, Wi-Fi 192.168.31.236 5 GHz 87%, same room as L1, Wi-Fi profile PUBLIC (human choice), no Docker, no numpy/torch, uv installed this session.
 
 ## DONE
+
+---
+# Full campaign
+
+### C0-a - Prep - OK
+when: 2026-11-01 10:39 (local)
+laptop: L3 (Windows 11, hostname TIWARI_JI)
+commands:
+    git fetch origin ; git merge origin/main ; git rev-parse --short HEAD ; uv sync --extra agent
+result: HEAD 054763b9 (main merged into lab/L3). uv sync --extra agent exit 0.
+  Pre-check for C0-b: Wi-Fi profile still Public; w32tm /query /status -> "The service has not been started. (0x80070426)" (Windows Time service stopped).
+evidence: this entry
