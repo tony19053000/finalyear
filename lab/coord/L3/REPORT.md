@@ -187,3 +187,5 @@ BUG: the TODO command for C4.15-g installs only --extra agent, but tests/compone
 ### C2.5-b (tail) - Stop L3 S1 server - OK
 when: 2026-11-01 11:39 (local)
 result: Seen SIGNAL s1-client-done L1 and s1-client-done L2. L3 S1 server stopped (port 47201 closed). Server writes no result file on L3 (results are on the client side). Human asked to remove the S1 firewall rules.
+
+C2.5-b addendum (2026-11-01 11:42): HUMAN ran Remove-NetFirewallRule -DisplayName "MeshForge S1 TCP","MeshForge S1 UDP" (admin). Check: no "MeshForge S1*" rules left.
