@@ -167,3 +167,8 @@ result: exit 0. Linux client -> Windows 11 server: every case yes (http-ping, ht
     HTTP first byte 44.25 ms, HTTP stream 154.0 Mbit/s, gRPC unary RTT 5.66 ms, gRPC stream 179.4 Mbit/s.
 evidence: lab/reports/raw/2026-11-01-S2-crossos/l1-dffe8596__to-l2_wifi-e7716ae1.json
 SIGNAL: s2-done L1-to-L2
+
+### C2.7-a - S3 L1 server (0.2.7) - started
+commands:
+    uv run python lab/spikes/s3_transport.py serve --bind 192.168.31.13   (background; ufw inactive)
+SIGNAL: s3-serve-up L1
