@@ -4,6 +4,8 @@
 * :mod:`.reps` - warmup + repetition runner with typed, recorded failures.
 * :mod:`.envelope` - the result JSON every spike writes (schema, git, host, link).
 * :mod:`.report` - fills ``lab/reports/TEMPLATE.md`` from result JSONs.
+* :mod:`.runs` - one file per run (``__quick``/``__runN``, never overwritten)
+  and the newest-full-run selection report builders apply.
 * :mod:`.atomic` - atomic text writes (temp file + fsync + ``os.replace``).
 * :mod:`.protocol` - LAN-only address rules and length-prefixed JSON framing.
 

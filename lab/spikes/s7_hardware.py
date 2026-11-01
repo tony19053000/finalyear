@@ -14,7 +14,8 @@ One command per laptop, then one command anywhere to build the comparison::
 
 ``run`` measures this machine with ``--warmup`` + ``--reps`` repetitions per
 case and writes one result envelope to
-``lab/reports/raw/<today>-S7-hardware/<host>.json``. Every benchmark runs in a
+``lab/reports/raw/<today>-S7-hardware/<host>.json`` (``<host>__quick.json`` for
+``--quick``; a re-run gets ``__run2``, ... and never overwrites). Every benchmark runs in a
 child process, so a broken CUDA stack is recorded as an error instead of
 killing the run, and the whole run is bounded by ``--timeout``.
 
@@ -48,7 +49,6 @@ from spikes._harness.envelope import (  # noqa: E402
     load_dir,
     raw_dir,
     raw_result_path,
-    write_envelope,
 )
 from spikes._harness.report import (  # noqa: E402
     FORCE_HELP,
@@ -59,6 +59,11 @@ from spikes._harness.report import (  # noqa: E402
     write_report,
 )
 from spikes._harness.reps import JSON  # noqa: E402
+from spikes._harness.runs import (  # noqa: E402
+    latest_runs,
+    superseded_block,
+    write_run_envelope,
+)
 from spikes._s7 import SPIKE, TOPIC, sizing  # noqa: E402
 from spikes._s7.report import is_score, render_scoreboard  # noqa: E402
 from spikes._s7.run import RunConfig, run_scores  # noqa: E402
@@ -266,9 +271,9 @@ def cmd_run(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
     today = datetime.now(UTC).date()
     out_dir: Path = args.out_dir or raw_dir(TOPIC, today)
     host = str(run.envelope["host"]["label"])
-    path = out_dir / raw_result_path(TOPIC, host, today).name
+    path = out_dir / raw_result_path(TOPIC, host, today, quick=profile.quick).name
     try:
-        write_envelope(run.envelope, path)
+        path = write_run_envelope(run.envelope, path)
     except ResultCollisionError as exc:
         _say(f"run: {exc}")
         return EXIT_IO
@@ -299,12 +304,19 @@ def cmd_report(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int
         parser.error(f"--results folder not found: {', '.join(missing)}")
     envelopes = []
     skipped: list[str] = []
+    superseded: list[str] = []
     for directory in dirs:
         docs, bad = load_dir(directory)
-        envelopes += [e for e in docs if e.get("spike") == SPIKE]
+        # per folder: the newest full run per laptop/peer; quick runs and older
+        # re-runs are listed as superseded, never counted (spikes._harness.runs)
+        chosen = latest_runs([e for e in docs if e.get("spike") == SPIKE])
+        envelopes += chosen.kept
+        superseded += chosen.superseded
         skipped += bad
     for reason in skipped:
         _say(f"skipped invalid result file: {reason}")
+    for line in superseded:
+        _say(f"not counted: {line}")
     if not envelopes:
         _say("warning: no S7 result files found; every cell will be TBD")
     day = _report_day(dirs, args.date).isoformat()
@@ -313,6 +325,7 @@ def cmd_report(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int
         extra += (
             "\nSkipped result files:\n" + "\n".join(f"- {s}" for s in skipped) + "\n"
         )
+    extra += superseded_block(superseded)
     try:
         template = args.template.read_text(encoding="utf-8")
         text = render_report(
