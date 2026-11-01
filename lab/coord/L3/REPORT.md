@@ -32,3 +32,19 @@ commands:
     uv --version ; uv sync ; uv run python --version ; docker version
 result: uv 0.13.6 installed. uv sync exit 0 (all packages installed, no errors). uv run python = 3.12.10. git 2.52.0. Docker still NOT INSTALLED (not installed, per TODO).
 evidence: this entry
+
+### R1-3 - Inventory - OK
+when: 2026-11-01 10:27 (local)
+laptop: L3 (Windows 11, hostname TIWARI_JI)
+commands:
+    uv run python lab/inventory.py --out "lab/reports/inventory/$env:COMPUTERNAME.json"
+result: exit 0, failed probes none, problems none. CPU AMD Ryzen 7 5800HS 8c/16t; RAM 15.4 GiB; GPU AMD Radeon integrated 512 MiB, nvidia-smi not found; disk C: 475 GiB total / 38.7 GiB free. Secure Boot enabled, torch not installed, docker not installed. Note: on battery (58%) at time of run.
+evidence: lab/reports/inventory/TIWARI_JI.json
+
+### R1-4 - GPU check - SKIPPED
+when: 2026-11-01 10:27 (local)
+laptop: L3 (Windows 11, hostname TIWARI_JI)
+commands:
+    (none - per TODO)
+result: SKIPPED - no NVIDIA GPU on L3 (only AMD Radeon integrated; nvidia-smi absent). torch not installed, Docker not installed.
+evidence: lab/reports/inventory/TIWARI_JI.json
