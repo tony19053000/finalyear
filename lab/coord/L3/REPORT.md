@@ -206,3 +206,10 @@ SIGNAL: v04-g-done L3
 C3.2-a rerun: waiting for Lead commit "test: skip symlink tests without privilege" (not on origin/main yet).
 
 WAIT status (2026-11-01 12:15): no new S2 signal for ~40 min. L1 last: s2-serve-up L1 (waiting for L2's S2 client). L2 last: C2.5-c. Waiting for L3's S2 turn and controller-up.
+
+### C3.2-a - Windows agent unit tests (attempt 2, after Lead fix) - OK
+when: 2026-11-01 13:11 (local)
+commands:
+    git merge origin/main (HEAD 27ef9685, has "test: skip symlink tests without privilege")
+    uv run pytest tests/unit/agent -q -p no:cacheprovider
+result: exit 0. 3467 passed, 417 skipped, 0 failed in 287 s.
