@@ -214,7 +214,7 @@ L2 is not a fresh machine (uv, Python, a checkout): it is **not** the timed crit
   `Get-CimInstance Win32_Process -Filter "Name like 'python%'" | Select-Object ProcessId, CommandLine` - no
   `main.py` of the sleeper left. *[non-blocking]*
 - **C4.15-g (c5, D62-4) Windows tests (part G):**
-  `uv sync --extra agent --group dev; uv run pytest tests/unit/common/test_bundle_case_insensitive.py tests/component/agent/test_docker_sandbox.py -q -rs`
+  `uv sync --extra agent --extra controller --group dev; uv run pytest tests/unit/common/test_bundle_case_insensitive.py tests/component/agent/test_docker_sandbox.py -q -rs`
   **OK when:** the case-insensitive tests pass; the Docker tests skip "Docker not available". EMIT SIGNAL:
   v04-g-done L2. *[non-blocking]*
 - **LEAD CHECKPOINT V0.4.** EMIT SIGNAL: V0.4-done, merge `origin/main`, continue.
