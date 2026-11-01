@@ -172,3 +172,14 @@ SIGNAL: s1-serve-up L2 ip=192.168.31.155
 ### C0-b (addendum) - Windows Update paused - OK
 when: 2026-11-01 11:10 (local)
 result: human paused updates; PauseUpdatesExpiryTime 2026-11-07T05:37:49Z (renew before the V1.0 soak). R1b-3 torch: human said YES; deferred until S1 measurements on L2 are finished (no download during a measurement).
+
+### C2.5-b - S1 client L2 -> L3 (0.2.5) - OK
+when: 2026-11-01 11:32-11:37 (local)
+laptop: L2 (Windows 11, hostname AILESH), Wi-Fi 5 GHz, same room
+commands:
+    uv run python lab/spikes/s1_network.py client --link wifi --server 192.168.31.236   (L4 not present: skipped)
+    then Ctrl-C of the L2 S1 server ("interrupted (Ctrl-C); server stopped")
+result: exit 0. TCP x1 L3->L2 207.97 +- 5.90 Mbit/s; x4 L3->L2 247.44 +- 11.88; TCP x1 L2->L3 165.03 +- 5.27; x4 L2->L3 169.88 +- 19.43.
+    UDP echo: RTT mean 2.274 ms, p95 3.457 ms, jitter 0.740 ms, loss 0 %.
+evidence: lab/reports/raw/2026-11-01-S1-network/ailesh-1ad242f0__to-tiwari_ji_wifi-3f7a2a51.json
+SIGNAL: s1-client-done L2
