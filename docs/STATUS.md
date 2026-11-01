@@ -2,7 +2,7 @@
 
 > Concise current state. Long-term plan: [`DEVELOPMENT_ROADMAP.md`](DEVELOPMENT_ROADMAP.md). Update at the end of every work session.
 
-**Last updated:** 2026-10-29 (session 12: V1.0 G7+G8 done; v0.17.0 published; G8 F1–F3 merged; 0.1.10 [x] — V0.1 100%; agent work done — READY FOR 🧑 LAB CAMPAIGN)
+**Last updated:** 2026-11-01 (🧑 lab campaign RUNNING on L1–L3 via lab/coord (D425 Wi-Fi only, D426 git coordination); V0.2 in progress: 0.2.1 [x], S1 Wi-Fi matrix L1–L3 done; lab-found fixes eadd62fc, ef2d0421)
 
 ```
 TOTAL   ██████████████▒▒▒░░░  71%  113/159 done, 21 in progress
@@ -27,10 +27,10 @@ V1.0    ░░░░░░░░░░░░░░░░░░░░   0%   0/8 
 ## Progress
 
 ```
-TOTAL   ███████████████▒▒▒░░  72%  116/159 done, 24 in progress
+TOTAL   ███████████████▒▒▒░░  73%  117/159 done, 25 in progress
 
 V0.1    ████████████████████ 100%  12/12  Foundations & engineering system
-V0.2    ██▒▒▒▒▒▒▒▒▒▒▒▒▒░░░░░   9%   1/11  Lab setup & feasibility validation
+V0.2    ████▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒░  18%   2/11  Lab setup & feasibility validation
 V0.3    ███████████████▒▒▒▒░  73%  11/15  Fabric core: controller ⇄ agent
 V0.4    ████████████████▒▒░░  82%  14/17  Remote execution core (Mode 1 foundation)
 V0.5    ██████████████████░░  90%  10/11  Data plane & environments
