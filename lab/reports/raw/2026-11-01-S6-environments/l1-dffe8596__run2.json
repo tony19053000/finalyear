@@ -1,0 +1,776 @@
+{
+  "cases": {
+    "docker-gpu-smi": {
+      "aborted": false,
+      "attrs": {
+        "gpu": {
+          "driver_version": "595.91.07",
+          "gpu_name": "NVIDIA GeForce RTX 3050 Laptop GPU",
+          "memory_total": "4096 MiB"
+        },
+        "image": {
+          "digest": "nvidia/cuda@sha256:c87e78933f4c16e3272123bf2f75537306596d0fbaa395a29696a22786e5ee0e",
+          "image": "nvidia/cuda:12.6.3-base-ubuntu24.04",
+          "size_bytes": 91686737
+        }
+      },
+      "errors": [],
+      "label": "nvidia-smi inside a CUDA base container (--gpus all)",
+      "metrics": {
+        "start_to_exit_ms": "ms"
+      },
+      "requested_reps": 5,
+      "requested_warmup": 1,
+      "samples": [
+        {
+          "exit_code": 0,
+          "start_to_exit_ms": 294.1692059999923
+        },
+        {
+          "exit_code": 0,
+          "start_to_exit_ms": 327.4803150000025
+        },
+        {
+          "exit_code": 0,
+          "start_to_exit_ms": 315.23215699996854
+        },
+        {
+          "exit_code": 0,
+          "start_to_exit_ms": 322.2527390000778
+        },
+        {
+          "exit_code": 0,
+          "start_to_exit_ms": 293.32788500005336
+        }
+      ],
+      "summary": {
+        "start_to_exit_ms": {
+          "max": 327.4803150000025,
+          "mean": 310.4924604000189,
+          "median": 315.23215699996854,
+          "min": 293.32788500005336,
+          "n": 5,
+          "p95": 326.4347998000176,
+          "stdev": 15.893610063401672
+        }
+      },
+      "warmup": [
+        {
+          "exit_code": 0,
+          "start_to_exit_ms": 324.7982290000664
+        }
+      ]
+    },
+    "docker-gpu-torch": {
+      "aborted": false,
+      "attrs": {
+        "cold_pull": {
+          "cold_pull_s": 381.011854653,
+          "compressed_bytes": 3748077342,
+          "note": "single informational measurement (n=1), not a sample of any case",
+          "size_bytes": 3748083366
+        },
+        "image": {
+          "digest": "pytorch/pytorch@sha256:dab81780fd94483b67b4b5679cc0024939b08e48540d39476d284cb29002ed69",
+          "image": "pytorch/pytorch:2.8.0-cuda12.6-cudnn9-runtime",
+          "size_bytes": 3748083366
+        },
+        "matmul": "1024x1024 fp32, torch.cuda.synchronize()",
+        "start_to_ready_definition": "container ready_wall_s (after import torch + first CUDA op) minus the host's docker run launch time; None + clock_suspect when the two clocks disagree",
+        "torch": {
+          "device_name": "NVIDIA GeForce RTX 3050 Laptop GPU",
+          "torch_cuda": "12.6",
+          "torch_version": "2.8.0+cu126"
+        }
+      },
+      "errors": [],
+      "label": "PyTorch-CUDA container: import torch + first CUDA matmul",
+      "metrics": {
+        "first_cuda_op_s": "s",
+        "import_s": "s",
+        "start_to_ready_ms": "ms",
+        "total_ms": "ms"
+      },
+      "requested_reps": 5,
+      "requested_warmup": 1,
+      "samples": [
+        {
+          "clock_suspect": false,
+          "exit_code": 0,
+          "first_cuda_op_s": 0.17915670799993677,
+          "import_s": 0.7427304679999907,
+          "start_to_ready_ms": 1068.4258937835693,
+          "total_ms": 1447.4979849999272
+        },
+        {
+          "clock_suspect": false,
+          "exit_code": 0,
+          "first_cuda_op_s": 0.17611317999990206,
+          "import_s": 0.7447106850002001,
+          "start_to_ready_ms": 1128.981113433838,
+          "total_ms": 1516.0784070001228
+        },
+        {
+          "clock_suspect": false,
+          "exit_code": 0,
+          "first_cuda_op_s": 0.17676124900003742,
+          "import_s": 0.7434111659999871,
+          "start_to_ready_ms": 1110.551118850708,
+          "total_ms": 1505.380520000017
+        },
+        {
+          "clock_suspect": false,
+          "exit_code": 0,
+          "first_cuda_op_s": 0.24375421900003857,
+          "import_s": 0.7476547630001278,
+          "start_to_ready_ms": 1190.586805343628,
+          "total_ms": 1547.7805509999598
+        },
+        {
+          "clock_suspect": false,
+          "exit_code": 0,
+          "first_cuda_op_s": 0.1754902630000288,
+          "import_s": 0.7536390840000422,
+          "start_to_ready_ms": 1113.6393547058105,
+          "total_ms": 1474.4103659998018
+        }
+      ],
+      "summary": {
+        "first_cuda_op_s": {
+          "max": 0.24375421900003857,
+          "mean": 0.1902551237999887,
+          "median": 0.17676124900003742,
+          "min": 0.1754902630000288,
+          "n": 5,
+          "p95": 0.2308347168000182,
+          "stdev": 0.02993913979433362
+        },
+        "import_s": {
+          "max": 0.7536390840000422,
+          "mean": 0.7464292332000696,
+          "median": 0.7447106850002001,
+          "min": 0.7427304679999907,
+          "n": 5,
+          "p95": 0.7524422198000593,
+          "stdev": 0.004450473946488722
+        },
+        "start_to_ready_ms": {
+          "max": 1190.586805343628,
+          "mean": 1122.4368572235107,
+          "median": 1113.6393547058105,
+          "min": 1068.4258937835693,
+          "n": 5,
+          "p95": 1178.26566696167,
+          "stdev": 44.22412723007491
+        },
+        "total_ms": {
+          "max": 1547.7805509999598,
+          "mean": 1498.2295657999657,
+          "median": 1505.380520000017,
+          "min": 1447.4979849999272,
+          "n": 5,
+          "p95": 1541.4401221999924,
+          "stdev": 38.62015335948529
+        }
+      },
+      "warmup": [
+        {
+          "clock_suspect": false,
+          "exit_code": 0,
+          "first_cuda_op_s": 0.2527932630000578,
+          "import_s": 0.739866869000025,
+          "start_to_ready_ms": 1599.621057510376,
+          "total_ms": 1976.3852679998308
+        }
+      ]
+    },
+    "docker-pull-cold": {
+      "aborted": false,
+      "attrs": {
+        "image": "python:3.12-slim"
+      },
+      "errors": [],
+      "label": "cold pull of the small image (rmi, then pull)",
+      "metrics": {
+        "bytes_on_disk": "B",
+        "pull_s": "s"
+      },
+      "requested_reps": 5,
+      "requested_warmup": 1,
+      "samples": [
+        {
+          "bytes_on_disk": 43284989,
+          "digest": "python@sha256:aa943ce411423c7582288f18707ff66eddcbaeb510502d747a72aeb34f30d159",
+          "pull_s": 10.782983474999924
+        },
+        {
+          "bytes_on_disk": 43284989,
+          "digest": "python@sha256:aa943ce411423c7582288f18707ff66eddcbaeb510502d747a72aeb34f30d159",
+          "pull_s": 11.058404479999922
+        },
+        {
+          "bytes_on_disk": 43284989,
+          "digest": "python@sha256:aa943ce411423c7582288f18707ff66eddcbaeb510502d747a72aeb34f30d159",
+          "pull_s": 9.788200718999974
+        },
+        {
+          "bytes_on_disk": 43284989,
+          "digest": "python@sha256:aa943ce411423c7582288f18707ff66eddcbaeb510502d747a72aeb34f30d159",
+          "pull_s": 9.812918831999923
+        },
+        {
+          "bytes_on_disk": 43284989,
+          "digest": "python@sha256:aa943ce411423c7582288f18707ff66eddcbaeb510502d747a72aeb34f30d159",
+          "pull_s": 10.342505682000024
+        }
+      ],
+      "summary": {
+        "bytes_on_disk": {
+          "max": 43284989.0,
+          "mean": 43284989.0,
+          "median": 43284989.0,
+          "min": 43284989.0,
+          "n": 5,
+          "p95": 43284989.0,
+          "stdev": 0.0
+        },
+        "pull_s": {
+          "max": 11.058404479999922,
+          "mean": 10.357002637599953,
+          "median": 10.342505682000024,
+          "min": 9.788200718999974,
+          "n": 5,
+          "p95": 11.003320278999922,
+          "stdev": 0.5685941413246679
+        }
+      },
+      "warmup": [
+        {
+          "bytes_on_disk": 43284989,
+          "digest": "python@sha256:aa943ce411423c7582288f18707ff66eddcbaeb510502d747a72aeb34f30d159",
+          "pull_s": 10.657742288000009
+        }
+      ]
+    },
+    "docker-start": {
+      "aborted": false,
+      "attrs": {
+        "command": "python -c print('ok')",
+        "daemon_warnings": [],
+        "image": {
+          "digest": "python@sha256:aa943ce411423c7582288f18707ff66eddcbaeb510502d747a72aeb34f30d159",
+          "image": "python:3.12-slim",
+          "size_bytes": 43284989
+        },
+        "sandbox_flags": [
+          "--network",
+          "none",
+          "--cpus",
+          "1",
+          "--memory",
+          "512m",
+          "--pids-limit",
+          "64",
+          "--user",
+          "65534:65534",
+          "--read-only",
+          "--tmpfs",
+          "/tmp"
+        ]
+      },
+      "errors": [],
+      "label": "warm container start, sandboxed python -c print",
+      "metrics": {
+        "start_to_exit_ms": "ms"
+      },
+      "requested_reps": 5,
+      "requested_warmup": 1,
+      "samples": [
+        {
+          "exit_code": 0,
+          "start_to_exit_ms": 155.7139910000842
+        },
+        {
+          "exit_code": 0,
+          "start_to_exit_ms": 157.88935399996262
+        },
+        {
+          "exit_code": 0,
+          "start_to_exit_ms": 157.78664200001913
+        },
+        {
+          "exit_code": 0,
+          "start_to_exit_ms": 148.0829490000133
+        },
+        {
+          "exit_code": 0,
+          "start_to_exit_ms": 166.82959400009167
+        }
+      ],
+      "summary": {
+        "start_to_exit_ms": {
+          "max": 166.82959400009167,
+          "mean": 157.26050600003418,
+          "median": 157.78664200001913,
+          "min": 148.0829490000133,
+          "n": 5,
+          "p95": 165.04154600006586,
+          "stdev": 6.68690838848644
+        }
+      },
+      "warmup": [
+        {
+          "exit_code": 0,
+          "start_to_exit_ms": 148.54408099995453
+        }
+      ]
+    },
+    "venv-cold": {
+      "aborted": false,
+      "attrs": {
+        "offline": false,
+        "pinned_requirements": [
+          "numpy==2.2.6",
+          "grpcio==1.84.0",
+          "pydantic==2.13.5"
+        ],
+        "python_request": "3.12",
+        "uv_version": "uv 0.13.6 (x86_64-unknown-linux-gnu)"
+      },
+      "errors": [],
+      "label": "uv venv + install, fresh empty cache per repetition",
+      "metrics": {
+        "cache_bytes": "B",
+        "create_s": "s",
+        "install_s": "s",
+        "site_packages_bytes": "B",
+        "total_s": "s"
+      },
+      "requested_reps": 5,
+      "requested_warmup": 1,
+      "samples": [
+        {
+          "cache_bytes": 92466733,
+          "create_s": 0.03455591600004482,
+          "install_s": 7.085215779000009,
+          "site_packages_bytes": 82877464,
+          "total_s": 7.119771695000054
+        },
+        {
+          "cache_bytes": 92466733,
+          "create_s": 0.03499558600015007,
+          "install_s": 6.7812569200000326,
+          "site_packages_bytes": 82877464,
+          "total_s": 6.816252506000183
+        },
+        {
+          "cache_bytes": 92466733,
+          "create_s": 0.034972735999872384,
+          "install_s": 4.047159239999928,
+          "site_packages_bytes": 82877464,
+          "total_s": 4.0821319759998005
+        },
+        {
+          "cache_bytes": 92466733,
+          "create_s": 0.03895061200000782,
+          "install_s": 4.179698663000181,
+          "site_packages_bytes": 82877464,
+          "total_s": 4.218649275000189
+        },
+        {
+          "cache_bytes": 92466733,
+          "create_s": 0.03647822100015219,
+          "install_s": 5.043545000999984,
+          "site_packages_bytes": 82877464,
+          "total_s": 5.080023222000136
+        }
+      ],
+      "summary": {
+        "cache_bytes": {
+          "max": 92466733.0,
+          "mean": 92466733.0,
+          "median": 92466733.0,
+          "min": 92466733.0,
+          "n": 5,
+          "p95": 92466733.0,
+          "stdev": 0.0
+        },
+        "create_s": {
+          "max": 0.03895061200000782,
+          "mean": 0.035990614200045457,
+          "median": 0.03499558600015007,
+          "min": 0.03455591600004482,
+          "n": 5,
+          "p95": 0.03845613380003669,
+          "stdev": 0.0018085811732786612
+        },
+        "install_s": {
+          "max": 7.085215779000009,
+          "mean": 5.427375120600027,
+          "median": 5.043545000999984,
+          "min": 4.047159239999928,
+          "n": 5,
+          "p95": 7.024424007200014,
+          "stdev": 1.430948073482444
+        },
+        "site_packages_bytes": {
+          "max": 82877464.0,
+          "mean": 82877464.0,
+          "median": 82877464.0,
+          "min": 82877464.0,
+          "n": 5,
+          "p95": 82877464.0,
+          "stdev": 0.0
+        },
+        "total_s": {
+          "max": 7.119771695000054,
+          "mean": 5.463365734800073,
+          "median": 5.080023222000136,
+          "min": 4.0821319759998005,
+          "n": 5,
+          "p95": 7.05906785720008,
+          "stdev": 1.4298654276312452
+        }
+      },
+      "warmup": [
+        {
+          "cache_bytes": 92466733,
+          "create_s": 0.03410022600019147,
+          "install_s": 5.821615723999912,
+          "site_packages_bytes": 82877464,
+          "total_s": 5.8557159500001035
+        }
+      ]
+    },
+    "venv-start": {
+      "aborted": false,
+      "attrs": {
+        "offline": true,
+        "pinned_requirements": [
+          "numpy==2.2.6",
+          "grpcio==1.84.0",
+          "pydantic==2.13.5"
+        ],
+        "python_request": "3.12",
+        "script": "import numpy; import grpc; print('ok')",
+        "uv_version": "uv 0.13.6 (x86_64-unknown-linux-gnu)"
+      },
+      "errors": [],
+      "label": "venv interpreter: import numpy, grpc (process start)",
+      "metrics": {
+        "start_to_exit_ms": "ms"
+      },
+      "requested_reps": 5,
+      "requested_warmup": 1,
+      "samples": [
+        {
+          "exit_code": 0,
+          "start_to_exit_ms": 99.66693000001214
+        },
+        {
+          "exit_code": 0,
+          "start_to_exit_ms": 97.82780699993054
+        },
+        {
+          "exit_code": 0,
+          "start_to_exit_ms": 102.93893900006879
+        },
+        {
+          "exit_code": 0,
+          "start_to_exit_ms": 98.53219299998273
+        },
+        {
+          "exit_code": 0,
+          "start_to_exit_ms": 99.12943000017549
+        }
+      ],
+      "summary": {
+        "start_to_exit_ms": {
+          "max": 102.93893900006879,
+          "mean": 99.61905980003394,
+          "median": 99.12943000017549,
+          "min": 97.82780699993054,
+          "n": 5,
+          "p95": 102.28453720005746,
+          "stdev": 1.9782247619211022
+        }
+      },
+      "warmup": [
+        {
+          "exit_code": 0,
+          "start_to_exit_ms": 227.07332400000269
+        }
+      ]
+    },
+    "venv-warm": {
+      "aborted": false,
+      "attrs": {
+        "offline": true,
+        "pinned_requirements": [
+          "numpy==2.2.6",
+          "grpcio==1.84.0",
+          "pydantic==2.13.5"
+        ],
+        "python_request": "3.12",
+        "uv_version": "uv 0.13.6 (x86_64-unknown-linux-gnu)",
+        "warm_setup": {
+          "cache_bytes": 92466713,
+          "create_s": 0.03357022099999085,
+          "install_s": 15.401138459000094,
+          "note": "the one online install that warmed the cache",
+          "site_packages_bytes": 82877464,
+          "total_s": 15.434708680000085
+        }
+      },
+      "errors": [],
+      "label": "uv venv + install --offline from a cache warmed once",
+      "metrics": {
+        "cache_bytes": "B",
+        "create_s": "s",
+        "install_s": "s",
+        "site_packages_bytes": "B",
+        "total_s": "s"
+      },
+      "requested_reps": 5,
+      "requested_warmup": 1,
+      "samples": [
+        {
+          "cache_bytes": 92469725,
+          "create_s": 0.007462907999979507,
+          "install_s": 0.05386316299995997,
+          "site_packages_bytes": 82877464,
+          "total_s": 0.061326070999939475
+        },
+        {
+          "cache_bytes": 92471231,
+          "create_s": 0.007853913999952056,
+          "install_s": 0.04752603000019917,
+          "site_packages_bytes": 82877464,
+          "total_s": 0.05537994400015123
+        },
+        {
+          "cache_bytes": 92472737,
+          "create_s": 0.00953975199990964,
+          "install_s": 0.052768067999977575,
+          "site_packages_bytes": 82877464,
+          "total_s": 0.062307819999887215
+        },
+        {
+          "cache_bytes": 92474243,
+          "create_s": 0.007606672999827424,
+          "install_s": 0.049534189000041806,
+          "site_packages_bytes": 82877464,
+          "total_s": 0.05714086199986923
+        },
+        {
+          "cache_bytes": 92475749,
+          "create_s": 0.00861908100000619,
+          "install_s": 0.04962302900003124,
+          "site_packages_bytes": 82877464,
+          "total_s": 0.05824211000003743
+        }
+      ],
+      "summary": {
+        "cache_bytes": {
+          "max": 92475749.0,
+          "mean": 92472737.0,
+          "median": 92472737.0,
+          "min": 92469725.0,
+          "n": 5,
+          "p95": 92475447.8,
+          "stdev": 2381.1950781067894
+        },
+        "create_s": {
+          "max": 0.00953975199990964,
+          "mean": 0.008216465599934964,
+          "median": 0.007853913999952056,
+          "min": 0.007462907999979507,
+          "n": 5,
+          "p95": 0.00935561779992895,
+          "stdev": 0.0008637600637589067
+        },
+        "install_s": {
+          "max": 0.05386316299995997,
+          "mean": 0.05066289580004195,
+          "median": 0.04962302900003124,
+          "min": 0.04752603000019917,
+          "n": 5,
+          "p95": 0.05364414399996349,
+          "stdev": 0.00259175081704469
+        },
+        "site_packages_bytes": {
+          "max": 82877464.0,
+          "mean": 82877464.0,
+          "median": 82877464.0,
+          "min": 82877464.0,
+          "n": 5,
+          "p95": 82877464.0,
+          "stdev": 0.0
+        },
+        "total_s": {
+          "max": 0.062307819999887215,
+          "mean": 0.05887936139997692,
+          "median": 0.05824211000003743,
+          "min": 0.05537994400015123,
+          "n": 5,
+          "p95": 0.06211147019989767,
+          "stdev": 0.0028902901189564968
+        }
+      },
+      "warmup": [
+        {
+          "cache_bytes": 92468219,
+          "create_s": 0.007857483999941905,
+          "install_s": 0.05163984400019217,
+          "site_packages_bytes": 82877464,
+          "total_s": 0.059497328000134075
+        }
+      ]
+    }
+  },
+  "errors": [],
+  "extra": {
+    "budget_remaining_s": 3081.531,
+    "docker": {
+      "cgroup_driver": "systemd",
+      "cgroup_version": "2",
+      "client_os_arch": "linux/amd64",
+      "client_version": "29.7.2",
+      "default_runtime": "runc",
+      "docker_desktop": false,
+      "docker_root_dir": "/var/lib/docker",
+      "driver": "overlayfs",
+      "kernel_version": "6.8.0-147-generic",
+      "mem_total_bytes": 16413941760,
+      "ncpu": 16,
+      "nvidia_runtime": true,
+      "ok": true,
+      "operating_system": "Ubuntu 24.04.4 LTS",
+      "os_type": "linux",
+      "parsed": true,
+      "runtimes": [
+        "io.containerd.runc.v2",
+        "nvidia",
+        "runc"
+      ],
+      "security_options": [
+        "name=apparmor",
+        "name=seccomp,profile=builtin",
+        "name=cgroupns"
+      ],
+      "server_errors": [],
+      "server_os_arch": "linux/amd64",
+      "server_version": "29.7.2",
+      "wsl2_backend": false
+    },
+    "facts": {
+      "cpu_count": 16,
+      "disk_free_bytes": {
+        "docker_root": 41757257728,
+        "temp_dir": 41757257728
+      },
+      "gpu": {
+        "devices": [
+          "NVIDIA GeForce RTX 3050 Laptop GPU"
+        ],
+        "present": true
+      },
+      "is_wsl": false,
+      "machine": "x86_64",
+      "memory_total_bytes": 16413941760,
+      "python": "3.12.13",
+      "release": "6.8.0-147-generic",
+      "system": "Linux",
+      "uv_version": "uv 0.13.6 (x86_64-unknown-linux-gnu)",
+      "version": "#147-Ubuntu SMP PREEMPT_DYNAMIC Thu Sep 24 11:33:16 UTC 2026",
+      "wsl": {
+        "distro": null,
+        "evidence": {
+          "WSL_DISTRO_NAME": null,
+          "WSL_INTEROP": false,
+          "osrelease": "6.8.0-147-generic",
+          "proc_version": "Linux version 6.8.0-147-generic (buildd@lcy02-amd64-081) (x86_64-linux-gnu-gcc-13 (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0, GNU ld (GNU Binutils for Ubuntu) 2.42) #147-Ubuntu SMP PREEMPT_DYNAMIC Thu Se"
+        },
+        "is_wsl": false,
+        "native": true,
+        "platform": "linux",
+        "wsl_version": null
+      }
+    },
+    "gpu_torch_cold_pull_note": "docker-gpu-torch.attrs.cold_pull is one informational pull (n=1) and is never a row of the results table",
+    "images": {
+      "nvidia/cuda:12.6.3-base-ubuntu24.04": {
+        "digest": "nvidia/cuda@sha256:c87e78933f4c16e3272123bf2f75537306596d0fbaa395a29696a22786e5ee0e",
+        "image": "nvidia/cuda:12.6.3-base-ubuntu24.04",
+        "size_bytes": 91686737
+      },
+      "python:3.12-slim": {
+        "digest": "python@sha256:aa943ce411423c7582288f18707ff66eddcbaeb510502d747a72aeb34f30d159",
+        "image": "python:3.12-slim",
+        "size_bytes": 43284989
+      },
+      "pytorch/pytorch:2.8.0-cuda12.6-cudnn9-runtime": {
+        "digest": "pytorch/pytorch@sha256:dab81780fd94483b67b4b5679cc0024939b08e48540d39476d284cb29002ed69",
+        "image": "pytorch/pytorch:2.8.0-cuda12.6-cudnn9-runtime",
+        "size_bytes": 3748083366
+      }
+    },
+    "metric_units": {
+      "bytes_on_disk": "B",
+      "cache_bytes": "B",
+      "create_s": "s",
+      "first_cuda_op_s": "s",
+      "import_s": "s",
+      "install_s": "s",
+      "pull_s": "s",
+      "site_packages_bytes": "B",
+      "start_to_exit_ms": "ms",
+      "start_to_ready_ms": "ms",
+      "total_ms": "ms",
+      "total_s": "s"
+    },
+    "pinned_requirements": [
+      "numpy==2.2.6",
+      "grpcio==1.84.0",
+      "pydantic==2.13.5"
+    ],
+    "quick": false,
+    "skipped": {},
+    "warnings": []
+  },
+  "git": {
+    "commit": "bf6555e5",
+    "dirty": false,
+    "modified_files": 0,
+    "untracked_files": 1
+  },
+  "host": {
+    "hostname": "JARVISM3",
+    "label": "L1",
+    "machine": "x86_64",
+    "os": "Linux",
+    "os_release": "6.8.0-147-generic",
+    "python": "3.12.13"
+  },
+  "link": null,
+  "params": {
+    "budget_s": 3600.0,
+    "gpu_torch_image": "pytorch/pytorch:2.8.0-cuda12.6-cudnn9-runtime",
+    "no_network": false,
+    "pause_s": 0.2,
+    "quick": false,
+    "reps": 5,
+    "skip_docker": false,
+    "skip_gpu": false,
+    "skip_gpu_torch": false,
+    "warmup": 1
+  },
+  "schema_version": 1,
+  "spike": "S6",
+  "timestamp_utc": "2026-11-01T05:50:14Z",
+  "tool": {
+    "script": "lab/spikes/s6_environments.py",
+    "spike": "S6"
+  },
+  "topic": "S6-environments"
+}

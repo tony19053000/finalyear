@@ -117,3 +117,11 @@ commands:
     nmcli dev wifi; iw dev wlp0s20f3 link (iw NOT installed -> used nmcli rate + /proc/net/wireless); ip -4 addr
 result: 5 GHz ch 157 (5785 MHz), signal 100, link rate 540 Mbit/s, IP 192.168.31.13/24 (DHCP, lease dynamic). DHCP reservations: no (router does not allow / human said no) -> IPs may change; re-check before each phase.
 evidence: lab/reports/raw/2026-11-01-V0.2-network-facts/L1.txt
+
+### C2.10-a - S6 environments with GPU (0.2.10) - OK
+commands:
+    uv run python lab/spikes/s6_environments.py run --quick --name L1   (exit 0)
+    uv run python lab/spikes/s6_environments.py run --name L1           (exit 0; pulled pytorch/pytorch:2.8.0-cuda12.6-cudnn9-runtime ~3.7 GB)
+result: recommendation docker. container start 157.26±6.69 ms, venv start 99.62±1.98 ms, small image cold pull 10.36±0.57 s,
+    venv cold install 5.46±1.43 s, warm 0.06 s, PyTorch-CUDA container to CUDA ready 1122.44±44.22 ms. No skipped cases. All within the 3 s target.
+evidence: lab/reports/raw/2026-11-01-S6-environments/l1-dffe8596__quick__run2.json, lab/reports/raw/2026-11-01-S6-environments/l1-dffe8596__run2.json
