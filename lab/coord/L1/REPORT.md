@@ -28,3 +28,13 @@ commands:
 result: exit 0. CPU i7-12650H 10 cores / 16 threads; RAM 15.3 GiB; GPUs Intel UHD + RTX 3050 Mobile (driver NOT working, see R1-1 BUG);
     disk / 188G, 40G free (78% used); docker 29.7.2 runtimes incl. nvidia; torch not installed; eno1 down, wlp0s20f3 up. Problems: 1 (nvidia driver).
 evidence: lab/reports/inventory/JARVISM3.json
+
+### R1-4 - GPU check (0.2.1 / 0.2.3) - FAIL
+when: 2026-11-01 (local)
+laptop: L1 (Ubuntu 24.04.4, JARVISM3)
+commands:
+    nvidia-smi
+    uv run python -c "import torch; print(torch.__version__, torch.cuda.is_available())"
+result: nvidia-smi fails: "couldn't communicate with the NVIDIA driver" (module not loaded, Secure Boot on; see R1-1 BUG).
+    torch: not installed (ModuleNotFoundError). Docker GPU container NOT run: pointless without a loaded driver (no download asked).
+BUG: see R1-1 - NVIDIA driver not loaded on L1. Non-blocking for round 1.
