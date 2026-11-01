@@ -71,3 +71,23 @@ result: both runs exit 3. No "ON BATTERY" or "thermal throttling" warnings.
 evidence: lab/reports/raw/2026-11-01-S7-hardware/l2-d76354d8.json
 BUG: the quick and full runs wrote the SAME file name (l2-d76354d8.json), so the full run overwrote the quick run's JSON. Only the full run's JSON is kept; quick numbers above are copied from stderr.
 QUESTIONS: Should torch (CUDA build) be installed on L2 so the GPU can be scored? Not installed, per TODO.
+
+### R1-6 - Environments (0.2.10) - OK for venv cases; Docker cases not run (exit 3)
+when: 2026-11-01 09:51-09:52 (local)
+laptop: L2 (Windows 11, hostname AILESH)
+commands:
+    uv run python lab/spikes/s6_environments.py run --quick --name L2
+    (copied its JSON to l2-d76354d8__quick.json because the full run reuses the same file name)
+    uv run python lab/spikes/s6_environments.py run --name L2
+result: both exit 3. Docker not installed -> skipped: docker-start, docker-pull-cold, docker-gpu-smi, torch-cuda-in-container. Recommendation: venv-fallback (ADR-0004).
+    full: venv start 1222.45 +- 87.33 ms (n=5); venv create+install cold 5.89 +- 0.30 s; warm 1.26 +- 0.14 s. Warm job start 1.22 s, within the <= 3 s target.
+    quick (smoke, INVALID n=2): venv start 1349.61 ms; cold 5.99 s; warm 1.22 s.
+evidence: lab/reports/raw/2026-11-01-S6-environments/l2-d76354d8.json (full), l2-d76354d8__quick.json (quick)
+BUG: same as R1-5: quick and full runs write the same file name; the second run overwrites the first.
+
+### R1-7 - Push - OK
+when: 2026-11-01 09:53 (local)
+result: all reports pushed to origin/lab/L2.
+Open items for the Lead: Wi-Fi profile still Public (needed Private for round 2); torch not installed (no GPU score in S7); Docker not installed.
+
+## DONE
