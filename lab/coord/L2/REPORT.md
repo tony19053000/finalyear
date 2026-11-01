@@ -151,3 +151,11 @@ commands:
     netsh wlan show interfaces; Get-NetAdapter | ft Name,Status,LinkSpeed; Get-NetConnectionProfile
 result: Wi-Fi JARVIS 5 GHz ch 157, signal 92%, rx/tx 1201 Mbps, profile Private. Same room as L1: yes (R1-1). DHCP reservation: unknown (L1's human handles the router).
 evidence: lab/reports/raw/2026-11-01-V0.2-network-facts/L2.txt
+
+### C2.0-h - HUMAN BATCH 1 (S1 firewall) - OK
+when: 2026-11-01 11:05 (local)
+laptop: L2 (Windows 11, hostname AILESH)
+commands:
+    (human, Administrator PowerShell) New-NetFirewallRule "MeshForge S1 TCP" / "MeshForge S1 UDP" (port 47201, 192.168.31.0/24, Private)
+result: both rules created (Enabled True, Private, Inbound, Allow). First attempt in a non-admin window: "Access is denied" for both; retried as Administrator.
+evidence: this entry
