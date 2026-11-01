@@ -150,3 +150,8 @@ result: exit 0, AC online, no ON BATTERY / throttling warning.
     CPU float64 1t 65.64±0.21, all 269.11±63.61 GFLOP/s (high spread); python 1t 49.6, all 349.9 MFLOP/s; host mem copy 25.05, triad 27.32 GB/s.
     Note: S2 L2->L3 S1 may have been running on L2/L3 at the same time (not involving L1).
 evidence: lab/reports/raw/2026-11-01-S7-hardware/l1-dffe8596__run2.json, lab/reports/raw/2026-11-01-S7-hardware/l1-dffe8596__nonumpy.json
+
+### C2.6-b - S2 L1 as server (0.2.6) - started
+commands:
+    uv run python lab/spikes/s2_crossos.py serve --bind 192.168.31.13 --name L1   (background; ufw inactive, no rule)
+SIGNAL: s2-serve-up L1
