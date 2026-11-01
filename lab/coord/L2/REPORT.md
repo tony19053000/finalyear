@@ -273,3 +273,5 @@ commands:
     sha256 of MeshForge-Agent-Setup-0.17.0-1.exe vs SHA256SUMS
 result: MeshForge-Agent-Setup-0.17.0-1.exe 57,488,826 bytes; SHA256 3e95eb45...183753d matches SHA256SUMS.
 evidence: this entry
+
+### C17-b - WAIT controller-up - still waiting at 15:50 (> 30 min, since 15:20); human told
