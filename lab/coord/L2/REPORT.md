@@ -217,3 +217,4 @@ result: server: "S2 server listening on 192.168.31.155: HTTP 47202, gRPC 47203; 
     second serve: exit 1, "serve: cannot listen on 192.168.31.155 (HTTP 47202 / gRPC 47203): [WinError 10048] Only one usage of each socket address ... is normally permitted" -> port exclusivity OK.
 BUG: s2_crossos.py serve prints "warning: these adapters are NOT on a Private profile: Wi-Fi" although Get-NetConnectionProfile shows JARVIS / Wi-Fi / NetworkCategory Private at the same moment. Profile check gives a false warning. Also the "§" in that warning prints as "Â§" when stderr is redirected (encoding).
 SIGNAL: s2-serve-up L2
+    (C2.6-c continued) 14:43: L1 emitted s2-done L1-to-L2 (L1 sessions from 192.168.31.13 seen in the server window); server stopped with Ctrl-C. Firewall rule removal pending (human).
