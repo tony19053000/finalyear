@@ -1,0 +1,66 @@
+Sun Nov  1 11:09:11 2026       
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 595.91.07              Driver Version: 595.91.07      CUDA Version: 13.2     |
++-----------------------------------------+------------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  NVIDIA GeForce RTX 3050 ...    Off |   00000000:01:00.0 Off |                  N/A |
+| N/A   39C    P8              3W /   60W |      15MiB /   4096MiB |      0%      Default |
+|                                         |                        |                  N/A |
++-----------------------------------------+------------------------+----------------------+
+
++-----------------------------------------------------------------------------------------+
+| Processes:                                                                              |
+|  GPU   GI   CI              PID   Type   Process name                        GPU Memory |
+|        ID   ID                                                               Usage      |
+|=========================================================================================|
+|    0   N/A  N/A            3246      G   /usr/lib/xorg/Xorg                        4MiB |
++-----------------------------------------------------------------------------------------+
+ + sympy==1.14.0
+ + torch==2.14.0
+ + triton==3.8.0
+sync exit=0
+2.14.0+cu130 True NVIDIA GeForce RTX 3050 Laptop GPU
+Unable to find image 'nvidia/cuda:12.4.1-base-ubuntu22.04' locally
+12.4.1-base-ubuntu22.04: Pulling from nvidia/cuda
+0d6448aff889: Pulling fs layer
+3c645031de29: Pulling fs layer
+56dc85502937: Pulling fs layer
+0a7674e3e8fe: Pulling fs layer
+b71b637b97c5: Pulling fs layer
+56dc85502937: Download complete
+0d6448aff889: Download complete
+b71b637b97c5: Download complete
+3c645031de29: Download complete
+3c645031de29: Pull complete
+0d6448aff889: Pull complete
+0a7674e3e8fe: Download complete
+56dc85502937: Pull complete
+56dc85502937: Pull complete
+b71b637b97c5: Pull complete
+0a7674e3e8fe: Pull complete
+Digest: sha256:0f6bfcbf267e65123bcc2287e2153dedfc0f24772fb5ce84afe16ac4b2fada95
+Status: Downloaded newer image for nvidia/cuda:12.4.1-base-ubuntu22.04
+Sun Nov  1 05:39:29 2026       
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 595.91.07              Driver Version: 595.91.07      CUDA Version: 13.2     |
++-----------------------------------------+------------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  NVIDIA GeForce RTX 3050 ...    Off |   00000000:01:00.0 Off |                  N/A |
+| N/A   41C    P8              3W /   60W |      15MiB /   4096MiB |      0%      Default |
+|                                         |                        |                  N/A |
++-----------------------------------------+------------------------+----------------------+
+
++-----------------------------------------------------------------------------------------+
+| Processes:                                                                              |
+|  GPU   GI   CI              PID   Type   Process name                        GPU Memory |
+|        ID   ID                                                               Usage      |
+|=========================================================================================|
+|  No running processes found                                                             |
++-----------------------------------------------------------------------------------------+
+docker exit=0

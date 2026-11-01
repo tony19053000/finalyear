@@ -101,3 +101,19 @@ result: human ran `sudo ufw status`: inactive. All later L1 "open port" steps ar
 
 ### C2.0-h - HUMAN BATCH - OK
 result: downloads agreed (CUDA torch ~2.5 GB, S6 images incl. PyTorch image, CUDA base test image). ufw inactive -> no rules. Router DHCP reservations: no.
+
+### C2.1-a - GPU stack on L1 (0.2.1, 0.2.3) - OK
+when: 2026-11-01 11:09 (local)
+commands:
+    nvidia-smi; uv sync --extra agent --extra controller --extra gpu
+    uv run python -c "import torch; print(torch.__version__, torch.cuda.is_available(), torch.cuda.get_device_name(0))"
+    docker run --rm --gpus all nvidia/cuda:12.4.1-base-ubuntu22.04 nvidia-smi
+result: nvidia-smi RTX 3050 Laptop 4 GiB, driver 595.91.07; sync exit 0; torch 2.14.0+cu130 True "NVIDIA GeForce RTX 3050 Laptop GPU";
+    container printed the GPU table (docker exit 0).
+evidence: lab/reports/raw/2026-11-01-V0.2-gpu/L1.txt
+
+### C2.4-a - Network facts (0.2.4) - OK
+commands:
+    nmcli dev wifi; iw dev wlp0s20f3 link (iw NOT installed -> used nmcli rate + /proc/net/wireless); ip -4 addr
+result: 5 GHz ch 157 (5785 MHz), signal 100, link rate 540 Mbit/s, IP 192.168.31.13/24 (DHCP, lease dynamic). DHCP reservations: no (router does not allow / human said no) -> IPs may change; re-check before each phase.
+evidence: lab/reports/raw/2026-11-01-V0.2-network-facts/L1.txt
