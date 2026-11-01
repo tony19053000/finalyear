@@ -107,3 +107,22 @@ commands:
 result: HEAD 054763b9 (main merged into lab/L3). uv sync --extra agent exit 0.
   Pre-check for C0-b: Wi-Fi profile still Public; w32tm /query /status -> "The service has not been started. (0x80070426)" (Windows Time service stopped).
 evidence: this entry
+
+### C0-b - Human batch (power, Wi-Fi, clock) - OK
+when: 2026-11-01 10:49 (local)
+laptop: L3 (Windows 11, hostname TIWARI_JI)
+commands:
+    HUMAN: Wi-Fi profile -> Private ; powercfg /change standby-timeout-ac 0 ; hibernate-timeout-ac already 0 ; net start w32time && w32tm /resync (admin cmd) ; Windows Update pause (human)
+    check: Get-NetConnectionProfile ; powercfg /query ; w32tm /query /status
+result: Wi-Fi now PRIVATE. AC sleep 0 (never), AC hibernate 0. On AC power. w32time Running, last successful sync 10:48:44 from time.windows.com (status still shows Leap 3 / stratum 0 right after resync). Attempt 1 at Start-Service failed in a non-admin shell ("Cannot open w32time service"); worked from admin cmd.
+
+### C0-c - Ready signal - OK
+when: 2026-11-01 10:49 (local)
+SIGNAL: L3-ready ip=192.168.31.236 os=windows host=TIWARI_JI
+
+### C2.4-a - Network facts - OK
+when: 2026-11-01 10:49 (local)
+commands:
+    netsh wlan show interfaces ; Get-NetAdapter | ft Name,LinkSpeed ; Get-NetConnectionProfile
+result: Wi-Fi 5 GHz, Private, same room as L1.
+evidence: lab/reports/raw/2026-11-01-V0.2-network-facts/L3.txt
