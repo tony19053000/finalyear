@@ -168,3 +168,7 @@ commands:
 result: "S1 server 'AILESH' listening on 192.168.31.155 port 47201 (TCP + UDP); LAN clients only; stops after 3600 s idle or 14400 s total."
 BUG: (environment) in the user's interactive PowerShell, uv printed "Ignoring existing virtual environment linked to non-existent Python interpreter: .venv\Scripts\python.exe", re-downloaded cpython 3.12.16 and rebuilt .venv (82 packages). Same uv-managed-Python link problem as R1-2. The rebuilt .venv may lack the `agent` extra; will re-run `uv sync --extra agent` before steps that need it.
 SIGNAL: s1-serve-up L2 ip=192.168.31.155
+
+### C0-b (addendum) - Windows Update paused - OK
+when: 2026-11-01 11:10 (local)
+result: human paused updates; PauseUpdatesExpiryTime 2026-11-07T05:37:49Z (renew before the V1.0 soak). R1b-3 torch: human said YES; deferred until S1 measurements on L2 are finished (no download during a measurement).
