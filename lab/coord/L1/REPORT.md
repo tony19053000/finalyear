@@ -140,3 +140,13 @@ result: exit 0. L4 not present.
     L1 server then stopped (SIGINT; no run targets L1). No ufw rule to remove (inactive).
 evidence: lab/reports/raw/2026-11-01-S1-network/jarvism3-249e3a41__to-ailesh_wifi-e92a7f9a.json, lab/reports/raw/2026-11-01-S1-network/jarvism3-249e3a41__to-tiwari_ji_wifi-3f7a2a51.json
 SIGNAL: s1-client-done L1
+
+### C2.11-a - S7 again with CUDA torch (0.2.11) - OK
+commands:
+    cp l1-dffe8596.json l1-dffe8596__nonumpy.json (copy aside; the tool also wrote a new __run2 file, nothing overwritten)
+    uv run python lab/spikes/s7_hardware.py run --name L1
+result: exit 0, AC online, no ON BATTERY / throttling warning.
+    GPU RTX 3050 Laptop: fp32 2.42±0.02 TFLOP/s, fp16 13.89±0.34, bf16 14.00±0.81 TFLOP/s, device copy 179.66 GB/s.
+    CPU float64 1t 65.64±0.21, all 269.11±63.61 GFLOP/s (high spread); python 1t 49.6, all 349.9 MFLOP/s; host mem copy 25.05, triad 27.32 GB/s.
+    Note: S2 L2->L3 S1 may have been running on L2/L3 at the same time (not involving L1).
+evidence: lab/reports/raw/2026-11-01-S7-hardware/l1-dffe8596__run2.json, lab/reports/raw/2026-11-01-S7-hardware/l1-dffe8596__nonumpy.json
