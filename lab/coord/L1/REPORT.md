@@ -155,3 +155,7 @@ evidence: lab/reports/raw/2026-11-01-S7-hardware/l1-dffe8596__run2.json, lab/rep
 commands:
     uv run python lab/spikes/s2_crossos.py serve --bind 192.168.31.13 --name L1   (background; ufw inactive, no rule)
 SIGNAL: s2-serve-up L1
+
+### C2.6-b - S2 L1 as server, L2 as client (0.2.6) - OK
+result: L2 reported SIGNAL: s2-done L2-to-L1 (L2's REPORT has the numbers). L1 server served 24 sessions from 192.168.31.155, then stopped (SIGINT).
+    ufw inactive: no 47202:47203 rule to remove. Optional L3 S2 pair: not done yet (after C2.6-a).
