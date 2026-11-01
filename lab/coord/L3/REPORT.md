@@ -69,3 +69,13 @@ result: Before: Windows PowerLineStatus Online, charging 56%.
   After: Windows says Online 57% Charging. So the charger likely dropped out during the full run (loose cable?) - or the battery probe is flaky. Both runs also report no_blas_backend (no torch/numpy) and gpu_skipped, which may also cause exit 3.
 evidence: lab/reports/raw/2026-11-01-S7-hardware/l3-842983de__quick__run2.json, lab/reports/raw/2026-11-01-S7-hardware/l3-842983de.json
 QUESTIONS: Is exit 3 expected whenever no_blas_backend is reported (no numpy/torch on L3)?
+
+### R1-6 - Environments (no Docker) - OK
+when: 2026-11-01 10:33 (local)
+laptop: L3 (Windows 11, hostname TIWARI_JI)
+commands:
+    uv run python lab/spikes/s6_environments.py run --quick --name L3
+    uv run python lab/spikes/s6_environments.py run --name L3
+result: both exit 3 (expected: Docker missing). Skipped cases: docker-start, docker-pull-cold, docker-gpu-smi, docker-gpu-torch (docker_cli_missing); gpu-in-container n/a (no NVIDIA GPU). Recommendation: venv-fallback.
+  full venv: process start 502.91 ± 6.30 ms, create+install cold 4.83 ± 0.51 s, warm 0.58 ± 0.03 s (n=5). Warm job start 0.50 s, within the 3 s target. Quick run rows INVALID (n=2) as designed.
+evidence: lab/reports/raw/2026-11-01-S6-environments/l3-842983de__quick.json, lab/reports/raw/2026-11-01-S6-environments/l3-842983de.json
