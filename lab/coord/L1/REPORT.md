@@ -208,3 +208,12 @@ result: page showed "Laptops join at 192.168.31.13:47101", dashboard https://192
 
 ### C17-e - Firewall - SKIPPED
 result: ufw inactive, no rule needed.
+
+### C17-f - compute login + doctor - OK
+commands:
+    HUMAN: compute login --controller https://192.168.31.13:47110 --fingerprint <CA fp above> -u admin  (password typed by the human)
+    HUMAN: sudo meshforge-controller doctor
+result: "logged in to https://192.168.31.13:47110 as admin (admin)", login lasts until 2027-01-30. doctor: 8x ok (DB, passwords 0600, CA present, dashboard), "all checks passed".
+
+### C17-g - controller up - OK
+SIGNAL: controller-up url=https://192.168.31.13:47110 fp=05:6B:7B:A3:97:89:CC:FB:A2:CC:A0:18:3F:2B:36:65:A3:99:7F:1D:4A:06:3A:51:98:72:8C:FF:45:72:45:85
