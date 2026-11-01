@@ -277,3 +277,8 @@ evidence: this entry
 ### C17-b - WAIT controller-up - still waiting at 15:50 (> 30 min, since 15:20); human told
 
 ### C17-b - WAIT controller-up - BLOCKED at 18:53: no controller-up on origin/lab/L1 (last L1 commit: C17-c ok, ~4 h ago). L2 steps C17-c and later wait for it. Firewall rule "MeshForge S2" still present (human asked to remove).
+
+### C17-b - WAIT controller-up - OK
+when: 2026-11-01 (local, after the block above)
+result: origin/lab/L1 has SIGNAL: controller-up url=https://192.168.31.13:47110 fp=05:6B:7B:A3:...:45:72:45:85
+SIGNAL: installed L2
