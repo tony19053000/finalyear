@@ -19,3 +19,12 @@ laptop: L1 (Ubuntu 24.04.4, JARVISM3)
 commands:
     git --version; uv --version; uv sync; uv run python --version; docker version
 result: git 2.43.0; uv 0.10.12; uv sync exit 0 (no errors); Python 3.12.13; Docker client 29.7.2 / server 29.7.2 (user can reach the daemon).
+
+### R1-3 - Inventory (0.2.2) - OK
+when: 2026-11-01 (local)
+laptop: L1 (Ubuntu 24.04.4, JARVISM3)
+commands:
+    uv run python lab/inventory.py --out "lab/reports/inventory/$(hostname).json"
+result: exit 0. CPU i7-12650H 10 cores / 16 threads; RAM 15.3 GiB; GPUs Intel UHD + RTX 3050 Mobile (driver NOT working, see R1-1 BUG);
+    disk / 188G, 40G free (78% used); docker 29.7.2 runtimes incl. nvidia; torch not installed; eno1 down, wlp0s20f3 up. Problems: 1 (nvidia driver).
+evidence: lab/reports/inventory/JARVISM3.json
