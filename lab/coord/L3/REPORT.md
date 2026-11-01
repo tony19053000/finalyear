@@ -163,3 +163,23 @@ result: L3 S1 server still running on 192.168.31.236:47201. Waiting for L1's and
     L1 | SIGNAL: L1-ready ip=192.168.31.13 os=linux host=JARVISM3
     L2 | SIGNAL: L2-ready ip=192.168.31.155 os=windows host=AILESH
     L2 | SIGNAL: s1-serve-up L2 ip=192.168.31.155
+
+### C3.2-a - Windows agent unit tests (run early, while waiting) - FAIL
+when: 2026-11-01 11:22 (local)
+laptop: L3 (Windows 11, hostname TIWARI_JI)
+commands:
+    uv sync --extra agent ; uv run pytest tests/unit/agent -q -p no:cacheprovider
+result: exit 1. 2 failed, 3427 passed, 435 skipped in 339.86 s. Both failures are the same cause: the test creates a symlink and Windows refuses it for a normal user (Developer Mode off, not admin).
+BUG: tests do not skip when symlinks are not allowed on Windows.
+  FAILED tests/unit/agent/test_envs_g2_tester_round3.py::test_a_symlinked_dir_named_pycache_is_counted_as_a_link
+  FAILED tests/unit/agent/test_v017_g4_windows_pure.py::test_a_root_that_is_itself_a_link_is_only_unlinked
+  both: OSError: [WinError 1314] A required privilege is not held by the client (pathlib symlink_to, pathlib.py:1386)
+  reproduce: Windows 11 Home, non-admin shell, Developer Mode off, run the two tests above.
+
+### C4.15-g - Windows part G tests (run early, while waiting) - FAIL
+when: 2026-11-01 11:22 (local)
+laptop: L3 (Windows 11, hostname TIWARI_JI)
+commands:
+    uv sync --extra agent --group dev ; uv run pytest tests/unit/common/test_bundle_case_insensitive.py tests/component/agent/test_docker_sandbox.py -q -rs
+result: exit 1, no tests ran. tests/component/agent/conftest.py line 28 pytest.importorskip("sqlalchemy", reason="needs the controller extra") raises Skipped at conftest import, which aborts the whole run (also the unit test file). Docker tests: not run (no Docker on L3 anyway).
+BUG: the TODO command for C4.15-g installs only --extra agent, but tests/component/agent/conftest.py needs the controller extra (sqlalchemy); a module-level importorskip in a conftest aborts collection instead of skipping. Lead: fix the TODO line (add --extra controller?) or the conftest.
