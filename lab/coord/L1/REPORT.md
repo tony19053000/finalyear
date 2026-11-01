@@ -65,3 +65,21 @@ evidence: lab/reports/raw/2026-11-01-S6-environments/l1-dffe8596__quick.json, la
 result: all round-1 evidence pushed to lab/L1. Open item: NVIDIA driver not loaded (R1-1 BUG) - needs human/Lead before C2.1-a.
 
 ## DONE (round 1)
+
+# Campaign
+
+### C0-a - Same commit, prerequisites - OK
+when: 2026-11-01 (local)
+laptop: L1 (Ubuntu 24.04.4, JARVISM3)
+commands:
+    git fetch origin && git checkout lab/L1 && git merge origin/main; git rev-parse --short HEAD; uv sync --extra agent --extra controller
+result: origin/main = 3b135094 (already merged); HEAD 1e23f0d2 (lab/L1); sync exit 0.
+
+### C0-b - Power and clock - OK
+when: 2026-11-01 (local)
+result: AC online, power profile performance, GNOME automatic suspend on AC = nothing (off). System clock synchronized: yes, NTP active.
+    date -u +%s = 1793510392. Lid: human keeps it open.
+
+### C0-d - L1 ready - OK
+result: IP re-checked with ip -4 addr: unchanged.
+SIGNAL: L1-ready ip=192.168.31.13 os=linux host=JARVISM3
