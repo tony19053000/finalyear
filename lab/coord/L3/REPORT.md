@@ -213,3 +213,16 @@ commands:
     git merge origin/main (HEAD 27ef9685, has "test: skip symlink tests without privilege")
     uv run pytest tests/unit/agent -q -p no:cacheprovider
 result: exit 0. 3467 passed, 417 skipped, 0 failed in 287 s.
+
+### C2.6-a - S2 second pair with L1 (optional) - SKIPPED
+when: 2026-11-01 15:14 (local)
+result: L1 did not start an S2 server for L3 (L1 REPORT: "Optional L3 S2 pair: not done yet"; L1 moved on to S3 with L2 and V0.17a C17-b). Optional step, nothing run.
+
+### LEAD CHECKPOINT V0.2 - OK
+when: 2026-11-01 15:14 (local)
+result: all L3 V0.2 parts done (S1 server served L1+L2, rules removed, S6/S7/inventory/facts pushed). merged origin/main.
+SIGNAL: V0.2-done
+
+### C17-b - WAIT controller-up - WAITING
+when: 2026-11-01 15:14 (local)
+result: L1 is at C17-b (stopped old dev services); no controller-up yet. Human asked to get an invite code from L1's human ahead of the timed run.
