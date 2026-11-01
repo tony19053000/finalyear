@@ -28,3 +28,22 @@ Windows: use PowerShell (native, not WSL). Linux: bash.
 - **R1-7 Push** everything (`lab/reports/` + REPORT.md), write `## DONE`, push, tell the human.
 
 Round 2 (pairs of laptops: network S1, cross-OS S2, transport S3) comes after the Lead has everybody's IP.
+
+---
+
+# L2 TODO - round 1b (Lead, after reading your round-1 report)
+
+Good report. Lead decisions: Docker is SKIPPED on L2 for now (7.6 GB RAM; venv runtime is enough). Keep going:
+
+- **R1b-1 Wi-Fi profile Private (REQUIRED for round 2).** Ask the human to set the Wi-Fi network profile to
+  **Private** (Settings > Network & internet > Wi-Fi > <network> > Network profile type > Private). This is the
+  human's action, not yours. Then record `Get-NetConnectionProfile` output. Round 2 cannot start while it is Public.
+- **R1b-2 numpy for real CPU scores.** `uv sync --extra agent` then rerun
+  `uv run python lab/spikes/s7_hardware.py run --name L2 --skip-gpu`. Report exit code + headline GFLOP/s and
+  memory GB/s. (Before running, copy the existing JSON to `<name>__nonumpy.json` so it is not overwritten.)
+- **R1b-3 OPTIONAL, ask the human first (~2.5 GB download): CUDA torch for a GPU score.**
+  `uv pip install "torch==2.14.*" --index-url https://download.pytorch.org/whl/cu126`, then
+  `uv run python -c "import torch; print(torch.__version__, torch.cuda.is_available(), torch.cuda.get_device_name(0))"`
+  and, if True, `uv run python lab/spikes/s7_hardware.py run --name L2` (copy the previous JSON aside first).
+  If the human says no: SKIPPED. Note: a later `uv sync` may remove this torch; that is expected.
+- **R1b-4** push, `## DONE round 1b`, tell the human.
