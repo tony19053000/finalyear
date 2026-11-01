@@ -91,3 +91,18 @@ result: all reports pushed to origin/lab/L2.
 Open items for the Lead: Wi-Fi profile still Public (needed Private for round 2); torch not installed (no GPU score in S7); Docker not installed.
 
 ## DONE
+
+---
+# Round 1b
+
+### R1b-2 - numpy for real CPU scores - OK (exit 3 only because of --skip-gpu)
+when: 2026-11-01 10:39 (local)
+laptop: L2 (Windows 11, hostname AILESH)
+commands:
+    copy l2-d76354d8.json -> l2-d76354d8__nonumpy.json
+    uv sync --extra agent
+    uv run python lab/spikes/s7_hardware.py run --name L2 --skip-gpu
+result: exit 3 (not measured: gpu_skipped). float32 1t 95.59 +- 6.06 GFLOP/s, all 315.80 +- 8.84; float64 1t 43.66 +- 3.40, all 97.53 +- 6.12; python 1t 26.00 MFLOP/s, all 132.58.
+    Memory: copy 14.51 +- 1.20 GB/s, scale 8.72, add 9.11, triad 5.49. No battery/throttling warnings.
+    The new harness wrote a new file (__run2) instead of overwriting, so the round-1 bug is fixed on main.
+evidence: lab/reports/raw/2026-11-01-S7-hardware/l2-d76354d8__run2.json (numpy), l2-d76354d8__nonumpy.json + l2-d76354d8.json (round-1 full run, identical copies)
