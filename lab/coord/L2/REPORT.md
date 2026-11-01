@@ -57,3 +57,17 @@ commands:
 result: nvidia-smi OK: NVIDIA GeForce RTX 2050, driver 581.83, CUDA 13.0, WDDM, 4096 MiB, 66C idle, 8W/50W.
     torch: not installed (ModuleNotFoundError: No module named 'torch'); not installed per TODO. Docker GPU test: SKIPPED, no Docker.
 evidence: lab/reports/gpu/AILESH-nvidia-smi.txt
+
+### R1-5 - Hardware scores (0.2.11) - FAIL (exit 3: no torch/numpy, GPU and BLAS not measured)
+when: 2026-11-01 09:50 (local)
+laptop: L2 (Windows 11, hostname AILESH), plugged in, Best performance, other apps closed (human confirmed)
+commands:
+    uv run python lab/spikes/s7_hardware.py run --quick --name L2
+    uv run python lab/spikes/s7_hardware.py run --name L2
+result: both runs exit 3. No "ON BATTERY" or "thermal throttling" warnings.
+    quick: cpu-python-1t 19.23 +- 1.81 MFLOP/s; cpu-python-all 159.47 +- 7.06 MFLOP/s; memory copy 12.03 +- 1.05 GB/s
+    full:  cpu-python-1t 22.02 +- 1.12 MFLOP/s; cpu-python-all 117.68 +- 3.90 MFLOP/s; memory copy 12.80 +- 0.53 GB/s
+    Not measured: no_blas_backend (neither torch nor numpy installed), torch_not_installed (ADR-0011) -> no GPU score, no real GFLOPS.
+evidence: lab/reports/raw/2026-11-01-S7-hardware/l2-d76354d8.json
+BUG: the quick and full runs wrote the SAME file name (l2-d76354d8.json), so the full run overwrote the quick run's JSON. Only the full run's JSON is kept; quick numbers above are copied from stderr.
+QUESTIONS: Should torch (CUDA build) be installed on L2 so the GPU can be scored? Not installed, per TODO.
