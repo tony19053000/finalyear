@@ -172,3 +172,10 @@ SIGNAL: s2-done L1-to-L2
 commands:
     uv run python lab/spikes/s3_transport.py serve --bind 192.168.31.13   (background; ufw inactive)
 SIGNAL: s3-serve-up L1
+
+### C2.7-a - S3 L1 server, L2 client (0.2.7) - OK
+result: L2 reported SIGNAL: s3-done L2 (its client run measures both directions; numbers in L2's REPORT/raw JSON). L1 server stopped (SIGINT).
+    Ethernet run: NOT RUN (D425).
+
+### C2.x-a - Remove spike firewall rules - OK
+result: ufw inactive the whole time: no rules were added, none to remove.
