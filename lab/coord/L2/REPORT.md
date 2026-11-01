@@ -201,3 +201,19 @@ result: exit 0. Windows 11 client -> Linux 6.8.0-147 server: http-ping, http-blo
     Defender prompt: none reported by the human during the run.
 evidence: lab/reports/raw/2026-11-01-S2-crossos/l2-d76354d8__to-l1_wifi-3b3edc51.json
 SIGNAL: s2-done L2-to-L1
+
+### C2.6-b - HUMAN BATCH 2 (S2 server rule) - OK
+when: 2026-11-01 14:08 (local)
+commands:
+    (human, Administrator) New-NetFirewallRule -DisplayName "MeshForge S2" ... -LocalPort 47202-47203 -RemoteAddress 192.168.31.0/24 -Profile Private
+result: rule present, Enabled True, Private. Human reported no Windows Security / Defender pop-up during C2.6-a.
+
+### C2.6-c - S2 server L2 (0.2.6) - running
+when: 2026-11-01 14:08 (local)
+commands:
+    uv run python lab/spikes/s2_crossos.py serve --bind 192.168.31.155 --name L2   (own terminal)
+    second, same command while the first runs (port exclusivity)
+result: server: "S2 server listening on 192.168.31.155: HTTP 47202, gRPC 47203; LAN peers only; stops after 900 s idle or 7200 s total."
+    second serve: exit 1, "serve: cannot listen on 192.168.31.155 (HTTP 47202 / gRPC 47203): [WinError 10048] Only one usage of each socket address ... is normally permitted" -> port exclusivity OK.
+BUG: s2_crossos.py serve prints "warning: these adapters are NOT on a Private profile: Wi-Fi" although Get-NetConnectionProfile shows JARVIS / Wi-Fi / NetworkCategory Private at the same moment. Profile check gives a false warning. Also the "§" in that warning prints as "Â§" when stderr is redirected (encoding).
+SIGNAL: s2-serve-up L2
