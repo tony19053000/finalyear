@@ -130,3 +130,13 @@ evidence: lab/reports/raw/2026-11-01-S6-environments/l1-dffe8596__quick__run2.js
 result: other laptops: L2 192.168.31.155 (windows, AILESH), L3 192.168.31.236 (windows, TIWARI_JI), L4 not present. ufw inactive (no rule).
     uv run python lab/spikes/s1_network.py serve --bind 192.168.31.13 --idle 3600 --duration 14400  (running in background)
 SIGNAL: s1-serve-up L1 ip=192.168.31.13
+
+### C2.5-b - S1 client L1 -> L2, L3 (0.2.5) - OK
+commands:
+    uv run python lab/spikes/s1_network.py client --link wifi --server 192.168.31.155 --server 192.168.31.236
+result: exit 0. L4 not present.
+    L1<->L2 (AILESH): TCP x1 L2->L1 194.7±7.6, L1->L2 212.1±35.7; x4 L2->L1 206.5±41.8, L1->L2 238.5±25.4 Mbit/s; UDP rtt 2.70±0.55 ms, loss 0 %.
+    L1<->L3 (Tiwari_ji): TCP x1 L3->L1 224.1±10.3, L1->L3 201.0±32.2; x4 L3->L1 275.9±46.9, L1->L3 182.4±21.2 Mbit/s; UDP rtt 2.07±0.21 ms, jitter 0.67 ms, loss 0 %.
+    L1 server then stopped (SIGINT; no run targets L1). No ufw rule to remove (inactive).
+evidence: lab/reports/raw/2026-11-01-S1-network/jarvism3-249e3a41__to-ailesh_wifi-e92a7f9a.json, lab/reports/raw/2026-11-01-S1-network/jarvism3-249e3a41__to-tiwari_ji_wifi-3f7a2a51.json
+SIGNAL: s1-client-done L1
