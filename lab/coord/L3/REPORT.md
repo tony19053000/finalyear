@@ -183,3 +183,7 @@ commands:
     uv sync --extra agent --group dev ; uv run pytest tests/unit/common/test_bundle_case_insensitive.py tests/component/agent/test_docker_sandbox.py -q -rs
 result: exit 1, no tests ran. tests/component/agent/conftest.py line 28 pytest.importorskip("sqlalchemy", reason="needs the controller extra") raises Skipped at conftest import, which aborts the whole run (also the unit test file). Docker tests: not run (no Docker on L3 anyway).
 BUG: the TODO command for C4.15-g installs only --extra agent, but tests/component/agent/conftest.py needs the controller extra (sqlalchemy); a module-level importorskip in a conftest aborts collection instead of skipping. Lead: fix the TODO line (add --extra controller?) or the conftest.
+
+### C2.5-b (tail) - Stop L3 S1 server - OK
+when: 2026-11-01 11:39 (local)
+result: Seen SIGNAL s1-client-done L1 and s1-client-done L2. L3 S1 server stopped (port 47201 closed). Server writes no result file on L3 (results are on the client side). Human asked to remove the S1 firewall rules.
