@@ -95,3 +95,9 @@ result: root cause of R1-1 BUG = the local DKMS signing key (MOK) was never enro
     nvidia-smi: NVIDIA GeForce RTX 3050 Laptop GPU, 4096 MiB, driver 595.91.07, CUDA 13.2. Inventory problems: none. Secure Boot still enabled.
     Note: nvidia-driver-590-open package still installed beside 595 (not touched). R1-5/R1-6 GPU parts get re-run in C2.11-a / C2.10-a.
 evidence: lab/reports/inventory/JARVISM3.json
+
+### C0-c - Firewall state - OK
+result: human ran `sudo ufw status`: inactive. All later L1 "open port" steps are not needed.
+
+### C2.0-h - HUMAN BATCH - OK
+result: downloads agreed (CUDA torch ~2.5 GB, S6 images incl. PyTorch image, CUDA base test image). ufw inactive -> no rules. Router DHCP reservations: no.
