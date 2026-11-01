@@ -1,0 +1,12 @@
+download exit=0
+ 
+4096 .
+4096 ..
+63488366 meshforge-agent_0.17.0-1_amd64.deb
+57488826 MeshForge-Agent-Setup-0.17.0-1.exe
+133028688 meshforge-controller_0.17.0-1_amd64.deb
+308 SHA256SUMS
+meshforge-agent_0.17.0-1_amd64.deb: OK
+meshforge-controller_0.17.0-1_amd64.deb: OK
+MeshForge-Agent-Setup-0.17.0-1.exe: OK
+sha exit=0

@@ -179,3 +179,9 @@ result: L2 reported SIGNAL: s3-done L2 (its client run measures both directions;
 
 ### C2.x-a - Remove spike firewall rules - OK
 result: ufw inactive the whole time: no rules were added, none to remove.
+
+### C17-a - Download and check the packages - OK (done early while waiting for L2 v02-raw-pushed)
+commands:
+    gh release download v0.17.0 --repo tony19053000/finalyear --dir ~/mf-pkgs; sha256sum -c SHA256SUMS --ignore-missing
+result: 3 files, all OK: meshforge-agent_0.17.0-1_amd64.deb, meshforge-controller_0.17.0-1_amd64.deb, MeshForge-Agent-Setup-0.17.0-1.exe.
+evidence: lab/reports/raw/2026-11-01-V0.17-install/L1-download.txt
