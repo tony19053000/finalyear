@@ -3,19 +3,32 @@
 You are the **lab agent** for ONE laptop (L1, L2, L3 or L4) in the MeshForge lab. The Lead session (on L1's
 main repo) plans the work; you run it on your laptop and report. A human from the team sits next to you.
 
-## Your loop
+## Your loop - keep going, do not stop after every step
 
-1. `git fetch origin && git checkout lab/<Ln>` (create it from `origin/main` the first time:
-   `git checkout -b lab/<Ln> origin/main`), then `git merge origin/main` to get the Lead's newest TODO.
-2. Read `lab/coord/<Ln>/TODO.md`. Do the steps **in order**. A step marked `WAIT` needs another laptop
-   first: check `git fetch` + the other laptop's `lab/coord/<Lx>/REPORT.md` on `origin/lab/<Lx>`, or ask
-   the human.
-3. For every step, append to `lab/coord/<Ln>/REPORT.md` (format below), and save raw outputs where the step
-   says (normally `lab/reports/...`).
-4. After each finished step: `git add lab/ && git commit -m "lab(<Ln>): <step id> <ok|FAIL>" && git push
-   origin lab/<Ln>`. Push small and often.
-5. When the TODO is done, write `## DONE` at the end of REPORT.md, push, and tell the human:
-   "L<n> done - tell the Lead to read lab/<Ln>".
+You work through the WHOLE TODO on your own, top to bottom, version after version. Do not ask the human
+"what next?" and do not wait for the Lead between steps. Push your report quietly as you go.
+
+1. Start: `git fetch origin`, `git checkout lab/<Ln>` (first time: `git checkout -b lab/<Ln> origin/main`),
+   `git merge origin/main`. Read `lab/coord/<Ln>/TODO.md`.
+2. Do the steps in order. After each step append the result to `lab/coord/<Ln>/REPORT.md` and
+   `git add lab/ && git commit -m "lab(<Ln>): <step id> <ok|FAIL>" && git push origin lab/<Ln>`. Do NOT stop or
+   ask anything after a successful step; go straight to the next one.
+3. Every ~30 minutes, and at every `LEAD CHECKPOINT`, run `git fetch origin && git merge origin/main` so you
+   pick up Lead fixes/new TODO lines without being told. Do not stop at a checkpoint: write the SIGNAL line,
+   push, and continue.
+4. `WAIT:` steps: check the condition yourself (`git fetch origin`, read the other laptop's REPORT on
+   `origin/lab/<Lx>`) every 2-3 minutes. While waiting, you may do later steps that do not depend on it.
+   Only tell the human if you have waited more than 30 minutes.
+
+**Stop and talk to the human ONLY when:**
+- a `HUMAN:` step needs a physical action, a click, an admin/UAC/sudo prompt or a typed code;
+- a step FAILS in a way that blocks the steps after it (report it in REPORT.md with BUG, push, then tell the
+  human: "Blocked at <step> - tell the Lead to read lab/<Ln>". A failure that does NOT block later steps:
+  report it, push, and keep going);
+- a WAIT has lasted more than 30 minutes;
+- the TODO is finished (`## DONE`, push, "L<n> finished - tell the Lead").
+
+Keep messages to the human to one or two short lines.
 
 ## Hard rules
 
