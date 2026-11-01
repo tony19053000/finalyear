@@ -114,3 +114,32 @@ commands:
     Get-NetConnectionProfile
 result: human switched it. Name JARVIS, InterfaceAlias Wi-Fi, NetworkCategory Private.
 evidence: this entry
+
+### R1b-3 - CUDA torch - PENDING (human has not answered yes/no yet)
+
+---
+# Full campaign
+
+### C0-a - Same commit - OK
+when: 2026-11-01 10:55 (local)
+laptop: L2 (Windows 11, hostname AILESH)
+commands:
+    git fetch origin; git checkout lab/L2; git merge origin/main; git rev-parse --short HEAD; uv sync --extra agent
+result: HEAD 1b31e6ea (lab/L2 with origin/main merged); uv sync --extra agent OK.
+evidence: this entry
+
+### C0-b - Power, updates, profile - OK (updates pause not confirmed)
+when: 2026-11-01 10:55 (local)
+laptop: L2 (Windows 11, hostname AILESH)
+commands:
+    (human, admin) powercfg /change standby-timeout-ac 0; powercfg /change hibernate-timeout-ac 0
+    powercfg /query (check); Get-NetConnectionProfile; w32tm /query /status; [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+result: standby AC 0, hibernate AC 0 (never). Profile Private. Unix time 1793510736.
+    Windows Update pause: not visible in HKLM\...\WindowsUpdate\UX\Settings PauseUpdatesExpiryTime (empty); human asked to pause.
+    w32tm: Leap Indicator 3 (not synchronized), Stratum 0, last successful sync 01-11-2026 08:56:22, source time.windows.com. Relevant for C4.15-a later.
+evidence: this entry
+
+### C0-c - Ready - OK
+when: 2026-11-01 10:55 (local)
+result: ipconfig Wi-Fi IPv4 192.168.31.155.
+SIGNAL: L2-ready ip=192.168.31.155 os=windows host=AILESH
