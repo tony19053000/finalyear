@@ -386,3 +386,15 @@ WAIT: Lead's "this build" in `lab/coord/CAMPAIGN.md` §Builds (merge `origin/mai
   (remove all data); Administrator `uv run python lab\verify_uninstall.py --os windows --data-removed` -> `CLEAN`;
   `Get-NetFirewallRule | Where-Object DisplayName -like '*MeshForge*'` prints nothing. *[last step]*
 - **LEAD CHECKPOINT V1.0.** EMIT SIGNAL: V1.0-done. `## DONE`, push, tell the human "L2 finished - tell the Lead".
+
+---
+## LEAD NOTE (2026-11-01, after reading C2.5-a)
+- **uv rebuilt .venv** from the human's PowerShell (managed-Python link problem, same as R1-2). After your S1
+  measurements, and BEFORE any step that needs numpy/torch/the agent: run
+  `uv python install 3.12 --reinstall` (report the output), then `uv sync --extra agent`, then
+  `uv run python -c "import numpy, sys; print(numpy.__version__, sys.executable)"`. If the "Missing expected
+  target directory" error appears again but the import works, record it and continue (non-blocking).
+  Run all later `uv` commands from YOUR shell, not the human's, so one .venv is used.
+- R1b-3 CUDA torch: do it after S1 as you planned, then `uv sync --extra agent` must not be rerun afterwards
+  (it would remove torch) - if a later step needs `uv sync`, re-install torch after it.
+- Windows Update pause ends 2026-11-07: remind the human to extend it before the V1.0 soak.
