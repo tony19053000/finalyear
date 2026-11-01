@@ -143,3 +143,11 @@ evidence: this entry
 when: 2026-11-01 10:55 (local)
 result: ipconfig Wi-Fi IPv4 192.168.31.155.
 SIGNAL: L2-ready ip=192.168.31.155 os=windows host=AILESH
+
+### C2.4-a - Network facts (0.2.4) - OK
+when: 2026-11-01 10:57 (local)
+laptop: L2 (Windows 11, hostname AILESH)
+commands:
+    netsh wlan show interfaces; Get-NetAdapter | ft Name,Status,LinkSpeed; Get-NetConnectionProfile
+result: Wi-Fi JARVIS 5 GHz ch 157, signal 92%, rx/tx 1201 Mbps, profile Private. Same room as L1: yes (R1-1). DHCP reservation: unknown (L1's human handles the router).
+evidence: lab/reports/raw/2026-11-01-V0.2-network-facts/L2.txt
