@@ -83,3 +83,15 @@ result: AC online, power profile performance, GNOME automatic suspend on AC = no
 ### C0-d - L1 ready - OK
 result: IP re-checked with ip -4 addr: unchanged.
 SIGNAL: L1-ready ip=192.168.31.13 os=linux host=JARVISM3
+
+### R1-4b - GPU driver fix + recheck - OK
+when: 2026-11-01 11:02 (local)
+laptop: L1 (Ubuntu 24.04.4, JARVISM3)
+commands:
+    modinfo nvidia.ko (signer "ubuntu Secure Boot Module Signature key"); mokutil --test-key /var/lib/shim-signed/mok/MOK.der -> "not enrolled"
+    HUMAN: sudo mokutil --import /var/lib/shim-signed/mok/MOK.der; reboot; MOK manager Enroll MOK
+    after: mokutil --test-key -> "already enrolled"; nvidia-smi; lab/inventory.py (re-run, file overwritten with the fixed state)
+result: root cause of R1-1 BUG = the local DKMS signing key (MOK) was never enrolled, so Secure Boot refused the module. Fixed by the human.
+    nvidia-smi: NVIDIA GeForce RTX 3050 Laptop GPU, 4096 MiB, driver 595.91.07, CUDA 13.2. Inventory problems: none. Secure Boot still enabled.
+    Note: nvidia-driver-590-open package still installed beside 595 (not touched). R1-5/R1-6 GPU parts get re-run in C2.11-a / C2.10-a.
+evidence: lab/reports/inventory/JARVISM3.json
