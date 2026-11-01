@@ -13,7 +13,8 @@ Shape (``schema_version`` 1)::
 ``link`` is given by the operator (the tool cannot know which physical link a
 route uses); it is ``null`` for spikes that send no network traffic (S7), and
 reports then show "n/a". Raw files go to ``lab/reports/raw/<YYYY-MM-DD>-<topic>/<host>.json``
-(``<host>__<suffix>.json`` when one host writes several runs, e.g. one per peer).
+(``<host>__<suffix>.json`` when one host writes several slots, e.g. one per peer;
+``__quick`` for a smoke run and ``__runN`` for a re-run, see :mod:`.runs`).
 The ``<host>`` part is case-folded and hash-suffixed when that changes it (see
 :func:`safe_name`) so hosts cannot collide on Windows; the original spelling
 lives in ``host.label``, which is what matrix and report display.
@@ -56,6 +57,8 @@ _REQUIRED: Final = (
     "cases",
     "errors",
 )
+#: File-name marker of a ``--quick`` (smoke) run; see :mod:`spikes._harness.runs`.
+QUICK_SUFFIX: Final = "__quick"
 _UNSAFE_NAME: Final = re.compile(r"[^A-Za-z0-9._-]+")
 
 
@@ -218,11 +221,18 @@ def raw_result_path(
     day: date,
     *,
     suffix: str | None = None,
+    quick: bool = False,
     root: Path = RAW_ROOT,
 ) -> Path:
+    """``<host>[__<suffix>][__quick].json``. A quick (smoke) run gets its own
+    name so it never shares a file with a measurement; spikes write through
+    :func:`spikes._harness.runs.write_run_envelope`, which adds ``__runN``
+    instead of overwriting an earlier run."""
     name = safe_name(hostname)
     if suffix:
         name += "__" + safe_name(suffix)
+    if quick:
+        name += QUICK_SUFFIX
     return raw_dir(topic, day, root) / f"{name}.json"
 
 

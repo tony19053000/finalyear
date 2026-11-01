@@ -57,7 +57,6 @@ from spikes._harness.envelope import (  # noqa: E402
     raw_dir,
     raw_result_path,
     sanitize_text,
-    write_envelope,
 )
 from spikes._harness.protocol import check_bind_address, is_lan_address  # noqa: E402
 from spikes._harness.report import (  # noqa: E402
@@ -67,6 +66,11 @@ from spikes._harness.report import (  # noqa: E402
     TemplateError,
     render_report,
     write_report,
+)
+from spikes._harness.runs import (  # noqa: E402
+    latest_runs,
+    superseded_block,
+    write_run_envelope,
 )
 from spikes._s2.env import (  # noqa: E402
     firewall_profile,
@@ -520,7 +524,7 @@ def cmd_client(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int
         ).name
     )
     try:
-        write_envelope(run.envelope, path)
+        path = write_run_envelope(run.envelope, path)
     except OSError as exc:
         _say(f"client: cannot write {path}: {exc}")
         return EXIT_IO
@@ -548,12 +552,19 @@ def cmd_report(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int
         parser.error(f"--results folder not found: {', '.join(missing)}")
     envelopes: list[dict[str, Any]] = []
     skipped: list[str] = []
+    superseded: list[str] = []
     for d in dirs:
         docs, bad = load_dir(d)
-        envelopes += [e for e in docs if e.get("spike") == "S2"]
+        # per folder: the newest full run per laptop/peer; quick runs and older
+        # re-runs are listed as superseded, never counted (spikes._harness.runs)
+        chosen = latest_runs([e for e in docs if e.get("spike") == "S2"])
+        envelopes += chosen.kept
+        superseded += chosen.superseded
         skipped += bad
     for reason in skipped:
         _say(f"skipped invalid result file: {reason}")
+    for line in superseded:
+        _say(f"not counted: {line}")
     if not envelopes:
         _say("warning: no S2 result files found; every cell will be TBD")
     # ``--hosts L1=hostA`` both *renames* hostA to L1 in every row and says
@@ -569,6 +580,7 @@ def cmd_report(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int
         extra += (
             "\nSkipped result files:\n" + "\n".join(f"- {s}" for s in skipped) + "\n"
         )
+    extra += superseded_block(superseded)
     day = _report_day(dirs, args.date).isoformat()
     try:
         text = render_report(
