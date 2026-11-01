@@ -56,3 +56,16 @@ commands:
     uv run python lab/spikes/s7_hardware.py run --quick --name L3 --skip-gpu
 result: exit 3. Printed "!! ON BATTERY" - human said charger plugged in, but Windows reports PowerLineStatus Offline, battery 57% discharging. Quick scores (not comparable): cpu-python-1t 8.59 MFLOP/s, cpu-python-all 91.18 MFLOP/s, memory copy 24.42 GB/s. Also no_blas_backend (no torch/numpy).
 evidence: lab/reports/raw/2026-11-01-S7-hardware/l3-842983de__quick.json
+
+### R1-5 - Hardware scores (attempt 2, quick + full) - FAIL
+when: 2026-11-01 10:31 (local)
+laptop: L3 (Windows 11, hostname TIWARI_JI)
+commands:
+    uv run python lab/spikes/s7_hardware.py run --quick --name L3 --skip-gpu
+    uv run python lab/spikes/s7_hardware.py run --name L3 --skip-gpu
+result: Before: Windows PowerLineStatus Online, charging 56%.
+  quick: exit 3, no ON BATTERY warning. cpu-python-1t 20.74 ± 0.34 MFLOP/s, cpu-python-all 89.27 ± 3.11, memory copy 25.87 ± 3.82 GB/s.
+  full: exit 3, printed "!! ON BATTERY" again. cpu-python-1t 22.94 ± 0.46, cpu-python-all 145.47 ± 0.69, memory copy 32.56 ± 0.15 GB/s.
+  After: Windows says Online 57% Charging. So the charger likely dropped out during the full run (loose cable?) - or the battery probe is flaky. Both runs also report no_blas_backend (no torch/numpy) and gpu_skipped, which may also cause exit 3.
+evidence: lab/reports/raw/2026-11-01-S7-hardware/l3-842983de__quick__run2.json, lab/reports/raw/2026-11-01-S7-hardware/l3-842983de.json
+QUESTIONS: Is exit 3 expected whenever no_blas_backend is reported (no numpy/torch on L3)?
