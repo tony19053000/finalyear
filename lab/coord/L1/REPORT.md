@@ -125,3 +125,8 @@ commands:
 result: recommendation docker. container start 157.26±6.69 ms, venv start 99.62±1.98 ms, small image cold pull 10.36±0.57 s,
     venv cold install 5.46±1.43 s, warm 0.06 s, PyTorch-CUDA container to CUDA ready 1122.44±44.22 ms. No skipped cases. All within the 3 s target.
 evidence: lab/reports/raw/2026-11-01-S6-environments/l1-dffe8596__quick__run2.json, lab/reports/raw/2026-11-01-S6-environments/l1-dffe8596__run2.json
+
+### C2.5-a - S1 server (0.2.5) - OK
+result: other laptops: L2 192.168.31.155 (windows, AILESH), L3 192.168.31.236 (windows, TIWARI_JI), L4 not present. ufw inactive (no rule).
+    uv run python lab/spikes/s1_network.py serve --bind 192.168.31.13 --idle 3600 --duration 14400  (running in background)
+SIGNAL: s1-serve-up L1 ip=192.168.31.13
