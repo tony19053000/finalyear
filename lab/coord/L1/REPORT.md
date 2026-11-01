@@ -195,3 +195,16 @@ commands:
 result: installed 0.17.0-1 (657 MB). Preflight "all checks passed" (3 expected warns: DB passwords/files/CA created later). "is running version 0.17.0" and "Create your fabric" shown.
     Harmless apt note: "_apt couldn't access ~/mf-pkgs" (home dir permissions; download done as root).
 evidence: lab/reports/raw/2026-11-01-V0.17-install/L1-controller-install.txt
+
+### C17-d - Create the fabric (0.17.4) - OK
+commands:
+    HUMAN: sudo meshforge-controller setup url; opened link in Firefox on L1; created the fabric. Admin user is `admin` (not `labadmin`, Lead decision); password kept by the human.
+    check: curl -k https://192.168.31.13:47110/healthz; ss -ltn; journalctl -u meshforge-controller
+result: page showed "Laptops join at 192.168.31.13:47101", dashboard https://192.168.31.13:47110/ (not 127.0.0.1 -> no controller.toml edit).
+    journal: controller.fabric.created 13:22:06Z, setup.completed, restarting, fabric.ready. healthz 200 {"status":"ok"}, /v1/nodes 401 (auth required).
+    Listening on 192.168.31.13:47100, :47101, :47110. Fabric id fab_01M6BMCGQBHTN059R0R5MY3WYW.
+    CA SHA-256 fingerprint (not secret): 05:6B:7B:A3:97:89:CC:FB:A2:CC:A0:18:3F:2B:36:65:A3:99:7F:1D:4A:06:3A:51:98:72:8C:FF:45:72:45:85 (read from the TLS chain).
+    Screenshot SKIPPED (Lead): the human's screenshot showed the password, so it is not saved.
+
+### C17-e - Firewall - SKIPPED
+result: ufw inactive, no rule needed.
