@@ -1,0 +1,1623 @@
+{
+  "cases": {
+    "grpc-bidi-idle120s-kaoff": {
+      "aborted": false,
+      "attrs": {
+        "idle_s": 120.0,
+        "keepalive": "off",
+        "keepalive_settings": {
+          "client_options": {
+            "grpc.max_receive_message_length": 536870912,
+            "grpc.max_send_message_length": 65536
+          },
+          "mode": "off",
+          "server_options": {
+            "grpc.http2.min_ping_interval_without_data_ms": 5000,
+            "grpc.http2.min_recv_ping_interval_without_data_ms": 5000,
+            "grpc.keepalive_permit_without_calls": 1,
+            "grpc.keepalive_time_ms": 20000,
+            "grpc.keepalive_timeout_ms": 10000,
+            "grpc.max_receive_message_length": 65536,
+            "grpc.max_send_message_length": 536870912,
+            "grpc.so_reuseport": 0
+          }
+        },
+        "kind": "grpc",
+        "op": "bidi_session"
+      },
+      "errors": [],
+      "label": "gRPC Session (bidi, 5 s active + 120 s idle, keepalive off) L1 → L2",
+      "metrics": {
+        "active_rtt_mean_ms": "ms",
+        "alive_s": "s",
+        "final_rtt_ms": "ms",
+        "idle_survived_s": "s",
+        "msgs_down": "count",
+        "msgs_up": "count",
+        "survived": "0/1"
+      },
+      "requested_reps": 5,
+      "requested_warmup": 1,
+      "samples": [
+        {
+          "active_rtt_mean_ms": 8.821313399676,
+          "alive_s": 125.0459825580001,
+          "beats": 4,
+          "channel_ready_ms": 92.35542200076452,
+          "failure": null,
+          "final_rtt_ms": 11.481128000013996,
+          "hold_s": 5.0,
+          "idle_s": 120.0,
+          "idle_survived_s": 120.0,
+          "keepalive": "off",
+          "msgs_down": 12,
+          "msgs_up": 8,
+          "pings_active": 5,
+          "survived": 1
+        },
+        {
+          "active_rtt_mean_ms": 15.873407199615032,
+          "alive_s": 125.13045985099961,
+          "beats": 5,
+          "channel_ready_ms": 110.38030499912566,
+          "failure": null,
+          "final_rtt_ms": 31.89187299904006,
+          "hold_s": 5.0,
+          "idle_s": 120.0,
+          "idle_survived_s": 120.0,
+          "keepalive": "off",
+          "msgs_down": 13,
+          "msgs_up": 8,
+          "pings_active": 5,
+          "survived": 1
+        },
+        {
+          "active_rtt_mean_ms": 10.730334999607294,
+          "alive_s": 125.12434625499918,
+          "beats": 4,
+          "channel_ready_ms": 326.35995900091075,
+          "failure": null,
+          "final_rtt_ms": 114.83343199870433,
+          "hold_s": 5.0,
+          "idle_s": 120.0,
+          "idle_survived_s": 120.0,
+          "keepalive": "off",
+          "msgs_down": 12,
+          "msgs_up": 8,
+          "pings_active": 5,
+          "survived": 1
+        },
+        {
+          "active_rtt_mean_ms": 23.304350999751478,
+          "alive_s": 125.10186128500027,
+          "beats": 5,
+          "channel_ready_ms": 126.75921399932122,
+          "failure": null,
+          "final_rtt_ms": 35.289585999635165,
+          "hold_s": 5.0,
+          "idle_s": 120.0,
+          "idle_survived_s": 120.0,
+          "keepalive": "off",
+          "msgs_down": 13,
+          "msgs_up": 8,
+          "pings_active": 5,
+          "survived": 1
+        },
+        {
+          "active_rtt_mean_ms": 7.448878400464309,
+          "alive_s": 125.12783198299985,
+          "beats": 5,
+          "channel_ready_ms": 155.5056990000594,
+          "failure": null,
+          "final_rtt_ms": 82.13076799984265,
+          "hold_s": 5.0,
+          "idle_s": 120.0,
+          "idle_survived_s": 120.0,
+          "keepalive": "off",
+          "msgs_down": 13,
+          "msgs_up": 8,
+          "pings_active": 5,
+          "survived": 1
+        }
+      ],
+      "summary": {
+        "active_rtt_mean_ms": {
+          "max": 23.304350999751478,
+          "mean": 13.235656999822822,
+          "median": 10.730334999607294,
+          "min": 7.448878400464309,
+          "n": 5,
+          "p95": 21.818162239724188,
+          "stdev": 6.472754423033867
+        },
+        "alive_s": {
+          "max": 125.13045985099961,
+          "mean": 125.1060963863998,
+          "median": 125.12434625499918,
+          "min": 125.0459825580001,
+          "n": 5,
+          "p95": 125.12993427739966,
+          "stdev": 0.035463645890875015
+        },
+        "final_rtt_ms": {
+          "max": 114.83343199870433,
+          "mean": 55.12535739944724,
+          "median": 35.289585999635165,
+          "min": 11.481128000013996,
+          "n": 5,
+          "p95": 108.29289919893199,
+          "stdev": 42.22682132935866
+        },
+        "idle_survived_s": {
+          "max": 120.0,
+          "mean": 120.0,
+          "median": 120.0,
+          "min": 120.0,
+          "n": 5,
+          "p95": 120.0,
+          "stdev": 0.0
+        },
+        "msgs_down": {
+          "max": 13.0,
+          "mean": 12.6,
+          "median": 13.0,
+          "min": 12.0,
+          "n": 5,
+          "p95": 13.0,
+          "stdev": 0.5477225575051661
+        },
+        "msgs_up": {
+          "max": 8.0,
+          "mean": 8.0,
+          "median": 8.0,
+          "min": 8.0,
+          "n": 5,
+          "p95": 8.0,
+          "stdev": 0.0
+        },
+        "survived": {
+          "max": 1.0,
+          "mean": 1.0,
+          "median": 1.0,
+          "min": 1.0,
+          "n": 5,
+          "p95": 1.0,
+          "stdev": 0.0
+        }
+      },
+      "warmup": [
+        {
+          "active_rtt_mean_ms": 12.014575399371097,
+          "alive_s": 125.02118342100039,
+          "beats": 4,
+          "channel_ready_ms": 6.881838999106549,
+          "failure": null,
+          "final_rtt_ms": 8.30347099872597,
+          "hold_s": 5.0,
+          "idle_s": 120.0,
+          "idle_survived_s": 120.0,
+          "keepalive": "off",
+          "msgs_down": 12,
+          "msgs_up": 8,
+          "pings_active": 5,
+          "survived": 1
+        }
+      ]
+    },
+    "grpc-bidi-idle120s-kaon": {
+      "aborted": false,
+      "attrs": {
+        "idle_s": 120.0,
+        "keepalive": "on",
+        "keepalive_settings": {
+          "client_options": {
+            "grpc.http2.max_pings_without_data": 0,
+            "grpc.http2.min_time_between_pings_ms": 10000,
+            "grpc.keepalive_permit_without_calls": 1,
+            "grpc.keepalive_time_ms": 20000,
+            "grpc.keepalive_timeout_ms": 10000,
+            "grpc.max_receive_message_length": 536870912,
+            "grpc.max_send_message_length": 65536
+          },
+          "mode": "on",
+          "server_options": {
+            "grpc.http2.min_ping_interval_without_data_ms": 5000,
+            "grpc.http2.min_recv_ping_interval_without_data_ms": 5000,
+            "grpc.keepalive_permit_without_calls": 1,
+            "grpc.keepalive_time_ms": 20000,
+            "grpc.keepalive_timeout_ms": 10000,
+            "grpc.max_receive_message_length": 65536,
+            "grpc.max_send_message_length": 536870912,
+            "grpc.so_reuseport": 0
+          }
+        },
+        "kind": "grpc",
+        "op": "bidi_session"
+      },
+      "errors": [],
+      "label": "gRPC Session (bidi, 5 s active + 120 s idle, keepalive on) L1 → L2",
+      "metrics": {
+        "active_rtt_mean_ms": "ms",
+        "alive_s": "s",
+        "final_rtt_ms": "ms",
+        "idle_survived_s": "s",
+        "msgs_down": "count",
+        "msgs_up": "count",
+        "survived": "0/1"
+      },
+      "requested_reps": 5,
+      "requested_warmup": 1,
+      "samples": [
+        {
+          "active_rtt_mean_ms": 7.7493966004112735,
+          "alive_s": 125.07799372800037,
+          "beats": 5,
+          "channel_ready_ms": 369.42787199950544,
+          "failure": null,
+          "final_rtt_ms": 16.766736000136007,
+          "hold_s": 5.0,
+          "idle_s": 120.0,
+          "idle_survived_s": 120.0,
+          "keepalive": "on",
+          "msgs_down": 13,
+          "msgs_up": 8,
+          "pings_active": 5,
+          "survived": 1
+        },
+        {
+          "active_rtt_mean_ms": 5.809681000027922,
+          "alive_s": 125.08578019599918,
+          "beats": 4,
+          "channel_ready_ms": 155.8505770008196,
+          "failure": null,
+          "final_rtt_ms": 68.16111599982833,
+          "hold_s": 5.0,
+          "idle_s": 120.0,
+          "idle_survived_s": 120.0,
+          "keepalive": "on",
+          "msgs_down": 12,
+          "msgs_up": 8,
+          "pings_active": 5,
+          "survived": 1
+        },
+        {
+          "active_rtt_mean_ms": 7.847548999416176,
+          "alive_s": 125.06410421799956,
+          "beats": 5,
+          "channel_ready_ms": 111.58234499998798,
+          "failure": null,
+          "final_rtt_ms": 5.9127180011273595,
+          "hold_s": 5.0,
+          "idle_s": 120.0,
+          "idle_survived_s": 120.0,
+          "keepalive": "on",
+          "msgs_down": 13,
+          "msgs_up": 8,
+          "pings_active": 5,
+          "survived": 1
+        },
+        {
+          "active_rtt_mean_ms": 7.932276599967736,
+          "alive_s": 125.13252592199933,
+          "beats": 5,
+          "channel_ready_ms": 279.4341009994241,
+          "failure": null,
+          "final_rtt_ms": 76.3626040006784,
+          "hold_s": 5.0,
+          "idle_s": 120.0,
+          "idle_survived_s": 120.0,
+          "keepalive": "on",
+          "msgs_down": 13,
+          "msgs_up": 8,
+          "pings_active": 5,
+          "survived": 1
+        },
+        {
+          "active_rtt_mean_ms": 16.850690800129087,
+          "alive_s": 125.13113361400065,
+          "beats": 4,
+          "channel_ready_ms": 11.563437999939197,
+          "failure": null,
+          "final_rtt_ms": 101.71620499932033,
+          "hold_s": 5.0,
+          "idle_s": 120.0,
+          "idle_survived_s": 120.0,
+          "keepalive": "on",
+          "msgs_down": 12,
+          "msgs_up": 8,
+          "pings_active": 5,
+          "survived": 1
+        }
+      ],
+      "summary": {
+        "active_rtt_mean_ms": {
+          "max": 16.850690800129087,
+          "mean": 9.237918799990439,
+          "median": 7.847548999416176,
+          "min": 5.809681000027922,
+          "n": 5,
+          "p95": 15.067007960096815,
+          "stdev": 4.346281169421045
+        },
+        "alive_s": {
+          "max": 125.13252592199933,
+          "mean": 125.09830753559982,
+          "median": 125.08578019599918,
+          "min": 125.06410421799956,
+          "n": 5,
+          "p95": 125.1322474603996,
+          "stdev": 0.03157491624092386
+        },
+        "final_rtt_ms": {
+          "max": 101.71620499932033,
+          "mean": 53.783875800218084,
+          "median": 68.16111599982833,
+          "min": 5.9127180011273595,
+          "n": 5,
+          "p95": 96.64548479959194,
+          "stdev": 40.85317788545625
+        },
+        "idle_survived_s": {
+          "max": 120.0,
+          "mean": 120.0,
+          "median": 120.0,
+          "min": 120.0,
+          "n": 5,
+          "p95": 120.0,
+          "stdev": 0.0
+        },
+        "msgs_down": {
+          "max": 13.0,
+          "mean": 12.6,
+          "median": 13.0,
+          "min": 12.0,
+          "n": 5,
+          "p95": 13.0,
+          "stdev": 0.5477225575051661
+        },
+        "msgs_up": {
+          "max": 8.0,
+          "mean": 8.0,
+          "median": 8.0,
+          "min": 8.0,
+          "n": 5,
+          "p95": 8.0,
+          "stdev": 0.0
+        },
+        "survived": {
+          "max": 1.0,
+          "mean": 1.0,
+          "median": 1.0,
+          "min": 1.0,
+          "n": 5,
+          "p95": 1.0,
+          "stdev": 0.0
+        }
+      },
+      "warmup": [
+        {
+          "active_rtt_mean_ms": 8.270653400177252,
+          "alive_s": 125.1256146930009,
+          "beats": 5,
+          "channel_ready_ms": 7.132445000024745,
+          "failure": null,
+          "final_rtt_ms": 68.32873600069433,
+          "hold_s": 5.0,
+          "idle_s": 120.0,
+          "idle_survived_s": 120.0,
+          "keepalive": "on",
+          "msgs_down": 13,
+          "msgs_up": 8,
+          "pings_active": 5,
+          "survived": 1
+        }
+      ]
+    },
+    "grpc-bidi-idle30s-kaoff": {
+      "aborted": false,
+      "attrs": {
+        "idle_s": 30.0,
+        "keepalive": "off",
+        "keepalive_settings": {
+          "client_options": {
+            "grpc.max_receive_message_length": 536870912,
+            "grpc.max_send_message_length": 65536
+          },
+          "mode": "off",
+          "server_options": {
+            "grpc.http2.min_ping_interval_without_data_ms": 5000,
+            "grpc.http2.min_recv_ping_interval_without_data_ms": 5000,
+            "grpc.keepalive_permit_without_calls": 1,
+            "grpc.keepalive_time_ms": 20000,
+            "grpc.keepalive_timeout_ms": 10000,
+            "grpc.max_receive_message_length": 65536,
+            "grpc.max_send_message_length": 536870912,
+            "grpc.so_reuseport": 0
+          }
+        },
+        "kind": "grpc",
+        "op": "bidi_session"
+      },
+      "errors": [],
+      "label": "gRPC Session (bidi, 5 s active + 30 s idle, keepalive off) L1 → L2",
+      "metrics": {
+        "active_rtt_mean_ms": "ms",
+        "alive_s": "s",
+        "final_rtt_ms": "ms",
+        "idle_survived_s": "s",
+        "msgs_down": "count",
+        "msgs_up": "count",
+        "survived": "0/1"
+      },
+      "requested_reps": 5,
+      "requested_warmup": 1,
+      "samples": [
+        {
+          "active_rtt_mean_ms": 5.922589799956768,
+          "alive_s": 35.04445234800005,
+          "beats": 5,
+          "channel_ready_ms": 153.73316300065198,
+          "failure": null,
+          "final_rtt_ms": 3.8892510001460323,
+          "hold_s": 5.0,
+          "idle_s": 30.0,
+          "idle_survived_s": 30.0,
+          "keepalive": "off",
+          "msgs_down": 13,
+          "msgs_up": 8,
+          "pings_active": 5,
+          "survived": 1
+        },
+        {
+          "active_rtt_mean_ms": 9.40406520057877,
+          "alive_s": 35.11611791500036,
+          "beats": 4,
+          "channel_ready_ms": 43.78151600030833,
+          "failure": null,
+          "final_rtt_ms": 101.68138100016222,
+          "hold_s": 5.0,
+          "idle_s": 30.0,
+          "idle_survived_s": 30.0,
+          "keepalive": "off",
+          "msgs_down": 12,
+          "msgs_up": 8,
+          "pings_active": 5,
+          "survived": 1
+        },
+        {
+          "active_rtt_mean_ms": 19.805964400075027,
+          "alive_s": 35.02482987300027,
+          "beats": 4,
+          "channel_ready_ms": 217.91179000138072,
+          "failure": null,
+          "final_rtt_ms": 5.784725000921753,
+          "hold_s": 5.0,
+          "idle_s": 30.0,
+          "idle_survived_s": 30.0,
+          "keepalive": "off",
+          "msgs_down": 12,
+          "msgs_up": 8,
+          "pings_active": 5,
+          "survived": 1
+        },
+        {
+          "active_rtt_mean_ms": 6.764830799875199,
+          "alive_s": 35.143104577000486,
+          "beats": 6,
+          "channel_ready_ms": 103.2657769992511,
+          "failure": null,
+          "final_rtt_ms": 98.20005700021284,
+          "hold_s": 5.0,
+          "idle_s": 30.0,
+          "idle_survived_s": 30.0,
+          "keepalive": "off",
+          "msgs_down": 14,
+          "msgs_up": 8,
+          "pings_active": 5,
+          "survived": 1
+        },
+        {
+          "active_rtt_mean_ms": 5.761070599328377,
+          "alive_s": 35.194474764000915,
+          "beats": 6,
+          "channel_ready_ms": 9.8367459995643,
+          "failure": null,
+          "final_rtt_ms": 157.52833300030034,
+          "hold_s": 5.0,
+          "idle_s": 30.0,
+          "idle_survived_s": 30.0,
+          "keepalive": "off",
+          "msgs_down": 14,
+          "msgs_up": 8,
+          "pings_active": 5,
+          "survived": 1
+        }
+      ],
+      "summary": {
+        "active_rtt_mean_ms": {
+          "max": 19.805964400075027,
+          "mean": 9.531704159962828,
+          "median": 6.764830799875199,
+          "min": 5.761070599328377,
+          "n": 5,
+          "p95": 17.725584560175776,
+          "stdev": 5.926121988460295
+        },
+        "alive_s": {
+          "max": 35.194474764000915,
+          "mean": 35.104595895400415,
+          "median": 35.11611791500036,
+          "min": 35.02482987300027,
+          "n": 5,
+          "p95": 35.18420072660083,
+          "stdev": 0.07013157480511774
+        },
+        "final_rtt_ms": {
+          "max": 157.52833300030034,
+          "mean": 73.41674940034864,
+          "median": 98.20005700021284,
+          "min": 3.8892510001460323,
+          "n": 5,
+          "p95": 146.3589426002727,
+          "stdev": 66.8880108631382
+        },
+        "idle_survived_s": {
+          "max": 30.0,
+          "mean": 30.0,
+          "median": 30.0,
+          "min": 30.0,
+          "n": 5,
+          "p95": 30.0,
+          "stdev": 0.0
+        },
+        "msgs_down": {
+          "max": 14.0,
+          "mean": 13.0,
+          "median": 13.0,
+          "min": 12.0,
+          "n": 5,
+          "p95": 14.0,
+          "stdev": 1.0
+        },
+        "msgs_up": {
+          "max": 8.0,
+          "mean": 8.0,
+          "median": 8.0,
+          "min": 8.0,
+          "n": 5,
+          "p95": 8.0,
+          "stdev": 0.0
+        },
+        "survived": {
+          "max": 1.0,
+          "mean": 1.0,
+          "median": 1.0,
+          "min": 1.0,
+          "n": 5,
+          "p95": 1.0,
+          "stdev": 0.0
+        }
+      },
+      "warmup": [
+        {
+          "active_rtt_mean_ms": 6.103846799305757,
+          "alive_s": 35.10896569999932,
+          "beats": 5,
+          "channel_ready_ms": 7.2257259998878,
+          "failure": null,
+          "final_rtt_ms": 66.22038999921642,
+          "hold_s": 5.0,
+          "idle_s": 30.0,
+          "idle_survived_s": 30.0,
+          "keepalive": "off",
+          "msgs_down": 13,
+          "msgs_up": 8,
+          "pings_active": 5,
+          "survived": 1
+        }
+      ]
+    },
+    "grpc-bidi-idle30s-kaon": {
+      "aborted": false,
+      "attrs": {
+        "idle_s": 30.0,
+        "keepalive": "on",
+        "keepalive_settings": {
+          "client_options": {
+            "grpc.http2.max_pings_without_data": 0,
+            "grpc.http2.min_time_between_pings_ms": 10000,
+            "grpc.keepalive_permit_without_calls": 1,
+            "grpc.keepalive_time_ms": 20000,
+            "grpc.keepalive_timeout_ms": 10000,
+            "grpc.max_receive_message_length": 536870912,
+            "grpc.max_send_message_length": 65536
+          },
+          "mode": "on",
+          "server_options": {
+            "grpc.http2.min_ping_interval_without_data_ms": 5000,
+            "grpc.http2.min_recv_ping_interval_without_data_ms": 5000,
+            "grpc.keepalive_permit_without_calls": 1,
+            "grpc.keepalive_time_ms": 20000,
+            "grpc.keepalive_timeout_ms": 10000,
+            "grpc.max_receive_message_length": 65536,
+            "grpc.max_send_message_length": 536870912,
+            "grpc.so_reuseport": 0
+          }
+        },
+        "kind": "grpc",
+        "op": "bidi_session"
+      },
+      "errors": [],
+      "label": "gRPC Session (bidi, 5 s active + 30 s idle, keepalive on) L1 → L2",
+      "metrics": {
+        "active_rtt_mean_ms": "ms",
+        "alive_s": "s",
+        "final_rtt_ms": "ms",
+        "idle_survived_s": "s",
+        "msgs_down": "count",
+        "msgs_up": "count",
+        "survived": "0/1"
+      },
+      "requested_reps": 5,
+      "requested_warmup": 1,
+      "samples": [
+        {
+          "active_rtt_mean_ms": 12.433443999907468,
+          "alive_s": 35.07486139299908,
+          "beats": 4,
+          "channel_ready_ms": 81.42848500028776,
+          "failure": null,
+          "final_rtt_ms": 48.2138869992923,
+          "hold_s": 5.0,
+          "idle_s": 30.0,
+          "idle_survived_s": 30.0,
+          "keepalive": "on",
+          "msgs_down": 12,
+          "msgs_up": 8,
+          "pings_active": 5,
+          "survived": 1
+        },
+        {
+          "active_rtt_mean_ms": 12.202782400709111,
+          "alive_s": 35.01314450800055,
+          "beats": 4,
+          "channel_ready_ms": 25.366575999214547,
+          "failure": null,
+          "final_rtt_ms": 4.023641000458156,
+          "hold_s": 5.0,
+          "idle_s": 30.0,
+          "idle_survived_s": 30.0,
+          "keepalive": "on",
+          "msgs_down": 12,
+          "msgs_up": 8,
+          "pings_active": 5,
+          "survived": 1
+        },
+        {
+          "active_rtt_mean_ms": 16.298436199940625,
+          "alive_s": 35.1571770369992,
+          "beats": 4,
+          "channel_ready_ms": 7.79261800016684,
+          "failure": null,
+          "final_rtt_ms": 99.8784830007935,
+          "hold_s": 5.0,
+          "idle_s": 30.0,
+          "idle_survived_s": 30.0,
+          "keepalive": "on",
+          "msgs_down": 12,
+          "msgs_up": 8,
+          "pings_active": 5,
+          "survived": 1
+        },
+        {
+          "active_rtt_mean_ms": 13.105354400613578,
+          "alive_s": 35.11696743200082,
+          "beats": 5,
+          "channel_ready_ms": 111.05891199986218,
+          "failure": null,
+          "final_rtt_ms": 26.37060600136465,
+          "hold_s": 5.0,
+          "idle_s": 30.0,
+          "idle_survived_s": 30.0,
+          "keepalive": "on",
+          "msgs_down": 13,
+          "msgs_up": 8,
+          "pings_active": 5,
+          "survived": 1
+        },
+        {
+          "active_rtt_mean_ms": 4.644795000058366,
+          "alive_s": 35.07774898900061,
+          "beats": 5,
+          "channel_ready_ms": 52.93846699896676,
+          "failure": null,
+          "final_rtt_ms": 47.03967200111947,
+          "hold_s": 5.0,
+          "idle_s": 30.0,
+          "idle_survived_s": 30.0,
+          "keepalive": "on",
+          "msgs_down": 13,
+          "msgs_up": 8,
+          "pings_active": 5,
+          "survived": 1
+        }
+      ],
+      "summary": {
+        "active_rtt_mean_ms": {
+          "max": 16.298436199940625,
+          "mean": 11.73696240024583,
+          "median": 12.433443999907468,
+          "min": 4.644795000058366,
+          "n": 5,
+          "p95": 15.659819840075215,
+          "stdev": 4.291865946641192
+        },
+        "alive_s": {
+          "max": 35.1571770369992,
+          "mean": 35.08797987180005,
+          "median": 35.07774898900061,
+          "min": 35.01314450800055,
+          "n": 5,
+          "p95": 35.14913511599953,
+          "stdev": 0.05363213458809598
+        },
+        "final_rtt_ms": {
+          "max": 99.8784830007935,
+          "mean": 45.105257800605614,
+          "median": 47.03967200111947,
+          "min": 4.023641000458156,
+          "n": 5,
+          "p95": 89.54556380049326,
+          "stdev": 35.53940823078493
+        },
+        "idle_survived_s": {
+          "max": 30.0,
+          "mean": 30.0,
+          "median": 30.0,
+          "min": 30.0,
+          "n": 5,
+          "p95": 30.0,
+          "stdev": 0.0
+        },
+        "msgs_down": {
+          "max": 13.0,
+          "mean": 12.4,
+          "median": 12.0,
+          "min": 12.0,
+          "n": 5,
+          "p95": 13.0,
+          "stdev": 0.5477225575051661
+        },
+        "msgs_up": {
+          "max": 8.0,
+          "mean": 8.0,
+          "median": 8.0,
+          "min": 8.0,
+          "n": 5,
+          "p95": 8.0,
+          "stdev": 0.0
+        },
+        "survived": {
+          "max": 1.0,
+          "mean": 1.0,
+          "median": 1.0,
+          "min": 1.0,
+          "n": 5,
+          "p95": 1.0,
+          "stdev": 0.0
+        }
+      },
+      "warmup": [
+        {
+          "active_rtt_mean_ms": 6.063811800049734,
+          "alive_s": 35.03831146699849,
+          "beats": 4,
+          "channel_ready_ms": 5.731231000027037,
+          "failure": null,
+          "final_rtt_ms": 26.66391700040549,
+          "hold_s": 5.0,
+          "idle_s": 30.0,
+          "idle_survived_s": 30.0,
+          "keepalive": "on",
+          "msgs_down": 12,
+          "msgs_up": 8,
+          "pings_active": 5,
+          "survived": 1
+        }
+      ]
+    },
+    "grpc-stream": {
+      "aborted": false,
+      "attrs": {
+        "bytes": 33554432,
+        "keepalive": "on",
+        "kind": "grpc",
+        "op": "server_stream"
+      },
+      "errors": [],
+      "label": "gRPC Download (server-streaming) 34 MB L1 → L2",
+      "metrics": {
+        "channel_ready_ms": "ms",
+        "mbps": "Mbit/s",
+        "ttfb_ms": "ms"
+      },
+      "requested_reps": 5,
+      "requested_warmup": 1,
+      "samples": [
+        {
+          "bytes": 33554432,
+          "channel_ready_ms": 33.58162699987588,
+          "mbps": 176.25960043745468,
+          "ttfb_ms": 16.74587299930863
+        },
+        {
+          "bytes": 33554432,
+          "channel_ready_ms": 24.393093999606208,
+          "mbps": 188.37686863217584,
+          "ttfb_ms": 13.07312999961141
+        },
+        {
+          "bytes": 33554432,
+          "channel_ready_ms": 19.270165999841993,
+          "mbps": 172.1946973252939,
+          "ttfb_ms": 13.467209000737057
+        },
+        {
+          "bytes": 33554432,
+          "channel_ready_ms": 385.4310639999312,
+          "mbps": 172.49325444790898,
+          "ttfb_ms": 18.012884000199847
+        },
+        {
+          "bytes": 33554432,
+          "channel_ready_ms": 115.39672600156337,
+          "mbps": 187.80315980952557,
+          "ttfb_ms": 13.568323000072269
+        }
+      ],
+      "summary": {
+        "channel_ready_ms": {
+          "max": 385.4310639999312,
+          "mean": 115.61453540016373,
+          "median": 33.58162699987588,
+          "min": 19.270165999841993,
+          "n": 5,
+          "p95": 331.4241964002576,
+          "stdev": 155.83163470033475
+        },
+        "mbps": {
+          "max": 188.37686863217584,
+          "mean": 179.4255161304718,
+          "median": 176.25960043745468,
+          "min": 172.1946973252939,
+          "n": 5,
+          "p95": 188.26212686764578,
+          "stdev": 8.072726305701933
+        },
+        "ttfb_ms": {
+          "max": 18.012884000199847,
+          "mean": 14.973483799985843,
+          "median": 13.568323000072269,
+          "min": 13.07312999961141,
+          "n": 5,
+          "p95": 17.759481800021604,
+          "stdev": 2.2491110611750744
+        }
+      },
+      "warmup": [
+        {
+          "bytes": 33554432,
+          "channel_ready_ms": 106.84073999982502,
+          "mbps": 156.38750548027423,
+          "ttfb_ms": 19.378169001356582
+        }
+      ]
+    },
+    "grpc-unary": {
+      "aborted": false,
+      "attrs": {
+        "keepalive": "on",
+        "kind": "grpc",
+        "op": "unary"
+      },
+      "errors": [],
+      "label": "gRPC Echo (unary) L1 → L2",
+      "metrics": {
+        "channel_ready_ms": "ms",
+        "rtt_ms": "ms"
+      },
+      "requested_reps": 5,
+      "requested_warmup": 1,
+      "samples": [
+        {
+          "channel_ready_ms": 46.949715999289765,
+          "peer_identity": {
+            "hostname": "AILESH",
+            "machine": "AMD64",
+            "name": "L2",
+            "ok": true,
+            "op": "echo_reply",
+            "peer": "192.168.31.13",
+            "protocol": 1,
+            "python": "3.12.16",
+            "python_implementation": "CPython",
+            "release": "11",
+            "seq": 1,
+            "sys_platform": "win32",
+            "system": "Windows",
+            "version": "10.0.26200",
+            "wsl": {
+              "distro": null,
+              "evidence": {
+                "platform": "win32"
+              },
+              "is_wsl": false,
+              "native": true,
+              "platform": "win32",
+              "wsl_version": null
+            }
+          },
+          "rtt_ms": 5.747060000430793
+        },
+        {
+          "channel_ready_ms": 8.476287999656051,
+          "peer_identity": {
+            "hostname": "AILESH",
+            "machine": "AMD64",
+            "name": "L2",
+            "ok": true,
+            "op": "echo_reply",
+            "peer": "192.168.31.13",
+            "protocol": 1,
+            "python": "3.12.16",
+            "python_implementation": "CPython",
+            "release": "11",
+            "seq": 2,
+            "sys_platform": "win32",
+            "system": "Windows",
+            "version": "10.0.26200",
+            "wsl": {
+              "distro": null,
+              "evidence": {
+                "platform": "win32"
+              },
+              "is_wsl": false,
+              "native": true,
+              "platform": "win32",
+              "wsl_version": null
+            }
+          },
+          "rtt_ms": 5.417541999122477
+        },
+        {
+          "channel_ready_ms": 198.14889899862465,
+          "peer_identity": {
+            "hostname": "AILESH",
+            "machine": "AMD64",
+            "name": "L2",
+            "ok": true,
+            "op": "echo_reply",
+            "peer": "192.168.31.13",
+            "protocol": 1,
+            "python": "3.12.16",
+            "python_implementation": "CPython",
+            "release": "11",
+            "seq": 3,
+            "sys_platform": "win32",
+            "system": "Windows",
+            "version": "10.0.26200",
+            "wsl": {
+              "distro": null,
+              "evidence": {
+                "platform": "win32"
+              },
+              "is_wsl": false,
+              "native": true,
+              "platform": "win32",
+              "wsl_version": null
+            }
+          },
+          "rtt_ms": 5.6966550000652205
+        },
+        {
+          "channel_ready_ms": 41.81275200062373,
+          "peer_identity": {
+            "hostname": "AILESH",
+            "machine": "AMD64",
+            "name": "L2",
+            "ok": true,
+            "op": "echo_reply",
+            "peer": "192.168.31.13",
+            "protocol": 1,
+            "python": "3.12.16",
+            "python_implementation": "CPython",
+            "release": "11",
+            "seq": 4,
+            "sys_platform": "win32",
+            "system": "Windows",
+            "version": "10.0.26200",
+            "wsl": {
+              "distro": null,
+              "evidence": {
+                "platform": "win32"
+              },
+              "is_wsl": false,
+              "native": true,
+              "platform": "win32",
+              "wsl_version": null
+            }
+          },
+          "rtt_ms": 6.2760199998592725
+        },
+        {
+          "channel_ready_ms": 11.40546200076642,
+          "peer_identity": {
+            "hostname": "AILESH",
+            "machine": "AMD64",
+            "name": "L2",
+            "ok": true,
+            "op": "echo_reply",
+            "peer": "192.168.31.13",
+            "protocol": 1,
+            "python": "3.12.16",
+            "python_implementation": "CPython",
+            "release": "11",
+            "seq": 5,
+            "sys_platform": "win32",
+            "system": "Windows",
+            "version": "10.0.26200",
+            "wsl": {
+              "distro": null,
+              "evidence": {
+                "platform": "win32"
+              },
+              "is_wsl": false,
+              "native": true,
+              "platform": "win32",
+              "wsl_version": null
+            }
+          },
+          "rtt_ms": 5.1724269997066585
+        }
+      ],
+      "summary": {
+        "channel_ready_ms": {
+          "max": 198.14889899862465,
+          "mean": 61.35862339979212,
+          "median": 41.81275200062373,
+          "min": 8.476287999656051,
+          "n": 5,
+          "p95": 167.90906239875764,
+          "stdev": 78.41093184429585
+        },
+        "rtt_ms": {
+          "max": 6.2760199998592725,
+          "mean": 5.661940799836884,
+          "median": 5.6966550000652205,
+          "min": 5.1724269997066585,
+          "n": 5,
+          "p95": 6.1702279999735765,
+          "stdev": 0.41379286853930625
+        }
+      },
+      "warmup": [
+        {
+          "channel_ready_ms": 16.632787001071847,
+          "peer_identity": {
+            "hostname": "AILESH",
+            "machine": "AMD64",
+            "name": "L2",
+            "ok": true,
+            "op": "echo_reply",
+            "peer": "192.168.31.13",
+            "protocol": 1,
+            "python": "3.12.16",
+            "python_implementation": "CPython",
+            "release": "11",
+            "seq": 0,
+            "sys_platform": "win32",
+            "system": "Windows",
+            "version": "10.0.26200",
+            "wsl": {
+              "distro": null,
+              "evidence": {
+                "platform": "win32"
+              },
+              "is_wsl": false,
+              "native": true,
+              "platform": "win32",
+              "wsl_version": null
+            }
+          },
+          "rtt_ms": 11.135060000015073
+        }
+      ]
+    },
+    "http-blob": {
+      "aborted": false,
+      "attrs": {
+        "bytes": 33554432,
+        "kind": "http",
+        "op": "blob"
+      },
+      "errors": [],
+      "label": "HTTP GET /blob 34 MB L1 → L2",
+      "metrics": {
+        "connect_ms": "ms",
+        "mbps": "Mbit/s",
+        "ttfb_ms": "ms"
+      },
+      "requested_reps": 5,
+      "requested_warmup": 1,
+      "samples": [
+        {
+          "bytes": 33554432,
+          "connect_ms": 200.49909200133698,
+          "mbps": 151.6545589641534,
+          "ttfb_ms": 4.27601099909225
+        },
+        {
+          "bytes": 33554432,
+          "connect_ms": 82.67026000066835,
+          "mbps": 141.89970815675565,
+          "ttfb_ms": 6.05924000046798
+        },
+        {
+          "bytes": 33554432,
+          "connect_ms": 59.78830899948662,
+          "mbps": 167.71683021763542,
+          "ttfb_ms": 3.729493999344413
+        },
+        {
+          "bytes": 33554432,
+          "connect_ms": 45.44247000012547,
+          "mbps": 157.38594015184017,
+          "ttfb_ms": 3.5591380001278594
+        },
+        {
+          "bytes": 33554432,
+          "connect_ms": 44.618957999773556,
+          "mbps": 151.45055772959546,
+          "ttfb_ms": 4.187046999504673
+        }
+      ],
+      "summary": {
+        "connect_ms": {
+          "max": 200.49909200133698,
+          "mean": 86.6038178002782,
+          "median": 59.78830899948662,
+          "min": 44.618957999773556,
+          "n": 5,
+          "p95": 176.93332560120325,
+          "stdev": 65.50508163443455
+        },
+        "mbps": {
+          "max": 167.71683021763542,
+          "mean": 154.02151904399602,
+          "median": 151.6545589641534,
+          "min": 141.89970815675565,
+          "n": 5,
+          "p95": 165.65065220447636,
+          "stdev": 9.460860410388838
+        },
+        "ttfb_ms": {
+          "max": 6.05924000046798,
+          "mean": 4.362185999707435,
+          "median": 4.187046999504673,
+          "min": 3.5591380001278594,
+          "n": 5,
+          "p95": 5.702594200192834,
+          "stdev": 0.9953990831034233
+        }
+      },
+      "warmup": [
+        {
+          "bytes": 33554432,
+          "connect_ms": 3.322489999845857,
+          "mbps": 128.80968091868104,
+          "ttfb_ms": 30.059835999054485
+        }
+      ]
+    },
+    "http-ping": {
+      "aborted": false,
+      "attrs": {
+        "kind": "http",
+        "op": "ping"
+      },
+      "errors": [],
+      "label": "HTTP GET /ping L1 → L2",
+      "metrics": {
+        "connect_ms": "ms",
+        "total_ms": "ms",
+        "ttfb_ms": "ms"
+      },
+      "requested_reps": 5,
+      "requested_warmup": 1,
+      "samples": [
+        {
+          "connect_ms": 195.96287300009863,
+          "peer_identity": {
+            "hostname": "AILESH",
+            "machine": "AMD64",
+            "max_blob_bytes": 536870912,
+            "name": "L2",
+            "ok": true,
+            "peer": "192.168.31.13",
+            "protocol": 1,
+            "python": "3.12.16",
+            "python_implementation": "CPython",
+            "release": "11",
+            "sys_platform": "win32",
+            "system": "Windows",
+            "version": "10.0.26200",
+            "wsl": {
+              "distro": null,
+              "evidence": {
+                "platform": "win32"
+              },
+              "is_wsl": false,
+              "native": true,
+              "platform": "win32",
+              "wsl_version": null
+            }
+          },
+          "total_ms": 5.450982000184013,
+          "ttfb_ms": 3.625806999480119
+        },
+        {
+          "connect_ms": 209.9281400005566,
+          "peer_identity": {
+            "hostname": "AILESH",
+            "machine": "AMD64",
+            "max_blob_bytes": 536870912,
+            "name": "L2",
+            "ok": true,
+            "peer": "192.168.31.13",
+            "protocol": 1,
+            "python": "3.12.16",
+            "python_implementation": "CPython",
+            "release": "11",
+            "sys_platform": "win32",
+            "system": "Windows",
+            "version": "10.0.26200",
+            "wsl": {
+              "distro": null,
+              "evidence": {
+                "platform": "win32"
+              },
+              "is_wsl": false,
+              "native": true,
+              "platform": "win32",
+              "wsl_version": null
+            }
+          },
+          "total_ms": 206.4919619988359,
+          "ttfb_ms": 204.48979499997222
+        },
+        {
+          "connect_ms": 2.8743980001308955,
+          "peer_identity": {
+            "hostname": "AILESH",
+            "machine": "AMD64",
+            "max_blob_bytes": 536870912,
+            "name": "L2",
+            "ok": true,
+            "peer": "192.168.31.13",
+            "protocol": 1,
+            "python": "3.12.16",
+            "python_implementation": "CPython",
+            "release": "11",
+            "sys_platform": "win32",
+            "system": "Windows",
+            "version": "10.0.26200",
+            "wsl": {
+              "distro": null,
+              "evidence": {
+                "platform": "win32"
+              },
+              "is_wsl": false,
+              "native": true,
+              "platform": "win32",
+              "wsl_version": null
+            }
+          },
+          "total_ms": 7.892648998677032,
+          "ttfb_ms": 4.818817998966551
+        },
+        {
+          "connect_ms": 55.010472000503796,
+          "peer_identity": {
+            "hostname": "AILESH",
+            "machine": "AMD64",
+            "max_blob_bytes": 536870912,
+            "name": "L2",
+            "ok": true,
+            "peer": "192.168.31.13",
+            "protocol": 1,
+            "python": "3.12.16",
+            "python_implementation": "CPython",
+            "release": "11",
+            "sys_platform": "win32",
+            "system": "Windows",
+            "version": "10.0.26200",
+            "wsl": {
+              "distro": null,
+              "evidence": {
+                "platform": "win32"
+              },
+              "is_wsl": false,
+              "native": true,
+              "platform": "win32",
+              "wsl_version": null
+            }
+          },
+          "total_ms": 5.965237000054913,
+          "ttfb_ms": 4.315391001000535
+        },
+        {
+          "connect_ms": 4.292969999369234,
+          "peer_identity": {
+            "hostname": "AILESH",
+            "machine": "AMD64",
+            "max_blob_bytes": 536870912,
+            "name": "L2",
+            "ok": true,
+            "peer": "192.168.31.13",
+            "protocol": 1,
+            "python": "3.12.16",
+            "python_implementation": "CPython",
+            "release": "11",
+            "sys_platform": "win32",
+            "system": "Windows",
+            "version": "10.0.26200",
+            "wsl": {
+              "distro": null,
+              "evidence": {
+                "platform": "win32"
+              },
+              "is_wsl": false,
+              "native": true,
+              "platform": "win32",
+              "wsl_version": null
+            }
+          },
+          "total_ms": 6.008863001625286,
+          "ttfb_ms": 4.006642000604188
+        }
+      ],
+      "summary": {
+        "connect_ms": {
+          "max": 209.9281400005566,
+          "mean": 93.61377060013183,
+          "median": 55.010472000503796,
+          "min": 2.8743980001308955,
+          "n": 5,
+          "p95": 207.135086600465,
+          "stdev": 102.11075495959325
+        },
+        "total_ms": {
+          "max": 206.4919619988359,
+          "mean": 46.36193859987543,
+          "median": 6.008863001625286,
+          "min": 5.450982000184013,
+          "n": 5,
+          "p95": 166.7720993988041,
+          "stdev": 89.52022287793045
+        },
+        "ttfb_ms": {
+          "max": 204.48979499997222,
+          "mean": 44.25129060000472,
+          "median": 4.315391001000535,
+          "min": 3.625806999480119,
+          "n": 5,
+          "p95": 164.55559959977106,
+          "stdev": 89.57711192489057
+        }
+      },
+      "warmup": [
+        {
+          "connect_ms": 2.46773800063238,
+          "peer_identity": {
+            "hostname": "AILESH",
+            "machine": "AMD64",
+            "max_blob_bytes": 536870912,
+            "name": "L2",
+            "ok": true,
+            "peer": "192.168.31.13",
+            "protocol": 1,
+            "python": "3.12.16",
+            "python_implementation": "CPython",
+            "release": "11",
+            "sys_platform": "win32",
+            "system": "Windows",
+            "version": "10.0.26200",
+            "wsl": {
+              "distro": null,
+              "evidence": {
+                "platform": "win32"
+              },
+              "is_wsl": false,
+              "native": true,
+              "platform": "win32",
+              "wsl_version": null
+            }
+          },
+          "total_ms": 5.721260000427719,
+          "ttfb_ms": 3.8799979993200395
+        }
+      ]
+    }
+  },
+  "errors": [],
+  "extra": {
+    "complete": true,
+    "endpoint": {
+      "local_address": "192.168.31.13",
+      "local_interface": "wlp0s20f3",
+      "remote_address": "192.168.31.155",
+      "remote_port": 47203
+    },
+    "firewall": {
+      "profiles": [],
+      "source": "n/a",
+      "supported": false
+    },
+    "local": {
+      "machine": "x86_64",
+      "python": "3.12.13",
+      "python_implementation": "CPython",
+      "release": "6.8.0-147-generic",
+      "sys_platform": "linux",
+      "system": "Linux",
+      "version": "#147-Ubuntu SMP PREEMPT_DYNAMIC Thu Sep 24 11:33:16 UTC 2026",
+      "wsl": {
+        "distro": null,
+        "evidence": {
+          "WSL_DISTRO_NAME": null,
+          "WSL_INTEROP": false,
+          "osrelease": "6.8.0-147-generic",
+          "proc_version": "Linux version 6.8.0-147-generic (buildd@lcy02-amd64-081) (x86_64-linux-gnu-gcc-13 (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0, GNU ld (GNU Binutils for Ubuntu) 2.42) #147-Ubuntu SMP PREEMPT_DYNAMIC Thu Se"
+        },
+        "is_wsl": false,
+        "native": true,
+        "platform": "linux",
+        "wsl_version": null
+      }
+    },
+    "operator_note": "L1 Ubuntu 24.04, ufw inactive, no Defender prompt on Linux; 5 GHz signal 100",
+    "outbound_only": {
+      "basis": "by construction, not measured",
+      "client_listens": false,
+      "explanation": "the client dials out only (ADR-0002); it binds no listening socket, so no inbound firewall rule is needed on this machine",
+      "no_inbound_rule_declared": true
+    },
+    "peer_identity": {
+      "hostname": "AILESH",
+      "machine": "AMD64",
+      "max_blob_bytes": 536870912,
+      "name": "L2",
+      "ok": true,
+      "peer": "192.168.31.13",
+      "protocol": 1,
+      "python": "3.12.16",
+      "python_implementation": "CPython",
+      "release": "11",
+      "sys_platform": "win32",
+      "system": "Windows",
+      "version": "10.0.26200",
+      "wsl": {
+        "distro": null,
+        "evidence": {
+          "platform": "win32"
+        },
+        "is_wsl": false,
+        "native": true,
+        "platform": "win32",
+        "wsl_version": null
+      }
+    },
+    "wsl": {
+      "distro": null,
+      "evidence": {
+        "WSL_DISTRO_NAME": null,
+        "WSL_INTEROP": false,
+        "osrelease": "6.8.0-147-generic",
+        "proc_version": "Linux version 6.8.0-147-generic (buildd@lcy02-amd64-081) (x86_64-linux-gnu-gcc-13 (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0, GNU ld (GNU Binutils for Ubuntu) 2.42) #147-Ubuntu SMP PREEMPT_DYNAMIC Thu Se"
+      },
+      "is_wsl": false,
+      "native": true,
+      "platform": "linux",
+      "wsl_version": null
+    }
+  },
+  "git": {
+    "commit": "47085460",
+    "dirty": false,
+    "modified_files": 0,
+    "untracked_files": 0
+  },
+  "host": {
+    "hostname": "JARVISM3",
+    "label": "L1",
+    "machine": "x86_64",
+    "os": "Linux",
+    "os_release": "6.8.0-147-generic",
+    "python": "3.12.13"
+  },
+  "link": "wifi",
+  "params": {
+    "blob_bytes": 33554432,
+    "client_name": "L1",
+    "connect_timeout_s": 5.0,
+    "grpc_port": 47203,
+    "hold_s": 5.0,
+    "http_port": 47202,
+    "idle_gaps_s": [
+      30.0,
+      120.0
+    ],
+    "io_timeout_s": 20.0,
+    "keepalive_settings": {
+      "off": {
+        "client_options": {
+          "grpc.max_receive_message_length": 536870912,
+          "grpc.max_send_message_length": 65536
+        },
+        "mode": "off",
+        "server_options": {
+          "grpc.http2.min_ping_interval_without_data_ms": 5000,
+          "grpc.http2.min_recv_ping_interval_without_data_ms": 5000,
+          "grpc.keepalive_permit_without_calls": 1,
+          "grpc.keepalive_time_ms": 20000,
+          "grpc.keepalive_timeout_ms": 10000,
+          "grpc.max_receive_message_length": 65536,
+          "grpc.max_send_message_length": 536870912,
+          "grpc.so_reuseport": 0
+        }
+      },
+      "on": {
+        "client_options": {
+          "grpc.http2.max_pings_without_data": 0,
+          "grpc.http2.min_time_between_pings_ms": 10000,
+          "grpc.keepalive_permit_without_calls": 1,
+          "grpc.keepalive_time_ms": 20000,
+          "grpc.keepalive_timeout_ms": 10000,
+          "grpc.max_receive_message_length": 536870912,
+          "grpc.max_send_message_length": 65536
+        },
+        "mode": "on",
+        "server_options": {
+          "grpc.http2.min_ping_interval_without_data_ms": 5000,
+          "grpc.http2.min_recv_ping_interval_without_data_ms": 5000,
+          "grpc.keepalive_permit_without_calls": 1,
+          "grpc.keepalive_time_ms": 20000,
+          "grpc.keepalive_timeout_ms": 10000,
+          "grpc.max_receive_message_length": 65536,
+          "grpc.max_send_message_length": 536870912,
+          "grpc.so_reuseport": 0
+        }
+      }
+    },
+    "keepalives": [
+      "on",
+      "off"
+    ],
+    "min_valid_reps": 5,
+    "pause_s": 0.5,
+    "ping_interval_s": 1.0,
+    "reps": 5,
+    "server": "192.168.31.155",
+    "server_name": "L2",
+    "warmup": 1
+  },
+  "schema_version": 1,
+  "spike": "S2",
+  "timestamp_utc": "2026-11-01T09:12:05Z",
+  "tool": {
+    "interpreter": "CPython 3.12.13 linux",
+    "name": "lab/spikes/s2_crossos.py",
+    "protocol": 1
+  },
+  "topic": "S2-crossos"
+}

@@ -159,3 +159,11 @@ SIGNAL: s2-serve-up L1
 ### C2.6-b - S2 L1 as server, L2 as client (0.2.6) - OK
 result: L2 reported SIGNAL: s2-done L2-to-L1 (L2's REPORT has the numbers). L1 server served 24 sessions from 192.168.31.155, then stopped (SIGINT).
     ufw inactive: no 47202:47203 rule to remove. Optional L3 S2 pair: not done yet (after C2.6-a).
+
+### C2.6-a - S2 L1 as client, L2 as server (0.2.6) - OK
+commands:
+    uv run python lab/spikes/s2_crossos.py client --server 192.168.31.155 --link wifi --name L1 --no-inbound-rule --note "..."
+result: exit 0. Linux client -> Windows 11 server: every case yes (http-ping, http-blob, grpc-unary, grpc-stream, bidi idle 30 s/120 s keepalive on/off), outbound-only yes.
+    HTTP first byte 44.25 ms, HTTP stream 154.0 Mbit/s, gRPC unary RTT 5.66 ms, gRPC stream 179.4 Mbit/s.
+evidence: lab/reports/raw/2026-11-01-S2-crossos/l1-dffe8596__to-l2_wifi-e7716ae1.json
+SIGNAL: s2-done L1-to-L2
