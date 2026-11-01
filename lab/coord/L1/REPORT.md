@@ -38,3 +38,14 @@ commands:
 result: nvidia-smi fails: "couldn't communicate with the NVIDIA driver" (module not loaded, Secure Boot on; see R1-1 BUG).
     torch: not installed (ModuleNotFoundError). Docker GPU container NOT run: pointless without a loaded driver (no download asked).
 BUG: see R1-1 - NVIDIA driver not loaded on L1. Non-blocking for round 1.
+
+### R1-5 - Hardware scores (0.2.11) - OK (partial: no BLAS, no GPU)
+when: 2026-11-01 (local)
+laptop: L1 (Ubuntu 24.04.4, JARVISM3), AC online, power profile performance
+commands:
+    uv run python lab/spikes/s7_hardware.py run --quick --name L1 --skip-gpu
+    uv run python lab/spikes/s7_hardware.py run --name L1 --skip-gpu
+result: quick exit 3: python 1t 48.62±1.98 MFLOP/s, all 423.12±13.49 MFLOP/s, mem copy 35.54±2.44 GB/s.
+    full exit 3: python 1t 51.22±0.29 MFLOP/s, all 298.93±102.27 MFLOP/s (high spread), mem copy 37.05±0.31 GB/s.
+    Exit 3 = typed skips: no_blas_backend (no torch/numpy), gpu_skipped (driver not loaded, R1-1). No ON BATTERY / throttling warning.
+evidence: lab/reports/raw/2026-11-01-S7-hardware/l1-dffe8596__quick.json, lab/reports/raw/2026-11-01-S7-hardware/l1-dffe8596.json
