@@ -126,3 +126,16 @@ commands:
     netsh wlan show interfaces ; Get-NetAdapter | ft Name,LinkSpeed ; Get-NetConnectionProfile
 result: Wi-Fi 5 GHz, Private, same room as L1.
 evidence: lab/reports/raw/2026-11-01-V0.2-network-facts/L3.txt
+
+### C2.0-h - Human batch 1 (S1 firewall) - OK
+when: 2026-11-01 10:53 (local)
+commands:
+    HUMAN (admin PowerShell): New-NetFirewallRule "MeshForge S1 TCP" / "MeshForge S1 UDP", port 47201, RemoteAddress 192.168.31.0/24, Profile Private
+result: both rules created, Enabled True, Profile Private. (First try was typed in cmd -> "not recognized"; second try in admin PowerShell OK.)
+
+### C2.5-a - S1 server - OK
+when: 2026-11-01 10:53 (local)
+commands:
+    uv run python lab/spikes/s1_network.py serve --bind 192.168.31.236 --idle 3600 --duration 14400
+result: server running in background; listening TCP and UDP on 192.168.31.236:47201.
+SIGNAL: s1-serve-up L3 ip=192.168.31.236
