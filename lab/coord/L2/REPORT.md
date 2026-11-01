@@ -44,3 +44,16 @@ commands:
     uv run python lab/inventory.py --out "lab/reports/inventory/AILESH.json"
 result: exit 0. CPU i5-12450H (8 cores / 12 threads); RAM 7.6 GiB; GPU NVIDIA RTX 2050 4096 MiB (driver 581.83, CUDA 13.0) + Intel UHD; secure boot enabled; torch not installed; docker not installed; Wi-Fi 1201 Mbit/s; failed probes: none; problems: none. (Disk is not in the stderr summary; it is in the JSON.)
 evidence: lab/reports/inventory/AILESH.json
+
+NOTE (correction): the "when" times of R1-2 retry (10:05) and R1-3 (10:10) were estimated, not read from the clock; real times were about 09:40-09:46. Times from here on are read from the clock.
+
+### R1-4 - GPU check (0.2.1 / 0.2.3) - OK (torch and docker parts not possible)
+when: 2026-11-01 09:47 (local)
+laptop: L2 (Windows 11, hostname AILESH)
+commands:
+    nvidia-smi
+    uv run python -c "import torch; print(torch.__version__, torch.cuda.is_available())"
+    docker run ... -> not run, Docker not installed
+result: nvidia-smi OK: NVIDIA GeForce RTX 2050, driver 581.83, CUDA 13.0, WDDM, 4096 MiB, 66C idle, 8W/50W.
+    torch: not installed (ModuleNotFoundError: No module named 'torch'); not installed per TODO. Docker GPU test: SKIPPED, no Docker.
+evidence: lab/reports/gpu/AILESH-nvidia-smi.txt
