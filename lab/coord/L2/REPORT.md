@@ -218,3 +218,16 @@ result: server: "S2 server listening on 192.168.31.155: HTTP 47202, gRPC 47203; 
 BUG: s2_crossos.py serve prints "warning: these adapters are NOT on a Private profile: Wi-Fi" although Get-NetConnectionProfile shows JARVIS / Wi-Fi / NetworkCategory Private at the same moment. Profile check gives a false warning. Also the "§" in that warning prints as "Â§" when stderr is redirected (encoding).
 SIGNAL: s2-serve-up L2
     (C2.6-c continued) 14:43: L1 emitted s2-done L1-to-L2 (L1 sessions from 192.168.31.13 seen in the server window); server stopped with Ctrl-C. Firewall rule removal pending (human).
+
+### C2.7-a - S3 client L2 -> L1 (0.2.7) - OK
+when: 2026-11-01 14:50 (local)
+laptop: L2 (Windows 11, hostname AILESH), Wi-Fi 5 GHz, same room
+commands:
+    uv run python lab/spikes/s3_transport.py client --server 192.168.31.13 --link wifi --max-size 256MiB --name L2
+result: exit 0. 256 MiB: HTTP GET 289.9 +- 10.7 Mbit/s; HTTP 4x Range 287.4; raw TCP download 297.3 / upload 217.9; gRPC client-stream upload 64 MiB 242.4.
+    1 MiB is slowest (HTTP GET 165.5, raw TCP 137.2). Full table in the JSON.
+evidence: lab/reports/raw/2026-11-01-S3-transport/l2-d76354d8__to-jarvism3_wifi-8142940d.json
+SIGNAL: s3-done L2
+
+### C2.3-a - GPU exception (0.2.3) - OK
+result: L2 GPU stack: nvidia-smi OK (RTX 2050, driver 581.83, CUDA 13.0, R1-4); torch: not installed yet (R1b-3 approved, download after the V0.2 measurements). Docker GPU container: not tested - no Docker on L2 (Lead decision); CPU/venv fallback. S6/S7 ran in rounds 1/1b.
