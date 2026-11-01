@@ -155,3 +155,11 @@ commands:
     Get-FileHash -Algorithm SHA256 vs SHA256SUMS
 result: MeshForge-Agent-Setup-0.17.0-1.exe, 57,488,826 bytes, SHA256 3e95eb45...183753d = matches SHA256SUMS.
 evidence: this entry (installer not committed)
+
+### C2.5-b / C2.6 - WAIT status - WAITING
+when: 2026-11-01 11:10 (local)
+result: L3 S1 server still running on 192.168.31.236:47201. Waiting for L1's and L2's s1-client-done (then stop server + human removes S1 rules) and for L1's S2 pair with L3 (s2-serve-up L1). C17-a already done. Next after that: C2.r-a raw push, V0.2 checkpoint, then C17-b WAIT controller-up.
+  Signals seen so far:
+    L1 | SIGNAL: L1-ready ip=192.168.31.13 os=linux host=JARVISM3
+    L2 | SIGNAL: L2-ready ip=192.168.31.155 os=windows host=AILESH
+    L2 | SIGNAL: s1-serve-up L2 ip=192.168.31.155
