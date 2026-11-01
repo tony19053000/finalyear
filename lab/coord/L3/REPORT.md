@@ -48,3 +48,11 @@ commands:
     (none - per TODO)
 result: SKIPPED - no NVIDIA GPU on L3 (only AMD Radeon integrated; nvidia-smi absent). torch not installed, Docker not installed.
 evidence: lab/reports/inventory/TIWARI_JI.json
+
+### R1-5 - Hardware scores (attempt 1, quick) - FAIL
+when: 2026-11-01 10:29 (local)
+laptop: L3 (Windows 11, hostname TIWARI_JI)
+commands:
+    uv run python lab/spikes/s7_hardware.py run --quick --name L3 --skip-gpu
+result: exit 3. Printed "!! ON BATTERY" - human said charger plugged in, but Windows reports PowerLineStatus Offline, battery 57% discharging. Quick scores (not comparable): cpu-python-1t 8.59 MFLOP/s, cpu-python-all 91.18 MFLOP/s, memory copy 24.42 GB/s. Also no_blas_backend (no torch/numpy).
+evidence: lab/reports/raw/2026-11-01-S7-hardware/l3-842983de__quick.json

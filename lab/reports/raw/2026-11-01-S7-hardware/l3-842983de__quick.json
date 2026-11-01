@@ -1,0 +1,1182 @@
+{
+  "cases": {
+    "cpu-python-1t": {
+      "aborted": false,
+      "attrs": {
+        "backend_family": "python_fallback",
+        "processes": 1,
+        "setup": {
+          "backend": "python_fallback",
+          "backend_version": "3.12.10",
+          "calibration": [
+            {
+              "elapsed_s": 0.013839099992765114,
+              "size": 50000
+            },
+            {
+              "elapsed_s": 0.036676399991847575,
+              "size": 100000
+            }
+          ],
+          "caveat": "interpreter-bound throughput, not peak FLOPS; install torch for a comparable GFLOPS number",
+          "dtype": "float64",
+          "elements": 100000,
+          "formula": "2 * elements / elapsed_s",
+          "kernel": "y[i] = a * x[i] + y[i]"
+        },
+        "stability": {
+          "first_s": 0.024119399982737377,
+          "inconclusive": true,
+          "last_s": 0.022565499995835125,
+          "min_judge_s": 0.05,
+          "n": 5,
+          "slowdown": -0.06442531688244324,
+          "thermal_throttling_suspected": false,
+          "threshold": 0.15
+        },
+        "threads_requested": 1,
+        "workers": 1
+      },
+      "errors": [],
+      "label": "CPU SAXPY, pure Python fallback, 1 process(es)",
+      "metrics": {
+        "elapsed_s": "s",
+        "python_mflops": "MFLOP/s"
+      },
+      "requested_reps": 5,
+      "requested_warmup": 1,
+      "samples": [
+        {
+          "elapsed_s": 0.024119399982737377,
+          "python_mflops": 8.292080240103115
+        },
+        {
+          "elapsed_s": 0.024812099989503622,
+          "python_mflops": 8.060583347826542
+        },
+        {
+          "elapsed_s": 0.02232479999656789,
+          "python_mflops": 8.958646887351602
+        },
+        {
+          "elapsed_s": 0.02279310001176782,
+          "python_mflops": 8.774585286632458
+        },
+        {
+          "elapsed_s": 0.022565499995835125,
+          "python_mflops": 8.863087458151321
+        }
+      ],
+      "summary": {
+        "elapsed_s": {
+          "max": 0.024812099989503622,
+          "mean": 0.023322979995282368,
+          "median": 0.02279310001176782,
+          "min": 0.02232479999656789,
+          "n": 5,
+          "p95": 0.02467355998815037,
+          "stdev": 0.0010842826211293983
+        },
+        "python_mflops": {
+          "max": 8.958646887351602,
+          "mean": 8.589796644013008,
+          "median": 8.774585286632458,
+          "min": 8.060583347826542,
+          "n": 5,
+          "p95": 8.939535001511546,
+          "stdev": 0.3916589663093531
+        }
+      },
+      "warmup": [
+        {
+          "elapsed_s": 0.024791000003460795,
+          "python_mflops": 8.067443829296126
+        }
+      ]
+    },
+    "cpu-python-all": {
+      "aborted": false,
+      "attrs": {
+        "backend_family": "python_fallback",
+        "processes": 16,
+        "setup": [
+          {
+            "backend": "python_fallback",
+            "backend_version": "3.12.10",
+            "calibration": [
+              {
+                "elapsed_s": 0.01767860000836663,
+                "size": 50000
+              },
+              {
+                "elapsed_s": 0.03822990000480786,
+                "size": 100000
+              }
+            ],
+            "caveat": "interpreter-bound throughput, not peak FLOPS; install torch for a comparable GFLOPS number",
+            "dtype": "float64",
+            "elements": 100000,
+            "formula": "2 * elements / elapsed_s",
+            "kernel": "y[i] = a * x[i] + y[i]"
+          },
+          {
+            "backend": "python_fallback",
+            "backend_version": "3.12.10",
+            "calibration": [
+              {
+                "elapsed_s": 0.017118999996455386,
+                "size": 50000
+              },
+              {
+                "elapsed_s": 0.03531279999879189,
+                "size": 100000
+              }
+            ],
+            "caveat": "interpreter-bound throughput, not peak FLOPS; install torch for a comparable GFLOPS number",
+            "dtype": "float64",
+            "elements": 100000,
+            "formula": "2 * elements / elapsed_s",
+            "kernel": "y[i] = a * x[i] + y[i]"
+          },
+          {
+            "backend": "python_fallback",
+            "backend_version": "3.12.10",
+            "calibration": [
+              {
+                "elapsed_s": 0.016410999989602715,
+                "size": 50000
+              },
+              {
+                "elapsed_s": 0.03696599998511374,
+                "size": 100000
+              }
+            ],
+            "caveat": "interpreter-bound throughput, not peak FLOPS; install torch for a comparable GFLOPS number",
+            "dtype": "float64",
+            "elements": 100000,
+            "formula": "2 * elements / elapsed_s",
+            "kernel": "y[i] = a * x[i] + y[i]"
+          },
+          {
+            "backend": "python_fallback",
+            "backend_version": "3.12.10",
+            "calibration": [
+              {
+                "elapsed_s": 0.01807849999750033,
+                "size": 50000
+              },
+              {
+                "elapsed_s": 0.03559830001904629,
+                "size": 100000
+              }
+            ],
+            "caveat": "interpreter-bound throughput, not peak FLOPS; install torch for a comparable GFLOPS number",
+            "dtype": "float64",
+            "elements": 100000,
+            "formula": "2 * elements / elapsed_s",
+            "kernel": "y[i] = a * x[i] + y[i]"
+          },
+          {
+            "backend": "python_fallback",
+            "backend_version": "3.12.10",
+            "calibration": [
+              {
+                "elapsed_s": 0.017882100015413016,
+                "size": 50000
+              },
+              {
+                "elapsed_s": 0.0359693999926094,
+                "size": 100000
+              }
+            ],
+            "caveat": "interpreter-bound throughput, not peak FLOPS; install torch for a comparable GFLOPS number",
+            "dtype": "float64",
+            "elements": 100000,
+            "formula": "2 * elements / elapsed_s",
+            "kernel": "y[i] = a * x[i] + y[i]"
+          },
+          {
+            "backend": "python_fallback",
+            "backend_version": "3.12.10",
+            "calibration": [
+              {
+                "elapsed_s": 0.015010000002803281,
+                "size": 50000
+              },
+              {
+                "elapsed_s": 0.030999899987364188,
+                "size": 100000
+              }
+            ],
+            "caveat": "interpreter-bound throughput, not peak FLOPS; install torch for a comparable GFLOPS number",
+            "dtype": "float64",
+            "elements": 100000,
+            "formula": "2 * elements / elapsed_s",
+            "kernel": "y[i] = a * x[i] + y[i]"
+          },
+          {
+            "backend": "python_fallback",
+            "backend_version": "3.12.10",
+            "calibration": [
+              {
+                "elapsed_s": 0.013399299990851432,
+                "size": 50000
+              },
+              {
+                "elapsed_s": 0.028113999986089766,
+                "size": 100000
+              }
+            ],
+            "caveat": "interpreter-bound throughput, not peak FLOPS; install torch for a comparable GFLOPS number",
+            "dtype": "float64",
+            "elements": 100000,
+            "formula": "2 * elements / elapsed_s",
+            "kernel": "y[i] = a * x[i] + y[i]"
+          },
+          {
+            "backend": "python_fallback",
+            "backend_version": "3.12.10",
+            "calibration": [
+              {
+                "elapsed_s": 0.011202199995750561,
+                "size": 50000
+              },
+              {
+                "elapsed_s": 0.025621700013289228,
+                "size": 100000
+              }
+            ],
+            "caveat": "interpreter-bound throughput, not peak FLOPS; install torch for a comparable GFLOPS number",
+            "dtype": "float64",
+            "elements": 100000,
+            "formula": "2 * elements / elapsed_s",
+            "kernel": "y[i] = a * x[i] + y[i]"
+          },
+          {
+            "backend": "python_fallback",
+            "backend_version": "3.12.10",
+            "calibration": [
+              {
+                "elapsed_s": 0.01117270000395365,
+                "size": 50000
+              },
+              {
+                "elapsed_s": 0.021680799982277676,
+                "size": 100000
+              }
+            ],
+            "caveat": "interpreter-bound throughput, not peak FLOPS; install torch for a comparable GFLOPS number",
+            "dtype": "float64",
+            "elements": 100000,
+            "formula": "2 * elements / elapsed_s",
+            "kernel": "y[i] = a * x[i] + y[i]"
+          },
+          {
+            "backend": "python_fallback",
+            "backend_version": "3.12.10",
+            "calibration": [
+              {
+                "elapsed_s": 0.010609000019030645,
+                "size": 50000
+              },
+              {
+                "elapsed_s": 0.023007299983873963,
+                "size": 100000
+              }
+            ],
+            "caveat": "interpreter-bound throughput, not peak FLOPS; install torch for a comparable GFLOPS number",
+            "dtype": "float64",
+            "elements": 100000,
+            "formula": "2 * elements / elapsed_s",
+            "kernel": "y[i] = a * x[i] + y[i]"
+          },
+          {
+            "backend": "python_fallback",
+            "backend_version": "3.12.10",
+            "calibration": [
+              {
+                "elapsed_s": 0.015293000004021451,
+                "size": 50000
+              },
+              {
+                "elapsed_s": 0.020490299997618422,
+                "size": 100000
+              }
+            ],
+            "caveat": "interpreter-bound throughput, not peak FLOPS; install torch for a comparable GFLOPS number",
+            "dtype": "float64",
+            "elements": 100000,
+            "formula": "2 * elements / elapsed_s",
+            "kernel": "y[i] = a * x[i] + y[i]"
+          },
+          {
+            "backend": "python_fallback",
+            "backend_version": "3.12.10",
+            "calibration": [
+              {
+                "elapsed_s": 0.010879900015424937,
+                "size": 50000
+              },
+              {
+                "elapsed_s": 0.020237799995811656,
+                "size": 100000
+              }
+            ],
+            "caveat": "interpreter-bound throughput, not peak FLOPS; install torch for a comparable GFLOPS number",
+            "dtype": "float64",
+            "elements": 100000,
+            "formula": "2 * elements / elapsed_s",
+            "kernel": "y[i] = a * x[i] + y[i]"
+          },
+          {
+            "backend": "python_fallback",
+            "backend_version": "3.12.10",
+            "calibration": [
+              {
+                "elapsed_s": 0.011394200002541766,
+                "size": 50000
+              },
+              {
+                "elapsed_s": 0.021137699979590252,
+                "size": 100000
+              }
+            ],
+            "caveat": "interpreter-bound throughput, not peak FLOPS; install torch for a comparable GFLOPS number",
+            "dtype": "float64",
+            "elements": 100000,
+            "formula": "2 * elements / elapsed_s",
+            "kernel": "y[i] = a * x[i] + y[i]"
+          },
+          {
+            "backend": "python_fallback",
+            "backend_version": "3.12.10",
+            "calibration": [
+              {
+                "elapsed_s": 0.01039640000090003,
+                "size": 50000
+              },
+              {
+                "elapsed_s": 0.01979410002240911,
+                "size": 100000
+              },
+              {
+                "elapsed_s": 0.040678199991816655,
+                "size": 200000
+              }
+            ],
+            "caveat": "interpreter-bound throughput, not peak FLOPS; install torch for a comparable GFLOPS number",
+            "dtype": "float64",
+            "elements": 200000,
+            "formula": "2 * elements / elapsed_s",
+            "kernel": "y[i] = a * x[i] + y[i]"
+          },
+          {
+            "backend": "python_fallback",
+            "backend_version": "3.12.10",
+            "calibration": [
+              {
+                "elapsed_s": 0.010334599995985627,
+                "size": 50000
+              },
+              {
+                "elapsed_s": 0.020781300001544878,
+                "size": 100000
+              }
+            ],
+            "caveat": "interpreter-bound throughput, not peak FLOPS; install torch for a comparable GFLOPS number",
+            "dtype": "float64",
+            "elements": 100000,
+            "formula": "2 * elements / elapsed_s",
+            "kernel": "y[i] = a * x[i] + y[i]"
+          },
+          {
+            "backend": "python_fallback",
+            "backend_version": "3.12.10",
+            "calibration": [
+              {
+                "elapsed_s": 0.010464899998623878,
+                "size": 50000
+              },
+              {
+                "elapsed_s": 0.0208654000016395,
+                "size": 100000
+              }
+            ],
+            "caveat": "interpreter-bound throughput, not peak FLOPS; install torch for a comparable GFLOPS number",
+            "dtype": "float64",
+            "elements": 100000,
+            "formula": "2 * elements / elapsed_s",
+            "kernel": "y[i] = a * x[i] + y[i]"
+          }
+        ],
+        "stability": {
+          "first_s": 0.04271660000085831,
+          "inconclusive": true,
+          "last_s": 0.05550369998672977,
+          "min_judge_s": 0.05,
+          "n": 5,
+          "slowdown": 0.2993473259953867,
+          "thermal_throttling_suspected": false,
+          "threshold": 0.15
+        },
+        "threads_requested": 1,
+        "workers": 16
+      },
+      "errors": [],
+      "label": "CPU SAXPY, pure Python fallback, 16 process(es)",
+      "metrics": {
+        "elapsed_s": "s",
+        "python_mflops": "MFLOP/s"
+      },
+      "requested_reps": 5,
+      "requested_warmup": 1,
+      "samples": [
+        {
+          "elapsed_s": 0.04271660000085831,
+          "per_worker": [
+            {
+              "elapsed_s": 0.040866499999538064,
+              "python_mflops": 4.893984070137171
+            },
+            {
+              "elapsed_s": 0.04082870000274852,
+              "python_mflops": 4.89851501484339
+            },
+            {
+              "elapsed_s": 0.03682560002198443,
+              "python_mflops": 5.431004515353517
+            },
+            {
+              "elapsed_s": 0.037595000001601875,
+              "python_mflops": 5.319856363651503
+            },
+            {
+              "elapsed_s": 0.03758359997300431,
+              "python_mflops": 5.321470006695919
+            },
+            {
+              "elapsed_s": 0.03882049999083392,
+              "python_mflops": 5.151917158388554
+            },
+            {
+              "elapsed_s": 0.038534499995876104,
+              "python_mflops": 5.190154277891335
+            },
+            {
+              "elapsed_s": 0.03882799998973496,
+              "python_mflops": 5.150922016402452
+            },
+            {
+              "elapsed_s": 0.04029959999024868,
+              "python_mflops": 4.962828416371233
+            },
+            {
+              "elapsed_s": 0.037554800015641376,
+              "python_mflops": 5.325550926025463
+            },
+            {
+              "elapsed_s": 0.03246149999904446,
+              "python_mflops": 6.161144740874181
+            },
+            {
+              "elapsed_s": 0.03750999999465421,
+              "python_mflops": 5.331911491029146
+            },
+            {
+              "elapsed_s": 0.03014040002017282,
+              "python_mflops": 6.6356119980538075
+            },
+            {
+              "elapsed_s": 0.04271660000085831,
+              "python_mflops": 9.364041145408642
+            },
+            {
+              "elapsed_s": 0.020678100001532584,
+              "python_mflops": 9.672068516216516
+            },
+            {
+              "elapsed_s": 0.021021499997004867,
+              "python_mflops": 9.514068930784953
+            }
+          ],
+          "python_mflops": 98.32504958812778,
+          "workers": 16
+        },
+        {
+          "elapsed_s": 0.054934299987507984,
+          "per_worker": [
+            {
+              "elapsed_s": 0.036719299998367205,
+              "python_mflops": 5.44672692586442
+            },
+            {
+              "elapsed_s": 0.03704699999070726,
+              "python_mflops": 5.398547791998469
+            },
+            {
+              "elapsed_s": 0.03824769999482669,
+              "python_mflops": 5.229072598536686
+            },
+            {
+              "elapsed_s": 0.04025629998068325,
+              "python_mflops": 4.968166475706133
+            },
+            {
+              "elapsed_s": 0.03874580000410788,
+              "python_mflops": 5.161849799947239
+            },
+            {
+              "elapsed_s": 0.037153199984459206,
+              "python_mflops": 5.383116395994366
+            },
+            {
+              "elapsed_s": 0.03716490001534112,
+              "python_mflops": 5.381421715582255
+            },
+            {
+              "elapsed_s": 0.039688799995929,
+              "python_mflops": 5.039205015533717
+            },
+            {
+              "elapsed_s": 0.03833229999872856,
+              "python_mflops": 5.217531951034344
+            },
+            {
+              "elapsed_s": 0.037562500016065314,
+              "python_mflops": 5.324459232331738
+            },
+            {
+              "elapsed_s": 0.037609799997881055,
+              "python_mflops": 5.317762923792949
+            },
+            {
+              "elapsed_s": 0.03799020001315512,
+              "python_mflops": 5.264515583775412
+            },
+            {
+              "elapsed_s": 0.026035199989564717,
+              "python_mflops": 7.681907574367122
+            },
+            {
+              "elapsed_s": 0.054934299987507984,
+              "python_mflops": 7.281425267837393
+            },
+            {
+              "elapsed_s": 0.021503700001630932,
+              "python_mflops": 9.300724990807682
+            },
+            {
+              "elapsed_s": 0.03445910001755692,
+              "python_mflops": 5.80398210917
+            }
+          ],
+          "python_mflops": 93.20041635227993,
+          "workers": 16
+        },
+        {
+          "elapsed_s": 0.07170450000558048,
+          "per_worker": [
+            {
+              "elapsed_s": 0.03703759997733869,
+              "python_mflops": 5.399917924551516
+            },
+            {
+              "elapsed_s": 0.038250000012340024,
+              "python_mflops": 5.228758168247765
+            },
+            {
+              "elapsed_s": 0.03876289998879656,
+              "python_mflops": 5.15957268568154
+            },
+            {
+              "elapsed_s": 0.03824289998738095,
+              "python_mflops": 5.229728918727246
+            },
+            {
+              "elapsed_s": 0.0405425000062678,
+              "python_mflops": 4.933094899650499
+            },
+            {
+              "elapsed_s": 0.03693919998477213,
+              "python_mflops": 5.414302423508042
+            },
+            {
+              "elapsed_s": 0.03762830002233386,
+              "python_mflops": 5.315148435653278
+            },
+            {
+              "elapsed_s": 0.03931150000425987,
+              "python_mflops": 5.087569794546828
+            },
+            {
+              "elapsed_s": 0.03866399999242276,
+              "python_mflops": 5.17277053691277
+            },
+            {
+              "elapsed_s": 0.03838439998799004,
+              "python_mflops": 5.210450080308076
+            },
+            {
+              "elapsed_s": 0.03832300001522526,
+              "python_mflops": 5.218798108721719
+            },
+            {
+              "elapsed_s": 0.03862659999867901,
+              "python_mflops": 5.177779043634175
+            },
+            {
+              "elapsed_s": 0.037771500006783754,
+              "python_mflops": 5.294997550112653
+            },
+            {
+              "elapsed_s": 0.07170450000558048,
+              "python_mflops": 5.5784504454932335
+            },
+            {
+              "elapsed_s": 0.0212654999922961,
+              "python_mflops": 9.404904661186167
+            },
+            {
+              "elapsed_s": 0.03413179999915883,
+              "python_mflops": 5.859638226080341
+            }
+          ],
+          "python_mflops": 88.68588190301585,
+          "workers": 16
+        },
+        {
+          "elapsed_s": 0.0575597999850288,
+          "per_worker": [
+            {
+              "elapsed_s": 0.0358637000026647,
+              "python_mflops": 5.576669445292589
+            },
+            {
+              "elapsed_s": 0.03714130001026206,
+              "python_mflops": 5.384841132236632
+            },
+            {
+              "elapsed_s": 0.03776900001685135,
+              "python_mflops": 5.295348034387096
+            },
+            {
+              "elapsed_s": 0.03790809999918565,
+              "python_mflops": 5.275917284282158
+            },
+            {
+              "elapsed_s": 0.03597450000233948,
+              "python_mflops": 5.559493529777861
+            },
+            {
+              "elapsed_s": 0.036079400015296414,
+              "python_mflops": 5.543329432174785
+            },
+            {
+              "elapsed_s": 0.038032300013583153,
+              "python_mflops": 5.2586880080502745
+            },
+            {
+              "elapsed_s": 0.03741780002019368,
+              "python_mflops": 5.345049679352174
+            },
+            {
+              "elapsed_s": 0.038399499986553565,
+              "python_mflops": 5.208401152880492
+            },
+            {
+              "elapsed_s": 0.036942799983080477,
+              "python_mflops": 5.413774811102528
+            },
+            {
+              "elapsed_s": 0.036437800008570775,
+              "python_mflops": 5.488805579726456
+            },
+            {
+              "elapsed_s": 0.036024599976371974,
+              "python_mflops": 5.551761855264934
+            },
+            {
+              "elapsed_s": 0.03805510001257062,
+              "python_mflops": 5.25553736382074
+            },
+            {
+              "elapsed_s": 0.0575597999850288,
+              "python_mflops": 6.949294474686139
+            },
+            {
+              "elapsed_s": 0.03670219998457469,
+              "python_mflops": 5.44926462402953
+            },
+            {
+              "elapsed_s": 0.03704880000441335,
+              "python_mflops": 5.398285503880705
+            }
+          ],
+          "python_mflops": 87.9544619109451,
+          "workers": 16
+        },
+        {
+          "elapsed_s": 0.05550369998672977,
+          "per_worker": [
+            {
+              "elapsed_s": 0.03991880000103265,
+              "python_mflops": 5.010170646282609
+            },
+            {
+              "elapsed_s": 0.04172439998365007,
+              "python_mflops": 4.793358324586359
+            },
+            {
+              "elapsed_s": 0.044571800011908635,
+              "python_mflops": 4.487142093129832
+            },
+            {
+              "elapsed_s": 0.04149350000079721,
+              "python_mflops": 4.820032053120547
+            },
+            {
+              "elapsed_s": 0.0422019999823533,
+              "python_mflops": 4.739111892413385
+            },
+            {
+              "elapsed_s": 0.03808639998896979,
+              "python_mflops": 5.25121828416238
+            },
+            {
+              "elapsed_s": 0.04205799999181181,
+              "python_mflops": 4.755337867681241
+            },
+            {
+              "elapsed_s": 0.040765499987173826,
+              "python_mflops": 4.906109334190102
+            },
+            {
+              "elapsed_s": 0.03984770001261495,
+              "python_mflops": 5.019110260734853
+            },
+            {
+              "elapsed_s": 0.040666200016858056,
+              "python_mflops": 4.918089221935921
+            },
+            {
+              "elapsed_s": 0.03806249998160638,
+              "python_mflops": 5.254515601882418
+            },
+            {
+              "elapsed_s": 0.03775600000517443,
+              "python_mflops": 5.297171309794209
+            },
+            {
+              "elapsed_s": 0.03874889999860898,
+              "python_mflops": 5.1614368409730265
+            },
+            {
+              "elapsed_s": 0.05550369998672977,
+              "python_mflops": 7.206726760479659
+            },
+            {
+              "elapsed_s": 0.0255190999887418,
+              "python_mflops": 7.8372669917134035
+            },
+            {
+              "elapsed_s": 0.024197199993068352,
+              "python_mflops": 8.26541914177231
+            }
+          ],
+          "python_mflops": 87.72221662485225,
+          "workers": 16
+        }
+      ],
+      "summary": {
+        "elapsed_s": {
+          "max": 0.07170450000558048,
+          "mean": 0.05648377999314107,
+          "median": 0.05550369998672977,
+          "min": 0.04271660000085831,
+          "n": 5,
+          "p95": 0.06887556000147015,
+          "stdev": 0.01031655013518025
+        },
+        "python_mflops": {
+          "max": 98.32504958812778,
+          "mean": 91.17760527584419,
+          "median": 88.68588190301585,
+          "min": 87.72221662485225,
+          "n": 5,
+          "p95": 97.30012294095822,
+          "stdev": 4.574788904827799
+        }
+      },
+      "warmup": [
+        {
+          "elapsed_s": 0.05297339998651296,
+          "per_worker": [
+            {
+              "elapsed_s": 0.03788060002261773,
+              "python_mflops": 5.2797474137311475
+            },
+            {
+              "elapsed_s": 0.03799540002364665,
+              "python_mflops": 5.263795087708745
+            },
+            {
+              "elapsed_s": 0.03775010001845658,
+              "python_mflops": 5.297999208007848
+            },
+            {
+              "elapsed_s": 0.037819999997736886,
+              "python_mflops": 5.288207298042512
+            },
+            {
+              "elapsed_s": 0.0398257999913767,
+              "python_mflops": 5.021870246003975
+            },
+            {
+              "elapsed_s": 0.03912030000356026,
+              "python_mflops": 5.112435231370884
+            },
+            {
+              "elapsed_s": 0.041829299996607006,
+              "python_mflops": 4.781337483922108
+            },
+            {
+              "elapsed_s": 0.040084100008243695,
+              "python_mflops": 4.989509555132035
+            },
+            {
+              "elapsed_s": 0.03310080000665039,
+              "python_mflops": 6.042150037455812
+            },
+            {
+              "elapsed_s": 0.03562640000018291,
+              "python_mflops": 5.613814474630419
+            },
+            {
+              "elapsed_s": 0.03393600002164021,
+              "python_mflops": 5.893446483747778
+            },
+            {
+              "elapsed_s": 0.03609920002054423,
+              "python_mflops": 5.540288978320268
+            },
+            {
+              "elapsed_s": 0.03812189999734983,
+              "python_mflops": 5.246328226397522
+            },
+            {
+              "elapsed_s": 0.05297339998651296,
+              "python_mflops": 7.550959540105791
+            },
+            {
+              "elapsed_s": 0.0346018000273034,
+              "python_mflops": 5.780046120207189
+            },
+            {
+              "elapsed_s": 0.027379200007999316,
+              "python_mflops": 7.304815332134119
+            }
+          ],
+          "python_mflops": 90.00675071691815,
+          "workers": 16
+        }
+      ]
+    },
+    "memory-bandwidth": {
+      "aborted": false,
+      "attrs": {
+        "bytes_requested": 33554432,
+        "setup": {
+          "backend": "python_fallback",
+          "bytes_per_buffer": 33554432,
+          "elements": 33554432,
+          "formula": "streams * elements * itemsize / elapsed_s",
+          "itemsize": 1,
+          "iters": 6,
+          "notes": [
+            "stdlib fallback: only `copy` (a bytearray memcpy) runs at memory speed; scale/add/triad would measure the interpreter, so they are not reported",
+            "python backend: single-threaded memcpy, a lower bound of the machine's bandwidth"
+          ],
+          "omp_num_threads": "16",
+          "ops": [
+            "copy"
+          ],
+          "single_pass_s": 0.0028572000155691057,
+          "streams_per_op": {
+            "add": 3,
+            "copy": 2,
+            "scale": 2,
+            "triad": 3
+          },
+          "threads_effective": 1,
+          "threads_requested": 16,
+          "unsupported_ops": [
+            "add",
+            "scale",
+            "triad"
+          ]
+        },
+        "stability": {
+          "first_s": 0.016773600014857948,
+          "inconclusive": true,
+          "last_s": 0.016377200023271143,
+          "min_judge_s": 0.05,
+          "n": 5,
+          "slowdown": -0.023632374161520198,
+          "thermal_throttling_suspected": false,
+          "threshold": 0.15
+        },
+        "threads": 16,
+        "threads_requested": 16,
+        "workers": 1
+      },
+      "errors": [],
+      "label": "Host memory bandwidth (STREAM copy/scale/add/triad, all threads)",
+      "metrics": {
+        "copy_gb_s": "GB/s",
+        "elapsed_s": "s"
+      },
+      "requested_reps": 5,
+      "requested_warmup": 1,
+      "samples": [
+        {
+          "copy_gb_s": 24.005173823349335,
+          "copy_s": 0.016773600014857948,
+          "elapsed_s": 0.016773600014857948,
+          "iters": 6
+        },
+        {
+          "copy_gb_s": 23.87083138813703,
+          "copy_s": 0.01686800000607036,
+          "elapsed_s": 0.01686800000607036,
+          "iters": 6
+        },
+        {
+          "copy_gb_s": 24.884012534522128,
+          "copy_s": 0.016181200015125796,
+          "elapsed_s": 0.016181200015125796,
+          "iters": 6
+        },
+        {
+          "copy_gb_s": 24.764179956089244,
+          "copy_s": 0.016259500000160187,
+          "elapsed_s": 0.016259500000160187,
+          "iters": 6
+        },
+        {
+          "copy_gb_s": 24.586204200220486,
+          "copy_s": 0.016377200023271143,
+          "elapsed_s": 0.016377200023271143,
+          "iters": 6
+        }
+      ],
+      "summary": {
+        "copy_gb_s": {
+          "max": 24.884012534522128,
+          "mean": 24.422080380463644,
+          "median": 24.586204200220486,
+          "min": 23.87083138813703,
+          "n": 5,
+          "p95": 24.86004601883555,
+          "stdev": 0.45690168300026984
+        },
+        "elapsed_s": {
+          "max": 0.01686800000607036,
+          "mean": 0.016491900011897088,
+          "median": 0.016377200023271143,
+          "min": 0.016181200015125796,
+          "n": 5,
+          "p95": 0.01684912000782788,
+          "stdev": 0.0003100429156282514
+        }
+      },
+      "warmup": [
+        {
+          "copy_gb_s": 24.740138977450915,
+          "copy_s": 0.01627530000405386,
+          "elapsed_s": 0.01627530000405386,
+          "iters": 6
+        }
+      ]
+    }
+  },
+  "errors": [
+    {
+      "failure_type": "no_blas_backend",
+      "message": "neither torch nor numpy is installed: no real GFLOPS number on this machine, only the interpreter-bound python fallback (install torch, ADR-0011)"
+    },
+    {
+      "failure_type": "gpu_skipped",
+      "message": "--skip-gpu was given"
+    }
+  ],
+  "extra": {
+    "budget_remaining_s": 584.687,
+    "capabilities": {
+      "cpu_count": 16,
+      "cuda": {
+        "available": false,
+        "error": "torch is not installed (see ADR-0011)",
+        "failure_type": "torch_not_installed"
+      },
+      "numpy": null,
+      "python": "3.12.10",
+      "torch": null
+    },
+    "environment": {
+      "after": {
+        "cpu": {
+          "plan": "Balanced",
+          "source": "powercfg"
+        },
+        "nvidia": null,
+        "on_battery": true,
+        "power": {
+          "ok": true,
+          "source": "powershell",
+          "value": {
+            "batteries": [
+              {
+                "percent": 57,
+                "status": 1
+              }
+            ],
+            "has_battery": true,
+            "on_ac": false
+          }
+        },
+        "thermal_zones": null,
+        "when": "after"
+      },
+      "before": {
+        "cpu": {
+          "plan": "Balanced",
+          "source": "powercfg"
+        },
+        "nvidia": null,
+        "on_battery": true,
+        "power": {
+          "ok": true,
+          "source": "powershell",
+          "value": {
+            "batteries": [
+              {
+                "percent": 57,
+                "status": 1
+              }
+            ],
+            "has_battery": true,
+            "on_ac": false
+          }
+        },
+        "thermal_zones": null,
+        "when": "before"
+      }
+    },
+    "gpu": {
+      "available": false,
+      "error": "torch is not installed (see ADR-0011)",
+      "failure_type": "torch_not_installed"
+    },
+    "metric_units": {
+      "add_gb_s": "GB/s",
+      "copy_gb_s": "GB/s",
+      "device_copy_gb_s": "GB/s",
+      "elapsed_s": "s",
+      "event_tflops": "TFLOP/s",
+      "gflops": "GFLOP/s",
+      "python_mflops": "MFLOP/s",
+      "scale_gb_s": "GB/s",
+      "tflops": "TFLOP/s",
+      "triad_gb_s": "GB/s"
+    },
+    "on_battery": true,
+    "planner_fields": {
+      "cpu-float32-1t.summary.gflops.mean": "single-core throughput for serial phases",
+      "cpu-float32-all.summary.gflops.mean": "node CPU throughput for T_compute of CPU workloads (all cores)",
+      "cpu-float64-all.summary.gflops.mean": "fp64 CPU throughput (scientific workloads)",
+      "extra.on_battery": "scores measured on battery are not comparable; ignore them",
+      "extra.stability.*.thermal_throttling_suspected": "confidence flag: a throttled node's score is optimistic",
+      "gpu-copy.summary.device_copy_gb_s.mean": "device memory bandwidth: upper bound of on-GPU data movement",
+      "gpu-float16.summary.tflops.mean": "rate_g for fp16/mixed-precision inference",
+      "gpu-float32.summary.tflops.mean": "rate_g for fp32 GPU work (Modes 2 and 4)",
+      "memory-bandwidth.summary.triad_gb_s.mean": "host memory bandwidth (all cores with torch; single-threaded lower bound with numpy/python, see attrs.setup.notes): the ceiling for data-heavy CPU tasks and for staging tensors before a transfer"
+    },
+    "quick": true,
+    "stability": {
+      "cpu-python-1t": {
+        "first_s": 0.024119399982737377,
+        "inconclusive": true,
+        "last_s": 0.022565499995835125,
+        "min_judge_s": 0.05,
+        "n": 5,
+        "slowdown": -0.06442531688244324,
+        "thermal_throttling_suspected": false,
+        "threshold": 0.15
+      },
+      "cpu-python-all": {
+        "first_s": 0.04271660000085831,
+        "inconclusive": true,
+        "last_s": 0.05550369998672977,
+        "min_judge_s": 0.05,
+        "n": 5,
+        "slowdown": 0.2993473259953867,
+        "thermal_throttling_suspected": false,
+        "threshold": 0.15
+      },
+      "memory-bandwidth": {
+        "first_s": 0.016773600014857948,
+        "inconclusive": true,
+        "last_s": 0.016377200023271143,
+        "min_judge_s": 0.05,
+        "n": 5,
+        "slowdown": -0.023632374161520198,
+        "thermal_throttling_suspected": false,
+        "threshold": 0.15
+      }
+    },
+    "warnings": [
+      "QUICK RUN: sizes and warmup are reduced; these numbers are a smoke test, not a measurement of this machine",
+      "ON BATTERY: CPU and GPU clocks are cut hard on battery power, so these scores are NOT comparable with the other laptops. Plug the machine in and run again.",
+      "no_blas_backend: neither torch nor numpy is installed: no real GFLOPS number on this machine, only the interpreter-bound python fallback (install torch, ADR-0011)",
+      "gpu_skipped: --skip-gpu was given"
+    ]
+  },
+  "git": {
+    "commit": "652ec923",
+    "dirty": false,
+    "modified_files": 0,
+    "untracked_files": 0
+  },
+  "host": {
+    "hostname": "Tiwari_ji",
+    "label": "L3",
+    "machine": "AMD64",
+    "os": "Windows",
+    "os_release": "11",
+    "python": "3.12.10"
+  },
+  "link": null,
+  "params": {
+    "budget_s": 600.0,
+    "device_index": 0,
+    "pause_s": 0.2,
+    "profile": "quick",
+    "quick": true,
+    "reps": 5,
+    "sizes": {
+      "available_ram_bytes": 7335821312,
+      "last_level_cache_bytes": null,
+      "memory_buffer_bytes": 33554432
+    },
+    "skip_gpu": true,
+    "warmup": 1
+  },
+  "schema_version": 1,
+  "spike": "S7",
+  "timestamp_utc": "2026-11-01T04:58:50Z",
+  "tool": {
+    "script": "lab/spikes/s7_hardware.py",
+    "spike": "S7"
+  },
+  "topic": "S7-hardware"
+}
