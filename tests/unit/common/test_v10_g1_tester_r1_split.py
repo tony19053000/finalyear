@@ -10,7 +10,6 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import json
-import os
 import random
 import sys
 import time
@@ -20,6 +19,7 @@ from pathlib import Path
 from typing import IO, Any
 
 import pytest
+from mf_symlinks import make_symlink
 
 from meshforge.common.manifest import (
     ManifestError,
@@ -46,7 +46,7 @@ def _tree(
     for name, target in (links or {}).items():
         path = root / name
         path.parent.mkdir(parents=True, exist_ok=True)
-        os.symlink(target, path)
+        make_symlink(path, target)
     return build_tree(root)
 
 
@@ -329,7 +329,7 @@ def test_build_tree_itself_refuses_escaping_symlinks(tmp_path: Path) -> None:
         "rel.txt": "../secret.txt",
         "abs.txt": str(tmp_path / "secret.txt"),
     }.items():
-        os.symlink(target, root / name)
+        make_symlink(root / name, target)
         with pytest.raises(TreeError):
             build_tree(root)
         (root / name).unlink()

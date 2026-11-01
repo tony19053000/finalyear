@@ -354,7 +354,7 @@ def _warn_firewall() -> None:
     if public:
         _say(
             "warning: these adapters are NOT on a Private profile: "
-            f"{', '.join(public)}. docs/LAB.md §6 requires Private for the lab network."
+            f"{', '.join(public)}. docs/LAB.md section 6 requires Private for the lab network."
         )
 
 

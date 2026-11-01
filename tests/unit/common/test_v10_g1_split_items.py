@@ -9,13 +9,13 @@ are followed only inside their tree, and the item-list blob is deterministic.
 from __future__ import annotations
 
 import json
-import os
 import sys
 import time
 from pathlib import Path
 from typing import IO, Any
 
 import pytest
+from mf_symlinks import make_symlink
 
 from meshforge.common.hashing import sha256_bytes
 from meshforge.common.manifest import ManifestError, SplitSpec
@@ -41,7 +41,7 @@ def _tree(
     for name, target in (links or {}).items():
         path = root / name
         path.parent.mkdir(parents=True, exist_ok=True)
-        os.symlink(target, path)
+        make_symlink(path, target)
     return build_tree(root)
 
 

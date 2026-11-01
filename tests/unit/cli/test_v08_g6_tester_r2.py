@@ -22,6 +22,7 @@ from typing import Any
 import httpx
 import pytest
 from mf_cli_support import Handler, TransportFactory
+from mf_symlinks import make_symlink
 from typer.testing import CliRunner
 
 from meshforge.cli import app as cli_app
@@ -455,7 +456,7 @@ def test_symlinked_bashrc_follows_link_and_keeps_it(tmp_path: Path) -> None:
     real = tmp_path / "dotfiles" / "bashrc"
     real.parent.mkdir()
     real.write_text("# real\n")
-    (home / ".bashrc").symlink_to(real)
+    make_symlink(home / ".bashrc", real)
     for _ in range(2):
         assert _install(home).returncode == 0
     assert (home / ".bashrc").is_symlink()
@@ -464,7 +465,7 @@ def test_symlinked_bashrc_follows_link_and_keeps_it(tmp_path: Path) -> None:
 
 def test_dangling_symlink_bashrc_does_not_traceback(tmp_path: Path) -> None:
     home = _home(tmp_path)
-    (home / ".bashrc").symlink_to(tmp_path / "nowhere" / "bashrc")
+    make_symlink(home / ".bashrc", tmp_path / "nowhere" / "bashrc")
     d = _install(home)
     assert "Traceback" not in d.stderr
     # fix round 2 (D190 T-10): an install I/O error is exit 4 (config), not the

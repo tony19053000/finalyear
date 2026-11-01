@@ -16,6 +16,7 @@ import zipfile
 from pathlib import Path
 
 import pytest
+from mf_symlinks import make_symlink
 
 pytestmark = [pytest.mark.unit, pytest.mark.security]
 
@@ -222,8 +223,8 @@ def test_symlink_to_a_secret_outside_is_not_followed_or_crashes(tmp_path: Path) 
     outside.write_bytes(TOKEN)
     folder = tmp_path / "b"
     folder.mkdir()
-    (folder / "ln").symlink_to(outside)
-    (folder / "dangling").symlink_to(tmp_path / "nowhere")
+    make_symlink(folder / "ln", outside)
+    make_symlink(folder / "dangling", tmp_path / "nowhere")
     assert pss.scan(folder) == []  # must not raise
 
 

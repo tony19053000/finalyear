@@ -17,6 +17,7 @@ from typing import IO, Any
 
 import pytest
 import structlog
+from mf_symlinks import make_symlink
 
 from meshforge.common.proto.meshforge.v1 import agent_pb2
 from meshforge.controller.jobs.logs import LogHub
@@ -173,7 +174,7 @@ async def test_a_restart_does_not_trust_a_symlinked_live_file(tmp_path: Path) ->
     hub.prepare()
     victim = tmp_path / "victim"
     victim.write_bytes(b"x" * 50)
-    hub.path("att_a", "stdout").symlink_to(victim)
+    make_symlink(hub.path("att_a", "stdout"), victim)
     hub.open("att_a", job_id=J, node_id=N, token=1)
     state = hub.live_state("att_a")
     assert state is not None and state.streams["stdout"].received_to == 0

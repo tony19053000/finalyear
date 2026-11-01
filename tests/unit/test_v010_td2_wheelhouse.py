@@ -11,6 +11,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
+from mf_symlinks import make_symlink
 from mf_wheelhouse import (
     LockedWheel,
     WheelDownloadMismatchError,
@@ -62,7 +63,7 @@ def test_stray_files_and_links_are_removed_on_a_cache_hit(tmp_path: Path) -> Non
     (folder / ".hidden").write_bytes(b"x")
     outside = tmp_path / "outside.txt"
     outside.write_text("keep me")
-    (folder / "link.whl").symlink_to(outside)
+    make_symlink(folder / "link.whl", outside)
     got = ensure_wheel(wheel, tmp_path, download=_never)
     assert sorted(p.name for p in got.iterdir()) == [wheel.filename]
     assert outside.read_text() == "keep me"  # the link went, not its target
@@ -189,7 +190,7 @@ def test_a_symlinked_wheel_folder_is_refused_and_its_target_untouched(
     outside.mkdir()
     (outside / "keep.txt").write_text("x")
     link = tmp_path / "folder"
-    link.symlink_to(outside, target_is_directory=True)
+    make_symlink(link, outside, target_is_directory=True)
     wheel = wh.LockedWheel(
         url="https://x/numpy-0-py3-none-any.whl", sha256="0" * 64, size=1
     )

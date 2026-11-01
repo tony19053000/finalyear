@@ -24,27 +24,41 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 import pytest_asyncio
+from mf_conftest_gate import missing_requirement, skip_items_under
 
-pytest.importorskip("sqlalchemy", reason="needs the controller extra")
-pytest.importorskip("fastapi", reason="needs the controller extra")
-pytest.importorskip("testcontainers", reason="needs the dev dependency group")
-
-from mf_agent_harness import (
-    AgentFactory,
-    RunningAgent,
-    make_agent_settings,
-    make_controller_settings,
+#: Why this directory cannot run here (``None``: it can). Not ``importorskip`` at
+#: module level: that aborts collection of every other path on the command line.
+MISSING = missing_requirement(
+    [
+        ("sqlalchemy", "needs the controller extra"),
+        ("fastapi", "needs the controller extra"),
+        ("testcontainers", "needs the dev dependency group"),
+    ]
 )
 
-from meshforge.agent.identity import NodeIdentity, load_or_create
-from meshforge.agent.session.client import AgentSessionClient
-from meshforge.controller.registry import Registry
-from meshforge.controller.server import ControllerRuntime
-from meshforge.controller.settings import ControllerSettings
-from meshforge.controller.store.engine import create_engine
+if MISSING is None:
+    from mf_agent_harness import (
+        AgentFactory,
+        RunningAgent,
+        make_agent_settings,
+        make_controller_settings,
+    )
+
+    from meshforge.agent.identity import NodeIdentity, load_or_create
+    from meshforge.agent.session.client import AgentSessionClient
+    from meshforge.controller.registry import Registry
+    from meshforge.controller.server import ControllerRuntime
+    from meshforge.controller.settings import ControllerSettings
+    from meshforge.controller.store.engine import create_engine
 
 if TYPE_CHECKING:
     from meshforge.controller.store.settings import DatabaseSettings
+
+
+def pytest_collection_modifyitems(
+    config: pytest.Config, items: list[pytest.Item]
+) -> None:
+    skip_items_under(Path(__file__).parent, items, MISSING)
 
 
 @pytest.fixture(autouse=True)

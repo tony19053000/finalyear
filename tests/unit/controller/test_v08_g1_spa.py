@@ -4,13 +4,13 @@ cache and security headers; an unbuilt dashboard is a plain page, not a 500."""
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import httpx
 import pytest
+from mf_symlinks import make_symlink
 from mf_users import ADMIN_TOKEN, bearer, static_auth
 
 from meshforge.controller.http import create_http_app
@@ -31,7 +31,7 @@ def dist(tmp_path: Path) -> Path:
     (root / "favicon.svg").write_text("<svg/>")
     (root / ".env").write_text("SECRET=1")
     (tmp_path / "outside.txt").write_text("outside")
-    os.symlink(tmp_path / "outside.txt", root / "escape.txt")
+    make_symlink(root / "escape.txt", tmp_path / "outside.txt")
     return root
 
 
