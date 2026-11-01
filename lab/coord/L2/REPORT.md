@@ -36,3 +36,11 @@ evidence: this entry
 BUG: (environment, not repo) uv 0.13.6 on Windows prints
     "error: Missing expected target directory for Python minor version link at `C:\Users\<user>\AppData\Roaming\uv\python\cpython-3.12.16-windows-x86_64-none`"
     when installing managed Python 3.12.16; the interpreter works anyway. Reproduce: fresh uv install, `uv python install 3.12`.
+
+### R1-3 - Inventory (0.2.2) - OK
+when: 2026-11-01 10:10 (local)
+laptop: L2 (Windows 11, hostname AILESH)
+commands:
+    uv run python lab/inventory.py --out "lab/reports/inventory/AILESH.json"
+result: exit 0. CPU i5-12450H (8 cores / 12 threads); RAM 7.6 GiB; GPU NVIDIA RTX 2050 4096 MiB (driver 581.83, CUDA 13.0) + Intel UHD; secure boot enabled; torch not installed; docker not installed; Wi-Fi 1201 Mbit/s; failed probes: none; problems: none. (Disk is not in the stderr summary; it is in the JSON.)
+evidence: lab/reports/inventory/AILESH.json
