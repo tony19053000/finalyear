@@ -6,6 +6,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from mf_symlinks import make_symlink
 
 from meshforge.agent.envs import EnvError, normalize_requirements
 from meshforge.agent.envs.builder import MARKER_NAME
@@ -68,7 +69,7 @@ def test_the_root_marker_is_the_only_name_skipped(tmp_path: Path) -> None:
 def test_a_symlinked_dir_named_pycache_is_counted_as_a_link(tmp_path: Path) -> None:
     _tree(tmp_path, ["lib/a.py", "elsewhere/x.pyc"])
     before = tree_summary(tmp_path)
-    (tmp_path / "lib" / "__pycache__").symlink_to(tmp_path / "elsewhere")
+    make_symlink(tmp_path / "lib" / "__pycache__", tmp_path / "elsewhere")
     assert tree_summary(tmp_path) != before
 
 

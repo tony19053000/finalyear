@@ -8,6 +8,7 @@ import time
 from pathlib import Path
 
 import pytest
+from mf_symlinks import make_symlink
 
 from meshforge.common.errors import DigestMismatchError
 from meshforge.common.hashing import (
@@ -47,7 +48,7 @@ def test_hashing_missing_file_raises_filenotfounderror(tmp_path: Path) -> None:
 
 def test_hashing_broken_symlink_raises_filenotfounderror(tmp_path: Path) -> None:
     link = tmp_path / "broken.bin"
-    link.symlink_to(tmp_path / "target-does-not-exist")
+    make_symlink(link, tmp_path / "target-does-not-exist")
     with pytest.raises(FileNotFoundError):
         sha256_file(link)
 
@@ -56,7 +57,7 @@ def test_hashing_symlink_to_real_file_follows_link(tmp_path: Path) -> None:
     real = tmp_path / "real.bin"
     real.write_bytes(b"hello world")
     link = tmp_path / "link.bin"
-    link.symlink_to(real)
+    make_symlink(link, real)
     assert sha256_file(link) == sha256_file(real)
 
 

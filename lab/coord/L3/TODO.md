@@ -161,7 +161,7 @@ victim** (comes back as a NEW node), and the **demo laptop for 05-install-join**
   `chronyc tracking 2>/dev/null || timedatectl timesync-status`. EMIT SIGNAL: clock-offset L3 ms=<n>
   (> 200 ms off L1: FAIL, fix time sync). *[blocks: L1's latency step for L3]*
 - **C4.15-g (Windows only) part G:**
-  `uv sync --extra agent --group dev; uv run pytest tests/unit/common/test_bundle_case_insensitive.py tests/component/agent/test_docker_sandbox.py -q -rs`
+  `uv sync --extra agent --extra controller --group dev; uv run pytest tests/unit/common/test_bundle_case_insensitive.py tests/component/agent/test_docker_sandbox.py -q -rs`
   (say whether Docker tests ran or skipped). EMIT SIGNAL: v04-g-done L3. *[non-blocking]*
 - **LEAD CHECKPOINT V0.4.** EMIT SIGNAL: V0.4-done, merge `origin/main`, continue.
 
@@ -275,3 +275,10 @@ WAIT: "this build" in `lab/coord/CAMPAIGN.md` §Builds. None: SKIPPED.
   demo-laptop-ready L3. The demo itself installs and joins it again (L1's human drives `05-install-join.sh`).
   Linux L3: `sudo apt purge meshforge-agent` + `sudo python3 lab/verify_uninstall.py --os linux --data-removed`. *[non-blocking]*
 - **LEAD CHECKPOINT V1.0.** EMIT SIGNAL: V1.0-done. `## DONE`, push, tell the human "L3 finished - tell the Lead".
+
+---
+## LEAD NOTE (2026-11-01, after C3.2-a / C4.15-g FAILs)
+Both are test bugs (Lead fixing on main): symlink tests must skip without the Windows symlink privilege; the
+component/agent conftest must not abort collection. C4.15-g command now installs `--extra controller`.
+After the next `git merge origin/main` shows commit "test: skip symlink tests without privilege", re-run
+C3.2-a and C4.15-g once and report (expect 0 failed). Until then: non-blocking, continue.

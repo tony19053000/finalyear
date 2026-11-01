@@ -18,6 +18,7 @@ from pathlib import Path
 import httpx
 import pytest
 from mf_cli_support import TransportFactory
+from mf_symlinks import make_symlink
 from typer.testing import CliRunner
 
 from meshforge.cli.client import ControllerClient
@@ -110,7 +111,7 @@ def test_force_never_follows_a_symlinked_target(
     real_dir.mkdir()
     (real_dir / "important.txt").write_bytes(b"do not touch\n")
     link = tmp_path / "link-to-real"
-    link.symlink_to(real_dir)
+    make_symlink(link, real_dir)
 
     digest = "sha256:" + hashlib.sha256(bundle).hexdigest()
     controller(_handler(_job(digest), _serving(bundle)))
