@@ -139,3 +139,19 @@ commands:
     uv run python lab/spikes/s1_network.py serve --bind 192.168.31.236 --idle 3600 --duration 14400
 result: server running in background; listening TCP and UDP on 192.168.31.236:47201.
 SIGNAL: s1-serve-up L3 ip=192.168.31.236
+
+### C2.5-b - S1 client L3 -> L4 - SKIPPED
+when: 2026-11-01 10:54 (local)
+result: L4 not present (no origin/lab/L4). L4's catch-up does it later.
+
+### C2.3-a - GPU stack - SKIPPED
+when: 2026-11-01 10:54 (local)
+result: no NVIDIA GPU on L3.
+
+### C17-a - Download + check (done early while waiting on S1/S2) - OK
+when: 2026-11-01 10:54 (local)
+commands:
+    gh release download v0.17.0 --repo tony19053000/finalyear --pattern "MeshForge-Agent-Setup-*" --pattern SHA256SUMS --dir $HOME\mf-pkgs
+    Get-FileHash -Algorithm SHA256 vs SHA256SUMS
+result: MeshForge-Agent-Setup-0.17.0-1.exe, 57,488,826 bytes, SHA256 3e95eb45...183753d = matches SHA256SUMS.
+evidence: this entry (installer not committed)
