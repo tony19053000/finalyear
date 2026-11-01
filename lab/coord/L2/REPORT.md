@@ -265,3 +265,11 @@ result: pushed lab/reports/raw/2026-11-01-S1-network, -S2-crossos, -S3-transport
 SIGNAL: v02-raw-pushed L2
     Open: firewall rule "MeshForge S2" still present on L2 (human asked to remove it).
 SIGNAL: V0.2-done
+
+### C17-a - Download + check - OK
+when: 2026-11-01 15:19 (local)
+commands:
+    gh is not installed on L2: used the GitHub REST API (releases/tags/v0.17.0, asset download) with the stored git credential; saved to $HOME\mf-pkgs
+    sha256 of MeshForge-Agent-Setup-0.17.0-1.exe vs SHA256SUMS
+result: MeshForge-Agent-Setup-0.17.0-1.exe 57,488,826 bytes; SHA256 3e95eb45...183753d matches SHA256SUMS.
+evidence: this entry
