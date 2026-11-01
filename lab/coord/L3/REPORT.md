@@ -79,3 +79,19 @@ commands:
 result: both exit 3 (expected: Docker missing). Skipped cases: docker-start, docker-pull-cold, docker-gpu-smi, docker-gpu-torch (docker_cli_missing); gpu-in-container n/a (no NVIDIA GPU). Recommendation: venv-fallback.
   full venv: process start 502.91 ± 6.30 ms, create+install cold 4.83 ± 0.51 s, warm 0.58 ± 0.03 s (n=5). Warm job start 0.50 s, within the 3 s target. Quick run rows INVALID (n=2) as designed.
 evidence: lab/reports/raw/2026-11-01-S6-environments/l3-842983de__quick.json, lab/reports/raw/2026-11-01-S6-environments/l3-842983de.json
+
+### R1-5 - Hardware scores (attempt 3, full, on AC) - OK
+when: 2026-11-01 10:34 (local)
+laptop: L3 (Windows 11, hostname TIWARI_JI)
+commands:
+    uv run python lab/spikes/s7_hardware.py run --name L3 --skip-gpu
+result: AC Online before and after (61%). No ON BATTERY / no throttling warning. exit 3 (only warnings: no_blas_backend, gpu_skipped). cpu-python-1t 22.69 ± 0.45 MFLOP/s, cpu-python-all 143.35 ± 0.77 MFLOP/s, memory copy 32.22 ± 0.32 GB/s (n=5). Matches attempt 2 full within ~1.5%, so attempt 2 was likely only a brief charger drop.
+  Note: no real GFLOPS number because numpy/torch are not installed (not installed per rules).
+evidence: lab/reports/raw/2026-11-01-S7-hardware/l3-842983de__run2.json
+
+### R1-7 - Push - OK
+when: 2026-11-01 10:34 (local)
+result: all lab/reports + REPORT.md pushed to lab/L3.
+Summary for Lead: L3 = Windows 11, no NVIDIA GPU (AMD iGPU), Ryzen 7 5800HS 8c/16t, 15.4 GiB, Wi-Fi 192.168.31.236 5 GHz 87%, same room as L1, Wi-Fi profile PUBLIC (human choice), no Docker, no numpy/torch, uv installed this session.
+
+## DONE
