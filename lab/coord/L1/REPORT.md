@@ -12,3 +12,10 @@ BUG: NVIDIA driver not loaded. `nvidia-smi` -> "NVIDIA-SMI has failed because it
     Two driver packages installed: nvidia-driver-590-open 590.48.01 and nvidia-driver-595-open 595.91.07.
     Likely cause: unsigned / MOK-not-enrolled module under Secure Boot, or the two-package conflict. Not fixed (RULES: no driver/Secure Boot changes by the agent).
     Affects R1-4, R1-5 GPU part, C2.1-a, C2.11-a, C4.8-b, C9.10-d. Needs a human/Lead decision.
+
+### R1-2 - Tools - OK
+when: 2026-11-01 (local)
+laptop: L1 (Ubuntu 24.04.4, JARVISM3)
+commands:
+    git --version; uv --version; uv sync; uv run python --version; docker version
+result: git 2.43.0; uv 0.10.12; uv sync exit 0 (no errors); Python 3.12.13; Docker client 29.7.2 / server 29.7.2 (user can reach the daemon).
