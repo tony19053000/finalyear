@@ -1,0 +1,564 @@
+{
+  "cases": {
+    "docker-gpu-smi": {
+      "aborted": true,
+      "attrs": {},
+      "errors": [
+        {
+          "failure_type": "docker_daemon_unreachable",
+          "fatal": true,
+          "message": "sion\":\"0.1.0\",\"Vendor\":\"Docker Inc.\",\"Version\":\"v0.13.0\",\"ShortDescription\":\"\\\"docker sandbox\\\" is deprecated, use Docker Sandboxes instead\",\"URL\":\"https://www.docker.com/products/docker-sandboxes\",\"Hidden\":true,\"Name\":\"sandbox\",\"Path\":\"~\\\\.docker\\\\cli-plugins\\\\docker-sandbox.exe\"},{\"SchemaVersion\":\"0.1.0\",\"Vendor\":\"Docker Inc.\",\"Version\":\"v1.27.0\",\"ShortDescription\":\"Docker Scout\",\"Name\":\"scout\",\"Path\":\"~\\\\.docker\\\\cli-plugins\\\\docker-scout.exe\"}],\"Warnings\":null}} [fix: start Docker Desktop and wait for 'Engine running']",
+          "phase": "setup",
+          "rep": 0
+        }
+      ],
+      "label": "nvidia-smi inside a CUDA base container (--gpus all)",
+      "metrics": {
+        "start_to_exit_ms": "ms"
+      },
+      "requested_reps": 2,
+      "requested_warmup": 1,
+      "samples": [],
+      "summary": {
+        "start_to_exit_ms": {
+          "max": null,
+          "mean": null,
+          "median": null,
+          "min": null,
+          "n": 0,
+          "p95": null,
+          "stdev": null
+        }
+      },
+      "warmup": []
+    },
+    "docker-gpu-torch": {
+      "aborted": true,
+      "attrs": {},
+      "errors": [
+        {
+          "failure_type": "skipped_by_flag",
+          "fatal": true,
+          "message": "--quick",
+          "phase": "setup",
+          "rep": 0
+        }
+      ],
+      "label": "PyTorch-CUDA container: import torch + first CUDA matmul",
+      "metrics": {
+        "first_cuda_op_s": "s",
+        "import_s": "s",
+        "start_to_ready_ms": "ms",
+        "total_ms": "ms"
+      },
+      "requested_reps": 2,
+      "requested_warmup": 1,
+      "samples": [],
+      "summary": {
+        "first_cuda_op_s": {
+          "max": null,
+          "mean": null,
+          "median": null,
+          "min": null,
+          "n": 0,
+          "p95": null,
+          "stdev": null
+        },
+        "import_s": {
+          "max": null,
+          "mean": null,
+          "median": null,
+          "min": null,
+          "n": 0,
+          "p95": null,
+          "stdev": null
+        },
+        "start_to_ready_ms": {
+          "max": null,
+          "mean": null,
+          "median": null,
+          "min": null,
+          "n": 0,
+          "p95": null,
+          "stdev": null
+        },
+        "total_ms": {
+          "max": null,
+          "mean": null,
+          "median": null,
+          "min": null,
+          "n": 0,
+          "p95": null,
+          "stdev": null
+        }
+      },
+      "warmup": []
+    },
+    "docker-pull-cold": {
+      "aborted": true,
+      "attrs": {},
+      "errors": [
+        {
+          "failure_type": "docker_daemon_unreachable",
+          "fatal": true,
+          "message": "sion\":\"0.1.0\",\"Vendor\":\"Docker Inc.\",\"Version\":\"v0.13.0\",\"ShortDescription\":\"\\\"docker sandbox\\\" is deprecated, use Docker Sandboxes instead\",\"URL\":\"https://www.docker.com/products/docker-sandboxes\",\"Hidden\":true,\"Name\":\"sandbox\",\"Path\":\"~\\\\.docker\\\\cli-plugins\\\\docker-sandbox.exe\"},{\"SchemaVersion\":\"0.1.0\",\"Vendor\":\"Docker Inc.\",\"Version\":\"v1.27.0\",\"ShortDescription\":\"Docker Scout\",\"Name\":\"scout\",\"Path\":\"~\\\\.docker\\\\cli-plugins\\\\docker-scout.exe\"}],\"Warnings\":null}} [fix: start Docker Desktop and wait for 'Engine running']",
+          "phase": "setup",
+          "rep": 0
+        }
+      ],
+      "label": "cold pull of the small image (rmi, then pull)",
+      "metrics": {
+        "bytes_on_disk": "B",
+        "pull_s": "s"
+      },
+      "requested_reps": 2,
+      "requested_warmup": 1,
+      "samples": [],
+      "summary": {
+        "bytes_on_disk": {
+          "max": null,
+          "mean": null,
+          "median": null,
+          "min": null,
+          "n": 0,
+          "p95": null,
+          "stdev": null
+        },
+        "pull_s": {
+          "max": null,
+          "mean": null,
+          "median": null,
+          "min": null,
+          "n": 0,
+          "p95": null,
+          "stdev": null
+        }
+      },
+      "warmup": []
+    },
+    "docker-start": {
+      "aborted": true,
+      "attrs": {},
+      "errors": [
+        {
+          "failure_type": "docker_daemon_unreachable",
+          "fatal": true,
+          "message": "sion\":\"0.1.0\",\"Vendor\":\"Docker Inc.\",\"Version\":\"v0.13.0\",\"ShortDescription\":\"\\\"docker sandbox\\\" is deprecated, use Docker Sandboxes instead\",\"URL\":\"https://www.docker.com/products/docker-sandboxes\",\"Hidden\":true,\"Name\":\"sandbox\",\"Path\":\"~\\\\.docker\\\\cli-plugins\\\\docker-sandbox.exe\"},{\"SchemaVersion\":\"0.1.0\",\"Vendor\":\"Docker Inc.\",\"Version\":\"v1.27.0\",\"ShortDescription\":\"Docker Scout\",\"Name\":\"scout\",\"Path\":\"~\\\\.docker\\\\cli-plugins\\\\docker-scout.exe\"}],\"Warnings\":null}} [fix: start Docker Desktop and wait for 'Engine running']",
+          "phase": "setup",
+          "rep": 0
+        }
+      ],
+      "label": "warm container start, sandboxed python -c print",
+      "metrics": {
+        "start_to_exit_ms": "ms"
+      },
+      "requested_reps": 2,
+      "requested_warmup": 1,
+      "samples": [],
+      "summary": {
+        "start_to_exit_ms": {
+          "max": null,
+          "mean": null,
+          "median": null,
+          "min": null,
+          "n": 0,
+          "p95": null,
+          "stdev": null
+        }
+      },
+      "warmup": []
+    },
+    "venv-cold": {
+      "aborted": false,
+      "attrs": {
+        "offline": false,
+        "pinned_requirements": [
+          "numpy==2.2.6",
+          "grpcio==1.84.0",
+          "pydantic==2.13.5"
+        ],
+        "python_request": "3.12",
+        "uv_version": "uv 0.13.7 (316c827e0 2026-11-03 x86_64-pc-windows-msvc)"
+      },
+      "errors": [],
+      "label": "uv venv + install, fresh empty cache per repetition",
+      "metrics": {
+        "cache_bytes": "B",
+        "create_s": "s",
+        "install_s": "s",
+        "site_packages_bytes": "B",
+        "total_s": "s"
+      },
+      "requested_reps": 2,
+      "requested_warmup": 1,
+      "samples": [
+        {
+          "cache_bytes": 72485047,
+          "create_s": 1.3015184999999292,
+          "install_s": 3.4253481999999167,
+          "site_packages_bytes": 62878267,
+          "total_s": 4.726866699999846
+        },
+        {
+          "cache_bytes": 72485047,
+          "create_s": 1.3077135999999427,
+          "install_s": 3.577522199999976,
+          "site_packages_bytes": 62878267,
+          "total_s": 4.8852357999999185
+        }
+      ],
+      "summary": {
+        "cache_bytes": {
+          "max": 72485047.0,
+          "mean": 72485047.0,
+          "median": 72485047.0,
+          "min": 72485047.0,
+          "n": 2,
+          "p95": 72485047.0,
+          "stdev": 0.0
+        },
+        "create_s": {
+          "max": 1.3077135999999427,
+          "mean": 1.304616049999936,
+          "median": 1.304616049999936,
+          "min": 1.3015184999999292,
+          "n": 2,
+          "p95": 1.307403844999942,
+          "stdev": 0.004380597220138364
+        },
+        "install_s": {
+          "max": 3.577522199999976,
+          "mean": 3.5014351999999462,
+          "median": 3.5014351999999462,
+          "min": 3.4253481999999167,
+          "n": 2,
+          "p95": 3.5699134999999727,
+          "stdev": 0.10760326732032346
+        },
+        "site_packages_bytes": {
+          "max": 62878267.0,
+          "mean": 62878267.0,
+          "median": 62878267.0,
+          "min": 62878267.0,
+          "n": 2,
+          "p95": 62878267.0,
+          "stdev": 0.0
+        },
+        "total_s": {
+          "max": 4.8852357999999185,
+          "mean": 4.806051249999882,
+          "median": 4.806051249999882,
+          "min": 4.726866699999846,
+          "n": 2,
+          "p95": 4.8773173449999145,
+          "stdev": 0.11198386454046183
+        }
+      },
+      "warmup": [
+        {
+          "cache_bytes": 72485047,
+          "create_s": 1.2606786999999713,
+          "install_s": 3.845315100000107,
+          "site_packages_bytes": 62878267,
+          "total_s": 5.105993800000078
+        }
+      ]
+    },
+    "venv-start": {
+      "aborted": false,
+      "attrs": {
+        "offline": true,
+        "pinned_requirements": [
+          "numpy==2.2.6",
+          "grpcio==1.84.0",
+          "pydantic==2.13.5"
+        ],
+        "python_request": "3.12",
+        "script": "import numpy; import grpc; print('ok')",
+        "uv_version": "uv 0.13.7 (316c827e0 2026-11-03 x86_64-pc-windows-msvc)"
+      },
+      "errors": [],
+      "label": "venv interpreter: import numpy, grpc (process start)",
+      "metrics": {
+        "start_to_exit_ms": "ms"
+      },
+      "requested_reps": 2,
+      "requested_warmup": 1,
+      "samples": [
+        {
+          "exit_code": 0,
+          "start_to_exit_ms": 786.2476000000242
+        },
+        {
+          "exit_code": 0,
+          "start_to_exit_ms": 802.8779000001123
+        }
+      ],
+      "summary": {
+        "start_to_exit_ms": {
+          "max": 802.8779000001123,
+          "mean": 794.5627500000683,
+          "median": 794.5627500000683,
+          "min": 786.2476000000242,
+          "n": 2,
+          "p95": 802.0463850001079,
+          "stdev": 11.759397903228885
+        }
+      },
+      "warmup": [
+        {
+          "exit_code": 0,
+          "start_to_exit_ms": 926.0844000000361
+        }
+      ]
+    },
+    "venv-warm": {
+      "aborted": false,
+      "attrs": {
+        "offline": true,
+        "pinned_requirements": [
+          "numpy==2.2.6",
+          "grpcio==1.84.0",
+          "pydantic==2.13.5"
+        ],
+        "python_request": "3.12",
+        "uv_version": "uv 0.13.7 (316c827e0 2026-11-03 x86_64-pc-windows-msvc)",
+        "warm_setup": {
+          "cache_bytes": 72485025,
+          "create_s": 1.1219332000000577,
+          "install_s": 4.001255599999922,
+          "note": "the one online install that warmed the cache",
+          "site_packages_bytes": 62878267,
+          "total_s": 5.12318879999998
+        }
+      },
+      "errors": [],
+      "label": "uv venv + install --offline from a cache warmed once",
+      "metrics": {
+        "cache_bytes": "B",
+        "create_s": "s",
+        "install_s": "s",
+        "site_packages_bytes": "B",
+        "total_s": "s"
+      },
+      "requested_reps": 2,
+      "requested_warmup": 1,
+      "samples": [
+        {
+          "cache_bytes": 72488693,
+          "create_s": 0.45858570000018517,
+          "install_s": 0.5375727999999071,
+          "site_packages_bytes": 62878267,
+          "total_s": 0.9961585000000923
+        },
+        {
+          "cache_bytes": 72490527,
+          "create_s": 0.4929908000001433,
+          "install_s": 0.49344410000003336,
+          "site_packages_bytes": 62878267,
+          "total_s": 0.9864349000001766
+        }
+      ],
+      "summary": {
+        "cache_bytes": {
+          "max": 72490527.0,
+          "mean": 72489610.0,
+          "median": 72489610.0,
+          "min": 72488693.0,
+          "n": 2,
+          "p95": 72490435.3,
+          "stdev": 1296.8338366961282
+        },
+        "create_s": {
+          "max": 0.4929908000001433,
+          "mean": 0.4757882500001642,
+          "median": 0.4757882500001642,
+          "min": 0.45858570000018517,
+          "n": 2,
+          "p95": 0.4912705450001454,
+          "stdev": 0.024328079517371665
+        },
+        "install_s": {
+          "max": 0.5375727999999071,
+          "mean": 0.5155084499999703,
+          "median": 0.5155084499999703,
+          "min": 0.49344410000003336,
+          "n": 2,
+          "p95": 0.5353663649999134,
+          "stdev": 0.031203703014857555
+        },
+        "site_packages_bytes": {
+          "max": 62878267.0,
+          "mean": 62878267.0,
+          "median": 62878267.0,
+          "min": 62878267.0,
+          "n": 2,
+          "p95": 62878267.0,
+          "stdev": 0.0
+        },
+        "total_s": {
+          "max": 0.9961585000000923,
+          "mean": 0.9912967000001345,
+          "median": 0.9912967000001345,
+          "min": 0.9864349000001766,
+          "n": 2,
+          "p95": 0.9956723200000965,
+          "stdev": 0.006875623497485888
+        }
+      },
+      "warmup": [
+        {
+          "cache_bytes": 72486859,
+          "create_s": 0.46299649999991743,
+          "install_s": 0.5039331000000402,
+          "site_packages_bytes": 62878267,
+          "total_s": 0.9669295999999576
+        }
+      ]
+    }
+  },
+  "errors": [
+    {
+      "failure_type": "docker_daemon_unreachable",
+      "message": "docker-start: sion\":\"0.1.0\",\"Vendor\":\"Docker Inc.\",\"Version\":\"v0.13.0\",\"ShortDescription\":\"\\\"docker sandbox\\\" is deprecated, use Docker Sandboxes instead\",\"URL\":\"https://www.docker.com/products/docker-sandboxes\",\"Hidden\":true,\"Name\":\"sandbox\",\"Path\":\"~\\\\.docker\\\\cli-plugins\\\\docker-sandbox.exe\"},{\"SchemaVersion\":\"0.1.0\",\"Vendor\":\"Docker Inc.\",\"Version\":\"v1.27.0\",\"ShortDescription\":\"Docker Scout\",\"Name\":\"scout\",\"Path\":\"~\\\\.docker\\\\cli-plugins\\\\docker-scout.exe\"}],\"Warnings\":null}} [fix: start Docker Desktop and wait for 'Engine running']"
+    },
+    {
+      "failure_type": "docker_daemon_unreachable",
+      "message": "docker-pull-cold: sion\":\"0.1.0\",\"Vendor\":\"Docker Inc.\",\"Version\":\"v0.13.0\",\"ShortDescription\":\"\\\"docker sandbox\\\" is deprecated, use Docker Sandboxes instead\",\"URL\":\"https://www.docker.com/products/docker-sandboxes\",\"Hidden\":true,\"Name\":\"sandbox\",\"Path\":\"~\\\\.docker\\\\cli-plugins\\\\docker-sandbox.exe\"},{\"SchemaVersion\":\"0.1.0\",\"Vendor\":\"Docker Inc.\",\"Version\":\"v1.27.0\",\"ShortDescription\":\"Docker Scout\",\"Name\":\"scout\",\"Path\":\"~\\\\.docker\\\\cli-plugins\\\\docker-scout.exe\"}],\"Warnings\":null}} [fix: start Docker Desktop and wait for 'Engine running']"
+    },
+    {
+      "failure_type": "docker_daemon_unreachable",
+      "message": "docker-gpu-smi: sion\":\"0.1.0\",\"Vendor\":\"Docker Inc.\",\"Version\":\"v0.13.0\",\"ShortDescription\":\"\\\"docker sandbox\\\" is deprecated, use Docker Sandboxes instead\",\"URL\":\"https://www.docker.com/products/docker-sandboxes\",\"Hidden\":true,\"Name\":\"sandbox\",\"Path\":\"~\\\\.docker\\\\cli-plugins\\\\docker-sandbox.exe\"},{\"SchemaVersion\":\"0.1.0\",\"Vendor\":\"Docker Inc.\",\"Version\":\"v1.27.0\",\"ShortDescription\":\"Docker Scout\",\"Name\":\"scout\",\"Path\":\"~\\\\.docker\\\\cli-plugins\\\\docker-scout.exe\"}],\"Warnings\":null}} [fix: start Docker Desktop and wait for 'Engine running']"
+    }
+  ],
+  "extra": {
+    "budget_remaining_s": 808.891,
+    "docker": {
+      "cgroup_driver": null,
+      "cgroup_version": null,
+      "client_os_arch": "windows/amd64",
+      "client_version": "29.9.2",
+      "default_runtime": null,
+      "docker_desktop": false,
+      "docker_root_dir": null,
+      "driver": null,
+      "failure_type": "docker_daemon_unreachable",
+      "fix": "start Docker Desktop and wait for 'Engine running'",
+      "kernel_version": null,
+      "mem_total_bytes": 0,
+      "message": "sion\":\"0.1.0\",\"Vendor\":\"Docker Inc.\",\"Version\":\"v0.13.0\",\"ShortDescription\":\"\\\"docker sandbox\\\" is deprecated, use Docker Sandboxes instead\",\"URL\":\"https://www.docker.com/products/docker-sandboxes\",\"Hidden\":true,\"Name\":\"sandbox\",\"Path\":\"~\\\\.docker\\\\cli-plugins\\\\docker-sandbox.exe\"},{\"SchemaVersion\":\"0.1.0\",\"Vendor\":\"Docker Inc.\",\"Version\":\"v1.27.0\",\"ShortDescription\":\"Docker Scout\",\"Name\":\"scout\",\"Path\":\"~\\\\.docker\\\\cli-plugins\\\\docker-scout.exe\"}],\"Warnings\":null}}",
+      "ncpu": 0,
+      "nvidia_runtime": false,
+      "ok": false,
+      "operating_system": null,
+      "os_type": null,
+      "parsed": true,
+      "runtimes": [],
+      "security_options": [],
+      "server_errors": [],
+      "server_os_arch": null,
+      "server_version": null,
+      "wsl2_backend": false
+    },
+    "facts": {
+      "cpu_count": 12,
+      "disk_free_bytes": {
+        "docker_root": null,
+        "temp_dir": 184999518208
+      },
+      "gpu": {
+        "devices": [],
+        "failure_type": "no_gpu_on_host",
+        "fix": "no NVIDIA GPU visible to the host driver: GPU-in-container is n/a here (if the laptop has one, install the NVIDIA driver and check nvidia-smi)",
+        "message": "nvidia-smi not found on PATH",
+        "present": false
+      },
+      "is_wsl": false,
+      "machine": "AMD64",
+      "memory_total_bytes": null,
+      "python": "3.12.16",
+      "release": "11",
+      "system": "Windows",
+      "uv_version": "uv 0.13.7 (316c827e0 2026-11-03 x86_64-pc-windows-msvc)",
+      "version": "10.0.22631",
+      "wsl": {
+        "distro": null,
+        "evidence": {
+          "platform": "win32"
+        },
+        "is_wsl": false,
+        "native": true,
+        "platform": "win32",
+        "wsl_version": null
+      }
+    },
+    "gpu_torch_cold_pull_note": "docker-gpu-torch.attrs.cold_pull is one informational pull (n=1) and is never a row of the results table",
+    "images": {},
+    "metric_units": {
+      "bytes_on_disk": "B",
+      "cache_bytes": "B",
+      "create_s": "s",
+      "first_cuda_op_s": "s",
+      "import_s": "s",
+      "install_s": "s",
+      "pull_s": "s",
+      "site_packages_bytes": "B",
+      "start_to_exit_ms": "ms",
+      "start_to_ready_ms": "ms",
+      "total_ms": "ms",
+      "total_s": "s"
+    },
+    "pinned_requirements": [
+      "numpy==2.2.6",
+      "grpcio==1.84.0",
+      "pydantic==2.13.5"
+    ],
+    "quick": true,
+    "skipped": {
+      "docker-gpu-torch": "--quick"
+    },
+    "warnings": [
+      "QUICK RUN: 2 repetitions per case (< 5, every row INVALID) and no gpu-torch case: a smoke test, not a measurement",
+      "docker: docker_daemon_unreachable: sion\":\"0.1.0\",\"Vendor\":\"Docker Inc.\",\"Version\":\"v0.13.0\",\"ShortDescription\":\"\\\"docker sandbox\\\" is deprecated, use Docker Sandboxes instead\",\"URL\":\"https://www.docker.com/products/docker-sandboxes\",\"Hidden\":true,\"Name\":\"sandbox\",\"Path\":\"~\\\\.docker\\\\cli-plugins\\\\docker-sandbox.exe\"},{\"SchemaVersion\":\"0.1.0\",\"Vendor\":\"Docker Inc.\",\"Version\":\"v1.27.0\",\"ShortDescription\":\"Docker Scout\",\"Name\":\"scout\",\"Path\":\"~\\\\.docker\\\\cli-plugins\\\\docker-scout.exe\"}],\"Warnings\":null}} [fix: start Docker Desktop and wait for 'Engine running']",
+      "no NVIDIA GPU on this host: nvidia-smi not found on PATH",
+      "docker_daemon_unreachable: docker-start: sion\":\"0.1.0\",\"Vendor\":\"Docker Inc.\",\"Version\":\"v0.13.0\",\"ShortDescription\":\"\\\"docker sandbox\\\" is deprecated, use Docker Sandboxes instead\",\"URL\":\"https://www.docker.com/products/docker-sandboxes\",\"Hidden\":true,\"Name\":\"sandbox\",\"Path\":\"~\\\\.docker\\\\cli-plugins\\\\docker-sandbox.exe\"},{\"SchemaVersion\":\"0.1.0\",\"Vendor\":\"Docker Inc.\",\"Version\":\"v1.27.0\",\"ShortDescription\":\"Docker Scout\",\"Name\":\"scout\",\"Path\":\"~\\\\.docker\\\\cli-plugins\\\\docker-scout.exe\"}],\"Warnings\":null}} [fix: start Docker Desktop and wait for 'Engine running']",
+      "docker_daemon_unreachable: docker-pull-cold: sion\":\"0.1.0\",\"Vendor\":\"Docker Inc.\",\"Version\":\"v0.13.0\",\"ShortDescription\":\"\\\"docker sandbox\\\" is deprecated, use Docker Sandboxes instead\",\"URL\":\"https://www.docker.com/products/docker-sandboxes\",\"Hidden\":true,\"Name\":\"sandbox\",\"Path\":\"~\\\\.docker\\\\cli-plugins\\\\docker-sandbox.exe\"},{\"SchemaVersion\":\"0.1.0\",\"Vendor\":\"Docker Inc.\",\"Version\":\"v1.27.0\",\"ShortDescription\":\"Docker Scout\",\"Name\":\"scout\",\"Path\":\"~\\\\.docker\\\\cli-plugins\\\\docker-scout.exe\"}],\"Warnings\":null}} [fix: start Docker Desktop and wait for 'Engine running']",
+      "docker_daemon_unreachable: docker-gpu-smi: sion\":\"0.1.0\",\"Vendor\":\"Docker Inc.\",\"Version\":\"v0.13.0\",\"ShortDescription\":\"\\\"docker sandbox\\\" is deprecated, use Docker Sandboxes instead\",\"URL\":\"https://www.docker.com/products/docker-sandboxes\",\"Hidden\":true,\"Name\":\"sandbox\",\"Path\":\"~\\\\.docker\\\\cli-plugins\\\\docker-sandbox.exe\"},{\"SchemaVersion\":\"0.1.0\",\"Vendor\":\"Docker Inc.\",\"Version\":\"v1.27.0\",\"ShortDescription\":\"Docker Scout\",\"Name\":\"scout\",\"Path\":\"~\\\\.docker\\\\cli-plugins\\\\docker-scout.exe\"}],\"Warnings\":null}} [fix: start Docker Desktop and wait for 'Engine running']"
+    ]
+  },
+  "git": {
+    "commit": "22ae1fc8",
+    "dirty": false,
+    "modified_files": 0,
+    "untracked_files": 0
+  },
+  "host": {
+    "hostname": "Mohit",
+    "label": "L3",
+    "machine": "AMD64",
+    "os": "Windows",
+    "os_release": "11",
+    "python": "3.12.16"
+  },
+  "link": null,
+  "params": {
+    "budget_s": 900.0,
+    "gpu_torch_image": "pytorch/pytorch:2.8.0-cuda12.6-cudnn9-runtime",
+    "no_network": false,
+    "pause_s": 0.2,
+    "quick": true,
+    "reps": 2,
+    "skip_docker": false,
+    "skip_gpu": false,
+    "skip_gpu_torch": false,
+    "warmup": 1
+  },
+  "schema_version": 1,
+  "spike": "S6",
+  "timestamp_utc": "2026-11-03T08:46:41Z",
+  "tool": {
+    "script": "lab/spikes/s6_environments.py",
+    "spike": "S6"
+  },
+  "topic": "S6-environments"
+}

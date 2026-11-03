@@ -28,3 +28,16 @@ commands:
 result: exit 0 both times, but probes cpu, gpus, memory, network, os, power, torch, uv FAILED: `powershell CIM query failed: powershell: timed out after 50.7 s (run deadline reached)`; later probes `skipped: run deadline exceeded`. Secure boot: enabled. nvidia-smi: not found. Docker daemon not reachable.
 evidence: lab/reports/inventory/MOHIT.attempt1.json, lab/reports/inventory/MOHIT.json
 BUG: lab/_inventory CIM bundle hangs only when launched by the runner. The SAME script (pw.CIM_SCRIPT written to a file) runs in 3.8 s with `powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File cim.ps1`; a single `Get-CimInstance Win32_Processor` takes 1.4 s. So PowerShell/CIM is healthy; suspect the runner's launch (`-EncodedCommand` / new process group / stdin pipe) on this laptop. Reproduce: run the command above on MOHIT. Non-blocking for later steps.
+
+### R1-4 - GPU check - SKIPPED
+when: 2026-11-03 14:16 (local)
+laptop: L3 (MOHIT)
+result: no NVIDIA GPU (only Intel UHD Graphics); nvidia-smi not on PATH.
+
+### R1-5 - Hardware scores (0.2.11) - BLOCKED
+when: 2026-11-03 14:16 (local)
+laptop: L3 (MOHIT)
+commands:
+    uv run python lab/spikes/s7_hardware.py run --quick --name L3 --skip-gpu
+result: exit 1, traceback before any score: `RuntimeError: powershell CIM query failed: powershell: timed out after 60 s` (environment.snapshot -> probes.probe_power -> windows_cim). Full run not attempted (same code path).
+BUG: root cause isolated on MOHIT: `powershell ... -EncodedCommand <pw.CIM_SCRIPT>` (6008 chars) HANGS (>40 s, killed), with or without CREATE_NO_WINDOW|CREATE_NEW_PROCESS_GROUP; the same script via `-File cim.ps1` returns rc 0 in 3.0-3.4 s (2296 bytes) under both flag sets; runner._env() is identical to os.environ. Likely Windows Defender/AMSI holding the encoded command. Suggested fix: write the script to a temp .ps1 and use `-File` (fallback when -EncodedCommand times out). Affects lab/_inventory (R1-3) and everything using windows_cim (S7, maybe S2 env).
