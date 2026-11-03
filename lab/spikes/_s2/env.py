@@ -27,7 +27,6 @@ from pathlib import Path
 from typing import Any, Final
 
 from _inventory import parse_linux as pl
-from _inventory import parse_windows as pw
 from _inventory import runner
 
 type JSON = Any
@@ -179,18 +178,8 @@ def firewall_profile() -> dict[str, JSON]:
     """
     if not IS_WINDOWS:
         return {"source": "n/a", "supported": False, "profiles": []}
-    result = runner.run(
-        "powershell",
-        [
-            "-NoProfile",
-            "-NonInteractive",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-EncodedCommand",
-            pw.encoded_command(PROFILE_SCRIPT),
-        ],
-        timeout=POWERSHELL_TIMEOUT_S,
-    )
+    with runner.powershell_script(PROFILE_SCRIPT) as args:
+        result = runner.run("powershell", args, timeout=POWERSHELL_TIMEOUT_S)
     if not result.ok:
         return {
             "source": "powershell",
