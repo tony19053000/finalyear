@@ -303,6 +303,13 @@ def _read_toml(path: Path) -> dict[str, Any]:
             f"config file {path} is not valid TOML: {reason}{hint}",
             details={"config_file": str(path)},
         ) from None
+    except RecursionError:
+        # tomllib recurses per nesting level (~300 nested arrays exhaust the
+        # default limit, F6): a typed config error, never a traceback.
+        raise ConfigError(
+            f"config file {path} is not valid TOML: nested too deeply",
+            details={"config_file": str(path)},
+        ) from None
     except OSError as exc:
         raise ConfigError(
             f"cannot read config file {path}: {exc.strerror or exc}",

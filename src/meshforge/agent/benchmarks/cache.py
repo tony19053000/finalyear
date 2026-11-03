@@ -157,8 +157,9 @@ def load_cache(
         if not isinstance(doc, dict) or doc.get("format") != CACHE_FORMAT:
             return _corrupt("unknown cache format", log_fields, stat.st_mtime_ns)
         scores = ScoreSet.model_validate(doc.get("scores"))
-    except (ValueError, ValidationError) as exc:
+    except (ValueError, ValidationError, RecursionError) as exc:
         # ValidationError subclasses ValueError; named for the reader.
+        # RecursionError: a deeply nested document (F6).
         return _corrupt(
             f"malformed: {type(exc).__name__}", log_fields, stat.st_mtime_ns
         )

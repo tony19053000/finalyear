@@ -413,7 +413,7 @@ class EnvBuilder:
         final = self.env_dir(kind, digest)
         try:
             data = json.loads((final / MARKER_NAME).read_bytes())
-        except (OSError, ValueError):
+        except (OSError, ValueError, RecursionError):
             return "missing"
         if not (
             isinstance(data, dict)

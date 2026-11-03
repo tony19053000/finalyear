@@ -578,7 +578,7 @@ def _read_result(combine: CombineState) -> str | None:
         with os.fdopen(fd, "rb") as fh:
             data = fh.read(_RESULT_MAX_BYTES + 1)
         doc = json.loads(data[:_RESULT_MAX_BYTES])
-    except (OSError, ValueError):
+    except (OSError, ValueError, RecursionError):
         return None
     if not isinstance(doc, dict) or doc.get("ok") is not False:
         return None

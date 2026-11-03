@@ -448,7 +448,7 @@ class RealOps:
             data = json.loads(
                 (Path(self.machine.identity_dir) / JSON_FILE_NAME).read_bytes()
             )
-        except (OSError, ValueError):
+        except (OSError, ValueError, RecursionError):
             return None
         value = data.get("node_id") if isinstance(data, dict) else None
         return value if isinstance(value, str) else None
