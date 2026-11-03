@@ -323,3 +323,10 @@ result: L4 (LAPTOP-7ORVM30G): job_01M6GK4AA35542XWHPYZ971R1G ran (venv on Window
     Answer to the C17-h QUESTION: Run jobs is OFF by default after a join; each owner must turn it on in the console (expected product behaviour, not a bug).
     Next: HUMAN turns on Run jobs (+ GPU) in the MeshForge console on L1, L2, L3; then rerun.
 evidence: lab/reports/raw/2026-11-03-V0.17-install/C17-k-hello-run1.txt
+
+### C17-k - run 2 - FAIL (same 3 of 4)
+result: L4 ok (job_01M6GKSNJ8Q37V00VD3MB11PRD "hello from the fabric"); L1, L2, L3 refused 409 accept_jobs, although L2's console shows Run jobs + GPU ticked.
+    Lead also ran it 17:35: L4 ok (job_01M6GMS6NQ6NA243PRNZ4J166C), L1/L2/L3 409.
+BUG (Lead: F5, fix in progress): exec capability comes only from the agent Hello; "Run jobs" switched on after connect is logged
+    (session.policy_updated accept_jobs=true) but not applied; L1's own agent never sent an update. Workaround: policy on, then restart the agent.
+evidence: lab/reports/raw/2026-11-03-V0.17-install/C17-k-hello-run2.txt

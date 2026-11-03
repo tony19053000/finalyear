@@ -1,0 +1,9 @@
+=== node_01M6BMFVHJVZXC7AET3CFRE3AV
+compute: the controller refused the request (409): the node does not accept jobs (its owner has not enabled [agent.policy] accept_jobs)
+=== node_01M6GCKN7PYT2J297BT241P436
+compute: the controller refused the request (409): the node does not accept jobs (its owner has not enabled [agent.policy] accept_jobs)
+=== node_01M6GGZ7VNCSRKFAEDH3AX7QQY
+compute: the controller refused the request (409): the node does not accept jobs (its owner has not enabled [agent.policy] accept_jobs)
+=== node_01M6GGJP3FW5VHBDFKYQ6SF318
+job_01M6GKSNJ8Q37V00VD3MB11PRD
+hello from the fabric
