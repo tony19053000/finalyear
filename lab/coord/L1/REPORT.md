@@ -280,3 +280,8 @@ result: identity show: node_id node_01M6BMFVHJVZXC7AET3CFRE3AV (= dev node_id, m
     doctor 0.17.0 (git 3fca750858ea): OK version/upgrade/gpu (RTX 3050 Laptop)/cuda 13.2/disk 27 GiB/firewall (ufw off)/peer off;
     WARN joined (expected: joint join pending), WARN docker (Give Docker access not done yet). "doctor: nothing needs attention".
     Waiting for the joint join (Lead). Human makes 4 invites on the dashboard (codes never written down).
+
+### C17-x - admin password reset (HUMAN) - OK
+result: human forgot the admin password. HUMAN ran `sudo meshforge-controller user reset-password admin` -> "password of admin reset (1 API token(s) revoked)".
+    The CLI login token of C17-f is revoked -> `compute login` must be redone. Password not recorded anywhere.
+    Browser: human reached the dashboard login page with Chrome "Not secure" (CA not yet imported; ~/meshforge-fabric-ca.crt exported for import, C8.10-a).
