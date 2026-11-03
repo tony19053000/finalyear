@@ -336,3 +336,10 @@ result: L2 job_01M6GN3WTTF3NF1P645FDN4YN1, L3 job_01M6GN3Y1XJJV4M79788F3YXBB, L4
     L1: still 409 accept_jobs. L1 agent was restarted 17:40:53 IST, but its journal shows no policy save from the console
     -> Run jobs on L1 most likely not saved yet. HUMAN: console Settings, tick + Save, restart agent; then rerun L1.
 evidence: lab/reports/raw/2026-11-03-V0.17-install/C17-k-hello-run3.txt
+
+### C17-k - run 4 (L1 after policy save + restart 18:05) - OK, all 4 laptops done
+result: L1 agent restarted 18:05:04 IST -> journal agent.execution.ready + cpu_cgroup_ready (before: execution.disabled).
+    L1 job_01M6GPJ0N0SJRNPR3S19Q5H8EP "hello from the fabric". With run 3 (L2, L3, L4): hello succeeded on every laptop.
+    F5 workaround confirmed on Linux too: policy saved in console, then restart = jobs accepted.
+evidence: lab/reports/raw/2026-11-03-V0.17-install/C17-k-hello-run4-L1.txt, ...-run3.txt
+SIGNAL: V0.17a-done
