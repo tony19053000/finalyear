@@ -276,3 +276,28 @@ SIGNAL: v05-h-ready L4 free=231
 
 ### C5.11-g-L4 - part H stop/start during the 5 GB download (LIVE) - done, waiting for L1's result
 result: on L1's "STOP NOW" (human, Administrator): stop issued 02:26:21, stopped 02:26:22, Start-Service 02:26:28 (local, UTC+05:30).
+
+### C5.11-g-L4 - part H result from L4's agent log - FAIL (c3 not shown: no chunk resume)
+commands (human, Administrator):
+    Select-String agent.log* for agent.cas.|resumed_chunks|lease|discovery|transfer_error, UTC 2026-11-03T20-23 + 11-04 -> 15 lines
+result (UTC; local = UTC+05:30):
+    20:52:18 agent.started (controller_address 192.168.31.13:47100, discovery false) - after the cas/gc wipe.
+    J1 job_01M6HJZDCDN6G3TDFDPQJW1J2Q: code tree staged (2 blobs fetched, chunks_resumed 0); then
+    20:55:33 agent.cas.source_dropped source controller, reason transfer_error, "chunk fetch failed: RemoteProtocolError" (warning)
+    and agent.execution.status failed, failure_type transfer_error -> J1 FAILED ~48 s BEFORE the human's stop (20:56:21).
+    20:56:32 agent.started again (the human's Stop/Start), ONLINE 20:56:34.
+    J2 job_01M6HK8J40V20JA99WRWGT11JK: code tree blobs_hit 2, chunks_resumed 0; dataset ds5g@1 (mount data/ds)
+    agent.cas.input_staged 21:05:58: blobs_hit 2, blobs_fetched 4, bytes_fetched 3,825,205,248 (no chunks_resumed field on this line);
+    attempt released 21:06:10 (acked).
+    -> Data already fetched by J1 was reused at BLOB level (2 dataset blobs hit), the rest (3.83 GB) fetched again.
+    No line shows resumed_chunks/chunks_resumed > 0, so c3 (resume of a partly fetched chunk) is NOT demonstrated.
+    Also the stop did not interrupt a running download: J1 had already failed with transfer_error.
+BUG (for the Lead): (1) J1 5 GB fetch from the controller failed after ~2.5 min with "chunk fetch failed: RemoteProtocolError"
+    (no stop yet); (2) the dataset input_staged line has no chunks_resumed field, so c3 cannot be read from it.
+evidence: lab/reports/raw/2026-11-04-V0.5-data/L4-agent.txt (15 lines; fencing_token already [REDACTED] by the agent)
+
+### C5.11-h-L4 - part I GC - SKIPPED
+result: optional; not run (not cued by L1). Can be done on request.
+
+### LEAD CHECKPOINT V0.5 (L4)
+SIGNAL: V0.5-done
