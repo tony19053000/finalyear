@@ -3,7 +3,8 @@
 import json
 
 import pytest
-from lab.spikes._s2.env import non_private_profiles, parse_connection_profiles
+
+from spikes._s2.env import non_private_profiles, parse_connection_profiles
 
 pytestmark = pytest.mark.unit
 

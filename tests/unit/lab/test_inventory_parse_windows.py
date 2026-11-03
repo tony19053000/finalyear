@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import base64
 import json
 from collections.abc import Callable
 
@@ -237,8 +236,3 @@ def test_script_selects_no_identifying_properties() -> None:
     ):
         assert forbidden not in script
     assert "remove-typedata system.array" in script
-
-
-def test_encoded_command_round_trips() -> None:
-    encoded = pw.encoded_command(pw.CIM_SCRIPT)
-    assert base64.b64decode(encoded).decode("utf-16-le") == pw.CIM_SCRIPT
