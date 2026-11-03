@@ -330,3 +330,9 @@ result: L4 ok (job_01M6GKSNJ8Q37V00VD3MB11PRD "hello from the fabric"); L1, L2, 
 BUG (Lead: F5, fix in progress): exec capability comes only from the agent Hello; "Run jobs" switched on after connect is logged
     (session.policy_updated accept_jobs=true) but not applied; L1's own agent never sent an update. Workaround: policy on, then restart the agent.
 evidence: lab/reports/raw/2026-11-03-V0.17-install/C17-k-hello-run2.txt
+
+### C17-k - run 3 (after F5 workaround: policy on + agent restart) - 3 of 4 OK
+result: L2 job_01M6GN3WTTF3NF1P645FDN4YN1, L3 job_01M6GN3Y1XJJV4M79788F3YXBB, L4 job_01M6GN40SQF0JK30KFD6Q0VC23: "hello from the fabric".
+    L1: still 409 accept_jobs. L1 agent was restarted 17:40:53 IST, but its journal shows no policy save from the console
+    -> Run jobs on L1 most likely not saved yet. HUMAN: console Settings, tick + Save, restart agent; then rerun L1.
+evidence: lab/reports/raw/2026-11-03-V0.17-install/C17-k-hello-run3.txt
