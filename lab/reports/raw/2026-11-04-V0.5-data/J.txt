@@ -1,0 +1,32 @@
+## run 1
+node_01M6BMFVHJVZXC7AET3CFRE3AV: preparing (request 01M6HGHJKMSXRRRZZY1KWJQAAW)
+  image python-cpu: hit sha256:f77ac9e44ae9 in 0.0 s
+  env 0: built 83a5811a1ce9ca9f829 in 14.0 s
+node_01M6GCKN7PYT2J297BT241P436: preparing (request 01M6HGJ0DECPZAGENHKYTR9SM6)
+  image python-cpu: failed (env_error/docker_unavailable: docker unavailable: error)
+  env 0: built 29cd39a8261557da127 in 13.0 s
+node_01M6GGJP3FW5VHBDFKYQ6SF318: preparing (request 01M6HGJDQ45WE7V7ZFGX8EPRDS)
+  image python-cpu: failed (env_error/docker_unavailable: docker unavailable: error)
+  env 0: built 29cd39a8261557da127 in 21.1 s
+node_01M6GGZ7VNCSRKFAEDH3AX7QQY: preparing (request 01M6HGK2WPE9EAB2GRSB8K9VD4)
+  image python-cpu: failed (env_error/docker_unavailable: docker unavailable: error)
+  env 0: built 29cd39a8261557da127 in 9.6 s
+Command exited with non-zero status 1
+real 60.30 s
+exit=1
+## run 2
+node_01M6BMFVHJVZXC7AET3CFRE3AV: preparing (request 01M6HGKDGQ3WR5CAYZ0YCV5C1N)
+  image python-cpu: hit sha256:f77ac9e44ae9 in 0.0 s
+  env 0: hit 83a5811a1ce9ca9f829 in 0.1 s
+node_01M6GCKN7PYT2J297BT241P436: preparing (request 01M6HGKE0R3CN68EZBJZQTXPT5)
+  image python-cpu: failed (env_error/docker_unavailable: docker unavailable: error)
+  env 0: hit 29cd39a8261557da127 in 0.1 s
+node_01M6GGJP3FW5VHBDFKYQ6SF318: preparing (request 01M6HGKEGPVZ6C6B8ZJX96CVSJ)
+  image python-cpu: failed (env_error/docker_unavailable: docker unavailable: error)
+  env 0: hit 29cd39a8261557da127 in 0.7 s
+node_01M6GGZ7VNCSRKFAEDH3AX7QQY: preparing (request 01M6HGKG04Q411BVVXQV6C6K95)
+  image python-cpu: failed (env_error/docker_unavailable: docker unavailable: error)
+  env 0: hit 29cd39a8261557da127 in 0.2 s
+Command exited with non-zero status 1
+real 3.84 s
+exit=1

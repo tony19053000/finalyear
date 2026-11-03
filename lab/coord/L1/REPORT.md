@@ -553,3 +553,9 @@ result: job_01M6HG3V035J571YC78TT392DR succeeded, 412 s total. Attempt 1 (att_01
     Criterion 2 is Ethernet: NOT RUN (D425); Wi-Fi number recorded, no pass mark.
 BUG candidate (Lead): transfer_error with failure_detail=null (no reason given). Together with attempt-1 node_lost: big fetches on Wi-Fi are fragile.
 evidence: lab/reports/raw/2026-11-04-V0.5-data/F-attempt2.txt, F-attempt2-controller-journal.txt
+
+### C5.11-i - Part J compute node prepare (0.5.8) - OK
+commands: envs.yaml {base python-cpu, requirements numpy==2.1.3}; compute node prepare --all --image python-cpu --envs ~/mf-lab/envs.yaml (x2)
+result: run 1 (60.3 s, exit 1): L1 image hit + env built 14.0 s; L2/L3/L4 image "failed (env_error/docker_unavailable ...)" (typed, no hang) + env built by venv 9.6-21.1 s.
+    run 2 (3.8 s, exit 1): every env "hit" (0.1-0.7 s), L1 image hit, Windows images typed docker_unavailable again. Exit 1 = expected (no Docker on Windows).
+evidence: lab/reports/raw/2026-11-04-V0.5-data/J.txt
