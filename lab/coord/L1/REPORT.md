@@ -512,3 +512,14 @@ result: lab/reports/raw/2026-11-04-V0.4-exec/{A3-pull,C,D}.txt + lab/reports/raw
 ### LEAD CHECKPOINT V0.4
 result: C OK (4/4 identical golden digest); D1/D2 OK on L1 only (Windows no torch - QUESTION); E: 2/3 OK; F cancel OK, timeout overshoot 3.47 s FAIL.
 SIGNAL: V0.4-done
+
+## Phase V0.5 (2026-11-04)
+
+### C5.11-a (part) - disk - OK after cleanup
+result: 17 GB free after V0.4 pulls (< 20 GB). Human approved removing ONLY pytorch/pytorch:2.8.0 (10.8 GB, S6 spike image) + unused build cache (3.3 GB);
+    other projects' images left alone. Then 30 GB free; 25 GB after the 5 GB dataset. ufw inactive (no 5201/47120 rules). iperf3: not installed (HUMAN apt install pending).
+
+### C5.11-b - Part C dataset + reader - OK
+result: ~/mf-lab/ds5g = 5 x 1 GiB random part*.bin + labels.csv (5.1 G); ~/mf-lab/reader/{main.py,compute.yaml} (input ds5g@1 -> data/ds) as written.
+    Part B check: `compute nodes` peer_endpoint = None on ALL 4 agents (peer serving is Off by default, doctor "peer Off").
+QUESTION: parts G/H need a peer endpoint. Per TODO, skipped unless owners turn on peer serving in the console (+ agent restart, bug F5?). Asked the human.
