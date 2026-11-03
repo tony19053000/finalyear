@@ -1,0 +1,416 @@
+{
+  "cases": {
+    "node_01M6GGZ7VNCSRKFAEDH3AX7QQY": {
+      "aborted": false,
+      "attrs": {
+        "expect": [
+          "offline",
+          "online"
+        ],
+        "hostname": "Mohit",
+        "node_id": "node_01M6GGZ7VNCSRKFAEDH3AX7QQY"
+      },
+      "errors": [
+        {
+          "failure_type": "mark_after_change",
+          "fatal": false,
+          "message": "offline was reached 20.00 s BEFORE Enter was pressed - press Enter at the moment you act; this repetition does not count",
+          "phase": "measure",
+          "rep": 0
+        }
+      ],
+      "label": "Mohit (node_01M6GGZ7VNCSRKFAEDH3AX7QQY)",
+      "metrics": {
+        "offline_s": "s",
+        "online_s": "s"
+      },
+      "requested_reps": 5,
+      "requested_warmup": 0,
+      "samples": [
+        {
+          "changes": [
+            {
+              "field": "state",
+              "new": "suspect",
+              "old": "online",
+              "t_s": 319.094,
+              "wall": "2026-11-03T12:42:33.656+00:00"
+            },
+            {
+              "field": "state",
+              "new": "offline",
+              "old": "suspect",
+              "t_s": 322.594,
+              "wall": "2026-11-03T12:42:37.156+00:00"
+            },
+            {
+              "field": "connected",
+              "new": false,
+              "old": true,
+              "t_s": 322.594,
+              "wall": "2026-11-03T12:42:37.156+00:00"
+            }
+          ],
+          "end_reason": "lease_expired",
+          "epoch_after": 2,
+          "epoch_before": 2,
+          "first_new_sequence": null,
+          "marks": {
+            "offline": "2026-11-03T12:42:57.255+00:00"
+          },
+          "rep": 0,
+          "restarted": null,
+          "sequence_before": 204,
+          "session_after": "sess_01M6GMYCBEXZ6YXY03FK4CZ6GQ",
+          "session_before": "sess_01M6GMYCBEXZ6YXY03FK4CZ6GQ"
+        },
+        {
+          "changes": [
+            {
+              "field": "state",
+              "new": "suspect",
+              "old": "online",
+              "t_s": 8.893,
+              "wall": "2026-11-03T12:43:51.754+00:00"
+            },
+            {
+              "field": "connected",
+              "new": false,
+              "old": true,
+              "t_s": 12.091,
+              "wall": "2026-11-03T12:43:54.953+00:00"
+            },
+            {
+              "field": "state",
+              "new": "offline",
+              "old": "suspect",
+              "t_s": 12.391,
+              "wall": "2026-11-03T12:43:55.253+00:00"
+            },
+            {
+              "field": "state",
+              "new": "online",
+              "old": "offline",
+              "t_s": 27.895,
+              "wall": "2026-11-03T12:44:10.756+00:00"
+            },
+            {
+              "field": "connected",
+              "new": true,
+              "old": false,
+              "t_s": 27.895,
+              "wall": "2026-11-03T12:44:10.756+00:00"
+            },
+            {
+              "field": "session_epoch",
+              "new": 4,
+              "old": 3,
+              "t_s": 27.895,
+              "wall": "2026-11-03T12:44:10.756+00:00"
+            },
+            {
+              "field": "last_session_id",
+              "new": "sess_01M6GQ0G1WCG0QPYWC8F3P0FBD",
+              "old": "sess_01M6GPZMV8Y0388H1R4CCJ7PZV",
+              "t_s": 27.895,
+              "wall": "2026-11-03T12:44:10.756+00:00"
+            }
+          ],
+          "end_reason": "stream_lost",
+          "epoch_after": 4,
+          "epoch_before": 3,
+          "first_new_sequence": 244,
+          "marks": {
+            "offline": "2026-11-03T12:43:50.454+00:00",
+            "online": "2026-11-03T12:44:03.754+00:00"
+          },
+          "offline_s": 4.859,
+          "offline_within_bound": true,
+          "online_s": 7.01,
+          "online_within_bound": true,
+          "rep": 1,
+          "restarted": false,
+          "sequence_before": 239,
+          "session_after": "sess_01M6GQ0G1WCG0QPYWC8F3P0FBD",
+          "session_before": "sess_01M6GPZMV8Y0388H1R4CCJ7PZV"
+        },
+        {
+          "changes": [
+            {
+              "field": "state",
+              "new": "suspect",
+              "old": "online",
+              "t_s": 4.466,
+              "wall": "2026-11-03T12:44:15.254+00:00"
+            },
+            {
+              "field": "state",
+              "new": "offline",
+              "old": "suspect",
+              "t_s": 7.965,
+              "wall": "2026-11-03T12:44:18.754+00:00"
+            },
+            {
+              "field": "connected",
+              "new": false,
+              "old": true,
+              "t_s": 7.965,
+              "wall": "2026-11-03T12:44:18.754+00:00"
+            },
+            {
+              "field": "state",
+              "new": "online",
+              "old": "offline",
+              "t_s": 26.069,
+              "wall": "2026-11-03T12:44:36.858+00:00"
+            },
+            {
+              "field": "connected",
+              "new": true,
+              "old": false,
+              "t_s": 26.069,
+              "wall": "2026-11-03T12:44:36.858+00:00"
+            },
+            {
+              "field": "session_epoch",
+              "new": 5,
+              "old": 4,
+              "t_s": 26.069,
+              "wall": "2026-11-03T12:44:36.858+00:00"
+            },
+            {
+              "field": "last_session_id",
+              "new": "sess_01M6GQ19HRBAYDN5C0D21QT707",
+              "old": "sess_01M6GQ0G1WCG0QPYWC8F3P0FBD",
+              "t_s": 26.069,
+              "wall": "2026-11-03T12:44:36.858+00:00"
+            }
+          ],
+          "end_reason": "lease_expired",
+          "epoch_after": 5,
+          "epoch_before": 4,
+          "first_new_sequence": 249,
+          "marks": {
+            "offline": "2026-11-03T12:44:15.455+00:00",
+            "online": "2026-11-03T12:44:20.956+00:00"
+          },
+          "offline_s": 3.311,
+          "offline_within_bound": true,
+          "online_s": 15.981,
+          "online_within_bound": false,
+          "rep": 2,
+          "restarted": false,
+          "sequence_before": 246,
+          "session_after": "sess_01M6GQ19HRBAYDN5C0D21QT707",
+          "session_before": "sess_01M6GQ0G1WCG0QPYWC8F3P0FBD"
+        },
+        {
+          "changes": [
+            {
+              "field": "state",
+              "new": "suspect",
+              "old": "online",
+              "t_s": 2.46,
+              "wall": "2026-11-03T12:44:39.358+00:00"
+            },
+            {
+              "field": "state",
+              "new": "offline",
+              "old": "suspect",
+              "t_s": 5.954,
+              "wall": "2026-11-03T12:44:42.853+00:00"
+            },
+            {
+              "field": "connected",
+              "new": false,
+              "old": true,
+              "t_s": 5.954,
+              "wall": "2026-11-03T12:44:42.853+00:00"
+            },
+            {
+              "field": "state",
+              "new": "online",
+              "old": "offline",
+              "t_s": 26.154,
+              "wall": "2026-11-03T12:45:03.052+00:00"
+            },
+            {
+              "field": "connected",
+              "new": true,
+              "old": false,
+              "t_s": 26.154,
+              "wall": "2026-11-03T12:45:03.052+00:00"
+            },
+            {
+              "field": "session_epoch",
+              "new": 6,
+              "old": 5,
+              "t_s": 26.154,
+              "wall": "2026-11-03T12:45:03.052+00:00"
+            },
+            {
+              "field": "last_session_id",
+              "new": "sess_01M6GQ2334TNYPP90GRRA3C763",
+              "old": "sess_01M6GQ19HRBAYDN5C0D21QT707",
+              "t_s": 26.154,
+              "wall": "2026-11-03T12:45:03.052+00:00"
+            }
+          ],
+          "end_reason": "lease_expired",
+          "epoch_after": 6,
+          "epoch_before": 5,
+          "first_new_sequence": 255,
+          "marks": {
+            "offline": "2026-11-03T12:44:38.155+00:00",
+            "online": "2026-11-03T12:44:45.554+00:00"
+          },
+          "offline_s": 4.724,
+          "offline_within_bound": true,
+          "online_s": 17.535,
+          "online_within_bound": false,
+          "rep": 3,
+          "restarted": false,
+          "sequence_before": 252,
+          "session_after": "sess_01M6GQ2334TNYPP90GRRA3C763",
+          "session_before": "sess_01M6GQ19HRBAYDN5C0D21QT707"
+        },
+        {
+          "changes": [
+            {
+              "field": "state",
+              "new": "suspect",
+              "old": "online",
+              "t_s": 6.471,
+              "wall": "2026-11-03T12:45:09.553+00:00"
+            },
+            {
+              "field": "state",
+              "new": "offline",
+              "old": "suspect",
+              "t_s": 9.973,
+              "wall": "2026-11-03T12:45:13.055+00:00"
+            },
+            {
+              "field": "connected",
+              "new": false,
+              "old": true,
+              "t_s": 9.973,
+              "wall": "2026-11-03T12:45:13.055+00:00"
+            },
+            {
+              "field": "state",
+              "new": "online",
+              "old": "offline",
+              "t_s": 27.876,
+              "wall": "2026-11-03T12:45:30.958+00:00"
+            },
+            {
+              "field": "connected",
+              "new": true,
+              "old": false,
+              "t_s": 27.876,
+              "wall": "2026-11-03T12:45:30.958+00:00"
+            },
+            {
+              "field": "session_epoch",
+              "new": 7,
+              "old": 6,
+              "t_s": 27.876,
+              "wall": "2026-11-03T12:45:30.958+00:00"
+            },
+            {
+              "field": "last_session_id",
+              "new": "sess_01M6GQ2YD4Q95AH7ST8VWS7Q0E",
+              "old": "sess_01M6GQ2334TNYPP90GRRA3C763",
+              "t_s": 27.876,
+              "wall": "2026-11-03T12:45:30.958+00:00"
+            }
+          ],
+          "end_reason": "lease_expired",
+          "epoch_after": 7,
+          "epoch_before": 6,
+          "first_new_sequence": 264,
+          "marks": {
+            "offline": "2026-11-03T12:45:07.455+00:00",
+            "online": "2026-11-03T12:45:16.555+00:00"
+          },
+          "offline_s": 5.64,
+          "offline_within_bound": true,
+          "online_s": 14.494,
+          "online_within_bound": false,
+          "rep": 4,
+          "restarted": false,
+          "sequence_before": 261,
+          "session_after": "sess_01M6GQ2YD4Q95AH7ST8VWS7Q0E",
+          "session_before": "sess_01M6GQ2334TNYPP90GRRA3C763"
+        }
+      ],
+      "summary": {
+        "offline_s": {
+          "max": 5.64,
+          "mean": 4.6335,
+          "median": 4.7915,
+          "min": 3.311,
+          "n": 4,
+          "p95": 5.522849999999999,
+          "stdev": 0.9697231563698991
+        },
+        "online_s": {
+          "max": 17.535,
+          "mean": 13.754999999999999,
+          "median": 15.2375,
+          "min": 7.01,
+          "n": 4,
+          "p95": 17.3019,
+          "stdev": 4.6649266517992185
+        }
+      },
+      "warmup": []
+    }
+  },
+  "errors": [],
+  "extra": {
+    "interrupted": false
+  },
+  "git": {
+    "commit": "c322edca",
+    "dirty": false,
+    "modified_files": 0,
+    "untracked_files": 0
+  },
+  "host": {
+    "hostname": "JARVISM3",
+    "label": "L1",
+    "machine": "x86_64",
+    "os": "Linux",
+    "os_release": "6.8.0-147-generic",
+    "python": "3.12.13"
+  },
+  "link": "wifi",
+  "params": {
+    "action": "cable",
+    "bounds_s": {
+      "offline": 8.0,
+      "online": 10.0
+    },
+    "controller_url": "https://192.168.31.13:47110",
+    "detect_timeout_s": 60.0,
+    "expect": [
+      "offline",
+      "online"
+    ],
+    "node_id": "node_01M6GGZ7VNCSRKFAEDH3AX7QQY",
+    "poll_s": 0.1,
+    "reps": 5
+  },
+  "schema_version": 1,
+  "spike": "V0.3",
+  "timestamp_utc": "2026-11-03T12:45:30Z",
+  "tool": {
+    "interpreter": "CPython 3.12.13 linux",
+    "name": "fabric_check",
+    "subcommand": "watch",
+    "version": 1
+  },
+  "topic": "V0.3-fabric-watch"
+}

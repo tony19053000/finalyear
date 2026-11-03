@@ -355,3 +355,14 @@ evidence: lab/reports/2026-11-03-V0.3-fabric-inventory.md, lab/reports/raw/2026-
 
 ### C3.7-a - Wi-Fi drop, L3 (Mohit) - RUNNING (LIVE)
 SIGNAL: C3.7-a GO L3 - L1 is at ">>> PULL" (5 reps): on L1's spoken "now" L3's human turns Wi-Fi OFF; at ">>> PLUG" Wi-Fi ON.
+
+### C3.7-a - Wi-Fi drop, L3 (Mohit) - FAIL (exit 3; recorded, non-blocking)
+commands:
+    uv run python lab/fabric_check.py --name L1 watch --node Mohit --link wifi   (LIVE: L3 Wi-Fi off/on, Enter on L1)
+result: 5 reps, rep 1 not counted (Enter pressed ~20 s after Wi-Fi off: operator timing). 4 valid reps -> rows INVALID (n=4 < 5).
+    OFFLINE after Wi-Fi off: 4.86 / 3.31 / 4.72 / 5.64 s (mean 4.63) - all within 8 s.
+    ONLINE after Wi-Fi on: 7.01 / 15.98 / 17.54 / 14.49 s (mean 13.75) - 3 of 4 EXCEED 10 s. Agent process restarted: no (every rep).
+    Reading: the ONLINE time includes Windows Wi-Fi re-association + DHCP (Wi-Fi reconnect is slower than a cable plug, as the TODO says);
+    the fabric part (reconnect once the network is back) is not separated in this measurement. Lead to judge.
+evidence: lab/reports/2026-11-03-V0.3-fabric-watch.md, lab/reports/raw/2026-11-03-V0.3-fabric-watch/l1-dffe8596__mohit-cable-124530-a2ec565d.json
+SIGNAL: C3.7-a done L3 (L3 human: Wi-Fi stays ON now)
