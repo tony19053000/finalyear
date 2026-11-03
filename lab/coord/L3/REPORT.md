@@ -241,3 +241,13 @@ commands:
     Get-NetFirewallRule | Where-Object DisplayName -like '*MeshForge*'
 result: no MeshForge firewall rules at all (same as after install/join). Peer port 47120 has no inbound rule on L3.
 QUESTIONS: should the v0.17.0 installer create the 47120 inbound rule? If yes this is an installer BUG on MOHIT.
+
+### C5.11-g/h - part H victim / part I GC - SKIPPED
+result: L1: L4 is joined, so L4 is the part H victim. Not run on L3.
+
+### C5.11-f (prep) - free disk - OK
+when: 2026-11-04 02:00 (local)
+commands:
+    (Get-PSDrive C).Free
+result: C: free 174.5 GB (need >= 12 GB). Peer serving off on every agent (L1): controller fetch only; part G peer half SKIPPED.
+SIGNAL: v05-f-ready L3 free=174.5
