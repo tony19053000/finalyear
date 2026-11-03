@@ -327,3 +327,14 @@ evidence: lab/reports/raw/2026-11-03-S1-network/ailesh-1ad242f0__to-mohit_wifi-9
 SIGNAL: s1-client-done L2-to-L3
 
 S1 client RUNNING L2-to-L4
+
+### S1 L2 -> L4 (LAPTOP-7ORVM30G, 0.2.5 matrix) - OK
+when: 2026-11-03 15:27-15:32 (local)
+laptop: L2 (Windows 11, AILESH, 192.168.31.155), Wi-Fi 5 GHz
+commands:
+    uv run --no-sync python lab/spikes/s1_network.py client --link wifi --server 192.168.31.244
+result: exit 0. TCP x1 L4->L2 248.26 +- 4.17 Mbit/s; x4 L4->L2 361.43 +- 3.82; x1 L2->L4 247.46 +- 5.08; x4 L2->L4 253.03 +- 53.18 (high spread).
+    UDP echo RTT mean 2.750 ms, p95 4.087 ms, jitter 0.664 ms, loss 0 %.
+evidence: lab/reports/raw/2026-11-03-S1-network/ailesh-1ad242f0__to-laptop-7orvm30g_wifi-305efdfb.json
+SIGNAL: s1-client-done L2-to-L4
+    Both L2 client runs of the matrix are done. L2's own S1 server (ANNOUNCE (2)) is not started: it needs the human to re-add the 47201 firewall rules; no pair in the table needs another laptop to run a client against L2 (L1-L2 done 2026-11-01).
