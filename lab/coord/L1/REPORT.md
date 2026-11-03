@@ -263,3 +263,13 @@ result: 6 result files, all 6 pairs filled, every cell n=5. Old TIWARI_JI files 
     First run used L3=MOHIT (hostname case is "Mohit") -> regenerated with --force (no hand text existed yet).
 evidence: lab/reports/2026-11-03-S1-network.md, lab/reports/raw/2026-11-03-S1-network/
 SIGNAL: s1-matrix-done L1
+
+### C17-h (part 2) - L1 agent installed, not joined - OK
+when: 2026-11-03 (local)
+result: install already done 2026-11-01 (part 1 above): dpkg meshforge-agent 0.17.0-1 "install ok installed", service active.
+    Dev node_id before install: node_01M6BMFVHJVZXC7AET3CFRE3AV (the dev identity dir is now renamed .migrated-20261101, so `uv run ... identity show` no longer shows it; recorded from part 1).
+    Package migrated the same node_id into /var/lib/meshforge/identity. Not joined yet (joint join of L1-L4 per Lead).
+    Agent journal (last 50 lines, only console-listening/start/stop events, no secrets) saved.
+    `meshforge-agent identity show` / `doctor` need sudo (system state): HUMAN runs them, output added in the next entry.
+evidence: lab/reports/raw/2026-11-01-V0.17-install/L1-agent-journal.txt
+SIGNAL: installed L1

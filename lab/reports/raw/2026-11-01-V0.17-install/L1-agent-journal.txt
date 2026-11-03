@@ -1,0 +1,22 @@
+Nov 01 18:55:41 JARVISM3 systemd[1]: Starting meshforge-agent.service - MeshForge node agent...
+Nov 01 18:55:41 JARVISM3 systemd[1]: Started meshforge-agent.service - MeshForge node agent.
+Nov 01 18:55:42 JARVISM3 meshforge-agent[217129]: {"url": "http://127.0.0.1:47130/", "access_file": "/run/meshforge-console/token", "event": "agent.console.listening", "level": "info", "logger": "meshforge.agent.console.server", "timestamp": "2026-11-01T13:25:42.148941Z", "component": "agent"}
+Nov 01 18:55:42 JARVISM3 meshforge-agent[217129]: {"event": "Started server process [217129]", "level": "info", "logger": "uvicorn.error", "color_message": "Started server process [\u001b[36m%d\u001b[0m]", "timestamp": "2026-11-01T13:25:42.150475Z", "component": "agent"}
+-- Boot 7eab2e1f7811408680682ef40c2a70a0 --
+Nov 02 00:38:14 JARVISM3 systemd[1]: Starting meshforge-agent.service - MeshForge node agent...
+Nov 02 00:38:14 JARVISM3 systemd[1]: Started meshforge-agent.service - MeshForge node agent.
+Nov 02 00:38:15 JARVISM3 meshforge-agent[2389]: {"url": "http://127.0.0.1:47130/", "access_file": "/run/meshforge-console/token", "event": "agent.console.listening", "level": "info", "logger": "meshforge.agent.console.server", "timestamp": "2026-11-01T19:08:15.705151Z", "component": "agent"}
+Nov 02 00:38:15 JARVISM3 meshforge-agent[2389]: {"event": "Started server process [2389]", "level": "info", "logger": "uvicorn.error", "color_message": "Started server process [\u001b[36m%d\u001b[0m]", "timestamp": "2026-11-01T19:08:15.708062Z", "component": "agent"}
+Nov 03 01:50:58 JARVISM3 systemd[1]: Stopping meshforge-agent.service - MeshForge node agent...
+Nov 03 01:50:58 JARVISM3 meshforge-agent[2389]: {"exit_code": 0, "event": "agent.console.shutdown_requested", "level": "info", "logger": "meshforge.agent.console.supervisor", "timestamp": "2026-11-02T20:20:58.264539Z", "component": "agent"}
+Nov 03 01:50:58 JARVISM3 meshforge-agent[2389]: {"old": "waiting_for_join", "new": "stopped", "reason": null, "event": "agent.console.phase", "level": "info", "logger": "meshforge.agent.console.supervisor", "timestamp": "2026-11-02T20:20:58.265041Z", "component": "agent"}
+Nov 03 01:50:58 JARVISM3 meshforge-agent[2389]: {"event": "Shutting down", "level": "info", "logger": "uvicorn.error", "timestamp": "2026-11-02T20:20:58.309619Z", "component": "agent"}
+Nov 03 01:50:58 JARVISM3 meshforge-agent[2389]: {"event": "Finished server process [2389]", "level": "info", "logger": "uvicorn.error", "color_message": "Finished server process [\u001b[36m%d\u001b[0m]", "timestamp": "2026-11-02T20:20:58.410285Z", "component": "agent"}
+Nov 03 01:50:58 JARVISM3 systemd[1]: meshforge-agent.service: Deactivated successfully.
+Nov 03 01:50:58 JARVISM3 systemd[1]: Stopped meshforge-agent.service - MeshForge node agent.
+Nov 03 01:50:58 JARVISM3 systemd[1]: meshforge-agent.service: Consumed 15.008s CPU time.
+-- Boot 38cde4b922434106aaad7767abbfb055 --
+Nov 03 12:21:52 JARVISM3 systemd[1]: Starting meshforge-agent.service - MeshForge node agent...
+Nov 03 12:21:52 JARVISM3 systemd[1]: Started meshforge-agent.service - MeshForge node agent.
+Nov 03 12:21:52 JARVISM3 meshforge-agent[2368]: {"url": "http://127.0.0.1:47130/", "access_file": "/run/meshforge-console/token", "event": "agent.console.listening", "level": "info", "logger": "meshforge.agent.console.server", "timestamp": "2026-11-03T06:51:52.740055Z", "component": "agent"}
+Nov 03 12:21:52 JARVISM3 meshforge-agent[2368]: {"event": "Started server process [2368]", "level": "info", "logger": "uvicorn.error", "color_message": "Started server process [\u001b[36m%d\u001b[0m]", "timestamp": "2026-11-03T06:51:52.742713Z", "component": "agent"}
