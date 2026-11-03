@@ -180,3 +180,6 @@ BUG: tests/unit/agent/test_v017_g1_system_cli.py::test_apply_returns_on_the_comm
     or set MESHFORGE_INSTALL_MODE=user to silence this." -> "Failed: must not print". The Windows branch detects the
     install by another route than the patched function. Reproduce: install the agent .exe, run that test.
     (Lead note read: no firewall rule after install is by design; recheck at V0.5 when peer serving is on.)
+
+### LEAD CHECKPOINT V0.17a (L4)
+SIGNAL: V0.17a-done
