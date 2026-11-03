@@ -301,3 +301,11 @@ result: optional; not run (not cued by L1). Can be done on request.
 
 ### LEAD CHECKPOINT V0.5 (L4)
 SIGNAL: V0.5-done
+
+### C5.11-g-L4 - addendum after L1's summary
+result: L1: J1 attempt 1 transfer_error 20:55:33Z (before the stop), attempt 2 node_lost (the stop); J2 succeeded 20:57:55-21:06:11Z.
+    J2 values from L4's log (already saved, 15 lines covering 20:00-21:07Z): dataset ds5g@1 agent.cas.input_staged 21:05:58Z
+    blobs_hit 2, blobs_fetched 4, bytes_fetched 3,825,205,248, NO resumed_chunks/chunks_resumed field; J2 code tree chunks_resumed 0.
+    J2 resumed_chunks = not reported (0 / absent) -> c3 (> 0) NOT met. Only blob-level reuse (2 blobs) is shown.
+    Part I: SKIPPED (not quick on Windows: service config edit + restart + restore).
+SIGNAL: V0.5-done
