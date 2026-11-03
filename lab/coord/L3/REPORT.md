@@ -134,3 +134,16 @@ commands:
 result: exit 0. TCP x1 L4->L3 215.9 +- 3.9 Mbit/s, L3->L4 192.1 +- 0.6; TCP x4 L4->L3 266.9 +- 38.8, L3->L4 262.9 +- 27.9; UDP RTT mean 3.54 ms, p95 4.84 ms, jitter 0.73 ms, loss 0 %. n=5 each.
 evidence: lab/reports/raw/2026-11-03-S1-network/mohit-69e390d0__to-laptop-7orvm30g_wifi-305efdfb.json
 SIGNAL: s1-client-done L3-to-L4
+
+### CU-b - S1 server stopped - OK
+when: 2026-11-03 15:40 (local)
+result: all six pairs done (L1-to-L3, L2-to-L3, L3-to-L4 seen in reports). Server stopped by the agent (process killed; background task exit 255 = the kill). Firewall rules: HUMAN to remove.
+
+### R1-5 (rerun after be71b7ac) - Hardware scores (0.2.11) - OK
+when: 2026-11-03 15:40 (local)
+laptop: L3 (MOHIT), on charger
+commands:
+    uv run python lab/spikes/s7_hardware.py run --quick --name L3 --skip-gpu   (exit 3)
+    uv run python lab/spikes/s7_hardware.py run --name L3 --skip-gpu           (exit 3)
+result: full run: cpu float64 1 thread 51.83 +- 1.42 GFLOP/s, all threads 103.80 +- 2.81 GFLOP/s; python 1t 27.89 +- 1.06 MFLOP/s, all 99.50 +- 3.92 MFLOP/s; memory copy 17.22, add 10.54, scale 9.58, triad 6.54 GB/s. No ON BATTERY / thermal warning; exit 3 only from the gpu_skipped warning. Quick run (smoke) python-all 165.47 MFLOP/s.
+evidence: lab/reports/raw/2026-11-03-S7-hardware/l3-842983de__quick.json, lab/reports/raw/2026-11-03-S7-hardware/l3-842983de.json
