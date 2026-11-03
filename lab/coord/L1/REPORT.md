@@ -314,3 +314,12 @@ result: compute nodes: 4 nodes, all online, CONN yes, version 0.17.0:
     L3 Mohit node_01M6GGZ7VNCSRKFAEDH3AX7QQY, L4 LAPTOP-7ORVM30G node_01M6GGJP3FW5VHBDFKYQ6SF318 (was stuck "enrolling", now online).
 evidence: lab/reports/raw/2026-11-01-V0.17-install/fabric.txt
 SIGNAL: fabric-up nodes=4
+
+### C17-k - hello job from L1 to each agent - FAIL (3 of 4: owner policy off), run 1
+commands:
+    compute run ./hello --node <id> -f   (docs/user/run-a-workload.md hello project), for L1, L2, L3, L4
+result: L4 (LAPTOP-7ORVM30G): job_01M6GK4AA35542XWHPYZ971R1G ran (venv on Windows), printed "hello from the fabric".
+    L1, L2, L3: refused 409 "the node does not accept jobs (its owner has not enabled [agent.policy] accept_jobs)".
+    Answer to the C17-h QUESTION: Run jobs is OFF by default after a join; each owner must turn it on in the console (expected product behaviour, not a bug).
+    Next: HUMAN turns on Run jobs (+ GPU) in the MeshForge console on L1, L2, L3; then rerun.
+evidence: lab/reports/raw/2026-11-03-V0.17-install/C17-k-hello-run1.txt

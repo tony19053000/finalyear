@@ -1,0 +1,23 @@
+=== node_01M6BMFVHJVZXC7AET3CFRE3AV
+compute: uploaded 2 files / 531 bytes, skipped 0
+compute: idempotency key cli-01M6GK499XYG1Z9FZDTSF67EYK (after a network error, re-run with --idempotency-key cli-01M6GK499XYG1Z9FZDTSF67EYK to avoid a second job)
+compute: the controller refused the request (409): the node does not accept jobs (its owner has not enabled [agent.policy] accept_jobs)
+exit=0
+=== node_01M6GCKN7PYT2J297BT241P436
+compute: uploaded 0 files / 0 bytes, skipped 2
+compute: idempotency key cli-01M6GK49N1PPW9C8BAAVCE4MBH (after a network error, re-run with --idempotency-key cli-01M6GK49N1PPW9C8BAAVCE4MBH to avoid a second job)
+compute: the controller refused the request (409): the node does not accept jobs (its owner has not enabled [agent.policy] accept_jobs)
+exit=0
+=== node_01M6GGZ7VNCSRKFAEDH3AX7QQY
+compute: uploaded 0 files / 0 bytes, skipped 2
+compute: idempotency key cli-01M6GK49Z4V0QD57WTT0WJEX5X (after a network error, re-run with --idempotency-key cli-01M6GK49Z4V0QD57WTT0WJEX5X to avoid a second job)
+compute: the controller refused the request (409): the node does not accept jobs (its owner has not enabled [agent.policy] accept_jobs)
+exit=0
+=== node_01M6GGJP3FW5VHBDFKYQ6SF318
+compute: idempotency key cli-01M6GK4A9974JDM7MRMNS92QAF (after a network error, re-run with --idempotency-key cli-01M6GK4A9974JDM7MRMNS92QAF to avoid a second job)
+job_01M6GK4AA35542XWHPYZ971R1G
+Using CPython 3.12.14 interpreter at: C:\Program Files\MeshForge\0.17.0-1\python\python.exe
+Creating virtual environment at: venv\4123d048f02c1944f78133aadf7b6103fc7d162d727dfdcf8f9f9b056f36ac4a.building
+Activate with: venv\4123d048f02c1944f78133aadf7b6103fc7d162d727dfdcf8f9f9b056f36ac4a.building\Scripts\activate
+hello from the fabric
+exit=0
