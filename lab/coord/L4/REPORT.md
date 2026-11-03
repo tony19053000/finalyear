@@ -149,3 +149,22 @@ result: service MeshForgeAgent RUNNING (PID 1552), current.txt = 0.17.0-1, CLI a
     Firewall: no rule named *MeshForge* found (non-admin query) - to recheck from an Administrator shell at C17-e.
     agent.log and `identity show` need Administrator: done at C17-e after joining.
 SIGNAL: installed L4
+
+### C17-c - join - OK
+when: 2026-11-03 16:25 (local)
+result: HUMAN joined in the console with L1's invite (code typed by human only). Done page: "This laptop is in the fabric fab_01M6BMCGQBHTN059R0R5MY3WYW".
+
+### C17-d - owner settings - OK
+result: name L4; Run jobs on; Let jobs use this laptop's GPU on; Allow jobs without a container on; rest default
+    (Share GPU off, network off, pause benchmarks off, CPU 50 %, 1 job at a time).
+
+### C17-e - Check - OK
+commands (Administrator):
+    meshforge-agent identity show; meshforge-agent policy show; Get-NetFirewallRule -DisplayName *MeshForge* | Get-NetFirewallPortFilter
+result: enrolled True, fabric fab_01M6BMCGQBHTN059R0R5MY3WYW, cert valid to 2026-12-03, renewal due 2026-11-23;
+    CA fingerprint 056b7ba3...45724585 = L1 controller-up fp. Service RUNNING, current.txt 0.17.0-1.
+    policy: accept_jobs True, allow_unsandboxed True, allow_network False, max_cpu_percent 50, max_cpu_jobs 1,
+    max_gpu_jobs one per GPU, accept_gpu_sessions False (that is "Share the GPU", left off), allowed_users everyone.
+    Firewall: Get-NetFirewallRule -DisplayName *MeshForge* returned NO rules (Administrator) - installer opens no inbound port on L4.
+BUG?: (non-blocking, for the Lead) no MeshForge firewall rule after the Windows install; fine if the agent only dials out to the controller.
+SIGNAL: joined L4 node=node_01M6GGJP3FW5VHBDFKYQ6SF318
