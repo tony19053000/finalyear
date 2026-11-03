@@ -127,3 +127,14 @@ result: serving on 192.168.31.244:47201, waiting for client runs L1->L4, L2->L4,
 result: served the three pairs: origin/lab/L1 s1-client-done L1-to-L4, origin/lab/L2 s1-client-done L2-to-L4,
     origin/lab/L3 s1-client-done L3-to-L4. Server stopped (killed by agent after the last pair). Server writes no JSON; numbers are in the clients' raw files.
     Firewall rules "MeshForge S1 TCP/UDP": removal asked of the human.
+
+### CU-b - firewall cleanup - OK
+result: human removed "MeshForge S1 TCP/UDP"; Get-NetFirewallRule "MeshForge S1*" count = 0.
+
+### CU-c - GPU stack (0.2.3) - SKIPPED (for now)
+result: torch not installed; the ~2.5 GB CUDA torch install needs the human's yes (asked, no answer yet). Docker absent.
+
+### CU-d - raw files pushed - OK
+result: inventory, S6, S7 (3 runs), network facts are in lab/reports/. S1: L4 was server only (no client JSON on L4).
+SIGNAL: v02-raw-pushed L4
+SIGNAL: s1-matrix-done L4
