@@ -459,3 +459,19 @@ result: all 4 exit 0 "done: 148933 primes, pi ~ 3.14728" (1.23 / 1.58 / 1.55 / 1
     attempt output_digest identical on all 4: sha256:0562889f3aab9811...
     jobs: L1 job_01M6HBFZ4W0XJYE7JZWM8GP2ND, L2 job_01M6HBG1HZGJHH361BFZB9Y8CY, L3 job_01M6HBG6NAMMAK5QAEFCF9VAQD, L4 job_01M6HBGCP5Q0SHMERM5CYNCFJZ
 evidence: lab/reports/raw/2026-11-04-V0.4-exec/C.txt
+
+### C4.15-c - PyTorch on the CPU, part D1 (c1) - FAIL on L2/L3/L4 (expected per TODO; QUESTION), OK on L1
+commands: copy of pytorch-train with compute.yaml {env base cuda-pytorch, gpu none, --device cpu}; compute run ./pytorch-cpu --node <Lx> -f
+result: L1 job_01M6HBH8B3VDS2D1BG0XPM1S8E succeeded "done on cpu: final loss 0.018201" (Docker cuda-pytorch image).
+    L2 job_01M6HBHBHB8XFK84R1TH9CXQZF, L3 job_01M6HBHDHT6WBGH60TZA00T89Q, L4 job_01M6HBHE8Q1CCX3MECASNZTXH0: failed (user_error), exit 1,
+    "ModuleNotFoundError: No module named 'torch'" (no Docker on Windows -> subprocess/venv runtime without torch).
+    No cross-laptop compare.py possible (only L1 has a result).
+QUESTION (Lead): (1) the job asks env base cuda-pytorch; on a node without Docker the agent runs it in a venv WITHOUT torch and the failure is typed user_error,
+    not env_error - is that intended? Should the planner skip nodes that cannot provide base cuda-pytorch? (2) How should the Windows laptops get torch for this test?
+
+### C4.8-b - PyTorch on the GPU, part D2 (0.4.8) - OK on L1, FAIL on L2 (same cause)
+commands: compute run workloads/examples/pytorch-train --node <L1-ID> -f (x2); compare.py; same with --node <L2-ID>
+result: L1 job_01M6HBHQHWHQDEWAERM8GXECDR + job_01M6HBHV2YAHK73J3QE3X1NAC9: "done on cuda: final loss 0.018201" (0.27 / 0.25 s);
+    compare.py: "IDENTICAL: metrics.json and weights.bin are byte-identical"; run.json cuda_device "NVIDIA GeForce RTX 3050 Laptop GPU". L1 OK.
+    L2 (RTX 2050) job_01M6HBHYKSTNDHA1GZQ5Z6K10E: failed (user_error) "No module named 'torch'" (no Docker, subprocess runtime has no torch) - as the TODO predicted.
+evidence: lab/reports/raw/2026-11-04-V0.4-exec/D.txt
