@@ -397,3 +397,21 @@ iperf3 was missing; installed with `winget install --id ar51an.iPerf3 -e` (3.22,
 Raw: `lab/reports/raw/2026-11-04-V0.5-data/L2-iperf3-up.txt`, `L2-iperf3-R.txt`.
 Free disk C: **192.0 GB** (need >= 12 GB): OK.
 SIGNAL: iperf3-done L2 up=237 down=169
+
+### C5.11-a peer port / firewall - recorded (2026-11-04 01:56)
+`Get-NetFirewallRule | Where-Object DisplayName -like '*MeshForge*'`: **no rules** (peer serving not on; by design per ANNOUNCE 11-03 (4)).
+
+### C5.11-e 5 GB reader agent log - recorded, errors found (2026-11-04 01:56)
+Agent log copied by the human (admin) to a user folder; extract in `lab/reports/raw/2026-11-04-V0.5-data/L2-agent.txt` (all cas.staged / input_staged lines + every line 19:50-20:12 UTC = 01:20-01:42 IST). Times below UTC (IST = +5:30).
+**Job 1 job_01M6HFPX055QCKC2B6HFSWN7JE (node_lost):**
+- 19:55:50 staging; job tree staged (617 B). Input fetch of the 5 GB blob starts (5 blobs x 128 chunk GETs to `/v1/blobs/...`).
+- 19:56:17 control stream dropped: `UNAVAILABLE ... WSAGetOverlappedResult: Connection timed out ... 10060` -> BACKOFF.
+- 19:56:22-19:56:49: 8 x `agent.cas.source_dropped reason=transfer_error detail="chunk fetch failed: ConnectError"` + `stage_retry` retries 1-8; 19:56:51 attempt **failed transfer_error**.
+- Reconnect loop `discovery_failed controller_not_found` from 19:56:23 until back **ONLINE at 20:00:30** (~4 min 13 s offline); then attempt released, 2 x `cancel_ignored known=false`.
+- Reading: during the bulk fetch L2 could not reach L1 at all (both gRPC stream and HTTPS chunk fetch timed out) — looks like L1/Wi-Fi saturated or stalled by the transfer, not a disk/agent fault on L2.
+**Job 2 job_01M6HG3V035J571YC78TT392DR (succeeded):**
+- Attempt 1 (att_...1HN) 20:02:54 staging -> 20:04:18 `source_dropped transfer_error detail="chunk fetch failed: RemoteProtocolError"` -> **failed transfer_error** immediately (no retry logged for this one). Session stayed ONLINE.
+- Attempt 2 (att_...KP) 20:04:23 staging; `agent.cas.input_staged` 20:09:36 (~5 min 13 s for the input); running 20:09:36, done exit 0 at 20:09:46.
+**For the Lead (transfer_error bug):** error texts are `chunk fetch failed: ConnectError` (job 1, while the session was down) and `chunk fetch failed: RemoteProtocolError` (job 2 attempt 1, session up — server closed the HTTP connection mid-chunk?). The detail is only in the agent's `agent.cas.source_dropped` warning, not passed to the controller's failure reason. Also job 1's retries (8 in 27 s) all fell inside the outage, so they could not help.
+
+SIGNAL: V0.5-done
