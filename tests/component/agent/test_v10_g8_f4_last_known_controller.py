@@ -285,10 +285,17 @@ async def test_controller_address_at_the_join_port_logs_a_clear_hint(
                     if len(client.stats.stream_ends) >= 2:
                         break
                     await asyncio.sleep(0.05)
-                assert not task.done()
+                # Snapshot BEFORE stopping: ``request_stop`` can land while the
+                # next retry waits for its first reply, and that stream then
+                # ends CANCELLED by the agent itself (``_close_call``, appended
+                # to ``stream_ends`` too) - the client's own shutdown, not what
+                # the server answered (F6: seen under CI load).
+                before_stop = list(client.stats.stream_ends)
+                assert not task.done()  # retried, never fatal
             finally:
                 await _stop(client, task)
-        codes = {e.code for e in client.stats.stream_ends}
+        assert len(before_stop) >= 2, before_stop  # at least one retry happened
+        codes = {e.code for e in before_stop}
         assert codes == {grpc.StatusCode.UNIMPLEMENTED}, codes
         hints = [e for e in logs if e["event"] == "agent.session.not_a_session_port"]
         assert len(hints) == 1  # once per address, not once per retry

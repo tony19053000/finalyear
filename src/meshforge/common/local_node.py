@@ -75,7 +75,7 @@ def read_local_node_id(data_dir: Path) -> NodeId:
         raise LocalNodeError("the local agent identity file is too large")
     try:
         meta = json.loads(raw)
-    except (ValueError, UnicodeDecodeError):
+    except (ValueError, RecursionError):
         raise LocalNodeError("the local agent identity file is not JSON") from None
     if not isinstance(meta, dict) or meta.get("format") != IDENTITY_FORMAT:
         raise LocalNodeError(
