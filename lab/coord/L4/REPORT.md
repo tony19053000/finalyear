@@ -183,3 +183,17 @@ BUG: tests/unit/agent/test_v017_g1_system_cli.py::test_apply_returns_on_the_comm
 
 ### LEAD CHECKPOINT V0.17a (L4)
 SIGNAL: V0.17a-done
+
+### C4.0-L4 - clock offset - OK (close to limit)
+when: 2026-11-03 16:34 (local)
+commands:
+    w32tm /stripchart /computer:time.windows.com /samples:5 /dataonly   (resync /force done by human at 15:08)
+result: offsets -173.9, -176.7, -179.9, -178.8, -167.8 ms (mean about -175 ms) vs time.windows.com. Under 200 ms but close; L1 compares against its own clock.
+SIGNAL: clock-offset L4 ms=-175
+
+### C4.15-g-L4 - part G (Windows) - OK
+commands:
+    uv sync --extra agent --extra controller --group dev
+    uv run pytest tests/unit/common/test_bundle_case_insensitive.py tests/component/agent/test_docker_sandbox.py -q -rs -p no:cacheprovider
+result: 3 passed, 9 skipped in 2.48 s. Docker tests SKIPPED (7, no Docker daemon); 2 GPU tests skipped (need --run-gpu).
+SIGNAL: v04-g-done L4
