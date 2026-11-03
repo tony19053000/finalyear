@@ -142,6 +142,8 @@ def test_apply_without_sudo_explains_and_exits_4(
 
 def test_apply_returns_on_the_common_case(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(system_cli, "system_install_present", lambda: False)
+    # Windows checks the install separately (lab L3, a laptop with MeshForge installed)
+    monkeypatch.setattr(system_cli, "windows_installed", lambda: False)
     system_cli.apply(
         ["identity", "show"],
         execvp=lambda f, a: pytest.fail("must not exec"),
