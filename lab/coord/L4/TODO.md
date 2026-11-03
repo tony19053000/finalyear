@@ -146,7 +146,9 @@ HUMAN, Administrator PowerShell:
 ```
 notepad C:\ProgramData\MeshForge\config\config.toml
 ```
-Under the `[agent]` section add (or set) the line `controller_address = "192.168.31.13:47101"`, save, then
+Under the `[agent]` section add (or set) the line `controller_address = "192.168.31.13:47100"`, save, then
 `Restart-Service MeshForgeAgent`. Record the exact config lines you changed (no secrets in it), then recheck
-C17-e (log shows connected, Established TCP to 47101, session_epoch >= 1). If L1's IP ever changes, this line must
+C17-e (log shows connected, Established TCP to 47100, session_epoch >= 1). If L1's IP ever changes, this line must
 be updated - write that in the report. Then continue your TODO.
+
+**CORRECTION (Lead):** the session port is **47100** (47101 is enrolment). Use `controller_address = "192.168.31.13:47100"`. My earlier note said 47101 - my mistake.

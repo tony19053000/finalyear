@@ -59,7 +59,7 @@ the **complete Wi-Fi network test (S1) between all four laptops**, every pair, b
 
 | id | host | OS | IP (Wi-Fi, DHCP - re-check) | GPU | role / state |
 |---|---|---|---|---|---|
-| L1 | JARVISM3 | Linux | 192.168.31.13 | RTX 3050 4 GB | **controller installed + fabric created + running** (`https://192.168.31.13:47110/`, gRPC 47101). Admin user `admin` (password: human only). V0.2 done. |
+| L1 | JARVISM3 | Linux | 192.168.31.13 | RTX 3050 4 GB | **controller installed + fabric created + running** (`https://192.168.31.13:47110/`, agent gRPC 47100, enrolment 47101). Admin user `admin` (password: human only). V0.2 done. |
 | L2 | AILESH | Windows 11 | 192.168.31.155 | RTX 2050 4 GB, CUDA torch | V0.2 done. Agent installer downloaded; install + join next. |
 | L3 | **MOHIT (NEW laptop)** | Windows 11 | 192.168.31.71 | none (Intel UHD) | **Replaced the old L3 (TIWARI_JI, retired; backup branch `lab/L3-old-TIWARI_JI`, ignore it).** Doing round 1 + V0.2 catch-up. |
 | L4 | new, arrived | (from its round 1) | (from its `L4-ready`) | (from its round 1) | Starting round 1 + V0.2 catch-up. |
