@@ -376,3 +376,13 @@ result: rep 1 not counted (Enter 11.26 s after Wi-Fi off: operator timing). 4 va
     Note for the Lead: the tool counts the first rep as late every time on Wi-Fi (operator learning); a 6-rep run would give n=5.
 evidence: lab/reports/2026-11-03-V0.3-fabric-watch.md, lab/reports/raw/2026-11-03-V0.3-fabric-watch/l1-dffe8596__ailesh-cable-125301-e8a1e463.json
 SIGNAL: C3.7-a done L2
+
+### C3.7-a - Wi-Fi drop, L4 (LAPTOP-7ORVM30G) - FAIL (1 of 6 reps over 10 s; recorded, non-blocking)
+commands:
+    uv run python lab/fabric_check.py --name L1 watch --node LAPTOP-7ORVM30G --link wifi --reps 6   (LIVE; 6 reps so a late first rep would still leave n=5 - none was late)
+result: n=6, valid row. OFFLINE 5.33/5.03/4.78/5.51/4.62/4.71 s (mean 5.00) - all within 8 s.
+    ONLINE 14.52/8.21/8.46/7.85/8.13/6.96 s (mean 9.02) - rep 1 exceeded 10 s, reps 2-6 within. Agent restarted: no (every rep).
+    Summary C3.7-a, all 3 agents: OFFLINE always <= 6 s (pass); ONLINE on Wi-Fi often 7-8 s but 14-18 s in 7 of 14 valid reps
+    (L3 3/4, L2 1/4, L4 1/6) - Wi-Fi re-association time is inside the number. Lead decides how the 10 s bound applies on Wi-Fi.
+evidence: lab/reports/2026-11-03-V0.3-fabric-watch.md, lab/reports/raw/2026-11-03-V0.3-fabric-watch/l1-dffe8596__laptop-7orvm30g-cable-125717-503906e8.json
+SIGNAL: C3.7-a done L4
