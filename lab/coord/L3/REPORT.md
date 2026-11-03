@@ -78,3 +78,7 @@ result: HEAD dc257850, uv sync --extra agent exit 0.
 
 ### C0-c - ready - OK
 SIGNAL: L3-ready ip=192.168.31.71 os=windows host=MOHIT
+
+### NL-1 - old files removed - OK
+when: 2026-11-03 14:59 (local)
+result: 9 TIWARI_JI files (2026-11-01) removed from lab/L3 after checking each exists on origin/lab/L3-old-TIWARI_JI. MOHIT files (2026-11-03) kept.
