@@ -325,3 +325,5 @@ result: exit 0. TCP x1 L3->L2 198.50 +- 3.58 Mbit/s; x4 L3->L2 273.50 +- 2.65; x
     UDP echo RTT mean 3.492 ms, p95 4.663 ms, jitter 0.621 ms, loss 0.100 +- 0.224 %.
 evidence: lab/reports/raw/2026-11-03-S1-network/ailesh-1ad242f0__to-mohit_wifi-930c4d45.json
 SIGNAL: s1-client-done L2-to-L3
+
+S1 client RUNNING L2-to-L4
