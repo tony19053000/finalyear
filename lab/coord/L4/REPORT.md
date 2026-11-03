@@ -78,3 +78,22 @@ when: 2026-11-03 14:25 (local)
 commands:
     git fetch origin; git merge origin/main; git rev-parse --short HEAD; uv sync --extra agent
 result: HEAD 080474cf, uv sync --extra agent exit 0.
+
+### C0-a - re-sync after break - OK
+when: 2026-11-03 (local, after the 2-day break)
+commands:
+    git fetch origin; git merge origin/main; read lab/coord/ANNOUNCE.md
+result: HEAD f41d451f. L4 TODO unchanged. Wi-Fi IP re-checked: 192.168.31.244 (unchanged).
+
+### C0-b - HUMAN BATCH - PARTIAL
+result: Wi-Fi profile JARVIS 2 = Private (OK, the blocking part). Pending human (Administrator): sleep off on AC
+    (powercfg), Windows Update pause, clock resync (w32tm /query /status: Leap Indicator 3, not synchronized; last sync 13:10, source time.windows.com).
+
+### C0-c - ready - OK
+SIGNAL: L4-ready ip=192.168.31.244 os=windows host=LAPTOP-7ORVM30G
+
+### CU-a - Network facts (0.2.4) - OK
+commands:
+    netsh wlan show interfaces; Get-NetAdapter | ft Name,LinkSpeed; Get-NetConnectionProfile
+result: Intel Wi-Fi 6E AX211, SSID JARVIS, 5 GHz ch 157, 802.11ax, 1.2 Gbps, signal 97%, profile Private.
+evidence: lab/reports/raw/2026-11-03-V0.2-network-facts/L4.txt
