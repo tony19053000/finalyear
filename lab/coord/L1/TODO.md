@@ -609,3 +609,14 @@ WAIT: `SIGNAL: joined` from L4 (or a Lead note in CAMPAIGN.md that V1.0 runs wit
   **OK when:** every verifier `CLEAN: nothing left behind`.
 - **LEAD CHECKPOINT V1.0.** EMIT SIGNAL: V1.0-done. Write `## DONE` in REPORT.md, push, tell the human
   "L1 done - tell the Lead to read lab/L1".
+
+
+---
+## LEAD NOTE (2026-11-03): L3 laptop REPLACED, L4 arrived
+- The old L3 (TIWARI_JI) is retired. A **new L3** restarts on branch `lab/L3` (old report archived as
+  `REPORT-old-TIWARI_JI.md`; ignore it). **L4** starts now too. Both do the V0.2 catch-up (L4 TODO phase CU).
+- Treat the new L3 exactly like L4 in the "L4 S1 catch-up" rule: when `SIGNAL: s1-serve-up L3` appears on the
+  NEW `origin/lab/L3` REPORT.md, run your S1 client against its IP, push, EMIT `s1-client-done <you>-to-L3`.
+  Same for L4. Old L3 S1 results (TIWARI_JI) stay in the raw folder but are not the new L3.
+- Their installs/joins come later; you keep going with your own TODO meanwhile (phases that "need L4" now also
+  wait for the new L3's `SIGNAL: joined`).

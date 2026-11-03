@@ -136,6 +136,21 @@ def local_facts() -> dict[str, JSON]:
     return {**os_build(), "wsl": wsl_status_here()}
 
 
+# Windows PowerShell 5.1 ``ConvertTo-Json`` writes the NetworkCategory enum as its
+# number, not its name (lab L2, 2026-11-01: a Private profile read as "1").
+_CATEGORY_NAMES: dict[int, str] = {0: "Public", 1: "Private", 2: "DomainAuthenticated"}
+
+
+def _category(value: JSON) -> JSON:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        return _CATEGORY_NAMES.get(value, value)
+    if isinstance(value, str) and value.strip().isdigit():
+        return _CATEGORY_NAMES.get(int(value), value)
+    return value
+
+
 def parse_connection_profiles(text: str) -> list[dict[str, JSON]]:
     """``Get-NetConnectionProfile | ConvertTo-Json`` -> one row per connection."""
     data = json.loads(text or "[]")
@@ -149,7 +164,7 @@ def parse_connection_profiles(text: str) -> list[dict[str, JSON]]:
                 "interface": row.get("InterfaceAlias"),
                 "interface_index": row.get("InterfaceIndex"),
                 "network": row.get("Name"),
-                "category": row.get("NetworkCategory"),
+                "category": _category(row.get("NetworkCategory")),
                 "ipv4_connectivity": row.get("IPv4Connectivity"),
             }
         )

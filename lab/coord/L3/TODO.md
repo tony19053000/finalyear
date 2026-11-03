@@ -1,3 +1,24 @@
+# >>> NEW L3 LAPTOP (2026-11-03) - READ THIS FIRST <<<
+
+The team REPLACED the L3 laptop. The old L3 (Windows, TIWARI_JI) is retired; its results stay in git history
+and under its own hostname in `lab/reports/` but no longer count as L3. You are the NEW L3. Start from zero:
+
+1. **NL-0 Archive the old report** (on branch `lab/L3`): `git fetch origin`, `git checkout lab/L3` (create from
+   `origin/lab/L3` if missing), `git merge origin/main`, then `git mv lab/coord/L3/REPORT.md
+   lab/coord/L3/REPORT-old-TIWARI_JI.md`, create a fresh `lab/coord/L3/REPORT.md` with the line
+   `# L3 REPORT (new laptop, replaces TIWARI_JI)`, commit `lab(L3): new laptop, old report archived`, push.
+   Old SIGNAL lines must not be visible to the others any more - that is why.
+2. **Round 1** below (R1-1 ... R1-7) on this laptop, then the round-1b items that apply (Wi-Fi Private, `uv sync
+   --extra agent`, CUDA torch only if this laptop has an NVIDIA GPU and the human agrees).
+3. **Catch-up for V0.2**: follow `lab/coord/L4/TODO.md` phases **P0 and CU** exactly, but with **L3** in every
+   signal, file name and `--name` (e.g. `SIGNAL: L3-ready`, `SIGNAL: s1-serve-up L3`, `v02-raw-pushed L3`).
+4. Then continue in THIS file from **Phase V0.17a** (install + join) onward. Skip every V0.2 step in this file
+   (already covered by step 3). Steps here that say "done early" or WAITING refer to the old laptop - redo them.
+
+L1, L2 and L4 have been told (Lead note in their TODOs) to run their S1 pairs against the new L3.
+
+---
+
 # L3 TODO - round 1: this laptop alone (V0.2, Wi-Fi only)
 
 Read `lab/coord/RULES.md` first. Work on branch `lab/L3`. Write results to `lab/coord/L3/REPORT.md`.
@@ -282,3 +303,23 @@ Both are test bugs (Lead fixing on main): symlink tests must skip without the Wi
 component/agent conftest must not abort collection. C4.15-g command now installs `--extra controller`.
 After the next `git merge origin/main` shows commit "test: skip symlink tests without privilege", re-run
 C3.2-a and C4.15-g once and report (expect 0 failed). Until then: non-blocking, continue.
+
+---
+## LEAD NOTE (2026-11-03, after R1-3/R1-5 on MOHIT)
+Good diagnosis. The `-EncodedCommand` hang is a lab-tool bug (src/ is not affected); the Lead is switching the
+lab tools to a temp `.ps1` + `-File`. Until that lands on main: continue with P0/CU (S1 network does not use it).
+When `git merge origin/main` brings a commit "fix(lab): run PowerShell via temp .ps1 -File", re-run R1-3 and
+R1-5 (quick + full, `--skip-gpu`) and report. Do not start Docker Desktop for now (not required on L3).
+
+---
+## LEAD NOTE (2026-11-03): remove the old laptop's files from lab/L3 - do this NEXT
+The old laptop's work is backed up on branch `lab/L3-old-TIWARI_JI`. Branch `lab/L3` must hold only YOUR (MOHIT)
+data. At your next step boundary run, then push:
+```
+git rm lab/coord/L3/REPORT-old-TIWARI_JI.md lab/reports/inventory/TIWARI_JI.json lab/reports/raw/2026-11-01-V0.2-network-facts/L3.txt
+git rm lab/reports/raw/2026-11-01-S6-environments/l3-842983de.json lab/reports/raw/2026-11-01-S6-environments/l3-842983de__quick.json
+git rm lab/reports/raw/2026-11-01-S7-hardware/l3-842983de.json lab/reports/raw/2026-11-01-S7-hardware/l3-842983de__quick.json lab/reports/raw/2026-11-01-S7-hardware/l3-842983de__quick__run2.json lab/reports/raw/2026-11-01-S7-hardware/l3-842983de__run2.json
+git commit -m "lab(L3): remove old laptop (TIWARI_JI) files; backup on lab/L3-old-TIWARI_JI" && git push origin lab/L3
+```
+Delete only these files (check each is from 2026-11-01 / TIWARI_JI first). Keep everything dated 2026-11-03 (yours).
+Record it as one REPORT line "NL-1 old files removed" and continue.
