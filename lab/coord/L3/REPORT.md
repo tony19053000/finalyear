@@ -263,3 +263,18 @@ result: 171 lines. Attempt 1 (att_...PBET) failed at 20:32:56Z: `agent.cas.sourc
 BUG?: one RemoteProtocolError mid-transfer from the controller on Wi-Fi; recovered by the retry. For Lead to judge.
 evidence: lab/reports/raw/2026-11-04-V0.5-data/L3-agent.txt
 SIGNAL: V0.5-done
+
+### C6-peer - peer serving on (V0.6 part C) - FAIL (firewall rule missing)
+when: 2026-11-04 03:25 (local)
+laptop: L3 (MOHIT), Wi-Fi IP 192.168.31.71
+commands:
+    HUMAN (Administrator): appended to C:\ProgramData\MeshForge\config\config.toml (file had no other lines):
+        [agent.peer]
+        bind = "192.168.31.71"
+    Restart-Service MeshForgeAgent; Get-Service MeshForgeAgent
+    Get-NetFirewallRule -DisplayName *MeshForge*
+    Get-NetTCPConnection -LocalPort 47120 -State Listen
+    HUMAN (Administrator): Get-NetFirewallPortFilter | Where-Object LocalPort -eq 47120 | Get-NetFirewallRule; Select-String agent.log -Pattern firewall
+result: service Running; peer server LISTENING on 192.168.31.71:47120 (pid 19308). But NO firewall rule: no rule named *MeshForge*, no rule for local port 47120 at all, and agent.log has NO line containing "firewall" (sync_firewall left no trace).
+BUG: Windows service did not create the inbound 47120 rule at start with `[agent.peer] bind` set (ANNOUNCE 2026-11-04 says `sync_firewall` does it at service start). With the Private-profile Windows firewall on, other laptops' peer fetches from L3 will likely be blocked. Reproduce: MOHIT, v0.17.0-1, config above, Restart-Service MeshForgeAgent. Not added by hand (rules: no firewall changes without Lead).
+SIGNAL: peer-on L3 ip=192.168.31.71 (listening; firewall rule MISSING)
