@@ -8,6 +8,8 @@ on Windows)::
     node.json      {"format": 1, "node_id", "session_epoch", "created_at",
                     "key_fingerprint_sha256"}
     identity.lock  empty advisory lock file (``common.filelock``), never deleted
+    controller.json  V1.0 G8 F4: the last-known controller endpoint (a dial hint,
+                   ``agent/known_controller.py``); deleted with the enrolment
 
 Rules (ADR-0013 §6):
 
@@ -89,6 +91,7 @@ from meshforge.common.windows_service import system_mode, windows_private_sids
 
 __all__ = [
     "CA_CERT_FILE_NAME",
+    "CONTROLLER_FILE_NAME",
     "DEFAULT_LOCK_TIMEOUT_S",
     "IDENTITY_FORMAT",
     "JSON_FILE_NAME",
@@ -120,6 +123,8 @@ NODE_CERT_FILE_NAME: Final = "node.crt"
 """V0.7 G2: the node certificate from `meshforge-agent join` (agent/enrollment.py)."""
 CA_CERT_FILE_NAME: Final = "ca.crt"
 """V0.7 G2: the fabric CA certificate pinned at join."""
+CONTROLLER_FILE_NAME: Final = "controller.json"
+"""V1.0 G8 F4: where this node last reached its controller (known_controller.py)."""
 ROTATION_KEY_FILE_NAME: Final = "node.key.next"
 """V0.7 G4: a new key staged by ``meshforge-agent rotate-key`` (module doc)."""
 ROTATION_DIR_NAME: Final = ".rotation"
@@ -322,7 +327,9 @@ def next_epoch(
 def reset(directory: Path, *, lock_timeout_s: float = DEFAULT_LOCK_TIMEOUT_S) -> None:
     """Delete the identity files under the lock - and, since V0.7 G2, the
     enrolment (``node.crt``, ``ca.crt``): a certificate for the old key is
-    worthless next to a new one. Missing files/directory are fine.
+    worthless next to a new one - and, since V1.0 G8 F4, the last-known
+    controller endpoint (``controller.json``) that belongs to that enrolment.
+    Missing files/directory are fine.
 
     The directory and ``identity.lock`` stay: deleting a lock file another process
     is blocked on would let two processes own the lock (see ``common.filelock``).
@@ -335,6 +342,7 @@ def reset(directory: Path, *, lock_timeout_s: float = DEFAULT_LOCK_TIMEOUT_S) ->
         for name in (
             NODE_CERT_FILE_NAME,
             CA_CERT_FILE_NAME,
+            CONTROLLER_FILE_NAME,
             ROTATION_KEY_FILE_NAME,
             KEY_FILE_NAME,
             JSON_FILE_NAME,

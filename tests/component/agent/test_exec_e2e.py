@@ -456,7 +456,9 @@ async def test_docker_runtime_end_to_end(
         grpc_target, data_dir, execution={"allow_unsandboxed": False}, docker=True
     )
     try:
-        assert docker_agent.setup.runtimes.keys() == {"docker"}
+        # V1.0 G8 F5 (D428): the unsandboxed runtimes are built too; the owner's
+        # live policy (allow_unsandboxed off) leaves only Docker to run with
+        assert "docker" in docker_agent.setup.runtimes
         project = tmp_path / "dproj"
         project.mkdir()
         (project / "main.py").write_text(

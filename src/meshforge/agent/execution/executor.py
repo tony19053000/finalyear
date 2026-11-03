@@ -32,9 +32,14 @@ clock; a phase that never ran is absent, never 0 - D68).
 
 Rules:
 
-* **Opt-in (D45).** An agent started with ``[agent.policy] accept_jobs = false``
-  (was ``[agent.execution] enabled``) answers every ``StartAttempt``
-  ``FAILED(unauthorized)`` and nothing runs.
+* **Opt-in (D45, D428).** While the owner's live ``[agent.policy] accept_jobs``
+  is off, every ``StartAttempt`` is answered ``FAILED(unauthorized)``
+  (``policy_denied:policy_not_accepting``) and nothing runs. An agent started
+  with it off holds a *look-only* setup (no side-effecting probe ran) that
+  refuses every attempt - retryable once jobs are on, while
+  :mod:`.activation` builds the full setup and swaps it in
+  (:meth:`Executor.replace_setup`); no restart. A setup built disabled
+  (:func:`~.offer.disabled_setup`, or no runtime found) refuses every attempt.
 * **Owner policy (V0.7 G5, D142).** Every attempt is re-checked against the
   owner's *current* policy before anything is fetched (:func:`.plan.plan_attempt`):
   a refusal is ``FAILED(unauthorized)``, detail ``policy_denied:<code>: ...``,
@@ -100,7 +105,14 @@ import re
 import stat
 import time
 from collections import OrderedDict
-from collections.abc import Awaitable, Callable, Collection, Mapping, Sequence
+from collections.abc import (
+    Awaitable,
+    Callable,
+    Collection,
+    Coroutine,
+    Mapping,
+    Sequence,
+)
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -740,8 +752,10 @@ class Executor(CombineSteps):
             coro = self._refuse(
                 attempt,
                 FailureType.UNAUTHORIZED,
-                "execution is disabled on this node ([agent.execution] enabled = false)",
+                "execution is disabled on this node (no runtime to run a job with)",
             )
+        elif not self._setup.complete:
+            coro = self._refuse_look_only(attempt)
         elif attempt.lane is not None and attempt.combine is not None:
             coro = self._refuse(
                 attempt,
@@ -1187,6 +1201,32 @@ class Executor(CombineSteps):
             )
 
     # ------------------------------------------------------------ one attempt
+
+    def _refuse_look_only(self, attempt: _Attempt) -> Coroutine[Any, Any, None]:
+        """V1.0 G8 F5 (D428): never run on a look-only setup. Jobs off: the
+        owner's refusal; jobs just turned on: the full setup is being built
+        (retryable - the controller tries again)."""
+        policy = None if self._policy is None else self._policy.policy
+        if policy is None or not policy.accept_jobs:
+            return self._refuse(
+                attempt,
+                FailureType.UNAUTHORIZED,
+                "policy_denied:policy_not_accepting: the node's owner does not "
+                "accept jobs now ([agent.policy] accept_jobs)",
+            )
+        return self._refuse(
+            attempt,
+            FailureType.RESOURCE_BUSY,
+            "execution_setup_pending: Run jobs was just turned on; this node is "
+            "setting up its runtimes",
+            retryable=True,
+        )
+
+    def replace_setup(self, setup: ExecutionSetup) -> None:
+        """V1.0 G8 F5 (D428): the full setup built when the owner first turned
+        jobs on (:mod:`.activation`). Later attempts use it; none ran on the
+        look-only one (it refuses every attempt)."""
+        self._setup = setup
 
     async def _refuse(
         self,

@@ -103,7 +103,11 @@ from typing import Any, Final, Protocol
 
 import grpc
 
-from meshforge.agent.discovery import ControllerResolver, resolver_for
+from meshforge.agent.discovery import (
+    ENROLL_PORT_HINT,
+    ControllerResolver,
+    resolver_for,
+)
 from meshforge.agent.identity import NodeIdentity, next_epoch
 from meshforge.agent.policy import LivePolicy
 from meshforge.agent.session.errors import (
@@ -307,7 +311,12 @@ class AgentSessionClient:
             settings.agent.controller_address,
             settings.agent.discovery,
             node_id=self.node_id,
+            identity_dir=identity.path,
         )
+        self._remembered: str | None = None
+        """The controller endpoint last written as the known hint (F4)."""
+        self._wrong_port_hinted: set[str] = set()
+        """Addresses already warned about as "not a session port" (F4)."""
         self._clock_override = clock
         self._rand = rand
         self._hardware = hardware
@@ -819,6 +828,7 @@ class AgentSessionClient:
                     self.after_reconcile()
                 for hook in self.after_reconcile_hooks:
                     hook()
+                await self._remember_controller()
             end = await self._read_loop(call)
         finally:
             self._heartbeat_task.cancel()
@@ -843,6 +853,32 @@ class AgentSessionClient:
             )
             return _Outcome.STOP
         return await self._finish_stream(end)
+
+    async def _remember_controller(self) -> None:
+        """V1.0 G8 F4: an accepted session proves this endpoint is our fabric's
+        controller (mTLS against the pinned CA) - keep it as the dial hint for
+        when mDNS finds nothing (``agent/known_controller.py``). Written only
+        when it changed; never fatal. Not in ``insecure-dev`` (no trust check).
+        The join writes its hint unconditionally instead: ``Enroll`` itself ran
+        over TLS verified against the CA pinned from the code, so that endpoint
+        is already proven before any session exists."""
+        target = self.controller_target
+        if not target or target == self._remembered or self.settings.security.insecure:
+            return
+        from meshforge.agent.known_controller import remember
+
+        saved = await asyncio.to_thread(
+            remember,
+            self.identity.path,
+            target,
+            source="session",
+            # Short: the owner task reads nothing while it waits; a busy lock
+            # just means "try again at the next accepted session".
+            lock_timeout_s=min(self.settings.agent.identity_lock_timeout_s, 1.0),
+            node_id=self.node_id,
+        )
+        if saved:
+            self._remembered = target
 
     async def _reconcile_safely(self, gate: _StreamGate, *, replay: bool) -> bool:
         """Reconcile + replay; False if the stream died under it.
@@ -1257,6 +1293,20 @@ class AgentSessionClient:
             action=end.action.value,
             lived_s=round(lived, 3),
         )
+        if (
+            end.code is grpc.StatusCode.UNIMPLEMENTED
+            and self.controller_target not in self._wrong_port_hinted
+        ):
+            # V1.0 G8 F4: a gRPC server without AgentControl answered - in
+            # practice the controller's join port named as controller_address.
+            # Still retried (it may be a controller mid-upgrade); hinted once.
+            self._wrong_port_hinted.add(self.controller_target)
+            log.warning(
+                "agent.session.not_a_session_port",
+                node_id=self.node_id,
+                controller_address=self.controller_target,
+                hint=ENROLL_PORT_HINT,
+            )
         if end.action is StreamEndAction.STOP_SUPERSEDED:
             self._transition(AgentEvent.FATAL, reason="superseded")
             raise SupersededError(self.node_id, self.session_id)

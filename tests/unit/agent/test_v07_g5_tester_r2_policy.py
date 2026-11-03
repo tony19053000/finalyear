@@ -106,8 +106,9 @@ BROKEN = [
 async def test_a_broken_policy_file_at_start_never_widens_and_denies_all_jobs(
     tmp_path: Path, how: str
 ) -> None:
-    """The overlay would turn everything on; broken, it must grant NOTHING at
-    start (config alone: both false) and the live policy denies all jobs."""
+    """The overlay would turn everything on; broken, it must grant NOTHING
+    (config alone: both false) and the live policy denies all jobs. Since V1.0
+    G8 F5 (D428) the runtimes are probed anyway - what grants is the policy."""
     settings = _settings(tmp_path, accept_jobs=False, allow_unsandboxed=False)
     path = settings.data_dir / "policy.toml"
     _break_file(path, how, tmp_path)
@@ -118,9 +119,10 @@ async def test_a_broken_policy_file_at_start_never_widens_and_denies_all_jobs(
         host_has_nvidia_gpu=False,
         docker_factory=lambda _c: _NoDocker(),  # type: ignore[arg-type,return-value]
     )
-    assert not setup.enabled and setup.runtimes == {}
+    assert setup.enabled  # F5: CAN run is probed; ALLOWS is the live policy
     live = build_live_policy(settings, gpu_count=0)
     assert live.policy == op.DENY_ALL
+    assert not live.policy.accept_jobs and live.slots == (0, 0)
 
 
 @pytest.mark.parametrize("how", BROKEN)
@@ -189,9 +191,8 @@ def _set(*items: str) -> str:
     return result.stdout
 
 
-def test_both_notes_come_with_an_invalid_old_file_and_the_other_keys_stay_quiet(
-    tmp_path: Path,
-) -> None:
+def test_no_note_with_an_invalid_old_file_either(tmp_path: Path) -> None:
+    """V1.0 G8 F5 (D428): no key needs a restart any more."""
     path = tmp_path / "data" / "policy.toml"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("max_cpu_percent = 500\n")
@@ -202,15 +203,13 @@ def test_both_notes_come_with_an_invalid_old_file_and_the_other_keys_stay_quiet(
         "allow_unsandboxed=true",
         "allow_network=true",
     )
-    assert "accept_jobs = false" in out
-    assert "allow_unsandboxed = false" in out
-    assert out.count("note:") == 2
+    assert "note:" not in out
 
 
-def test_off_then_on_again_repeats_the_note_each_time() -> None:
-    assert "restart" in _set("allow_unsandboxed=true")
+def test_off_then_on_again_gives_no_note() -> None:
+    assert "restart" not in _set("allow_unsandboxed=true")
     _set("allow_unsandboxed=false")
-    assert "restart" in _set("allow_unsandboxed=true")
+    assert "restart" not in _set("allow_unsandboxed=true")
 
 
 def test_the_note_survives_a_value_that_is_a_string_true() -> None:

@@ -575,15 +575,37 @@ INVALID) - it never falls back to something looser.
 
 - A tighter policy **does not stop jobs already running** on this laptop
   (cancel them with `compute cancel` if needed); it blocks the next start.
-- Two changes need **one agent restart**: turning `accept_jobs` on when the
-  agent was started with it off, and turning `allow_unsandboxed` on when it was
-  started off - the runtimes are found at start (`policy set` prints a note
-  for each). The restart reads the configuration **plus** the live
-  `policy.toml`, so `policy set accept_jobs=true allow_unsandboxed=true` then
-  one restart is enough (V0.7 G5 fix r1). A broken `policy.toml` at start: the
-  runtimes are probed from the configuration alone (log
-  `agent.policy.invalid_at_start`) and every job is refused until the file is
-  fixed. Turning either **off** is live.
+- Every change is live, turning `accept_jobs` ("Run jobs") or
+  `allow_unsandboxed` ("Allow jobs without a container") **on** included - no
+  restart (V1.0 G8 F5, D428).
+- **What "Run jobs" off does now.** The laptop joins and reports what it could
+  run, but nothing of anyone's job is fetched, built or run, and MeshForge only
+  *looks*: it asks Docker whether it is there (no container is started) and
+  reads the GPU and system facts; it writes no cgroup setting. The first time
+  you turn Run jobs **on**, MeshForge finishes setting up once (it may start one
+  short GPU-check container and enable the CPU-share cgroup) and reconnects to
+  the controller by itself (`agent.execution.activated` in the log); a job sent
+  in those few seconds is retried. If that setup fails
+  (`agent.execution.activation_failed`), the agent stays look-only and retries
+  by itself (2 s, doubling to 60 s) while Run jobs stays on. Turning it off
+  again stops new jobs at once; running ones finish. At start a jobs-off agent
+  still undoes benchmark conditions (e.g. a `tc netem` qdisc) a crashed
+  MeshForge run left applied - only MeshForge's own leftovers.
+- **Known limit (first enable without a restart):** the agent's Docker image GC
+  and the Docker part of its environment-cache index are wired at start, so on
+  an agent that started with Run jobs off and was enabled live they stay off
+  until its next restart (jobs run; `meshforge-env:*` images are not collected
+  and the planner does not see Docker environments as cached). Restart the
+  agent once at a convenient time to turn them on.
+- **Known limit (Docker down at the first enable):** if the Docker daemon is not
+  running when Run jobs is first turned on, the agent finishes its setup without
+  Docker (subprocess/venv only, if allowed) and counts it as complete; a Docker
+  daemon started later is picked up only after an agent restart (the same as
+  for an agent started with jobs on while Docker was down).
+- An agent **older than V1.0** that was started with Run jobs off still needs
+  one restart (it found no runtime); the controller then refuses with "the
+  node's agent has no runtime ... needs one restart". A broken `policy.toml`:
+  every job is refused until the file is fixed.
 - The agent also re-checks the file after a `chmod`/`chown` alone: making
   `policy.toml` readable or writable by others makes the laptop accept nothing
   until it is `0600` again.

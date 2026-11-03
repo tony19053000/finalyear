@@ -41,7 +41,12 @@ from meshforge.common.manifest import (
     PolicyName,
 )
 from meshforge.common.ml_eval import DEFAULT_ML_EVAL_TIMEOUT_S
-from meshforge.common.netaddr import is_loopback_host, parse_bind
+from meshforge.common.netaddr import (
+    CONTROLLER_ENROLL_PORT,
+    CONTROLLER_SESSION_PORT,
+    is_loopback_host,
+    parse_bind,
+)
 from meshforge.common.pki import PkiError, validate_san_host
 from meshforge.common.versioning import parse_minor
 from meshforge.controller.fabric_ca import (
@@ -84,8 +89,8 @@ __all__ = [
     "TlsSettings",
 ]
 
-DEFAULT_GRPC_PORT = 47100
-DEFAULT_ENROLL_PORT = 47101
+DEFAULT_GRPC_PORT = CONTROLLER_SESSION_PORT
+DEFAULT_ENROLL_PORT = CONTROLLER_ENROLL_PORT
 """V0.7 G2 (D150): the interim TLS enrolment listener (gone in G3)."""
 DEFAULT_HTTP_PORT = 47110
 DEFAULT_SERVICE_TYPE = "_meshforge-ctl._tcp.local."

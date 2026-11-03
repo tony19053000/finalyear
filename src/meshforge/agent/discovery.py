@@ -1,4 +1,5 @@
-"""Finding the controller (roadmap 0.3.9): configured address, else mDNS.
+"""Finding the controller (roadmap 0.3.9): configured address, else mDNS, else
+the last-known endpoint (V1.0 G8 F4).
 
 The session client calls :meth:`ControllerResolver.resolve` at the start of every
 cycle (state ``DISCOVERING``). Two implementations:
@@ -14,6 +15,15 @@ cycle (state ``DISCOVERING``). Two implementations:
   ``None`` -> the client goes to BACKOFF and browses again next cycle; it never
   spins.
 
+**Last-known fallback (V1.0 G8 F4).** With an identity directory,
+:func:`resolver_for` wraps mDNS in :class:`LastKnownFallbackResolver`: browse
+first; when nothing answers, dial the endpoint this node enrolled against or
+last held an accepted session with (``agent/known_controller.py``). mDNS stays
+first so a controller whose IP changed (DHCP) is found at its new address, and
+the next accepted session rewrites the hint. Order:
+``controller_address`` > mDNS > last-known. The hint is a dial target only -
+the session's mTLS against the fabric CA is the trust check, as for mDNS.
+
 ``zeroconf`` (agent extra) is imported lazily so the module - and the whole agent
 with a configured address - works on a base install; a missing package is a typed
 :class:`~meshforge.common.errors.ConfigError` naming the extra.
@@ -25,18 +35,25 @@ import asyncio
 import contextlib
 import ipaddress
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Protocol
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Final, Protocol
 
 from meshforge.common.errors import ConfigError
 from meshforge.common.logging import get_logger
-from meshforge.common.netaddr import is_lan_address
+from meshforge.common.netaddr import (
+    CONTROLLER_ENROLL_PORT,
+    CONTROLLER_SESSION_PORT,
+    is_lan_address,
+)
 
 if TYPE_CHECKING:
     from meshforge.agent.settings import DiscoverySettings
 
 __all__ = [
+    "ENROLL_PORT_HINT",
     "ControllerResolver",
     "FoundController",
+    "LastKnownFallbackResolver",
     "MdnsResolver",
     "StaticResolver",
     "browse_controllers",
@@ -47,6 +64,16 @@ __all__ = [
 log = get_logger(__name__)
 
 _RESOLVE_TIMEOUT_MS = 2000
+
+ENROLL_PORT_HINT: Final = (
+    f"port {CONTROLLER_ENROLL_PORT} is the controller's join (enrolment) port, the "
+    "one in the join code; the agent connects to the controller's session port "
+    f"(default {CONTROLLER_SESSION_PORT}): set agent.controller_address = "
+    f"'<controller-ip>:{CONTROLLER_SESSION_PORT}', or leave it empty to find the "
+    "controller automatically"
+)
+"""V1.0 G8 F4: logged when ``controller_address`` names the join port, or the
+dialled address answers gRPC without the session service (UNIMPLEMENTED)."""
 
 
 def format_target(host: str, port: int) -> str:
@@ -185,16 +212,62 @@ class MdnsResolver:
         return None
 
 
+class LastKnownFallbackResolver:
+    """``primary`` (mDNS), then the last-known endpoint in ``identity_dir``
+    (see module docstring). ``None`` only when both have nothing."""
+
+    def __init__(
+        self, primary: ControllerResolver, identity_dir: Path, *, node_id: str
+    ) -> None:
+        self._primary = primary
+        self._identity_dir = Path(identity_dir)
+        self._node_id = node_id
+
+    async def resolve(self) -> str | None:
+        target = await self._primary.resolve()
+        if target is not None:
+            return target
+        from meshforge.agent.known_controller import load_known
+
+        known = await asyncio.to_thread(load_known, self._identity_dir)
+        if known is None:
+            return None
+        log.info(
+            "agent.discovery.last_known",
+            node_id=self._node_id,
+            address=known.address,
+            source=known.source,
+            updated_at=known.updated_at,
+            reason="mdns_found_nothing",
+        )
+        return known.address
+
+
 def resolver_for(
-    controller_address: str, discovery: DiscoverySettings, *, node_id: str
+    controller_address: str,
+    discovery: DiscoverySettings,
+    *,
+    node_id: str,
+    identity_dir: Path | None = None,
 ) -> ControllerResolver:
-    """The resolver the settings ask for."""
+    """The resolver the settings ask for; ``identity_dir`` adds the
+    last-known fallback behind mDNS (V1.0 G8 F4)."""
     if controller_address:
         from meshforge.agent.settings import parse_controller_address
 
         host, port = parse_controller_address(controller_address)
+        if port == CONTROLLER_ENROLL_PORT:
+            log.warning(
+                "agent.discovery.enroll_port_configured",
+                node_id=node_id,
+                controller_address=controller_address,
+                hint=ENROLL_PORT_HINT,
+            )
         return StaticResolver(format_target(host, port))
-    return MdnsResolver(discovery, node_id=node_id)
+    mdns = MdnsResolver(discovery, node_id=node_id)
+    if identity_dir is None:
+        return mdns
+    return LastKnownFallbackResolver(mdns, identity_dir, node_id=node_id)
 
 
 @dataclass(frozen=True, slots=True)
