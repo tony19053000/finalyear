@@ -29,7 +29,7 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x19meshforge/v1/enroll.proto\x12\x0cmeshforge.v1\"4\n\rEnrollRequest\x12\x12\n\njoin_token\x18\x01 \x01(\x0c\x12\x0f\n\x07\x63sr_pem\x18\x02 \x01(\x0c\"`\n\x0e\x45nrollResponse\x12\x15\n\rnode_cert_pem\x18\x01 \x01(\x0c\x12\x13\n\x0b\x63\x61_cert_pem\x18\x02 \x01(\x0c\x12\x11\n\tfabric_id\x18\x03 \x01(\t\x12\x0f\n\x07node_id\x18\x04 \x01(\t2Q\n\nEnrollment\x12\x43\n\x06\x45nroll\x12\x1b.meshforge.v1.EnrollRequest\x1a\x1c.meshforge.v1.EnrollResponseb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x19meshforge/v1/enroll.proto\x12\x0cmeshforge.v1\"4\n\rEnrollRequest\x12\x12\n\njoin_token\x18\x01 \x01(\x0c\x12\x0f\n\x07\x63sr_pem\x18\x02 \x01(\x0c\"v\n\x0e\x45nrollResponse\x12\x15\n\rnode_cert_pem\x18\x01 \x01(\x0c\x12\x13\n\x0b\x63\x61_cert_pem\x18\x02 \x01(\x0c\x12\x11\n\tfabric_id\x18\x03 \x01(\t\x12\x0f\n\x07node_id\x18\x04 \x01(\t\x12\x14\n\x0csession_port\x18\x05 \x01(\r2Q\n\nEnrollment\x12\x43\n\x06\x45nroll\x12\x1b.meshforge.v1.EnrollRequest\x1a\x1c.meshforge.v1.EnrollResponseb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
@@ -39,7 +39,7 @@ if not _descriptor._USE_C_DESCRIPTORS:
   _globals['_ENROLLREQUEST']._serialized_start=43
   _globals['_ENROLLREQUEST']._serialized_end=95
   _globals['_ENROLLRESPONSE']._serialized_start=97
-  _globals['_ENROLLRESPONSE']._serialized_end=193
-  _globals['_ENROLLMENT']._serialized_start=195
-  _globals['_ENROLLMENT']._serialized_end=276
+  _globals['_ENROLLRESPONSE']._serialized_end=215
+  _globals['_ENROLLMENT']._serialized_start=217
+  _globals['_ENROLLMENT']._serialized_end=298
 # @@protoc_insertion_point(module_scope)

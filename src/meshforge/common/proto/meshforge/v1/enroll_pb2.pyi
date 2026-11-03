@@ -73,6 +73,7 @@ class EnrollResponse(_message.Message):
     CA_CERT_PEM_FIELD_NUMBER: _builtins.int
     FABRIC_ID_FIELD_NUMBER: _builtins.int
     NODE_ID_FIELD_NUMBER: _builtins.int
+    SESSION_PORT_FIELD_NUMBER: _builtins.int
     node_cert_pem: _builtins.bytes
     """The node certificate (30 days, EKU clientAuth + serverAuth), PEM."""
     ca_cert_pem: _builtins.bytes
@@ -80,6 +81,13 @@ class EnrollResponse(_message.Message):
     fabric_id: _builtins.str
     node_id: _builtins.str
     """The node_id the certificate names (echo of the CSR's, for the agent's check)."""
+    session_port: _builtins.int
+    """V1.0 G8 F4: the port of the controller's session (AgentControl) listener.
+    The agent remembers "<host it enrolled against>:session_port" as its
+    last-known controller endpoint and dials it when mDNS finds nothing. A dial
+    hint only: trust still comes from the fabric CA (mTLS). 0 = not known (an
+    older controller, or the session listener is not bound yet).
+    """
     def __init__(
         self,
         *,
@@ -87,10 +95,11 @@ class EnrollResponse(_message.Message):
         ca_cert_pem: _builtins.bytes = ...,
         fabric_id: _builtins.str = ...,
         node_id: _builtins.str = ...,
+        session_port: _builtins.int = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["ca_cert_pem", b"ca_cert_pem", "fabric_id", b"fabric_id", "node_cert_pem", b"node_cert_pem", "node_id", b"node_id"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["ca_cert_pem", b"ca_cert_pem", "fabric_id", b"fabric_id", "node_cert_pem", b"node_cert_pem", "node_id", b"node_id", "session_port", b"session_port"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 

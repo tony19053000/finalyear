@@ -152,6 +152,31 @@ owner settings.
 Other laptops cannot fetch files from this one on a network Windows calls *Public*; jobs still run. On your own
 network: **Settings → Network & internet → (your network) → Network profile type → Private**.
 
+### Joined, but the laptop never connects: the log repeats `agent.discovery.none` / `controller_not_found`
+The laptop finds its controller on the network by *mDNS* (multicast on UDP port 5353). Some Wi-Fi adapters,
+routers or firewall settings drop those packets. Since V1.0 the laptop also remembers the controller address it
+joined (and the last one it was connected to) and dials that when mDNS answers nothing, so this should now only
+happen when the controller **moved to a new IP address** and mDNS cannot see it. **Laptops that joined before
+V1.0 (v0.17.x)** have no remembered address yet: set `controller_address` once as below (or leave the fabric and
+join again); after one successful connection the laptop remembers it, and you can remove the line again. Check: from the laptop,
+`Test-NetConnection <controller-ip> -Port 47100` (Windows) or `nc -vz <controller-ip> 47100` (Ubuntu) must succeed.
+
+Workaround: tell the laptop where the controller is. In the configuration file
+(Windows: `C:\ProgramData\MeshForge\config\config.toml`, edited in an administrator editor; Ubuntu:
+`/etc/meshforge/config.toml` with `sudo`; create the file if it does not exist) put this line in the `[agent]`
+section (add the section once if the file has none):
+
+```toml
+[agent]
+controller_address = "192.168.31.13:47100"   # the controller's LAN IP : session port (default 47100)
+```
+
+Use port **47100** (the controller's session port), **not 47101**: 47101 is the join port that the invite code
+names. If you set 47101, the log says `agent.discovery.enroll_port_configured` or `agent.session.not_a_session_port`.
+Then press **Restart** on the MeshForge page. With an address set the laptop no longer uses mDNS at all, so if
+the controller's IP can change, give it a fixed address (a DHCP reservation in the router). The address only says
+where to connect: the laptop still checks the controller's certificate against the fabric it joined.
+
 ### "needs an elevated prompt" / "only administrators may change" (Windows)
 `meshforge-agent` commands that change the service need an administrator PowerShell (right-click → Run as
 administrator). For everyday things use the MeshForge page from the Start menu instead.
