@@ -106,3 +106,11 @@ commands:
     uv run python lab/spikes/s1_network.py serve --bind 192.168.31.71 --idle 3600 --duration 14400
 result: listening on 192.168.31.71:47201. Waiting for L1, L2, L4 clients.
 SIGNAL: s1-serve-up L3 ip=192.168.31.71
+
+### C17-a - Download + check - OK
+when: 2026-11-03 15:10 (local)
+laptop: L3 (MOHIT)
+commands:
+    gh release download v0.17.0 --repo tony19053000/finalyear --pattern "MeshForge-Agent-Setup-*" --pattern SHA256SUMS --dir $HOME\mf-pkgs
+    Get-FileHash vs SHA256SUMS
+result: MeshForge-Agent-Setup-0.17.0-1.exe 54.8 MB, SHA256 matches SHA256SUMS. Done early while waiting for S1 clients.
