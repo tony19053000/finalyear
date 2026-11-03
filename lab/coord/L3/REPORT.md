@@ -219,3 +219,14 @@ commands:
 result: w32time now Running, `Last Successful Sync Time 01:07:53`, source time.windows.com, stratum 5. But offset NOT corrected: 01:08 +644..+648 ms, 01:13 +648..+656 ms (not converging). Still > 200 ms.
   (first Set-Service/Start-Service attempt: "The computer did not resync because the time service was shutting down" - trigger-start service stopped itself.)
 SIGNAL: clock-offset L3 ms=+650 (FAIL > 200; fixing)
+
+### C4.0 / C4.15-a - clock offset - OK (attempt 4)
+when: 2026-11-04 01:36 (local)
+laptop: L3 (MOHIT)
+commands:
+    HUMAN (Administrator): Set-ItemProperty HKLM:\SYSTEM\CurrentControlSet\Services\W32Time\Config MaxAllowedPhaseOffset 0; w32tm /config /update; w32tm /resync /force
+      (printed "did not resync because no time data was available"; the service synced on its own seconds later)
+    w32tm /query /status; w32tm /stripchart /computer:time.windows.com /samples:3 /dataonly
+result: Last Successful Sync 01:36:32 from time.windows.com; offsets +8.6, -3.0, +5.2 ms (mean ~ +4 ms) vs time.windows.com. Within 200 ms. Changed setting: W32Time MaxAllowedPhaseOffset = 0 (lets w32time step the clock), w32time startup Automatic, manual peer time.windows.com. Replaces the earlier FAIL value.
+SIGNAL: clock-offset L3 ms=4
+SIGNAL: V0.4-done
