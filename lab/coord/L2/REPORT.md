@@ -386,3 +386,6 @@ Sleeper job job_01M6HBMPPBVRV9NH30256888X2 cancelled by L1. Non-admin `Get-CimIn
 ### C4.15-g part G Windows tests - OK (2026-11-04 00:42)
 `uv sync --extra agent --extra controller --group dev; uv run pytest tests/unit/common/test_bundle_case_insensitive.py tests/component/agent/test_docker_sandbox.py -q -rs`: 3 passed, 9 skipped (7 "Docker is not available", 2 GPU tests need --run-gpu). Case-insensitive tests pass, Docker tests skip as expected. Note: uv sync removed CUDA torch from .venv (reinstall when a GPU step needs it).
 SIGNAL: v04-g-done L2
+
+### C4.15-e LIVE - OK (2026-11-04 01:20)
+Administrator `Get-CimInstance Win32_Process -Filter "Name like 'python%'"`: only 2 python processes, both the agent service itself (PID 25068 `meshforge.agent.winservice host ...`, PID 25460 `meshforge.agent.winservice child -- run`). No sleeper `main.py` / `sleep 300` left. Leftover process after cancel: **no**.
