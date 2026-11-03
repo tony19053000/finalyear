@@ -296,3 +296,21 @@ result: HUMAN made invite inv_01M6GG62NQVEV7TTJ6D3BM7E1T (`fabric invite --ttl 2
 result: HUMAN ran `sudo meshforge-controller fabric invite --ttl 2h` 4 times (L1-L4). `compute fabric invites`: 4 pending, 1 revoked, 1 expired.
     Codes kept by the human (paper/screen), never in a file. Valid ~2 h. Waiting for the Lead's go for the joint join.
 SIGNAL: invites-ready L1 count=4
+
+### C17-h (part 4) - L1 joined - OK
+when: 2026-11-03 ~16:45 (local)
+commands:
+    sudo meshforge-agent join <code>   (code given by the human; typed into the human's terminal, never written to a file)
+    HUMAN sudo: usermod -aG docker meshforge && systemctl restart meshforge-agent   (= "Give Docker access")
+result: "joined fabric fab_01M6BMCGQBHTN059R0R5MY3WYW via 192.168.31.13:47101", node_id node_01M6BMFVHJVZXC7AET3CFRE3AV (same as dev: migration kept it),
+    cert valid until 2026-12-03. `id meshforge` now includes docker. compute nodes: JARVISM3 online, CONN yes, 0.17.0.
+    Console policy (Run jobs / GPU) and console screenshots: not done via console (joined from terminal) - the Lead may ask for it later. QUESTION: are Run jobs / GPU on by default after a CLI join?
+evidence: lab/reports/raw/2026-11-01-V0.17-install/L1-agent-journal.txt
+SIGNAL: joined L1 node=node_01M6BMFVHJVZXC7AET3CFRE3AV
+
+### C17-j - Fabric up - OK
+result: compute nodes: 4 nodes, all online, CONN yes, version 0.17.0:
+    L1 JARVISM3 node_01M6BMFVHJVZXC7AET3CFRE3AV, L2 AILESH node_01M6GCKN7PYT2J297BT241P436,
+    L3 Mohit node_01M6GGZ7VNCSRKFAEDH3AX7QQY, L4 LAPTOP-7ORVM30G node_01M6GGJP3FW5VHBDFKYQ6SF318 (was stuck "enrolling", now online).
+evidence: lab/reports/raw/2026-11-01-V0.17-install/fabric.txt
+SIGNAL: fabric-up nodes=4
