@@ -261,3 +261,15 @@ SIGNAL: V0.4-done
 commands:
     Get-NetFirewallRule | Where-Object DisplayName -like '*MeshForge*'
 result: 0 rules. Lead note: the rule appears only when peer serving ([agent.peer] bind) is on; recheck when V0.5 turns peer serving on.
+
+### C5.11-g-L4 - part H victim, prep (V0.5) - OK
+when: 2026-11-04 (local)
+laptop: L4 (LAPTOP-7ORVM30G, Wi-Fi 192.168.31.244 unchanged), HEAD 5bcbc814
+commands (human, Administrator):
+    Stop-Service MeshForgeAgent; Get-ChildItem C:\ProgramData\MeshForge
+    Remove-Item -Recurse -Force C:\ProgramData\MeshForge\cas, C:\ProgramData\MeshForge\gc   (only these two, both existed)
+    Start-Service MeshForgeAgent  -> Running
+result: data dir had cache, cas, config, console, envs, gc, identity, logs, prepare, work, migrate-identity.lock, node_name,
+    policy.toml, scores.json, scores.lock. Deleted: cas, gc. Nothing else touched. (Before this the human also did a few
+    extra Stop/Start-Service cycles while practising the commands.) Free disk C: 231.4 GB (>= 12 GB).
+SIGNAL: v05-h-ready L4 free=231
