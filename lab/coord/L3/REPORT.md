@@ -230,3 +230,14 @@ commands:
 result: Last Successful Sync 01:36:32 from time.windows.com; offsets +8.6, -3.0, +5.2 ms (mean ~ +4 ms) vs time.windows.com. Within 200 ms. Changed setting: W32Time MaxAllowedPhaseOffset = 0 (lets w32time step the clock), w32time startup Automatic, manual peer time.windows.com. Replaces the earlier FAIL value.
 SIGNAL: clock-offset L3 ms=4
 SIGNAL: V0.4-done
+
+### F5 workaround - agent restart after Run jobs ON - OK
+when: 2026-11-04 01:37 (local)
+result: Run jobs was ON at join; the human restarted MeshForgeAgent after that (Restart-Service, then Stop/Start; PID 19208 -> 10152 -> current), service Running. Covers ANNOUNCE (5) for L3; L1 may rerun C17-k for L3.
+
+### C5.11-a - peer port check - FAIL (non-blocking)
+when: 2026-11-04 01:37 (local)
+commands:
+    Get-NetFirewallRule | Where-Object DisplayName -like '*MeshForge*'
+result: no MeshForge firewall rules at all (same as after install/join). Peer port 47120 has no inbound rule on L3.
+QUESTIONS: should the v0.17.0 installer create the 47120 inbound rule? If yes this is an installer BUG on MOHIT.
