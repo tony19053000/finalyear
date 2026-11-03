@@ -209,3 +209,13 @@ commands:
     uv sync --extra agent --extra controller --group dev; uv run pytest tests/unit/common/test_bundle_case_insensitive.py tests/component/agent/test_docker_sandbox.py -q -rs
 result: 3 passed, 9 skipped, 0 failed. Docker tests SKIPPED (7: no Docker on L3), GPU tests SKIPPED (2: no NVIDIA). Case-insensitive bundle tests passed.
 SIGNAL: v04-g-done L3
+
+### C4.0 / C4.15-a - clock offset - FAIL (attempts 2 + 3)
+when: 2026-11-04 01:13 (local)
+laptop: L3 (MOHIT)
+commands:
+    HUMAN (Administrator): w32tm /unregister; w32tm /register; Start-Service w32time; w32tm /config /manualpeerlist:time.windows.com /syncfromflags:manual /reliable:yes /update; w32tm /resync /force
+    w32tm /query /status; w32tm /stripchart /computer:time.windows.com /samples:5 /dataonly   (01:08 and 01:13)
+result: w32time now Running, `Last Successful Sync Time 01:07:53`, source time.windows.com, stratum 5. But offset NOT corrected: 01:08 +644..+648 ms, 01:13 +648..+656 ms (not converging). Still > 200 ms.
+  (first Set-Service/Start-Service attempt: "The computer did not resync because the time service was shutting down" - trigger-start service stopped itself.)
+SIGNAL: clock-offset L3 ms=+650 (FAIL > 200; fixing)
