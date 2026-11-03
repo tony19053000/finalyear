@@ -240,3 +240,15 @@ SIGNAL: s1-serve-up L1 ip=192.168.31.13
 S1 client RUNNING L1-to-L3
 
 S1 client RUNNING L1-to-L4
+
+### S1-ALL-b - S1 client L1 -> L3 (MOHIT), L1 -> L4 (LAPTOP-7ORVM30G) - OK
+when: 2026-11-03 (local)
+commands:
+    uv run python lab/spikes/s1_network.py client --link wifi --server 192.168.31.71
+    uv run python lab/spikes/s1_network.py client --link wifi --server 192.168.31.244
+result: both exit 0. Run one after the other (L1-to-L3 RUNNING line stayed open during the L4 run; no overlap with other clients).
+    L1<->L3: TCP x1 L3->L1 171.0±14.8, L1->L3 191.2±11.9; x4 L3->L1 226.3±5.7, L1->L3 181.4±5.3 Mbit/s; UDP rtt 3.35±0.32 ms, jitter 0.73 ms, loss 0 %.
+    L1<->L4: TCP x1 L4->L1 215.2±11.3, L1->L4 214.6±24.2; x4 L4->L1 218.0±42.1, L1->L4 238.4±15.5 Mbit/s; UDP rtt 2.61±0.11 ms, jitter 0.57 ms, loss 0 %.
+evidence: lab/reports/raw/2026-11-03-S1-network/jarvism3-249e3a41__to-mohit_wifi-930c4d45.json, lab/reports/raw/2026-11-03-S1-network/jarvism3-249e3a41__to-laptop-7orvm30g_wifi-305efdfb.json
+SIGNAL: s1-client-done L1-to-L3
+SIGNAL: s1-client-done L1-to-L4
