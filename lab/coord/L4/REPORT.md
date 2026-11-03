@@ -116,3 +116,9 @@ result: MeshForge-Agent-Setup-0.17.0-1.exe (57,488,826 bytes) sha256 3e95eb45...
 
 ### C17-b - controller-up - OK
 result: origin/lab/L1 has SIGNAL: controller-up url=https://192.168.31.13:47110. Invite code to be asked from L1's human.
+
+### C17-c..e - install/join - ON HOLD
+result: ANNOUNCE 2026-11-03 (2): installs/joins held until the Lead posts "joining may start". Installer is downloaded and verified (C17-a).
+
+### CU-b - S1 server - still RUNNING (HEAD b46ddab0)
+result: serving on 192.168.31.244:47201, waiting for client runs L1->L4, L2->L4, L3->L4 (L4 runs no client per the ANNOUNCE table).
