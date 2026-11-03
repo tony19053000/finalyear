@@ -36,3 +36,25 @@ commands:
     nvidia-smi; uv run python -c "import torch; ..."
 result: NVIDIA-SMI 592.27, Driver 592.27, CUDA 13.1; RTX 3050 Laptop, WDDM, 52C, P0, 9W/70W, 0/4096 MiB.
     torch: not installed (ModuleNotFoundError), not installed per rules. Docker GPU test: SKIPPED (no Docker).
+
+### R1-5 - Hardware scores (0.2.11) - run 1 - FAIL (thermal throttling flagged)
+when: 2026-11-03 14:05 (local)
+laptop: L4
+commands:
+    uv run python lab/spikes/s7_hardware.py run --quick --name L4
+    uv run python lab/spikes/s7_hardware.py run --name L4
+result: quick exit 3: py-1t 22.87±2.58 MFLOP/s, py-all 171.04±33.60, mem copy 17.73±1.76 GB/s.
+    full exit 3: py-1t 25.66±1.55 MFLOP/s, py-all 179.09±4.49, mem copy 20.11±1.74 GB/s.
+    No BLAS (torch/numpy not installed) -> no GFLOPS, GPU not measured. Full run printed
+    "!! thermal throttling suspected ... memory-bandwidth". Power plan "Balanced" at the time; human asked to set Best performance + clear vents, rerun follows.
+evidence: lab/reports/raw/2026-11-03-S7-hardware/l4-4a5a97c6__quick.json, l4-4a5a97c6.json (run 1)
+
+### R1-6 - Environments (0.2.10) - OK (docker cases skipped)
+when: 2026-11-03 14:00-14:10 (local)
+laptop: L4
+commands:
+    uv run python lab/spikes/s6_environments.py run --quick --name L4
+    uv run python lab/spikes/s6_environments.py run --name L4
+result: quick exit 3 (smoke, INVALID n=2). full exit 3: venv start 898.16±57.08 ms; venv cold 5.68±2.84 s; warm 0.89±0.12 s (within 3 s target).
+    Skipped: docker-start, docker-pull-cold, docker-gpu-smi, docker-gpu-torch (docker_cli_missing). Recommendation: venv-fallback.
+evidence: lab/reports/raw/2026-11-03-S6-environments/l4-4a5a97c6__quick.json, l4-4a5a97c6.json
