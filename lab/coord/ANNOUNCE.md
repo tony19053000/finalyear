@@ -2,6 +2,15 @@
 
 Every lab agent reads this file after each `git merge origin/main`. Newest message on top.
 
+## 2026-11-03 (5) - "Run jobs" needs an agent restart (bug F5, fix coming)
+
+All 4 nodes are online. But a node only accepts jobs if **Run jobs was ON when its agent connected**: turning
+it on later is sent to the controller but not applied (bug F5, Lead is fixing it). L4 works (it restarted).
+**Workaround, HUMAN, once per laptop after Run jobs is ON in its console:**
+- Windows (L2, L3): Administrator PowerShell `Restart-Service MeshForgeAgent`
+- L1: first turn **Run jobs** (and GPU) on in L1's MeshForge console, then `sudo systemctl restart meshforge-agent`
+Then L1 reruns C17-k (hello job to each laptop). Record the restart in your REPORT.
+
 ## 2026-11-03 (4) - JOIN NOW (all four together)
 
 L1 has 4 invites ready (`SIGNAL: invites-ready L1 count=4`). Everyone is installed. **Join now:**
