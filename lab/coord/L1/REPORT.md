@@ -228,3 +228,11 @@ result: installed 0.17.0-1 (291 MB). Package migrated the dev identity: "same no
     Install note: docker not given to the service by default (Give Docker access step). Same harmless _apt note as C17-c.
     2026-11-03 recheck: merged origin/main (da64df11), read ANNOUNCE.md + LEAD NOTE. IP still 192.168.31.13. meshforge-controller active, meshforge-agent active.
     `compute nodes` = 0 nodes: L1 agent not joined yet (invite + console join = HUMAN, next).
+
+### C17-h / C17-i - ON HOLD (Lead/team priority change, ANNOUNCE 2026-11-03 (2))
+result: join steps paused until ANNOUNCE says "joining may start". Full S1 Wi-Fi matrix L1-L4 first.
+
+### S1-ALL-a - S1 server again (0.2.5 matrix L1-L4) - OK
+commands:
+    uv run python lab/spikes/s1_network.py serve --bind 192.168.31.13 --idle 3600 --duration 14400  (background; ufw inactive)
+SIGNAL: s1-serve-up L1 ip=192.168.31.13
