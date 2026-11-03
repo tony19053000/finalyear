@@ -168,3 +168,15 @@ result: enrolled True, fabric fab_01M6BMCGQBHTN059R0R5MY3WYW, cert valid to 2026
     Firewall: Get-NetFirewallRule -DisplayName *MeshForge* returned NO rules (Administrator) - installer opens no inbound port on L4.
 BUG?: (non-blocking, for the Lead) no MeshForge firewall rule after the Windows install; fine if the agent only dials out to the controller.
 SIGNAL: joined L4 node=node_01M6GGJP3FW5VHBDFKYQ6SF318
+
+### C17-f (0.3.2) - agent unit tests on Windows - FAIL (1 test, non-blocking)
+commands:
+    uv sync --extra agent; uv run pytest tests/unit/agent -q -p no:cacheprovider
+result: 1 failed, 3426 passed, 437 skipped in 385.87 s. Rerun of the single test: same failure (2 attempts total).
+BUG: tests/unit/agent/test_v017_g1_system_cli.py::test_apply_returns_on_the_common_case fails on a Windows laptop that has
+    the MeshForge agent INSTALLED. The test monkeypatches agent system_cli.system_install_present -> False, but
+    src/meshforge/common/system_cli.py:327 `_apply_windows` -> :377 `say(decision.message)` still prints
+    "meshforge-agent: note: MeshForge is installed on this computer; this development command uses YOUR user-mode state ...
+    or set MESHFORGE_INSTALL_MODE=user to silence this." -> "Failed: must not print". The Windows branch detects the
+    install by another route than the patched function. Reproduce: install the agent .exe, run that test.
+    (Lead note read: no firewall rule after install is by design; recheck at V0.5 when peer serving is on.)
