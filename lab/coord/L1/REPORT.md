@@ -491,3 +491,9 @@ result: F1 job_01M6HBMPPBVRV9NH30256888X2: state cancelled, 3.091 s (bound 5 s) 
     overshoot 3.47 s > 2 s bound - FAIL. Possible cause: the 20 s are counted from the process start on L2 (after venv/env prepare that happens
     after the controller marks "running"), plus Wi-Fi report delay. Lead to judge (BUG candidate: timeout reference point).
     LIVE leftover check (Task Manager on L2 for a leftover python after the cancel): asked of L2's human, see L2 REPORT.
+
+### C4.15-d - Log latency, L2 - FAIL (max 1119.8 ms > 1000 ms)
+commands: J=$(compute run lab/workloads/log-ticker --node <L2-ID>); exec_check.py latency $J --name L2 --clock-offset-ms -89  (L2 +40 - L1 +129)
+result: job_01M6HDA6NYAGKTQ2TM13ADQAH4: 100 lines, p50 344.6, p95 874.6, max 1119.8 ms -> within false (bound 1000 ms). Single run, Wi-Fi.
+    Note: the offsets come from NTP status (L1 ±poll 34 min, L2 w32tm), each with ~100 ms uncertainty; the max is 12 % over the bound.
+    L2 signals seen: clock-offset L2 ms=40, v04-g-done L2. Leftover-python check after the F1 cancel: not yet in L2's REPORT.
