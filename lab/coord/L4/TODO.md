@@ -31,6 +31,10 @@ Round 2 (pairs of laptops: network S1, cross-OS S2, transport S3) comes after th
 
 ---
 
+> **LEAD NOTE 2026-11-03:** L4 starts now. The L3 laptop was replaced at the same time: the new L3 also does
+> P0 + CU, so your "L3 -> L4" S1 pair is with the NEW L3 (read only the new `origin/lab/L3` REPORT.md), and you
+> run S1 against the new L3 too when its `s1-serve-up L3` appears.
+
 # Full campaign (V0.2 -> V1.0)
 
 Written by the Lead's planning session, 2026-11-01. Overview, signals, durations: `lab/coord/CAMPAIGN.md`.
