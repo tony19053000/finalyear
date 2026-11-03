@@ -1,0 +1,708 @@
+{
+  "cases": {
+    "all-nodes": {
+      "aborted": false,
+      "attrs": {
+        "kind": "all"
+      },
+      "errors": [],
+      "label": "all connected nodes",
+      "metrics": {
+        "outage_s": "s",
+        "reconnect_all_s": "s"
+      },
+      "requested_reps": 5,
+      "requested_warmup": 0,
+      "samples": [
+        {
+          "down_at": "2026-11-03T15:30:12.022+00:00",
+          "nodes": {
+            "node_01M6BMFVHJVZXC7AET3CFRE3AV": {
+              "epoch_after": 13,
+              "epoch_before": 12,
+              "first_new_sequence": 20,
+              "hostname": "JARVISM3",
+              "new_node_id": null,
+              "node_id_kept": true,
+              "reconnect_s": 1.336,
+              "restarted": false,
+              "sequence_before": 18
+            },
+            "node_01M6GCKN7PYT2J297BT241P436": {
+              "epoch_after": 14,
+              "epoch_before": 13,
+              "first_new_sequence": 720,
+              "hostname": "AILESH",
+              "new_node_id": null,
+              "node_id_kept": true,
+              "reconnect_s": 5.017,
+              "restarted": false,
+              "sequence_before": 717
+            },
+            "node_01M6GGJP3FW5VHBDFKYQ6SF318": {
+              "epoch_after": 52,
+              "epoch_before": 49,
+              "first_new_sequence": 138,
+              "hostname": "LAPTOP-7ORVM30G",
+              "new_node_id": null,
+              "node_id_kept": true,
+              "reconnect_s": 1.01,
+              "restarted": false,
+              "sequence_before": 137
+            },
+            "node_01M6GGZ7VNCSRKFAEDH3AX7QQY": {
+              "epoch_after": 14,
+              "epoch_before": 13,
+              "first_new_sequence": 100,
+              "hostname": "Mohit",
+              "new_node_id": null,
+              "node_id_kept": true,
+              "reconnect_s": 5.657,
+              "restarted": false,
+              "sequence_before": 98
+            }
+          },
+          "outage_s": 6.873,
+          "reconnect_all_s": 5.657,
+          "reconnect_all_within_bound": true,
+          "rep": 0,
+          "unexpected_new_nodes": [],
+          "up_at": "2026-11-03T15:30:18.895+00:00"
+        },
+        {
+          "down_at": "2026-11-03T15:30:34.088+00:00",
+          "nodes": {
+            "node_01M6BMFVHJVZXC7AET3CFRE3AV": {
+              "epoch_after": 14,
+              "epoch_before": 13,
+              "first_new_sequence": 23,
+              "hostname": "JARVISM3",
+              "new_node_id": null,
+              "node_id_kept": true,
+              "reconnect_s": 1.274,
+              "restarted": false,
+              "sequence_before": 21
+            },
+            "node_01M6GCKN7PYT2J297BT241P436": {
+              "epoch_after": 15,
+              "epoch_before": 14,
+              "first_new_sequence": 724,
+              "hostname": "AILESH",
+              "new_node_id": null,
+              "node_id_kept": true,
+              "reconnect_s": 10.926,
+              "restarted": false,
+              "sequence_before": 721
+            },
+            "node_01M6GGJP3FW5VHBDFKYQ6SF318": {
+              "epoch_after": 54,
+              "epoch_before": 52,
+              "first_new_sequence": 147,
+              "hostname": "LAPTOP-7ORVM30G",
+              "new_node_id": null,
+              "node_id_kept": true,
+              "reconnect_s": 3.843,
+              "restarted": false,
+              "sequence_before": 144
+            },
+            "node_01M6GGZ7VNCSRKFAEDH3AX7QQY": {
+              "epoch_after": 15,
+              "epoch_before": 14,
+              "first_new_sequence": 102,
+              "hostname": "Mohit",
+              "new_node_id": null,
+              "node_id_kept": true,
+              "reconnect_s": 3.736,
+              "restarted": false,
+              "sequence_before": 100
+            }
+          },
+          "outage_s": 6.538,
+          "reconnect_all_s": 10.926,
+          "reconnect_all_within_bound": true,
+          "rep": 1,
+          "unexpected_new_nodes": [],
+          "up_at": "2026-11-03T15:30:40.626+00:00"
+        },
+        {
+          "down_at": "2026-11-03T15:31:00.734+00:00",
+          "nodes": {
+            "node_01M6BMFVHJVZXC7AET3CFRE3AV": {
+              "epoch_after": 15,
+              "epoch_before": 14,
+              "first_new_sequence": 28,
+              "hostname": "JARVISM3",
+              "new_node_id": null,
+              "node_id_kept": true,
+              "reconnect_s": 1.609,
+              "restarted": false,
+              "sequence_before": 25
+            },
+            "node_01M6GCKN7PYT2J297BT241P436": {
+              "epoch_after": 16,
+              "epoch_before": 15,
+              "first_new_sequence": 728,
+              "hostname": "AILESH",
+              "new_node_id": null,
+              "node_id_kept": true,
+              "reconnect_s": 4.083,
+              "restarted": false,
+              "sequence_before": 725
+            },
+            "node_01M6GGJP3FW5VHBDFKYQ6SF318": {
+              "epoch_after": 56,
+              "epoch_before": 54,
+              "first_new_sequence": 151,
+              "hostname": "LAPTOP-7ORVM30G",
+              "new_node_id": null,
+              "node_id_kept": true,
+              "reconnect_s": 1.288,
+              "restarted": false,
+              "sequence_before": 148
+            },
+            "node_01M6GGZ7VNCSRKFAEDH3AX7QQY": {
+              "epoch_after": 16,
+              "epoch_before": 15,
+              "first_new_sequence": 105,
+              "hostname": "Mohit",
+              "new_node_id": null,
+              "node_id_kept": true,
+              "reconnect_s": 6.235,
+              "restarted": false,
+              "sequence_before": 103
+            }
+          },
+          "outage_s": 6.548,
+          "reconnect_all_s": 6.235,
+          "reconnect_all_within_bound": true,
+          "rep": 2,
+          "unexpected_new_nodes": [],
+          "up_at": "2026-11-03T15:31:07.282+00:00"
+        },
+        {
+          "down_at": "2026-11-03T15:31:21.860+00:00",
+          "nodes": {
+            "node_01M6BMFVHJVZXC7AET3CFRE3AV": {
+              "epoch_after": 16,
+              "epoch_before": 15,
+              "first_new_sequence": 31,
+              "hostname": "JARVISM3",
+              "new_node_id": null,
+              "node_id_kept": true,
+              "reconnect_s": 1.228,
+              "restarted": false,
+              "sequence_before": 29
+            },
+            "node_01M6GCKN7PYT2J297BT241P436": {
+              "epoch_after": 17,
+              "epoch_before": 16,
+              "first_new_sequence": 734,
+              "hostname": "AILESH",
+              "new_node_id": null,
+              "node_id_kept": true,
+              "reconnect_s": 3.138,
+              "restarted": false,
+              "sequence_before": 731
+            },
+            "node_01M6GGJP3FW5VHBDFKYQ6SF318": {
+              "epoch_after": 58,
+              "epoch_before": 56,
+              "first_new_sequence": 156,
+              "hostname": "LAPTOP-7ORVM30G",
+              "new_node_id": null,
+              "node_id_kept": true,
+              "reconnect_s": 0.203,
+              "restarted": false,
+              "sequence_before": 153
+            },
+            "node_01M6GGZ7VNCSRKFAEDH3AX7QQY": {
+              "epoch_after": 17,
+              "epoch_before": 16,
+              "first_new_sequence": 107,
+              "hostname": "Mohit",
+              "new_node_id": null,
+              "node_id_kept": true,
+              "reconnect_s": 5.48,
+              "restarted": false,
+              "sequence_before": 105
+            }
+          },
+          "outage_s": 6.437,
+          "reconnect_all_s": 5.48,
+          "reconnect_all_within_bound": true,
+          "rep": 3,
+          "unexpected_new_nodes": [],
+          "up_at": "2026-11-03T15:31:28.297+00:00"
+        },
+        {
+          "down_at": "2026-11-03T15:31:41.891+00:00",
+          "nodes": {
+            "node_01M6BMFVHJVZXC7AET3CFRE3AV": {
+              "epoch_after": 17,
+              "epoch_before": 16,
+              "first_new_sequence": 34,
+              "hostname": "JARVISM3",
+              "new_node_id": null,
+              "node_id_kept": true,
+              "reconnect_s": 1.345,
+              "restarted": false,
+              "sequence_before": 31
+            },
+            "node_01M6GCKN7PYT2J297BT241P436": {
+              "epoch_after": 18,
+              "epoch_before": 17,
+              "first_new_sequence": 738,
+              "hostname": "AILESH",
+              "new_node_id": null,
+              "node_id_kept": true,
+              "reconnect_s": 4.773,
+              "restarted": false,
+              "sequence_before": 735
+            },
+            "node_01M6GGJP3FW5VHBDFKYQ6SF318": {
+              "epoch_after": 60,
+              "epoch_before": 58,
+              "first_new_sequence": 160,
+              "hostname": "LAPTOP-7ORVM30G",
+              "new_node_id": null,
+              "node_id_kept": true,
+              "reconnect_s": 1.56,
+              "restarted": false,
+              "sequence_before": 157
+            },
+            "node_01M6GGZ7VNCSRKFAEDH3AX7QQY": {
+              "epoch_after": 18,
+              "epoch_before": 17,
+              "first_new_sequence": 109,
+              "hostname": "Mohit",
+              "new_node_id": null,
+              "node_id_kept": true,
+              "reconnect_s": 6.366,
+              "restarted": false,
+              "sequence_before": 107
+            }
+          },
+          "outage_s": 6.642,
+          "reconnect_all_s": 6.366,
+          "reconnect_all_within_bound": true,
+          "rep": 4,
+          "unexpected_new_nodes": [],
+          "up_at": "2026-11-03T15:31:48.533+00:00"
+        }
+      ],
+      "summary": {
+        "outage_s": {
+          "max": 6.873,
+          "mean": 6.607600000000001,
+          "median": 6.548,
+          "min": 6.437,
+          "n": 5,
+          "p95": 6.8268,
+          "stdev": 0.16516749074802825
+        },
+        "reconnect_all_s": {
+          "max": 10.926,
+          "mean": 6.9328,
+          "median": 6.235,
+          "min": 5.48,
+          "n": 5,
+          "p95": 10.014,
+          "stdev": 2.2634115180408534
+        }
+      },
+      "warmup": []
+    },
+    "node_01M6BMFVHJVZXC7AET3CFRE3AV": {
+      "aborted": false,
+      "attrs": {
+        "hostname": "JARVISM3",
+        "kind": "node",
+        "node_id": "node_01M6BMFVHJVZXC7AET3CFRE3AV"
+      },
+      "errors": [],
+      "label": "JARVISM3 (node_01M6BMFVHJVZXC7AET3CFRE3AV)",
+      "metrics": {
+        "reconnect_s": "s"
+      },
+      "requested_reps": 5,
+      "requested_warmup": 0,
+      "samples": [
+        {
+          "epoch_after": 13,
+          "epoch_before": 12,
+          "first_new_sequence": 20,
+          "hostname": "JARVISM3",
+          "new_node_id": null,
+          "node_id_kept": true,
+          "reconnect_s": 1.336,
+          "rep": 0,
+          "restarted": false,
+          "sequence_before": 18
+        },
+        {
+          "epoch_after": 14,
+          "epoch_before": 13,
+          "first_new_sequence": 23,
+          "hostname": "JARVISM3",
+          "new_node_id": null,
+          "node_id_kept": true,
+          "reconnect_s": 1.274,
+          "rep": 1,
+          "restarted": false,
+          "sequence_before": 21
+        },
+        {
+          "epoch_after": 15,
+          "epoch_before": 14,
+          "first_new_sequence": 28,
+          "hostname": "JARVISM3",
+          "new_node_id": null,
+          "node_id_kept": true,
+          "reconnect_s": 1.609,
+          "rep": 2,
+          "restarted": false,
+          "sequence_before": 25
+        },
+        {
+          "epoch_after": 16,
+          "epoch_before": 15,
+          "first_new_sequence": 31,
+          "hostname": "JARVISM3",
+          "new_node_id": null,
+          "node_id_kept": true,
+          "reconnect_s": 1.228,
+          "rep": 3,
+          "restarted": false,
+          "sequence_before": 29
+        },
+        {
+          "epoch_after": 17,
+          "epoch_before": 16,
+          "first_new_sequence": 34,
+          "hostname": "JARVISM3",
+          "new_node_id": null,
+          "node_id_kept": true,
+          "reconnect_s": 1.345,
+          "rep": 4,
+          "restarted": false,
+          "sequence_before": 31
+        }
+      ],
+      "summary": {
+        "reconnect_s": {
+          "max": 1.609,
+          "mean": 1.3584,
+          "median": 1.336,
+          "min": 1.228,
+          "n": 5,
+          "p95": 1.5562,
+          "stdev": 0.14799425664531715
+        }
+      },
+      "warmup": []
+    },
+    "node_01M6GCKN7PYT2J297BT241P436": {
+      "aborted": false,
+      "attrs": {
+        "hostname": "AILESH",
+        "kind": "node",
+        "node_id": "node_01M6GCKN7PYT2J297BT241P436"
+      },
+      "errors": [],
+      "label": "AILESH (node_01M6GCKN7PYT2J297BT241P436)",
+      "metrics": {
+        "reconnect_s": "s"
+      },
+      "requested_reps": 5,
+      "requested_warmup": 0,
+      "samples": [
+        {
+          "epoch_after": 14,
+          "epoch_before": 13,
+          "first_new_sequence": 720,
+          "hostname": "AILESH",
+          "new_node_id": null,
+          "node_id_kept": true,
+          "reconnect_s": 5.017,
+          "rep": 0,
+          "restarted": false,
+          "sequence_before": 717
+        },
+        {
+          "epoch_after": 15,
+          "epoch_before": 14,
+          "first_new_sequence": 724,
+          "hostname": "AILESH",
+          "new_node_id": null,
+          "node_id_kept": true,
+          "reconnect_s": 10.926,
+          "rep": 1,
+          "restarted": false,
+          "sequence_before": 721
+        },
+        {
+          "epoch_after": 16,
+          "epoch_before": 15,
+          "first_new_sequence": 728,
+          "hostname": "AILESH",
+          "new_node_id": null,
+          "node_id_kept": true,
+          "reconnect_s": 4.083,
+          "rep": 2,
+          "restarted": false,
+          "sequence_before": 725
+        },
+        {
+          "epoch_after": 17,
+          "epoch_before": 16,
+          "first_new_sequence": 734,
+          "hostname": "AILESH",
+          "new_node_id": null,
+          "node_id_kept": true,
+          "reconnect_s": 3.138,
+          "rep": 3,
+          "restarted": false,
+          "sequence_before": 731
+        },
+        {
+          "epoch_after": 18,
+          "epoch_before": 17,
+          "first_new_sequence": 738,
+          "hostname": "AILESH",
+          "new_node_id": null,
+          "node_id_kept": true,
+          "reconnect_s": 4.773,
+          "rep": 4,
+          "restarted": false,
+          "sequence_before": 735
+        }
+      ],
+      "summary": {
+        "reconnect_s": {
+          "max": 10.926,
+          "mean": 5.587400000000001,
+          "median": 4.773,
+          "min": 3.138,
+          "n": 5,
+          "p95": 9.7442,
+          "stdev": 3.072134160481928
+        }
+      },
+      "warmup": []
+    },
+    "node_01M6GGJP3FW5VHBDFKYQ6SF318": {
+      "aborted": false,
+      "attrs": {
+        "hostname": "LAPTOP-7ORVM30G",
+        "kind": "node",
+        "node_id": "node_01M6GGJP3FW5VHBDFKYQ6SF318"
+      },
+      "errors": [],
+      "label": "LAPTOP-7ORVM30G (node_01M6GGJP3FW5VHBDFKYQ6SF318)",
+      "metrics": {
+        "reconnect_s": "s"
+      },
+      "requested_reps": 5,
+      "requested_warmup": 0,
+      "samples": [
+        {
+          "epoch_after": 52,
+          "epoch_before": 49,
+          "first_new_sequence": 138,
+          "hostname": "LAPTOP-7ORVM30G",
+          "new_node_id": null,
+          "node_id_kept": true,
+          "reconnect_s": 1.01,
+          "rep": 0,
+          "restarted": false,
+          "sequence_before": 137
+        },
+        {
+          "epoch_after": 54,
+          "epoch_before": 52,
+          "first_new_sequence": 147,
+          "hostname": "LAPTOP-7ORVM30G",
+          "new_node_id": null,
+          "node_id_kept": true,
+          "reconnect_s": 3.843,
+          "rep": 1,
+          "restarted": false,
+          "sequence_before": 144
+        },
+        {
+          "epoch_after": 56,
+          "epoch_before": 54,
+          "first_new_sequence": 151,
+          "hostname": "LAPTOP-7ORVM30G",
+          "new_node_id": null,
+          "node_id_kept": true,
+          "reconnect_s": 1.288,
+          "rep": 2,
+          "restarted": false,
+          "sequence_before": 148
+        },
+        {
+          "epoch_after": 58,
+          "epoch_before": 56,
+          "first_new_sequence": 156,
+          "hostname": "LAPTOP-7ORVM30G",
+          "new_node_id": null,
+          "node_id_kept": true,
+          "reconnect_s": 0.203,
+          "rep": 3,
+          "restarted": false,
+          "sequence_before": 153
+        },
+        {
+          "epoch_after": 60,
+          "epoch_before": 58,
+          "first_new_sequence": 160,
+          "hostname": "LAPTOP-7ORVM30G",
+          "new_node_id": null,
+          "node_id_kept": true,
+          "reconnect_s": 1.56,
+          "rep": 4,
+          "restarted": false,
+          "sequence_before": 157
+        }
+      ],
+      "summary": {
+        "reconnect_s": {
+          "max": 3.843,
+          "mean": 1.5808,
+          "median": 1.288,
+          "min": 0.203,
+          "n": 5,
+          "p95": 3.3863999999999996,
+          "stdev": 1.362704920369777
+        }
+      },
+      "warmup": []
+    },
+    "node_01M6GGZ7VNCSRKFAEDH3AX7QQY": {
+      "aborted": false,
+      "attrs": {
+        "hostname": "Mohit",
+        "kind": "node",
+        "node_id": "node_01M6GGZ7VNCSRKFAEDH3AX7QQY"
+      },
+      "errors": [],
+      "label": "Mohit (node_01M6GGZ7VNCSRKFAEDH3AX7QQY)",
+      "metrics": {
+        "reconnect_s": "s"
+      },
+      "requested_reps": 5,
+      "requested_warmup": 0,
+      "samples": [
+        {
+          "epoch_after": 14,
+          "epoch_before": 13,
+          "first_new_sequence": 100,
+          "hostname": "Mohit",
+          "new_node_id": null,
+          "node_id_kept": true,
+          "reconnect_s": 5.657,
+          "rep": 0,
+          "restarted": false,
+          "sequence_before": 98
+        },
+        {
+          "epoch_after": 15,
+          "epoch_before": 14,
+          "first_new_sequence": 102,
+          "hostname": "Mohit",
+          "new_node_id": null,
+          "node_id_kept": true,
+          "reconnect_s": 3.736,
+          "rep": 1,
+          "restarted": false,
+          "sequence_before": 100
+        },
+        {
+          "epoch_after": 16,
+          "epoch_before": 15,
+          "first_new_sequence": 105,
+          "hostname": "Mohit",
+          "new_node_id": null,
+          "node_id_kept": true,
+          "reconnect_s": 6.235,
+          "rep": 2,
+          "restarted": false,
+          "sequence_before": 103
+        },
+        {
+          "epoch_after": 17,
+          "epoch_before": 16,
+          "first_new_sequence": 107,
+          "hostname": "Mohit",
+          "new_node_id": null,
+          "node_id_kept": true,
+          "reconnect_s": 5.48,
+          "rep": 3,
+          "restarted": false,
+          "sequence_before": 105
+        },
+        {
+          "epoch_after": 18,
+          "epoch_before": 17,
+          "first_new_sequence": 109,
+          "hostname": "Mohit",
+          "new_node_id": null,
+          "node_id_kept": true,
+          "reconnect_s": 6.366,
+          "rep": 4,
+          "restarted": false,
+          "sequence_before": 107
+        }
+      ],
+      "summary": {
+        "reconnect_s": {
+          "max": 6.366,
+          "mean": 5.4948,
+          "median": 5.657,
+          "min": 3.736,
+          "n": 5,
+          "p95": 6.339799999999999,
+          "stdev": 1.0519970056991605
+        }
+      },
+      "warmup": []
+    }
+  },
+  "errors": [],
+  "extra": {
+    "interrupted": false
+  },
+  "git": {
+    "commit": "ea37bdee",
+    "dirty": false,
+    "modified_files": 0,
+    "untracked_files": 0
+  },
+  "host": {
+    "hostname": "JARVISM3",
+    "label": "L1",
+    "machine": "x86_64",
+    "os": "Linux",
+    "os_release": "6.8.0-147-generic",
+    "python": "3.12.13"
+  },
+  "link": "wifi",
+  "params": {
+    "bound_s": 15.0,
+    "controller_url": "https://192.168.31.13:47110",
+    "poll_s": 0.1,
+    "reconnect_timeout_s": 120.0,
+    "reps": 5
+  },
+  "schema_version": 1,
+  "spike": "V0.3",
+  "timestamp_utc": "2026-11-03T15:31:55Z",
+  "tool": {
+    "interpreter": "CPython 3.12.13 linux",
+    "name": "fabric_check",
+    "subcommand": "restart",
+    "version": 1
+  },
+  "topic": "V0.3-fabric-restart"
+}

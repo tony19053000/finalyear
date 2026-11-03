@@ -417,3 +417,21 @@ result: attempt 1 (Enter sent AFTER the stop): rep 1 "offline was reached 0.24 s
     OFFLINE 0.03-0.11 s, ONLINE 1.06-1.18 s (local controller, no Wi-Fi hop). Agent active afterwards.
     Summary C3.7-b: all 4 laptops x 6 reps came back under the same node_id (criterion 4 passes).
 evidence: lab/reports/2026-11-03-V0.3-fabric-watch.md, lab/reports/raw/2026-11-03-V0.3-fabric-watch/l1-dffe8596__jarvism3-agent-152726-ac0daa35.json
+
+### C3.15-b - Controller kill, part F (0.3.15 c3) - OK
+commands:
+    tools/l1_controller_kill.sh: runs `fabric_check.py --name L1 restart-check --link wifi` and at each ">>> KILL" runs `sudo systemctl kill -s KILL meshforge-controller` (systemd restarts it after 5 s)
+result: exit 0. 5 reps, 4/4 nodes back every rep, node_id kept, agent restarted = none, all within 15 s.
+    Controller outage 6.44-6.87 s (systemd restart delay). All reconnected after 5.66 / 10.93 / 6.24 / 5.48 / 6.37 s.
+    Harmless systemd message each kill: "Failed to send signal SIGKILL to auxiliary processes: Invalid argument" (main process killed; outage measured).
+evidence: lab/reports/2026-11-03-V0.3-fabric-restart.md, lab/reports/raw/2026-11-03-V0.3-fabric-restart/l1-dffe8596__153155.json
+
+### C3.15-c - 24 h soak - SKIPPED
+result: superseded by the 72 h soak of phase V1.0 (V1.0-campaign.md L3.2).
+
+### C3.x-a - Evidence - OK
+result: lab/reports/2026-11-03-V0.3-fabric-{inventory,watch,restart}.md + raw folders committed.
+
+### LEAD CHECKPOINT V0.3
+result: C3.15-a OK, C3.7-a FAIL (OFFLINE always <= 6 s; ONLINE over 10 s in 7 of 14 valid Wi-Fi reps), C3.7-b OK (4 laptops x 6), C3.15-b OK.
+SIGNAL: V0.3-done
