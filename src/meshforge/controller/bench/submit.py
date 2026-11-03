@@ -486,6 +486,7 @@ class BenchSubmitter:
                             connected=live is not None,
                             policy=None if live is None else live.policy,
                             owner_name=owner_name,
+                            slots=None if live is None else live.policy_slots,
                         )
                     except PlacementError as exc:
                         return await self._refused(run, exc)

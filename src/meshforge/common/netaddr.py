@@ -21,6 +21,8 @@ from typing import Final
 from meshforge.common.errors import ConfigError
 
 __all__ = [
+    "CONTROLLER_ENROLL_PORT",
+    "CONTROLLER_SESSION_PORT",
     "BindAddress",
     "check_bind_address",
     "is_lan_address",
@@ -29,6 +31,12 @@ __all__ = [
 ]
 
 _PORT_MAX: Final = 65535
+
+CONTROLLER_SESSION_PORT: Final = 47100
+"""The controller's default agent-session (gRPC ``AgentControl``) port (ARCHITECTURE §23)."""
+CONTROLLER_ENROLL_PORT: Final = 47101
+"""The controller's default enrolment (join) port (D150). A join code names this
+port; an agent's ``controller_address`` must name the session port instead."""
 
 
 def _ip(text: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address:

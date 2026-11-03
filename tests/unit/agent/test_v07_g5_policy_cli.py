@@ -56,7 +56,8 @@ def test_show_defaults_then_set_then_reset(data_dir: Path) -> None:
         prog_name=PROG,
     )
     assert result.exit_code == ExitCode.OK, result.output
-    assert "restart it once" in result.stdout  # the config had accept_jobs off
+    # V1.0 G8 F5 (D428): turning accept_jobs on is live - no restart note
+    assert "restart" not in result.stdout
     assert read_overlay(data_dir / "policy.toml") == {
         "accept_jobs": True,
         "max_ram_bytes": 8 * GIB,

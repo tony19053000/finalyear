@@ -931,7 +931,14 @@ class ResumablePart:
             ):
                 return None
             bits = bytearray.fromhex(str(data["done"]))
-        except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        except (
+            OSError,
+            ValueError,
+            KeyError,
+            TypeError,
+            AttributeError,
+            RecursionError,
+        ):
             return None
         return bits if len(bits) == -(-count // 8) else None
 

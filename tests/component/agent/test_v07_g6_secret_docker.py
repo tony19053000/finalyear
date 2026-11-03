@@ -117,7 +117,8 @@ async def test_docker_gets_a_read_only_secret_file(
         docker=True,
     )
     try:
-        assert agent.setup.runtimes.keys() == {"docker"}
+        # V1.0 G8 F5 (D428): unsandboxed runtimes exist; the policy rules them out
+        assert "docker" in agent.setup.runtimes
         project = tmp_path / "proj"
         project.mkdir()
         (project / "main.py").write_text(WORKLOAD)

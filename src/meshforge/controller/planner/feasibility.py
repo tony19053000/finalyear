@@ -4,7 +4,10 @@ The V0.4 manual-placement rules (``controller/jobs/placement.py``) live here
 now, extended with the planner's: slots, the node cap, owner settings, the
 runtime a base needs, recent env failures and free disk.
 
-* :func:`static_rejection` - what the node **is**: execution enabled, a GPU and
+* :func:`static_rejection` - what the node **is**: a runtime to run jobs with
+  (``exec``: what the agent *can* do), its owner's live policy allowing the job
+  (what the owner *allows*: ``policy_*``, from ``Hello.policy`` and every
+  ``PolicyUpdate`` - V1.0 G8 F5, D428), a GPU and
   a runtime that can pass it on, enough VRAM / RAM / CPU threads, a runtime for
   the job's base, owner slot settings that allow the job's kind at all, not
   revoked. A job that every known node rejects statically can never run: it is
@@ -52,6 +55,8 @@ from meshforge.controller.planner.types import (
 
 __all__ = [
     "EXEC_VENV_CAPABILITY",
+    "NOT_EXEC_NO_RUNTIME",
+    "NOT_EXEC_OWNER_OFF",
     "bench_guard",
     "choose_slot",
     "link_rejection",
@@ -81,17 +86,39 @@ def _gpu_usable(node: NodeSnapshot) -> bool:
     )
 
 
+NOT_EXEC_OWNER_OFF: Final = (
+    "the node does not accept jobs (its owner has not enabled "
+    "[agent.policy] accept_jobs)"
+)
+"""Unchanged since V0.6: recorded decisions replay byte for byte (golden corpus)."""
+NOT_EXEC_NO_RUNTIME: Final = (
+    "the node's agent has no runtime to run a job with although its owner "
+    "accepts jobs (no usable Docker or subprocess runtime; an agent older than "
+    "V1.0 that started with Run jobs off needs one restart to set one up)"
+)
+
+
+def _not_exec_text(node: NodeSnapshot) -> str:
+    """V1.0 G8 F5 (D428): no ``exec`` means the agent CAN run nothing - an
+    agent of V1.0 advertises it whenever it has a runtime, whatever its owner's
+    policy. When the owner's live policy says jobs are **on**, the old text
+    ("owner has not enabled") would be wrong: the agent has no runtime, or is
+    an older one that probed none because jobs were off at its start (it gets
+    one at its next Hello). Otherwise (jobs off, or no policy known) the text
+    is the V0.6 one, so recorded decisions replay unchanged."""
+    policy = node.policy
+    if policy is not None and policy.accept_jobs:
+        return NOT_EXEC_NO_RUNTIME
+    return NOT_EXEC_OWNER_OFF
+
+
 def static_rejection(request: PlanRequest, node: NodeSnapshot) -> Rejection | None:
     """The first static reason ``node`` can never run ``request`` (or None)."""
     caps = node.capabilities
     if node.state == _REVOKED:
         return Rejection(RejectCode.REVOKED, "the node was revoked from the fabric")
     if EXEC_CAPABILITY not in caps:
-        return Rejection(
-            RejectCode.NOT_EXEC,
-            "the node does not accept jobs (its owner has not enabled "
-            "[agent.policy] accept_jobs)",
-        )
+        return Rejection(RejectCode.NOT_EXEC, _not_exec_text(node))
     if request.split is not None and EXEC_SPLIT_CAPABILITY not in caps:
         # V0.10 G4 (D263): an older agent would run a lane as a whole job
         return Rejection(

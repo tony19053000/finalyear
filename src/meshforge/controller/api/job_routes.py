@@ -553,7 +553,8 @@ async def _check_where(
     """Pinned: the V0.4 check of that one node. Auto (D104): at least one
     enrolled node could ever run it; otherwise 409 with every rejection.
     V0.7 G5 (D142): connected nodes' owner policies count (``owner_name`` =
-    the submitter, for ``allowed_users``)."""
+    the submitter, for ``allowed_users``), and (V1.0 G8 F5) their live slot
+    limits from the last ``PolicyUpdate``."""
     try:
         if node_id is not None:
             node = await fabric.registry.get_node(node_id)
@@ -564,14 +565,19 @@ async def _check_where(
                 connected=live is not None,
                 policy=None if live is None else live.policy,
                 owner_name=owner_name,
+                slots=None if live is None else live.policy_slots,
             )
         else:
             nodes = await fabric.registry.list_nodes(limit=MAX_PLANNED_NODES)
             policies = {}
+            slots = {}
             for record in nodes:
                 live = fabric.manager.get(record.node_id)
                 policies[record.node_id] = None if live is None else live.policy
-            check_auto(manifest, nodes, policies=policies, owner_name=owner_name)
+                slots[record.node_id] = None if live is None else live.policy_slots
+            check_auto(
+                manifest, nodes, policies=policies, owner_name=owner_name, slots=slots
+            )
     except PlacementError as exc:
         # No job_id on purpose: a refused request creates no job (D50, D62-5).
         log.info(

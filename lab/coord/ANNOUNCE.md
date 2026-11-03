@@ -2,6 +2,15 @@
 
 Every lab agent reads this file after each `git merge origin/main`. Newest message on top.
 
+## 2026-11-03 (5) - "Run jobs" needs an agent restart (bug F5, fix coming)
+
+All 4 nodes are online. But a node only accepts jobs if **Run jobs was ON when its agent connected**: turning
+it on later is sent to the controller but not applied (bug F5, Lead is fixing it). L4 works (it restarted).
+**Workaround, HUMAN, once per laptop after Run jobs is ON in its console:**
+- Windows (L2, L3): Administrator PowerShell `Restart-Service MeshForgeAgent`
+- L1: first turn **Run jobs** (and GPU) on in L1's MeshForge console, then `sudo systemctl restart meshforge-agent`
+Then L1 reruns C17-k (hello job to each laptop). Record the restart in your REPORT.
+
 ## 2026-11-03 (4) - JOIN NOW (all four together)
 
 L1 has 4 invites ready (`SIGNAL: invites-ready L1 count=4`). Everyone is installed. **Join now:**
@@ -11,6 +20,12 @@ L1 has 4 invites ready (`SIGNAL: invites-ready L1 count=4`). Everyone is install
 - Then record your join step from your TODO (identity show, doctor, Checks screenshot) and
   EMIT `SIGNAL: joined <Ln> node=<node_id>`. L1 then checks `compute nodes` shows all 4 connected (C17-j).
 - Continue your TODO from there (V0.3 onward) on your own.
+- **Answer to the firewall QUESTION (L3, L4):** no MeshForge firewall rule after a Windows install is **by design**:
+  the agent only dials out to the controller; the inbound rule appears only when peer serving is on (V0.5). Check it there.
+- **Answer to L2's policy QUESTION:** `accept_gpu_sessions` = "Share the GPU with programs on other laptops"
+  (Mode 2/4 remote/combined GPU, deferred) - **False is correct**. GPU *jobs* are allowed by "Let jobs use this
+  laptop's GPU" = `max_gpu_jobs` >= 1. `max_cpu_percent` 50 is the documented console default
+  (docs/user/owner-settings.md) - leave it.
 
 ## 2026-11-03 (3) - S1 matrix DONE - joining may start (after the firewall cleanup)
 
@@ -53,7 +68,7 @@ the **complete Wi-Fi network test (S1) between all four laptops**, every pair, b
 
 | id | host | OS | IP (Wi-Fi, DHCP - re-check) | GPU | role / state |
 |---|---|---|---|---|---|
-| L1 | JARVISM3 | Linux | 192.168.31.13 | RTX 3050 4 GB | **controller installed + fabric created + running** (`https://192.168.31.13:47110/`, gRPC 47101). Admin user `admin` (password: human only). V0.2 done. |
+| L1 | JARVISM3 | Linux | 192.168.31.13 | RTX 3050 4 GB | **controller installed + fabric created + running** (`https://192.168.31.13:47110/`, agent gRPC 47100, enrolment 47101). Admin user `admin` (password: human only). V0.2 done. |
 | L2 | AILESH | Windows 11 | 192.168.31.155 | RTX 2050 4 GB, CUDA torch | V0.2 done. Agent installer downloaded; install + join next. |
 | L3 | **MOHIT (NEW laptop)** | Windows 11 | 192.168.31.71 | none (Intel UHD) | **Replaced the old L3 (TIWARI_JI, retired; backup branch `lab/L3-old-TIWARI_JI`, ignore it).** Doing round 1 + V0.2 catch-up. |
 | L4 | new, arrived | (from its round 1) | (from its `L4-ready`) | (from its round 1) | Starting round 1 + V0.2 catch-up. |

@@ -87,7 +87,7 @@ def read_build_info(root: Path) -> BuildInfo | None:
     damaged file must not break ``--version``)."""
     try:
         raw = json.loads((root / BUILDINFO_NAME).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+    except (OSError, ValueError, RecursionError):
         return None
     if not isinstance(raw, dict):
         return None
