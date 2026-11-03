@@ -273,3 +273,6 @@ result: data dir had cache, cas, config, console, envs, gc, identity, logs, prep
     policy.toml, scores.json, scores.lock. Deleted: cas, gc. Nothing else touched. (Before this the human also did a few
     extra Stop/Start-Service cycles while practising the commands.) Free disk C: 231.4 GB (>= 12 GB).
 SIGNAL: v05-h-ready L4 free=231
+
+### C5.11-g-L4 - part H stop/start during the 5 GB download (LIVE) - done, waiting for L1's result
+result: on L1's "STOP NOW" (human, Administrator): stop issued 02:26:21, stopped 02:26:22, Start-Service 02:26:28 (local, UTC+05:30).
