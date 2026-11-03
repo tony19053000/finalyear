@@ -190,3 +190,14 @@ commands:
 result: 1 failed, 3426 passed, 437 skipped in 348 s. Symlink tests now skip (Lead fix present).
 BUG: tests/unit/agent/test_v017_g1_system_cli.py::test_apply_returns_on_the_common_case fails only because MeshForge is INSTALLED on this laptop: the test monkeypatches `system_install_present` -> False, but on Windows `_apply_windows` (src/meshforge/common/system_cli.py:377) still prints `meshforge-agent: note: MeshForge is installed on this computer; this development command uses YOUR user-mode state ...` -> `Failed: must not print`. The Windows path detects the install some other way than the patched function. Reproduce: run that one test on any Windows laptop with the agent installed. Test isolation bug (or the Windows check ignores system_install_present).
 SIGNAL: V0.3-pre (C3.7 LIVE waits for L1's cue)
+
+### C3.7-b (partial) - agent restart (HUMAN, Administrator) - noted
+when: 2026-11-04 00:45 (local)
+result: human ran Restart-Service MeshForgeAgent (agent's own non-admin attempt was refused: "Cannot open MeshForgeAgent service"); service PID 19208 -> 10152, Running. Later Stop-Service / Start-Service by the human; now Running. Not a counted x5 C3.7 run (no L1 cue recorded).
+
+### C4.0 / C4.15-a - clock offset - FAIL (attempt 1)
+when: 2026-11-04 00:45 (local)
+laptop: L3 (MOHIT)
+commands:
+    w32tm /stripchart /computer:time.windows.com /samples:3 /dataonly
+result: offsets +618.3, +612.2, +621.4 ms (mean ~ +617 ms) > 200 ms limit. Windows Time service (w32time) is stopped (C0-b: 0x80070426). HUMAN asked to start it and resync; will re-measure.
