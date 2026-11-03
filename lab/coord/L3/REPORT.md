@@ -82,3 +82,11 @@ SIGNAL: L3-ready ip=192.168.31.71 os=windows host=MOHIT
 ### NL-1 - old files removed - OK
 when: 2026-11-03 14:59 (local)
 result: 9 TIWARI_JI files (2026-11-01) removed from lab/L3 after checking each exists on origin/lab/L3-old-TIWARI_JI. MOHIT files (2026-11-03) kept.
+
+### CU-a - Network facts (0.2.4) - OK
+when: 2026-11-03 14:59 (local)
+laptop: L3 (MOHIT)
+commands:
+    netsh wlan show interfaces; Get-NetAdapter | ft Name,LinkSpeed; Get-NetConnectionProfile
+result: Wi-Fi 5 GHz 802.11ax, Private, same room as L1. MAC/BSSID lines left out.
+evidence: lab/reports/raw/2026-11-03-V0.2-network-facts/L3.txt

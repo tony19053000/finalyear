@@ -1,0 +1,39 @@
+﻿host MOHIT (L3), same room as L1: yes (human)
+
+There is 1 interface on the system: 
+
+    Name                   : Wi-Fi
+    Description            : MediaTek Wi-Fi 6E MT7902 Wireless LAN Card
+    GUID                   : 2f7135a5-d757-4d8f-bec1-444df9c66ce2
+    Interface type         : Primary
+    State                  : connected
+    SSID                   : JARVIS
+    Network type           : Infrastructure
+    Radio type             : 802.11ax
+    Authentication         : WPA2-Personal
+    Cipher                 : CCMP
+    Connection mode        : Profile
+    Band                   : 5 GHz  
+    Channel                : 157
+    Receive rate (Mbps)    : 600.5
+    Transmit rate (Mbps)   : 600.5
+    Signal                 : 99% 
+    Profile                : JARVIS 
+
+    Hosted network status  : Not available
+
+
+Name       LinkSpeed 
+----       --------- 
+Wi-Fi      600.5 Mbps
+McAfee VPN 1 Gbps    
+
+
+
+
+Name   InterfaceAlias NetworkCategory
+----   -------------- ---------------
+JARVIS Wi-Fi                  Private
+
+
+
