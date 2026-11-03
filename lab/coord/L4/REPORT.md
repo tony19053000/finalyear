@@ -108,3 +108,11 @@ result: "MeshForge S1 TCP" / "MeshForge S1 UDP" inbound 47201 from 192.168.31.0/
 commands:
     uv run python lab/spikes/s1_network.py serve --bind 192.168.31.244 --idle 3600 --duration 14400
 SIGNAL: s1-serve-up L4 ip=192.168.31.244
+
+### C17-a - Download + check - OK
+commands:
+    gh release download v0.17.0 --repo tony19053000/finalyear --pattern "MeshForge-Agent-Setup-*" --pattern SHA256SUMS --dir $HOME\mf-pkgs; Get-FileHash
+result: MeshForge-Agent-Setup-0.17.0-1.exe (57,488,826 bytes) sha256 3e95eb45...183753d matches SHA256SUMS.
+
+### C17-b - controller-up - OK
+result: origin/lab/L1 has SIGNAL: controller-up url=https://192.168.31.13:47110. Invite code to be asked from L1's human.
