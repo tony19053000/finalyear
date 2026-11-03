@@ -236,3 +236,8 @@ result: agent.session.reconciled session sess_01M6GK1YGA4CQHQ6KKN8ACEV6Y first_c
     gc command received from controller. Established TCP L4:12335 -> 192.168.31.13:47100. session_epoch >= 5.
 NOTE: controller_address pins L1's IP 192.168.31.13 - if L1's IP changes, update this line and restart the service.
 SIGNAL: connected L4 node=node_01M6GGJP3FW5VHBDFKYQ6SF318
+
+### C3.7-a-L4 - Wi-Fi drop (LIVE, run by L1) - FAIL (1 of 6 reps, non-blocking)
+result: per origin/lab/L1 REPORT: n=6, OFFLINE mean 5.00 s (all <= 8 s); ONLINE 14.52/8.21/8.46/7.85/8.13/6.96 s
+    (rep 1 > 10 s, reps 2-6 within); agent restarted: no. L4 human toggled Wi-Fi on L1's cue.
+evidence: on L1: lab/reports/2026-11-03-V0.3-fabric-watch.md
