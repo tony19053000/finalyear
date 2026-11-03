@@ -58,3 +58,23 @@ commands:
 result: quick exit 3 (smoke, INVALID n=2). full exit 3: venv start 898.16±57.08 ms; venv cold 5.68±2.84 s; warm 0.89±0.12 s (within 3 s target).
     Skipped: docker-start, docker-pull-cold, docker-gpu-smi, docker-gpu-torch (docker_cli_missing). Recommendation: venv-fallback.
 evidence: lab/reports/raw/2026-11-03-S6-environments/l4-4a5a97c6__quick.json, l4-4a5a97c6.json
+
+### R1-5 - Hardware scores (0.2.11) - run 2 - OK
+when: 2026-11-03 14:20 (local)
+laptop: L4
+commands:
+    uv run python lab/spikes/s7_hardware.py run --name L4
+result: exit 3 (no BLAS/torch, expected). py-1t 28.42±0.44 MFLOP/s, py-all 166.36±6.55, mem copy 22.40±0.66 GB/s.
+    No throttling / battery warning after human set Best performance + cleared vents.
+evidence: lab/reports/raw/2026-11-03-S7-hardware/l4-4a5a97c6__run2.json (run 1 kept as l4-4a5a97c6__run1-throttled.json)
+
+### R1-7 - Push - OK
+result: round 1 files pushed.
+
+## DONE (round 1)
+
+### C0-a - sync - OK
+when: 2026-11-03 14:25 (local)
+commands:
+    git fetch origin; git merge origin/main; git rev-parse --short HEAD; uv sync --extra agent
+result: HEAD 080474cf, uv sync --extra agent exit 0.
