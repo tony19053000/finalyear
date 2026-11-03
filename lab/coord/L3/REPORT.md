@@ -251,3 +251,15 @@ commands:
     (Get-PSDrive C).Free
 result: C: free 174.5 GB (need >= 12 GB). Peer serving off on every agent (L1): controller fetch only; part G peer half SKIPPED.
 SIGNAL: v05-f-ready L3 free=174.5
+
+### C5.11-f - agent log during L1's 5 GB reader job - OK
+when: 2026-11-04 02:15 (local)
+laptop: L3 (MOHIT)
+commands:
+    HUMAN (Administrator): Select-String C:\ProgramData\MeshForge\logs\agent.log* -Pattern 'agent\.cas\.|lease|discovery|transfer_error' | Select -Last 400 > lab/reports/raw/2026-11-04-V0.5-data/L3-agent.txt
+result: 171 lines. Attempt 1 (att_...PBET) failed at 20:32:56Z: `agent.cas.source_dropped` source controller, reason transfer_error, `chunk fetch failed: RemoteProtocolError` -> status failed/transfer_error. Retry attempt (att_...X6F): `agent.cas.input_staged` ds5g@1 blobs_hit 2, blobs_fetched 4, bytes_fetched 4,219,469,824 at 20:38:54Z (from controller only; 2 blobs were already cached from attempt 1). Also 51 agent.discovery.none, 19 agent.discovery.found, 8 agent.started. Peer half SKIPPED (peer serving off).
+  Secrets check: only `fencing_token: [REDACTED]` (agent already redacts it).
+  Note: agent.log is readable only by Administrators (non-admin Get-Content: Access is denied).
+BUG?: one RemoteProtocolError mid-transfer from the controller on Wi-Fi; recovered by the retry. For Lead to judge.
+evidence: lab/reports/raw/2026-11-04-V0.5-data/L3-agent.txt
+SIGNAL: V0.5-done
