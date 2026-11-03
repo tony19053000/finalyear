@@ -407,3 +407,13 @@ commands:
 result: 6 reps, same node_id node_01M6GGJP3FW5VHBDFKYQ6SF318 every time, agent restarted = yes, end reason agent_closed.
     OFFLINE after stop 0.06-0.18 s. ONLINE after start 7.25 / 5.25 / 4.98 / 6.40 / 5.49 / 6.48 s.
 evidence: lab/reports/2026-11-03-V0.3-fabric-watch.md, lab/reports/raw/2026-11-03-V0.3-fabric-watch/l1-dffe8596__laptop-7orvm30g-agent-151945-1c8b5fb9.json
+
+### C3.7-b - Agent restart keeps node_id, L1 (JARVISM3) - OK
+commands:
+    lab/reports/raw/2026-11-03-V0.3-fabric-watch/tools/l1_agent_test.sh: runs `fabric_check.py --name L1 watch --node JARVISM3 --action agent --link wifi --reps 6`
+    and, at each >>> STOP / >>> START, sends Enter then `sudo systemctl stop|start meshforge-agent` (one person cannot press Enter and type sudo at once on the same laptop).
+result: attempt 1 (Enter sent AFTER the stop): rep 1 "offline was reached 0.24 s BEFORE Enter" -> not counted; stuck waiting, stopped by the agent (no JSON). Fixed order (Enter first).
+    attempt 2: exit 0. 6 reps, same node_id node_01M6BMFVHJVZXC7AET3CFRE3AV, agent restarted = yes, agent_closed.
+    OFFLINE 0.03-0.11 s, ONLINE 1.06-1.18 s (local controller, no Wi-Fi hop). Agent active afterwards.
+    Summary C3.7-b: all 4 laptops x 6 reps came back under the same node_id (criterion 4 passes).
+evidence: lab/reports/2026-11-03-V0.3-fabric-watch.md, lab/reports/raw/2026-11-03-V0.3-fabric-watch/l1-dffe8596__jarvism3-agent-152726-ac0daa35.json
