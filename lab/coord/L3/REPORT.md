@@ -114,3 +114,12 @@ commands:
     gh release download v0.17.0 --repo tony19053000/finalyear --pattern "MeshForge-Agent-Setup-*" --pattern SHA256SUMS --dir $HOME\mf-pkgs
     Get-FileHash vs SHA256SUMS
 result: MeshForge-Agent-Setup-0.17.0-1.exe 54.8 MB, SHA256 matches SHA256SUMS. Done early while waiting for S1 clients.
+
+### R1-3 (rerun after be71b7ac) - Inventory (0.2.2) - OK
+when: 2026-11-03 15:32 (local)
+laptop: L3 (MOHIT)
+commands:
+    uv run python lab/inventory.py --out "lab/reports/inventory/MOHIT.json"
+result: exit 0, failed probes none, problems none. CPU i5-1235U (10 cores / 12 threads), RAM 7.7 GiB, GPU Intel UHD Graphics 1024 MiB (no NVIDIA), torch not installed, docker not installed, Wi-Fi 600.5 Mbit/s, secure boot enabled. The fix works on MOHIT.
+evidence: lab/reports/inventory/MOHIT.json (attempt 1 kept as MOHIT.attempt1.json)
+note: R1-5 (S7) rerun deferred until no S1 client is measuring against L3 (S7 loads the CPU).
