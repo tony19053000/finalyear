@@ -1,0 +1,24 @@
+=== L1
+job_01M6HBFZ4W0XJYE7JZWM8GP2ND
+done: 148933 primes, pi ~ 3.14728, 1.23 s (pure Python)
+exit=0
+=== L2
+job_01M6HBG1HZGJHH361BFZB9Y8CY
+done: 148933 primes, pi ~ 3.14728, 1.58 s (pure Python)
+exit=0
+=== L3
+job_01M6HBG6NAMMAK5QAEFCF9VAQD
+done: 148933 primes, pi ~ 3.14728, 1.55 s (pure Python)
+exit=0
+=== L4
+job_01M6HBGCP5Q0SHMERM5CYNCFJZ
+done: 148933 primes, pi ~ 3.14728, 1.51 s (pure Python)
+exit=0
+d85fca4c255d086a52b98aa22bc5aaa1ec00eb62f27b40cd1c0986e29b01c598  outputs/job_01M6HBFZ4W0XJYE7JZWM8GP2ND/results/result.json
+  digest sha256:0562889f3aab9811534c6532e6dfd325db87d37eceb37adc8e222a3b8bdf2c40 node node_01M6BMFVH
+d85fca4c255d086a52b98aa22bc5aaa1ec00eb62f27b40cd1c0986e29b01c598  outputs/job_01M6HBG1HZGJHH361BFZB9Y8CY/results/result.json
+  digest sha256:0562889f3aab9811534c6532e6dfd325db87d37eceb37adc8e222a3b8bdf2c40 node node_01M6GCKN7
+d85fca4c255d086a52b98aa22bc5aaa1ec00eb62f27b40cd1c0986e29b01c598  outputs/job_01M6HBG6NAMMAK5QAEFCF9VAQD/results/result.json
+  digest sha256:0562889f3aab9811534c6532e6dfd325db87d37eceb37adc8e222a3b8bdf2c40 node node_01M6GGZ7V
+d85fca4c255d086a52b98aa22bc5aaa1ec00eb62f27b40cd1c0986e29b01c598  outputs/job_01M6HBGCP5Q0SHMERM5CYNCFJZ/results/result.json
+  digest sha256:0562889f3aab9811534c6532e6dfd325db87d37eceb37adc8e222a3b8bdf2c40 node node_01M6GGJP3

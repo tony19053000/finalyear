@@ -450,3 +450,12 @@ SIGNAL: clock-offset L1 ms=+129
 commands: docker pull python:3.12-slim@sha256:f77ac9e4...; docker pull pytorch/pytorch:2.14.0-cuda12.6-cudnn9-runtime@sha256:a77983eb...
 result: both exit 0. Disk now 17 GB free (91 % used) - watch it for V0.5 (needs >= 20 GB free: C5.11-a may fail).
 evidence: lab/reports/raw/2026-11-04-V0.4-exec/A3-pull.txt
+
+### C4.15-b - CPU example on every laptop, part C (c1) - OK
+commands: compute run workloads/examples/cpu-deterministic --node <L1|L2|L3|L4> -f; compute get <J>; sha256sum outputs/<J>/results/result.json
+    (L1 via --node <L1-ID> instead of --local: same agent, same result)
+result: all 4 exit 0 "done: 148933 primes, pi ~ 3.14728" (1.23 / 1.58 / 1.55 / 1.51 s).
+    result.json sha256 = d85fca4c255d086a52b98aa22bc5aaa1ec00eb62f27b40cd1c0986e29b01c598 on all 4 (= golden digest).
+    attempt output_digest identical on all 4: sha256:0562889f3aab9811...
+    jobs: L1 job_01M6HBFZ4W0XJYE7JZWM8GP2ND, L2 job_01M6HBG1HZGJHH361BFZB9Y8CY, L3 job_01M6HBG6NAMMAK5QAEFCF9VAQD, L4 job_01M6HBGCP5Q0SHMERM5CYNCFJZ
+evidence: lab/reports/raw/2026-11-04-V0.4-exec/C.txt
