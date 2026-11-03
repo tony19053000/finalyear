@@ -1,0 +1,599 @@
+{
+  "cases": {
+    "docker-gpu-smi": {
+      "aborted": true,
+      "attrs": {},
+      "errors": [
+        {
+          "failure_type": "docker_cli_missing",
+          "fatal": false,
+          "message": "docker is not on PATH [fix: install Docker Desktop (Windows) or Docker Engine (Linux) and open a new shell]",
+          "phase": "setup",
+          "rep": 0
+        }
+      ],
+      "label": "nvidia-smi inside a CUDA base container (--gpus all)",
+      "metrics": {
+        "start_to_exit_ms": "ms"
+      },
+      "requested_reps": 5,
+      "requested_warmup": 1,
+      "samples": [],
+      "summary": {
+        "start_to_exit_ms": {
+          "max": null,
+          "mean": null,
+          "median": null,
+          "min": null,
+          "n": 0,
+          "p95": null,
+          "stdev": null
+        }
+      },
+      "warmup": []
+    },
+    "docker-gpu-torch": {
+      "aborted": true,
+      "attrs": {},
+      "errors": [
+        {
+          "failure_type": "docker_cli_missing",
+          "fatal": false,
+          "message": "docker is not on PATH [fix: install Docker Desktop (Windows) or Docker Engine (Linux) and open a new shell]",
+          "phase": "setup",
+          "rep": 0
+        }
+      ],
+      "label": "PyTorch-CUDA container: import torch + first CUDA matmul",
+      "metrics": {
+        "first_cuda_op_s": "s",
+        "import_s": "s",
+        "start_to_ready_ms": "ms",
+        "total_ms": "ms"
+      },
+      "requested_reps": 5,
+      "requested_warmup": 1,
+      "samples": [],
+      "summary": {
+        "first_cuda_op_s": {
+          "max": null,
+          "mean": null,
+          "median": null,
+          "min": null,
+          "n": 0,
+          "p95": null,
+          "stdev": null
+        },
+        "import_s": {
+          "max": null,
+          "mean": null,
+          "median": null,
+          "min": null,
+          "n": 0,
+          "p95": null,
+          "stdev": null
+        },
+        "start_to_ready_ms": {
+          "max": null,
+          "mean": null,
+          "median": null,
+          "min": null,
+          "n": 0,
+          "p95": null,
+          "stdev": null
+        },
+        "total_ms": {
+          "max": null,
+          "mean": null,
+          "median": null,
+          "min": null,
+          "n": 0,
+          "p95": null,
+          "stdev": null
+        }
+      },
+      "warmup": []
+    },
+    "docker-pull-cold": {
+      "aborted": true,
+      "attrs": {},
+      "errors": [
+        {
+          "failure_type": "docker_cli_missing",
+          "fatal": false,
+          "message": "docker is not on PATH [fix: install Docker Desktop (Windows) or Docker Engine (Linux) and open a new shell]",
+          "phase": "setup",
+          "rep": 0
+        }
+      ],
+      "label": "cold pull of the small image (rmi, then pull)",
+      "metrics": {
+        "bytes_on_disk": "B",
+        "pull_s": "s"
+      },
+      "requested_reps": 5,
+      "requested_warmup": 1,
+      "samples": [],
+      "summary": {
+        "bytes_on_disk": {
+          "max": null,
+          "mean": null,
+          "median": null,
+          "min": null,
+          "n": 0,
+          "p95": null,
+          "stdev": null
+        },
+        "pull_s": {
+          "max": null,
+          "mean": null,
+          "median": null,
+          "min": null,
+          "n": 0,
+          "p95": null,
+          "stdev": null
+        }
+      },
+      "warmup": []
+    },
+    "docker-start": {
+      "aborted": true,
+      "attrs": {},
+      "errors": [
+        {
+          "failure_type": "docker_cli_missing",
+          "fatal": false,
+          "message": "docker is not on PATH [fix: install Docker Desktop (Windows) or Docker Engine (Linux) and open a new shell]",
+          "phase": "setup",
+          "rep": 0
+        }
+      ],
+      "label": "warm container start, sandboxed python -c print",
+      "metrics": {
+        "start_to_exit_ms": "ms"
+      },
+      "requested_reps": 5,
+      "requested_warmup": 1,
+      "samples": [],
+      "summary": {
+        "start_to_exit_ms": {
+          "max": null,
+          "mean": null,
+          "median": null,
+          "min": null,
+          "n": 0,
+          "p95": null,
+          "stdev": null
+        }
+      },
+      "warmup": []
+    },
+    "venv-cold": {
+      "aborted": false,
+      "attrs": {
+        "offline": false,
+        "pinned_requirements": [
+          "numpy==2.2.6",
+          "grpcio==1.84.0",
+          "pydantic==2.13.5"
+        ],
+        "python_request": "3.12",
+        "uv_version": "uv 0.13.7 (316c827e0 2026-11-03 x86_64-pc-windows-msvc)"
+      },
+      "errors": [],
+      "label": "uv venv + install, fresh empty cache per repetition",
+      "metrics": {
+        "cache_bytes": "B",
+        "create_s": "s",
+        "install_s": "s",
+        "site_packages_bytes": "B",
+        "total_s": "s"
+      },
+      "requested_reps": 5,
+      "requested_warmup": 1,
+      "samples": [
+        {
+          "cache_bytes": 72485047,
+          "create_s": 1.211930700000039,
+          "install_s": 3.6250092000000222,
+          "site_packages_bytes": 62878267,
+          "total_s": 4.836939900000061
+        },
+        {
+          "cache_bytes": 72485047,
+          "create_s": 1.2258272000001398,
+          "install_s": 3.3516799000001356,
+          "site_packages_bytes": 62878267,
+          "total_s": 4.577507100000275
+        },
+        {
+          "cache_bytes": 72485047,
+          "create_s": 1.202702600000066,
+          "install_s": 4.4729419000000235,
+          "site_packages_bytes": 62878267,
+          "total_s": 5.6756445000000895
+        },
+        {
+          "cache_bytes": 72485047,
+          "create_s": 1.3133875000000899,
+          "install_s": 3.9149357000001146,
+          "site_packages_bytes": 62878267,
+          "total_s": 5.2283232000002045
+        },
+        {
+          "cache_bytes": 72485047,
+          "create_s": 1.3011408999998366,
+          "install_s": 3.806826400000091,
+          "site_packages_bytes": 62878267,
+          "total_s": 5.1079672999999275
+        }
+      ],
+      "summary": {
+        "cache_bytes": {
+          "max": 72485047.0,
+          "mean": 72485047.0,
+          "median": 72485047.0,
+          "min": 72485047.0,
+          "n": 5,
+          "p95": 72485047.0,
+          "stdev": 0.0
+        },
+        "create_s": {
+          "max": 1.3133875000000899,
+          "mean": 1.2509977800000343,
+          "median": 1.2258272000001398,
+          "min": 1.202702600000066,
+          "n": 5,
+          "p95": 1.3109381800000393,
+          "stdev": 0.052199207114395824
+        },
+        "install_s": {
+          "max": 4.4729419000000235,
+          "mean": 3.8342786200000774,
+          "median": 3.806826400000091,
+          "min": 3.3516799000001356,
+          "n": 5,
+          "p95": 4.3613406600000415,
+          "stdev": 0.41588615895762004
+        },
+        "site_packages_bytes": {
+          "max": 62878267.0,
+          "mean": 62878267.0,
+          "median": 62878267.0,
+          "min": 62878267.0,
+          "n": 5,
+          "p95": 62878267.0,
+          "stdev": 0.0
+        },
+        "total_s": {
+          "max": 5.6756445000000895,
+          "mean": 5.085276400000112,
+          "median": 5.1079672999999275,
+          "min": 4.577507100000275,
+          "n": 5,
+          "p95": 5.586180240000113,
+          "stdev": 0.41503386508972095
+        }
+      },
+      "warmup": [
+        {
+          "cache_bytes": 72485047,
+          "create_s": 1.9745450999998866,
+          "install_s": 4.0977636000000075,
+          "site_packages_bytes": 62878267,
+          "total_s": 6.072308699999894
+        }
+      ]
+    },
+    "venv-start": {
+      "aborted": false,
+      "attrs": {
+        "offline": true,
+        "pinned_requirements": [
+          "numpy==2.2.6",
+          "grpcio==1.84.0",
+          "pydantic==2.13.5"
+        ],
+        "python_request": "3.12",
+        "script": "import numpy; import grpc; print('ok')",
+        "uv_version": "uv 0.13.7 (316c827e0 2026-11-03 x86_64-pc-windows-msvc)"
+      },
+      "errors": [],
+      "label": "venv interpreter: import numpy, grpc (process start)",
+      "metrics": {
+        "start_to_exit_ms": "ms"
+      },
+      "requested_reps": 5,
+      "requested_warmup": 1,
+      "samples": [
+        {
+          "exit_code": 0,
+          "start_to_exit_ms": 793.8395000001037
+        },
+        {
+          "exit_code": 0,
+          "start_to_exit_ms": 800.2037999999629
+        },
+        {
+          "exit_code": 0,
+          "start_to_exit_ms": 797.9363999997986
+        },
+        {
+          "exit_code": 0,
+          "start_to_exit_ms": 1043.8673000001017
+        },
+        {
+          "exit_code": 0,
+          "start_to_exit_ms": 836.6207000001395
+        }
+      ],
+      "summary": {
+        "start_to_exit_ms": {
+          "max": 1043.8673000001017,
+          "mean": 854.4935400000213,
+          "median": 800.2037999999629,
+          "min": 793.8395000001037,
+          "n": 5,
+          "p95": 1002.4179800001093,
+          "stdev": 107.24604644090589
+        }
+      },
+      "warmup": [
+        {
+          "exit_code": 0,
+          "start_to_exit_ms": 1606.8276000000878
+        }
+      ]
+    },
+    "venv-warm": {
+      "aborted": false,
+      "attrs": {
+        "offline": true,
+        "pinned_requirements": [
+          "numpy==2.2.6",
+          "grpcio==1.84.0",
+          "pydantic==2.13.5"
+        ],
+        "python_request": "3.12",
+        "uv_version": "uv 0.13.7 (316c827e0 2026-11-03 x86_64-pc-windows-msvc)",
+        "warm_setup": {
+          "cache_bytes": 72485025,
+          "create_s": 1.5945746999998391,
+          "install_s": 3.7719538000001194,
+          "note": "the one online install that warmed the cache",
+          "site_packages_bytes": 62878267,
+          "total_s": 5.3665284999999585
+        }
+      },
+      "errors": [],
+      "label": "uv venv + install --offline from a cache warmed once",
+      "metrics": {
+        "cache_bytes": "B",
+        "create_s": "s",
+        "install_s": "s",
+        "site_packages_bytes": "B",
+        "total_s": "s"
+      },
+      "requested_reps": 5,
+      "requested_warmup": 1,
+      "samples": [
+        {
+          "cache_bytes": 72488693,
+          "create_s": 0.3762918999998419,
+          "install_s": 0.7708416000000398,
+          "site_packages_bytes": 62878267,
+          "total_s": 1.1471334999998817
+        },
+        {
+          "cache_bytes": 72490527,
+          "create_s": 0.424369200000001,
+          "install_s": 0.6967314000000897,
+          "site_packages_bytes": 62878267,
+          "total_s": 1.1211006000000907
+        },
+        {
+          "cache_bytes": 72492361,
+          "create_s": 0.37644010000008166,
+          "install_s": 0.6867165999999543,
+          "site_packages_bytes": 62878267,
+          "total_s": 1.063156700000036
+        },
+        {
+          "cache_bytes": 72494195,
+          "create_s": 0.39669260000005124,
+          "install_s": 0.7563606000001073,
+          "site_packages_bytes": 62878267,
+          "total_s": 1.1530532000001585
+        },
+        {
+          "cache_bytes": 72496029,
+          "create_s": 0.3990555000000313,
+          "install_s": 0.7669024000001627,
+          "site_packages_bytes": 62878267,
+          "total_s": 1.165957900000194
+        }
+      ],
+      "summary": {
+        "cache_bytes": {
+          "max": 72496029.0,
+          "mean": 72492361.0,
+          "median": 72492361.0,
+          "min": 72488693.0,
+          "n": 5,
+          "p95": 72495662.2,
+          "stdev": 2899.808614374404
+        },
+        "create_s": {
+          "max": 0.424369200000001,
+          "mean": 0.39456986000000144,
+          "median": 0.39669260000005124,
+          "min": 0.3762918999998419,
+          "n": 5,
+          "p95": 0.41930646000000704,
+          "stdev": 0.01984565239023006
+        },
+        "install_s": {
+          "max": 0.7708416000000398,
+          "mean": 0.7355105200000708,
+          "median": 0.7563606000001073,
+          "min": 0.6867165999999543,
+          "n": 5,
+          "p95": 0.7700537600000643,
+          "stdev": 0.04047569627833166
+        },
+        "site_packages_bytes": {
+          "max": 62878267.0,
+          "mean": 62878267.0,
+          "median": 62878267.0,
+          "min": 62878267.0,
+          "n": 5,
+          "p95": 62878267.0,
+          "stdev": 0.0
+        },
+        "total_s": {
+          "max": 1.165957900000194,
+          "mean": 1.1300803800000723,
+          "median": 1.1471334999998817,
+          "min": 1.063156700000036,
+          "n": 5,
+          "p95": 1.1633769600001869,
+          "stdev": 0.04082024986277869
+        }
+      },
+      "warmup": [
+        {
+          "cache_bytes": 72486859,
+          "create_s": 0.5044707999998082,
+          "install_s": 0.8296029000000544,
+          "site_packages_bytes": 62878267,
+          "total_s": 1.3340736999998626
+        }
+      ]
+    }
+  },
+  "errors": [
+    {
+      "failure_type": "docker_cli_missing",
+      "message": "docker-start: docker is not on PATH [fix: install Docker Desktop (Windows) or Docker Engine (Linux) and open a new shell]"
+    },
+    {
+      "failure_type": "docker_cli_missing",
+      "message": "docker-pull-cold: docker is not on PATH [fix: install Docker Desktop (Windows) or Docker Engine (Linux) and open a new shell]"
+    },
+    {
+      "failure_type": "docker_cli_missing",
+      "message": "docker-gpu-smi: docker is not on PATH [fix: install Docker Desktop (Windows) or Docker Engine (Linux) and open a new shell]"
+    },
+    {
+      "failure_type": "docker_cli_missing",
+      "message": "docker-gpu-torch: docker is not on PATH [fix: install Docker Desktop (Windows) or Docker Engine (Linux) and open a new shell]"
+    }
+  ],
+  "extra": {
+    "budget_remaining_s": 3535.297,
+    "docker": {
+      "failure_type": "docker_cli_missing",
+      "fix": "install Docker Desktop (Windows) or Docker Engine (Linux) and open a new shell",
+      "message": "docker is not on PATH",
+      "ok": false
+    },
+    "facts": {
+      "cpu_count": 12,
+      "disk_free_bytes": {
+        "docker_root": null,
+        "temp_dir": 195222208512
+      },
+      "gpu": {
+        "devices": [],
+        "failure_type": "no_gpu_on_host",
+        "fix": "no NVIDIA GPU visible to the host driver: GPU-in-container is n/a here (if the laptop has one, install the NVIDIA driver and check nvidia-smi)",
+        "message": "nvidia-smi not found on PATH",
+        "present": false
+      },
+      "is_wsl": false,
+      "machine": "AMD64",
+      "memory_total_bytes": 8260263936,
+      "python": "3.12.16",
+      "release": "11",
+      "system": "Windows",
+      "uv_version": "uv 0.13.7 (316c827e0 2026-11-03 x86_64-pc-windows-msvc)",
+      "version": "10.0.22631",
+      "wsl": {
+        "distro": null,
+        "evidence": {
+          "platform": "win32"
+        },
+        "is_wsl": false,
+        "native": true,
+        "platform": "win32",
+        "wsl_version": null
+      }
+    },
+    "gpu_torch_cold_pull_note": "docker-gpu-torch.attrs.cold_pull is one informational pull (n=1) and is never a row of the results table",
+    "images": {},
+    "metric_units": {
+      "bytes_on_disk": "B",
+      "cache_bytes": "B",
+      "create_s": "s",
+      "first_cuda_op_s": "s",
+      "import_s": "s",
+      "install_s": "s",
+      "pull_s": "s",
+      "site_packages_bytes": "B",
+      "start_to_exit_ms": "ms",
+      "start_to_ready_ms": "ms",
+      "total_ms": "ms",
+      "total_s": "s"
+    },
+    "pinned_requirements": [
+      "numpy==2.2.6",
+      "grpcio==1.84.0",
+      "pydantic==2.13.5"
+    ],
+    "quick": false,
+    "skipped": {},
+    "warnings": [
+      "docker: docker_cli_missing: docker is not on PATH [fix: install Docker Desktop (Windows) or Docker Engine (Linux) and open a new shell]",
+      "no NVIDIA GPU on this host: nvidia-smi not found on PATH",
+      "docker_cli_missing: docker-start: docker is not on PATH [fix: install Docker Desktop (Windows) or Docker Engine (Linux) and open a new shell]",
+      "docker_cli_missing: docker-pull-cold: docker is not on PATH [fix: install Docker Desktop (Windows) or Docker Engine (Linux) and open a new shell]",
+      "docker_cli_missing: docker-gpu-smi: docker is not on PATH [fix: install Docker Desktop (Windows) or Docker Engine (Linux) and open a new shell]",
+      "docker_cli_missing: docker-gpu-torch: docker is not on PATH [fix: install Docker Desktop (Windows) or Docker Engine (Linux) and open a new shell]"
+    ]
+  },
+  "git": {
+    "commit": "240deed9",
+    "dirty": false,
+    "modified_files": 0,
+    "untracked_files": 0
+  },
+  "host": {
+    "hostname": "Mohit",
+    "label": "L3",
+    "machine": "AMD64",
+    "os": "Windows",
+    "os_release": "11",
+    "python": "3.12.16"
+  },
+  "link": null,
+  "params": {
+    "budget_s": 3600.0,
+    "gpu_torch_image": "pytorch/pytorch:2.8.0-cuda12.6-cudnn9-runtime",
+    "no_network": false,
+    "pause_s": 0.2,
+    "quick": false,
+    "reps": 5,
+    "skip_docker": false,
+    "skip_gpu": false,
+    "skip_gpu_torch": false,
+    "warmup": 1
+  },
+  "schema_version": 1,
+  "spike": "S6",
+  "timestamp_utc": "2026-11-03T08:58:01Z",
+  "tool": {
+    "script": "lab/spikes/s6_environments.py",
+    "spike": "S6"
+  },
+  "topic": "S6-environments"
+}

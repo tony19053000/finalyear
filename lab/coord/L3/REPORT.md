@@ -41,3 +41,30 @@ commands:
     uv run python lab/spikes/s7_hardware.py run --quick --name L3 --skip-gpu
 result: exit 1, traceback before any score: `RuntimeError: powershell CIM query failed: powershell: timed out after 60 s` (environment.snapshot -> probes.probe_power -> windows_cim). Full run not attempted (same code path).
 BUG: root cause isolated on MOHIT: `powershell ... -EncodedCommand <pw.CIM_SCRIPT>` (6008 chars) HANGS (>40 s, killed), with or without CREATE_NO_WINDOW|CREATE_NEW_PROCESS_GROUP; the same script via `-File cim.ps1` returns rc 0 in 3.0-3.4 s (2296 bytes) under both flag sets; runner._env() is identical to os.environ. Likely Windows Defender/AMSI holding the encoded command. Suggested fix: write the script to a temp .ps1 and use `-File` (fallback when -EncodedCommand times out). Affects lab/_inventory (R1-3) and everything using windows_cim (S7, maybe S2 env).
+
+### R1-1b - Wi-Fi profile + room - OK
+when: 2026-11-03 14:28 (local)
+laptop: L3 (MOHIT)
+commands:
+    Get-NetConnectionProfile
+result: human switched JARVIS to Private -> `JARVIS Private` confirmed. Same room as L1: yes (human).
+
+### R1-6 - Environments (0.2.10) - OK (docker cases skipped)
+when: 2026-11-03 14:28 (local)
+laptop: L3 (MOHIT)
+commands:
+    uv run python lab/spikes/s6_environments.py run --quick --name L3   (exit 3)
+    uv run python lab/spikes/s6_environments.py run --name L3           (exit 3)
+result: venv process start 0.85 s (within the <= 3 s target); venv create+install cold 5.09 +- 0.42 s, warm 1.13 +- 0.04 s (n=5).
+  Docker cases skipped: quick run = `docker_daemon_unreachable` (Docker Desktop client present, engine not running); by the full run the docker CLI was no longer on PATH (`docker_cli_missing`; C:\Program Files\Docker absent). Treat L3 as **no Docker**. GPU cases n/a (no NVIDIA).
+evidence: lab/reports/raw/2026-11-03-S6-environments/l3-842983de__quick.json, lab/reports/raw/2026-11-03-S6-environments/l3-842983de.json
+
+### R1b - round 1b items - OK
+when: 2026-11-03 14:28 (local)
+laptop: L3 (MOHIT)
+commands:
+    uv sync --extra agent
+result: exit 0. Wi-Fi Private: done (R1-1b). CUDA torch: not applicable (no NVIDIA GPU).
+
+### R1-7 - Push - OK
+result: round 1 pushed. Open: R1-5 BLOCKED by the -EncodedCommand hang (see R1-5 BUG); R1-3 inventory incomplete for the same reason.
