@@ -574,3 +574,13 @@ result: job_01M6HHQX4TS0MF1JPBN2NNCHQR succeeded in 464 s. Attempt 1 failed tran
     Pattern: the FIRST attempt of every 5 GB fetch so far failed (L2 node_lost, L2 transfer_error, L3 transfer_error); the retry always succeeded.
 evidence: lab/reports/raw/2026-11-04-V0.5-data/G-L3.txt (+ L3's L3-agent.txt)
 SIGNAL: v05-f-done L3
+
+### C5.11-g - Part H kill + resume on L4 (c3) - job OK; resumed_chunks to be read from L4's agent log
+commands: L4 prep: agent stopped, cas+gc deleted, started (L4 REPORT, free 231 GB). J1 = compute run ~/mf-lab/reader --node <L4-ID> (20:52:55Z);
+    LIVE: human relayed "STOP NOW" -> L4 Stop-Service, 5 s, Start-Service. J2 = same, -f.
+result: J1 job_01M6HJZDCDN6G3TDFDPQJW1J2Q failed: attempt 1 transfer_error by itself at 20:55:33 (before the stop, ~158 s staging - same first-attempt bug),
+    attempt 2 node_lost at 20:56:21 (the agent stop). J2 job_01M6HK8J40V20JA99WRWGT11JK succeeded: preparing 20:57:55 -> running 21:05:59 (484 s), same dataset sha256 b9124ddf....
+    The controller journal and `compute logs` have no resumed_chunks field; the cache/resume line is in L4's agent log (agent.cas.input_staged) - L4 records it in L4-agent.txt. Pass/fail of c3 (resumed_chunks > 0) waits for that.
+    Note: the stop came late (relay by human), so most of J1's bytes were from attempt 1; that is fine for resume (verified chunks stay in cas).
+evidence: lab/reports/raw/2026-11-04-V0.5-data/H-L4.txt
+SIGNAL: v05-h-done L4 (L4: save agent.cas.* lines incl. resumed_chunks, then V0.5-done)

@@ -1,0 +1,13 @@
+20:57:54
+compute: uploaded 0 files / 0 bytes, skipped 2
+job_01M6HK8J40V20JA99WRWGT11JK
+dataset sha256 b9124ddf4d3e9b6fd609354190cd4ac38907a1b11f72fbcfb0926b6c4976c113
+21:06:11
+20:57:55.077 submitted
+20:57:55.079 planning
+20:57:55.081 queued
+20:57:55.110 preparing
+21:05:59.017 running
+21:06:09.560 collecting
+21:06:10.908 succeeded
+att_01M6HK8J54Z65ZPVG7Z6VZ1NVG done None
