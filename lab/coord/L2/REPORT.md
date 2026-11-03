@@ -389,3 +389,11 @@ SIGNAL: v04-g-done L2
 
 ### C4.15-e LIVE - OK (2026-11-04 01:20)
 Administrator `Get-CimInstance Win32_Process -Filter "Name like 'python%'"`: only 2 python processes, both the agent service itself (PID 25068 `meshforge.agent.winservice host ...`, PID 25460 `meshforge.agent.winservice child -- run`). No sleeper `main.py` / `sleep 300` left. Leftover process after cancel: **no**.
+
+### C5.0 / C5.11-c iperf3 Wi-Fi to L1 - OK (2026-11-04 01:24)
+iperf3 was missing; installed with `winget install --id ar51an.iPerf3 -e` (3.22, no admin needed). Note: the winget alias did not resolve in the current shell; ran the exe from the WinGet Packages folder.
+- `iperf3 -c 192.168.31.13 -t 30` (L2 -> L1): receiver **237 Mbit/s** (849 MB in 30 s)
+- `iperf3 -c 192.168.31.13 -t 30 -R` (L1 -> L2): receiver **169 Mbit/s** (604 MB in 30 s)
+Raw: `lab/reports/raw/2026-11-04-V0.5-data/L2-iperf3-up.txt`, `L2-iperf3-R.txt`.
+Free disk C: **192.0 GB** (need >= 12 GB): OK.
+SIGNAL: iperf3-done L2 up=237 down=169
