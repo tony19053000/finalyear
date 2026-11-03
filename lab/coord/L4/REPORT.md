@@ -1,1 +1,38 @@
 # L4 REPORT
+
+### R1-1 - Who am I - OK
+when: 2026-11-03 13:50 (local)
+laptop: L4 (Windows 11, hostname LAPTOP-7ORVM30G)
+commands:
+    Get-CimInstance Win32_OperatingSystem / Win32_Processor / Win32_VideoController; Get-NetIPAddress; netsh wlan show interfaces; Get-NetConnectionProfile
+result: Windows 11 Home Single Language 10.0.26300; i5-12450H (8C/12T); 15.7 GiB RAM; NVIDIA GeForce RTX 3050 Laptop GPU 4 GB + Intel UHD.
+    Wi-Fi IP 192.168.31.244, SSID JARVIS, 5 GHz ch 157, 802.11ax, 1201 Mbps, signal 97%. On AC power.
+    Network profile "JARVIS 2" was **Public** -> human asked to switch to Private (result in C0-b).
+    Same room as L1: to confirm with human.
+
+### R1-2 - Tools - OK
+when: 2026-11-03 13:53 (local)
+laptop: L4
+commands:
+    git --version; winget install astral-sh.uv; uv --version; uv python install 3.12; uv sync; uv run python --version; docker version
+result: git 2.56.0.windows.4 (installed today), uv 0.13.7 (installed today, user scope), Python 3.12.16. uv sync OK. Docker: not installed.
+BUG: (tooling, non-blocking) first `uv run` and `uv python install 3.12` print
+    "error: Missing expected target directory for Python minor version link at `...\uv\python\cpython-3.12.16-windows-x86_64-none`",
+    but the interpreter is installed and `uv sync` / `uv run python --version` work.
+
+### R1-3 - Inventory (0.2.2) - OK
+when: 2026-11-03 13:56 (local)
+laptop: L4
+commands:
+    uv run python lab/inventory.py --out "lab/reports/inventory/$env:COMPUTERNAME.json"
+result: exit 0. cpu i5-12450H 8C/12T; ram 15.7 GiB; gpus Intel UHD + RTX 3050 Laptop 4096 MiB; nvidia OK driver 592.27 CUDA 13.1;
+    secure boot enabled; torch/docker not installed; Wi-Fi 1201 Mbit/s; problems none.
+evidence: lab/reports/inventory/LAPTOP-7ORVM30G.json
+
+### R1-4 - GPU check (0.2.1 / 0.2.3) - OK
+when: 2026-11-03 13:56 (local)
+laptop: L4
+commands:
+    nvidia-smi; uv run python -c "import torch; ..."
+result: NVIDIA-SMI 592.27, Driver 592.27, CUDA 13.1; RTX 3050 Laptop, WDDM, 52C, P0, 9W/70W, 0/4096 MiB.
+    torch: not installed (ModuleNotFoundError), not installed per rules. Docker GPU test: SKIPPED (no Docker).
