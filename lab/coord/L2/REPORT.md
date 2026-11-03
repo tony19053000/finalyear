@@ -345,3 +345,19 @@ result: L2 ran L2->L3 and L2->L4; raw files pushed (lab/reports/raw/2026-11-03-S
 SIGNAL: s1-matrix-done L2
 
 ### C17 - resumed (ANNOUNCE 2026-11-03 (3): joining may start)
+
+### C17-c / C17-d - Join + check - OK
+when: 2026-11-03 (local)
+laptop: L2 (Windows 11, AILESH, 192.168.31.155)
+commands:
+    HUMAN: MeshForge console (Start menu) -> Join a fabric -> typed L2's invite code (not recorded) -> owner settings -> Save -> Done
+    (human, Administrator) meshforge-agent identity show; policy show; sc.exe queryex MeshForgeAgent  -> file
+result: console "Done": "This laptop is in the fabric fab_01M6BMCGQBHTN059R0R5MY3WYW".
+    identity: node_01M6GCKN7PYT2J297BT241P436, enrolled True, session_epoch 1, cert valid to 2026-12-03 (renewal due 2026-11-23);
+    ca_fingerprint 056b7ba3...45724585 = L1 controller-up fp 05:6B:7B:A3:...:45:72:45:85 (matches).
+    policy (live): accept_jobs True, allow_unsandboxed True (jobs without container), max_cpu_percent 50, max_cpu_jobs 1, max_gpu_jobs one per GPU, accept_gpu_sessions False, allow_network False, pause_benchmarks False.
+    Service RUNNING, PID 25472 (same as before the join). Version 0.17.0-1.
+    Installer screenshots (SmartScreen, share page, finished) were not taken: the install happened during the break.
+evidence: lab/reports/raw/2026-11-03-V0.17-install/L2-console-done.png, L2-joined.txt, L2-checks.txt, L2-checks2.txt
+QUESTIONS: accept_gpu_sessions is False although the human turned the GPU option on - is that the Mode 2 remote-GPU switch (deferred) and GPU jobs are allowed through max_gpu_jobs? max_cpu_percent 50: console default?
+SIGNAL: joined L2 node=node_01M6GCKN7PYT2J297BT241P436
