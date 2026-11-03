@@ -167,3 +167,17 @@ result: install dir created 15:57:30; service MeshForgeAgent RUNNING (PID 19208)
   `meshforge-agent identity show` from a normal shell -> exit 4 "only administrators may change ... run it in an elevated prompt" (expected; admin check in C17-e).
   Firewall: `Get-NetFirewallRule` with MeshForge in name or group -> 0 rules after install. QUESTION: does the installer open the agent ports only at join, or is a rule missing? (CAMPAIGN Lead decision 7 asks to report which ports it opens: none so far.)
 SIGNAL: installed L3
+
+### C17-c (part 2, join) + C17-d + C17-e - OK (firewall: QUESTION)
+when: 2026-11-03 16:30 (local)
+laptop: L3 (MOHIT)
+commands:
+    HUMAN: console Start -> typed invite code -> Join -> owner settings (Run jobs on, GPU off, Allow jobs without a container on, name L3) -> Save -> Checks
+    HUMAN (Administrator): "C:\Program Files\MeshForge\bin\meshforge-agent.cmd" identity show / policy show
+result: enrolled True, node_id node_01M6GGZ7VNCSRKFAEDH3AX7QQY, fabric fab_01M6BMCGQBHTN059R0R5MY3WYW, session_epoch 1, cert valid to 2026-12-03, CA fingerprint 056b7ba3...45724585 = L1 controller-up fp.
+  policy: accept_jobs True, accept_gpu_sessions False, allow_unsandboxed True, allow_network False, max_cpu_percent 50, max_cpu_jobs 1, pause_benchmarks False.
+  Service MeshForgeAgent RUNNING.
+  Note: an Administrator PowerShell opened before the install did not find `meshforge-agent` (PATH not refreshed in that window); the full path works.
+  Firewall: `Get-NetFirewallRule -DisplayName *MeshForge*` -> NO rules, after install AND after join. QUESTION for Lead: is the peer/data port (47120) expected to be opened by the installer? Inbound peer traffic to L3 may be blocked (V0.5 C5.11-a).
+SIGNAL: joined L3 node=node_01M6GGZ7VNCSRKFAEDH3AX7QQY
+SIGNAL: V0.17a-done
