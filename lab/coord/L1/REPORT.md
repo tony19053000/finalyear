@@ -584,3 +584,17 @@ result: J1 job_01M6HJZDCDN6G3TDFDPQJW1J2Q failed: attempt 1 transfer_error by it
     Note: the stop came late (relay by human), so most of J1's bytes were from attempt 1; that is fine for resume (verified chunks stay in cas).
 evidence: lab/reports/raw/2026-11-04-V0.5-data/H-L4.txt
 SIGNAL: v05-h-done L4 (L4: save agent.cas.* lines incl. resumed_chunks, then V0.5-done)
+
+### C5.11-g - Part H result (from L4's agent log) - FAIL c3 (resume not demonstrated)
+result: J2 agent.cas.input_staged: blobs_hit 2, blobs_fetched 4, bytes_fetched 3,825,205,248, no resumed_chunks field on the dataset line;
+    code tree chunks_resumed 0. Only whole-blob reuse (2 of 6 blobs, ~1.5 GB) is shown; partial-chunk resume (> 0) NOT demonstrated.
+    Caveats: (1) the stop came late via human relay, after attempt 1 had already failed transfer_error by itself; (2) the dataset input_staged line
+    does not carry chunks_resumed, so c3 cannot be read from it. QUESTION/BUG candidate for the Lead: add chunks_resumed to the dataset staging line.
+    Part I (GC): SKIPPED on L4 (L4 REPORT).
+
+### LEAD CHECKPOINT V0.5
+result: E (upload once) OK; F Wi-Fi 5 GB to L2 OK on retry (~0.81 of iperf3); G peer half SKIPPED (no peer endpoints), controller-only fetch to L3 OK on retry;
+    H resume NOT demonstrated (blob reuse only); I SKIPPED; J prepare OK. Main bug: first attempt of every 5 GB Wi-Fi fetch failed
+    (node_lost/ConnectError + discovery controller_not_found ~4 min on L2; RemoteProtocolError on L2/L3/L4), failure_detail not passed to the controller.
+    L2, L3, L4: V0.5-done.
+SIGNAL: V0.5-done
