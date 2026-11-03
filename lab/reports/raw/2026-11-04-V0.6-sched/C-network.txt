@@ -1,0 +1,10 @@
+no node pair measured yet (probes run every few minutes)
+               controller links (from transfer history)                
++---------------------------------------------------------------------+
+|NODE                            | CONTROLLER -> NODE | SAMPLES | LAST|
+|--------------------------------+--------------------+---------+-----|
+|node_01M6GCKN7PYT2J297BT241P436 | 7.8 MB/s           | 1       | 75m |
+|node_01M6GGJP3FW5VHBDFKYQ6SF318 | 4.5 MB/s           | 1       | 19m |
+|node_01M6GGZ7VNCSRKFAEDH3AX7QQY | 6.7 MB/s           | 1       | 46m |
++---------------------------------------------------------------------+
+probes: on - started 0, measured 0, failed 0 (timed out 0), in flight 0; budget 0 B/50.3 MB per minute; stale after 60m

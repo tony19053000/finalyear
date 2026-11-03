@@ -598,3 +598,12 @@ result: E (upload once) OK; F Wi-Fi 5 GB to L2 OK on retry (~0.81 of iperf3); G 
     (node_lost/ConnectError + discovery controller_not_found ~4 min on L2; RemoteProtocolError on L2/L3/L4), failure_detail not passed to the controller.
     L2, L3, L4: V0.5-done.
 SIGNAL: V0.5-done
+
+## Phase V0.6 (2026-11-04)
+
+### C6.13-a - Part C network matrix (0.6.6) - attempt 1 FAIL (no pair measured: peer serving off)
+commands: compute network; compute network --json
+result: "No node pair measured yet"; probes on, started 0, measured 0, failed 0. Only controller->node links from transfer history:
+    L2 7.8 MB/s, L4 4.5 MB/s, L3 6.7 MB/s (1 sample each). Node-to-node probes need `[agent.peer] bind` on every agent (ANNOUNCE 2026-11-04).
+    Linux path for the installed agent: /etc/meshforge/config.toml (SYSTEM_LINUX_CONFIG_DIR; file does not exist yet). HUMAN turns peer serving on in all 4, then retry after 5 min.
+evidence: lab/reports/raw/2026-11-04-V0.6-sched/C-network.txt, C-network.json
