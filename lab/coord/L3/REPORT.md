@@ -147,3 +147,11 @@ commands:
     uv run python lab/spikes/s7_hardware.py run --name L3 --skip-gpu           (exit 3)
 result: full run: cpu float64 1 thread 51.83 +- 1.42 GFLOP/s, all threads 103.80 +- 2.81 GFLOP/s; python 1t 27.89 +- 1.06 MFLOP/s, all 99.50 +- 3.92 MFLOP/s; memory copy 17.22, add 10.54, scale 9.58, triad 6.54 GB/s. No ON BATTERY / thermal warning; exit 3 only from the gpu_skipped warning. Quick run (smoke) python-all 165.47 MFLOP/s.
 evidence: lab/reports/raw/2026-11-03-S7-hardware/l3-842983de__quick.json, lab/reports/raw/2026-11-03-S7-hardware/l3-842983de.json
+
+### CU-d - S1 cleanup + raw files pushed - OK
+when: 2026-11-03 15:48 (local)
+laptop: L3 (MOHIT)
+result: first removal attempt by the human did not take (2 rules still present); second attempt in Administrator PowerShell -> `Get-NetFirewallRule -DisplayName "MeshForge S1*"` none left. Raw files pushed: S1, S6, S7, inventory, network facts.
+SIGNAL: v02-raw-pushed L3
+SIGNAL: s1-matrix-done L3
+SIGNAL: V0.2-done
