@@ -303,3 +303,23 @@ Both are test bugs (Lead fixing on main): symlink tests must skip without the Wi
 component/agent conftest must not abort collection. C4.15-g command now installs `--extra controller`.
 After the next `git merge origin/main` shows commit "test: skip symlink tests without privilege", re-run
 C3.2-a and C4.15-g once and report (expect 0 failed). Until then: non-blocking, continue.
+
+---
+## LEAD NOTE (2026-11-03, after R1-3/R1-5 on MOHIT)
+Good diagnosis. The `-EncodedCommand` hang is a lab-tool bug (src/ is not affected); the Lead is switching the
+lab tools to a temp `.ps1` + `-File`. Until that lands on main: continue with P0/CU (S1 network does not use it).
+When `git merge origin/main` brings a commit "fix(lab): run PowerShell via temp .ps1 -File", re-run R1-3 and
+R1-5 (quick + full, `--skip-gpu`) and report. Do not start Docker Desktop for now (not required on L3).
+
+---
+## LEAD NOTE (2026-11-03): remove the old laptop's files from lab/L3 - do this NEXT
+The old laptop's work is backed up on branch `lab/L3-old-TIWARI_JI`. Branch `lab/L3` must hold only YOUR (MOHIT)
+data. At your next step boundary run, then push:
+```
+git rm lab/coord/L3/REPORT-old-TIWARI_JI.md lab/reports/inventory/TIWARI_JI.json lab/reports/raw/2026-11-01-V0.2-network-facts/L3.txt
+git rm lab/reports/raw/2026-11-01-S6-environments/l3-842983de.json lab/reports/raw/2026-11-01-S6-environments/l3-842983de__quick.json
+git rm lab/reports/raw/2026-11-01-S7-hardware/l3-842983de.json lab/reports/raw/2026-11-01-S7-hardware/l3-842983de__quick.json lab/reports/raw/2026-11-01-S7-hardware/l3-842983de__quick__run2.json lab/reports/raw/2026-11-01-S7-hardware/l3-842983de__run2.json
+git commit -m "lab(L3): remove old laptop (TIWARI_JI) files; backup on lab/L3-old-TIWARI_JI" && git push origin lab/L3
+```
+Delete only these files (check each is from 2026-11-01 / TIWARI_JI first). Keep everything dated 2026-11-03 (yours).
+Record it as one REPORT line "NL-1 old files removed" and continue.
