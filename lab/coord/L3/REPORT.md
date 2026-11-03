@@ -181,3 +181,12 @@ result: enrolled True, node_id node_01M6GGZ7VNCSRKFAEDH3AX7QQY, fabric fab_01M6B
   Firewall: `Get-NetFirewallRule -DisplayName *MeshForge*` -> NO rules, after install AND after join. QUESTION for Lead: is the peer/data port (47120) expected to be opened by the installer? Inbound peer traffic to L3 may be blocked (V0.5 C5.11-a).
 SIGNAL: joined L3 node=node_01M6GGZ7VNCSRKFAEDH3AX7QQY
 SIGNAL: V0.17a-done
+
+### C3.2-a - agent unit tests on Windows (0.3.2) - FAIL (1 test, non-blocking)
+when: 2026-11-03 16:37 (local)
+laptop: L3 (MOHIT), MeshForge 0.17.0-1 installed + joined
+commands:
+    uv sync --extra agent; uv run pytest tests/unit/agent -q -p no:cacheprovider
+result: 1 failed, 3426 passed, 437 skipped in 348 s. Symlink tests now skip (Lead fix present).
+BUG: tests/unit/agent/test_v017_g1_system_cli.py::test_apply_returns_on_the_common_case fails only because MeshForge is INSTALLED on this laptop: the test monkeypatches `system_install_present` -> False, but on Windows `_apply_windows` (src/meshforge/common/system_cli.py:377) still prints `meshforge-agent: note: MeshForge is installed on this computer; this development command uses YOUR user-mode state ...` -> `Failed: must not print`. The Windows path detects the install some other way than the patched function. Reproduce: run that one test on any Windows laptop with the agent installed. Test isolation bug (or the Windows check ignores system_install_present).
+SIGNAL: V0.3-pre (C3.7 LIVE waits for L1's cue)
