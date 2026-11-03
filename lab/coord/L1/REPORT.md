@@ -559,3 +559,9 @@ commands: envs.yaml {base python-cpu, requirements numpy==2.1.3}; compute node p
 result: run 1 (60.3 s, exit 1): L1 image hit + env built 14.0 s; L2/L3/L4 image "failed (env_error/docker_unavailable ...)" (typed, no hang) + env built by venv 9.6-21.1 s.
     run 2 (3.8 s, exit 1): every env "hit" (0.1-0.7 s), L1 image hit, Windows images typed docker_unavailable again. Exit 1 = expected (no Docker on Windows).
 evidence: lab/reports/raw/2026-11-04-V0.5-data/J.txt
+
+### C5.11-e - addendum from L2's agent log (L2 REPORT C5.11-e)
+result: job 1 (node_lost): 8 x agent.cas.source_dropped "chunk fetch failed: ConnectError" + stage_retry in 27 s, then L2 reconnect loop
+    `discovery_failed controller_not_found` for ~4 min 13 s (back ONLINE 20:00:30 UTC) - same discovery weakness L4 hit at join (mDNS).
+    job 2 attempt 1: "chunk fetch failed: RemoteProtocolError" with the session up -> failed transfer_error, no retry; the detail is not passed to the controller (failure_detail null).
+    L2: SIGNAL V0.5-done.
