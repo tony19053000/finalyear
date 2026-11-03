@@ -1,0 +1,913 @@
+{
+  "cases": {},
+  "errors": [],
+  "extra": {
+    "nodes": [
+      {
+        "agent_version": "0.17.0",
+        "agent_version_status": "same",
+        "cache": {
+          "blob": {
+            "bytes": 531,
+            "count": 3
+          },
+          "tree": {
+            "bytes": 531,
+            "count": 1
+          }
+        },
+        "certificate": {
+          "fingerprint_sha256": "2471ff1bba859a8ccb9c59dccbfb460368344459228e3bc25577201bb830208a",
+          "not_after": "2026-12-03T11:13:38+00:00",
+          "public_key_fingerprint_sha256": "2058534e9ab79edab024ee5832f38a00a8f5531f6205aee7558a86b8beaf97e6",
+          "serial": "69c7478f91a0620752627c7d3fd592805f04f080"
+        },
+        "clock": {
+          "bound_ms": 0.338,
+          "clock_offset_ms": 0.083,
+          "consistent": true,
+          "exchanges": 15,
+          "live": true,
+          "uncertain": false
+        },
+        "connected": true,
+        "cpu_percent": 16.9,
+        "display_name": "L1",
+        "first_seen_at": "2026-11-03T11:13:38.984405+00:00",
+        "gpus": [
+          {
+            "index": 0,
+            "util_percent": 0.0,
+            "vram_total_bytes": 4294967296,
+            "vram_used_bytes": 356646912
+          }
+        ],
+        "hardware": {
+          "capabilities": [
+            "v0.3",
+            "bench-conditions:cache,cpu_load",
+            "cuda",
+            "docker",
+            "exec",
+            "exec-docker",
+            "exec-gpu",
+            "exec-split",
+            "exec-subprocess",
+            "exec-venv",
+            "hardware-scores",
+            "nvidia-container-toolkit",
+            "python3.12"
+          ],
+          "cpu_cores": 10,
+          "cpu_model": "12th Gen Intel(R) Core(TM) i7-12650H",
+          "cpu_threads": 16,
+          "gpus": [
+            {
+              "compute_capability": "8.6",
+              "driver_version": "595.91.07",
+              "model": "NVIDIA GeForce RTX 3050 Laptop GPU",
+              "vram_bytes": "4294967296"
+            }
+          ],
+          "ram_bytes": "16413962240"
+        },
+        "hostname": "JARVISM3",
+        "last_seen_at": "2026-11-03T12:36:33.351786+00:00",
+        "last_session_id": "sess_01M6GPFVEBK6NYMJG69JQCYE9K",
+        "node_id": "node_01M6BMFVHJVZXC7AET3CFRE3AV",
+        "not_enforced": [
+          "max_vram_bytes:no_runtime_limit",
+          "max_ram_bytes:unsandboxed_gpu_jobs"
+        ],
+        "os": "Linux 6.8.0-147-generic",
+        "owner_policy": {
+          "accept_gpu_sessions": false,
+          "accept_jobs": true,
+          "allow_network": false,
+          "allow_unsandboxed": true,
+          "allowed_users_count": 0,
+          "max_cpu_percent": 50,
+          "max_ram_bytes": null,
+          "max_vram_bytes": null,
+          "not_enforced": [
+            "max_vram_bytes:no_runtime_limit",
+            "max_ram_bytes:unsandboxed_gpu_jobs"
+          ],
+          "pause_benchmarks": false,
+          "refused": null,
+          "revision": 0
+        },
+        "peer_address": "ipv4:192.168.31.13:50490",
+        "peer_endpoint": null,
+        "platform": "x86_64",
+        "protocol_version": 1,
+        "ram_total_bytes": 16413962240,
+        "ram_used_bytes": 7652495360,
+        "rtt_ewma_ms": 1.0159329437751368,
+        "rtt_ms": 0.8819969989417586,
+        "sample_age_s": 3.945,
+        "scores": {
+          "conditions": {
+            "background_load_high": false,
+            "budget_exhausted": false,
+            "budget_s": 90.0,
+            "cpu_load_percent_before": 3.4,
+            "duration_s": 18.073,
+            "on_battery": false,
+            "priority_lowered": true
+          },
+          "measured_at": "2026-11-03T11:13:54.721514+00:00",
+          "metrics": [
+            {
+              "backend": "numpy",
+              "backend_version": "2.5.3",
+              "detail": "",
+              "gpu_index": null,
+              "lower_bound": false,
+              "mean": 135.87173496415951,
+              "n": 5,
+              "name": "cpu_fp32_gflops_1t",
+              "reason": null,
+              "status": "ok",
+              "stdev": 0.42556356256227373,
+              "threads_effective": 1,
+              "throttling_suspected": false,
+              "unit": "GFLOP/s"
+            },
+            {
+              "backend": "numpy",
+              "backend_version": "2.5.3",
+              "detail": "",
+              "gpu_index": null,
+              "lower_bound": false,
+              "mean": 518.0112541569472,
+              "n": 5,
+              "name": "cpu_fp32_gflops_all",
+              "reason": null,
+              "status": "ok",
+              "stdev": 52.776081708448,
+              "threads_effective": 16,
+              "throttling_suspected": false,
+              "unit": "GFLOP/s"
+            },
+            {
+              "backend": "numpy",
+              "backend_version": "2.5.3",
+              "detail": "",
+              "gpu_index": null,
+              "lower_bound": false,
+              "mean": 173.23509832444822,
+              "n": 5,
+              "name": "cpu_fp64_gflops_all",
+              "reason": null,
+              "status": "ok",
+              "stdev": 39.25851592536878,
+              "threads_effective": 16,
+              "throttling_suspected": false,
+              "unit": "GFLOP/s"
+            },
+            {
+              "backend": "numpy",
+              "backend_version": "2.5.3",
+              "detail": "",
+              "gpu_index": null,
+              "lower_bound": true,
+              "mean": 10.680165014787995,
+              "n": 5,
+              "name": "mem_triad_gb_s",
+              "reason": null,
+              "status": "ok",
+              "stdev": 0.3562837654267962,
+              "threads_effective": 1,
+              "throttling_suspected": false,
+              "unit": "GB/s"
+            },
+            {
+              "backend": null,
+              "backend_version": null,
+              "detail": "torch is not installed (ADR-0011): no GPU score without it",
+              "gpu_index": 0,
+              "lower_bound": false,
+              "mean": null,
+              "n": 0,
+              "name": "gpu_fp32_tflops",
+              "reason": "torch_not_installed",
+              "status": "unavailable",
+              "stdev": null,
+              "threads_effective": null,
+              "throttling_suspected": null,
+              "unit": "TFLOP/s"
+            },
+            {
+              "backend": null,
+              "backend_version": null,
+              "detail": "torch is not installed (ADR-0011): no GPU score without it",
+              "gpu_index": 0,
+              "lower_bound": false,
+              "mean": null,
+              "n": 0,
+              "name": "gpu_fp16_tflops",
+              "reason": "torch_not_installed",
+              "status": "unavailable",
+              "stdev": null,
+              "threads_effective": null,
+              "throttling_suspected": null,
+              "unit": "TFLOP/s"
+            },
+            {
+              "backend": null,
+              "backend_version": null,
+              "detail": "torch is not installed (ADR-0011): no GPU score without it",
+              "gpu_index": 0,
+              "lower_bound": false,
+              "mean": null,
+              "n": 0,
+              "name": "gpu_mem_gb_s",
+              "reason": "torch_not_installed",
+              "status": "unavailable",
+              "stdev": null,
+              "threads_effective": null,
+              "throttling_suspected": null,
+              "unit": "GB/s"
+            }
+          ],
+          "run_id": "score_01M6GHV711J80S9TTM3RV9Z3J5",
+          "score_version": 1,
+          "status": "measured"
+        },
+        "session_epoch": 5,
+        "state": "online"
+      },
+      {
+        "agent_version": "0.17.0",
+        "agent_version_status": "same",
+        "cache": {
+          "blob": {
+            "bytes": 531,
+            "count": 3
+          },
+          "env": {
+            "bytes": 539369,
+            "count": 1
+          },
+          "tree": {
+            "bytes": 531,
+            "count": 1
+          }
+        },
+        "certificate": {
+          "fingerprint_sha256": "77aeb0d8b2a637e81fda157b4ea66be4c7aec8101457ad03ffee40e92d1379ea",
+          "not_after": "2026-12-03T11:05:21+00:00",
+          "public_key_fingerprint_sha256": "548da9418e938868ad3eb93a0101b6f17aae51335acee42c3dd230ee12fa398e",
+          "serial": "40b104b488997fda9bfd619d6a750eb9f5bc7fce"
+        },
+        "clock": {
+          "bound_ms": 9.498,
+          "clock_offset_ms": 108.247,
+          "consistent": true,
+          "exchanges": 32,
+          "live": true,
+          "uncertain": false
+        },
+        "connected": true,
+        "cpu_percent": 0.0,
+        "display_name": "L2",
+        "first_seen_at": "2026-11-03T11:05:21.944380+00:00",
+        "gpus": [
+          {
+            "index": 0,
+            "util_percent": 0.0,
+            "vram_total_bytes": 4294967296,
+            "vram_used_bytes": 138412032
+          }
+        ],
+        "hardware": {
+          "capabilities": [
+            "v0.3",
+            "bench-conditions:cache,cpu_load",
+            "cuda",
+            "exec",
+            "exec-gpu",
+            "exec-split",
+            "exec-subprocess",
+            "exec-venv",
+            "hardware-scores",
+            "python3.12"
+          ],
+          "cpu_cores": 8,
+          "cpu_model": "12th Gen Intel(R) Core(TM) i5-12450H",
+          "cpu_threads": 12,
+          "gpus": [
+            {
+              "compute_capability": "8.6",
+              "driver_version": "581.83",
+              "model": "NVIDIA GeForce RTX 2050",
+              "vram_bytes": "4294967296"
+            }
+          ],
+          "ram_bytes": "8212975616"
+        },
+        "hostname": "AILESH",
+        "last_seen_at": "2026-11-03T12:36:33.420716+00:00",
+        "last_session_id": "sess_01M6GN0CQQTWEQG43RMD6DJSNM",
+        "node_id": "node_01M6GCKN7PYT2J297BT241P436",
+        "not_enforced": [
+          "max_vram_bytes:no_runtime_limit",
+          "max_ram_bytes:unsandboxed_gpu_jobs"
+        ],
+        "os": "Windows 11",
+        "owner_policy": {
+          "accept_gpu_sessions": false,
+          "accept_jobs": true,
+          "allow_network": false,
+          "allow_unsandboxed": true,
+          "allowed_users_count": 0,
+          "max_cpu_percent": 50,
+          "max_ram_bytes": null,
+          "max_vram_bytes": null,
+          "not_enforced": [
+            "max_vram_bytes:no_runtime_limit",
+            "max_ram_bytes:unsandboxed_gpu_jobs"
+          ],
+          "pause_benchmarks": false,
+          "refused": null,
+          "revision": 0
+        },
+        "peer_address": "ipv4:192.168.31.155:60683",
+        "peer_endpoint": null,
+        "platform": "AMD64",
+        "protocol_version": 1,
+        "ram_total_bytes": 8212975616,
+        "ram_used_bytes": 6482415616,
+        "rtt_ewma_ms": 22.664829104861195,
+        "rtt_ms": 3.9393560000462458,
+        "sample_age_s": 7.918,
+        "scores": {
+          "conditions": {
+            "background_load_high": true,
+            "budget_exhausted": false,
+            "budget_s": 90.0,
+            "cpu_load_percent_before": 25.3,
+            "duration_s": 9.5,
+            "on_battery": false,
+            "priority_lowered": true
+          },
+          "measured_at": "2026-11-03T12:09:26.202717+00:00",
+          "metrics": [
+            {
+              "backend": "numpy",
+              "backend_version": "2.5.3",
+              "detail": "",
+              "gpu_index": null,
+              "lower_bound": false,
+              "mean": 103.17351356134122,
+              "n": 5,
+              "name": "cpu_fp32_gflops_1t",
+              "reason": null,
+              "status": "ok",
+              "stdev": 3.525450445534861,
+              "threads_effective": 1,
+              "throttling_suspected": false,
+              "unit": "GFLOP/s"
+            },
+            {
+              "backend": "numpy",
+              "backend_version": "2.5.3",
+              "detail": "",
+              "gpu_index": null,
+              "lower_bound": false,
+              "mean": 306.8974796713754,
+              "n": 5,
+              "name": "cpu_fp32_gflops_all",
+              "reason": null,
+              "status": "ok",
+              "stdev": 18.5975795338899,
+              "threads_effective": 12,
+              "throttling_suspected": false,
+              "unit": "GFLOP/s"
+            },
+            {
+              "backend": "numpy",
+              "backend_version": "2.5.3",
+              "detail": "",
+              "gpu_index": null,
+              "lower_bound": false,
+              "mean": 85.52405133378213,
+              "n": 5,
+              "name": "cpu_fp64_gflops_all",
+              "reason": null,
+              "status": "ok",
+              "stdev": 14.373124672522932,
+              "threads_effective": 12,
+              "throttling_suspected": false,
+              "unit": "GFLOP/s"
+            },
+            {
+              "backend": "numpy",
+              "backend_version": "2.5.3",
+              "detail": "",
+              "gpu_index": null,
+              "lower_bound": true,
+              "mean": 3.29165157925095,
+              "n": 5,
+              "name": "mem_triad_gb_s",
+              "reason": null,
+              "status": "ok",
+              "stdev": 0.6317182593571246,
+              "threads_effective": 1,
+              "throttling_suspected": true,
+              "unit": "GB/s"
+            },
+            {
+              "backend": null,
+              "backend_version": null,
+              "detail": "torch is not installed (ADR-0011): no GPU score without it",
+              "gpu_index": 0,
+              "lower_bound": false,
+              "mean": null,
+              "n": 0,
+              "name": "gpu_fp32_tflops",
+              "reason": "torch_not_installed",
+              "status": "unavailable",
+              "stdev": null,
+              "threads_effective": null,
+              "throttling_suspected": null,
+              "unit": "TFLOP/s"
+            },
+            {
+              "backend": null,
+              "backend_version": null,
+              "detail": "torch is not installed (ADR-0011): no GPU score without it",
+              "gpu_index": 0,
+              "lower_bound": false,
+              "mean": null,
+              "n": 0,
+              "name": "gpu_fp16_tflops",
+              "reason": "torch_not_installed",
+              "status": "unavailable",
+              "stdev": null,
+              "threads_effective": null,
+              "throttling_suspected": null,
+              "unit": "TFLOP/s"
+            },
+            {
+              "backend": null,
+              "backend_version": null,
+              "detail": "torch is not installed (ADR-0011): no GPU score without it",
+              "gpu_index": 0,
+              "lower_bound": false,
+              "mean": null,
+              "n": 0,
+              "name": "gpu_mem_gb_s",
+              "reason": "torch_not_installed",
+              "status": "unavailable",
+              "stdev": null,
+              "threads_effective": null,
+              "throttling_suspected": null,
+              "unit": "GB/s"
+            }
+          ],
+          "run_id": "score_01M6GN0WDTZBGBR729MRB6DB5R",
+          "score_version": 1,
+          "status": "measured"
+        },
+        "session_epoch": 2,
+        "state": "online"
+      },
+      {
+        "agent_version": "0.17.0",
+        "agent_version_status": "same",
+        "cache": {
+          "blob": {
+            "bytes": 909,
+            "count": 6
+          },
+          "env": {
+            "bytes": 539369,
+            "count": 1
+          },
+          "tree": {
+            "bytes": 909,
+            "count": 2
+          }
+        },
+        "certificate": {
+          "fingerprint_sha256": "97ef5e240f19fb8b89c5abadadd1fe7951e956fbc3d6e0b64d642659967cb776",
+          "not_after": "2026-12-03T10:51:46+00:00",
+          "public_key_fingerprint_sha256": "f0a152a52de2ad7f6334ebc6057391d15092e57215dc2cea788f7b39dc667740",
+          "serial": "498e14e72270fee42d652ba663b6bf5ac45cac9f"
+        },
+        "clock": {
+          "bound_ms": 9.673,
+          "clock_offset_ms": 334.116,
+          "consistent": true,
+          "exchanges": 32,
+          "live": true,
+          "uncertain": false
+        },
+        "connected": true,
+        "cpu_percent": 12.1,
+        "display_name": "L4",
+        "first_seen_at": "2026-11-03T10:51:46.797602+00:00",
+        "gpus": [
+          {
+            "index": 0,
+            "util_percent": 0.0,
+            "vram_total_bytes": 4294967296,
+            "vram_used_bytes": 140509184
+          }
+        ],
+        "hardware": {
+          "capabilities": [
+            "v0.3",
+            "bench-conditions:cache,cpu_load",
+            "cuda",
+            "exec",
+            "exec-gpu",
+            "exec-split",
+            "exec-subprocess",
+            "exec-venv",
+            "hardware-scores",
+            "python3.12"
+          ],
+          "cpu_cores": 8,
+          "cpu_model": "12th Gen Intel(R) Core(TM) i5-12450H",
+          "cpu_threads": 12,
+          "gpus": [
+            {
+              "compute_capability": "8.6",
+              "driver_version": "592.27",
+              "model": "NVIDIA GeForce RTX 3050 Laptop GPU",
+              "vram_bytes": "4294967296"
+            }
+          ],
+          "ram_bytes": "16831893504"
+        },
+        "hostname": "LAPTOP-7ORVM30G",
+        "last_seen_at": "2026-11-03T12:36:34.722349+00:00",
+        "last_session_id": "sess_01M6GK1YGA4CQHQ6KKN8ACEV6Y",
+        "node_id": "node_01M6GGJP3FW5VHBDFKYQ6SF318",
+        "not_enforced": [
+          "max_vram_bytes:no_runtime_limit",
+          "max_ram_bytes:unsandboxed_gpu_jobs"
+        ],
+        "os": "Windows 11",
+        "owner_policy": {
+          "accept_gpu_sessions": false,
+          "accept_jobs": true,
+          "allow_network": false,
+          "allow_unsandboxed": true,
+          "allowed_users_count": 0,
+          "max_cpu_percent": 50,
+          "max_ram_bytes": null,
+          "max_vram_bytes": null,
+          "not_enforced": [
+            "max_vram_bytes:no_runtime_limit",
+            "max_ram_bytes:unsandboxed_gpu_jobs"
+          ],
+          "pause_benchmarks": false,
+          "refused": null,
+          "revision": 0
+        },
+        "peer_address": "ipv4:192.168.31.244:12335",
+        "peer_endpoint": null,
+        "platform": "AMD64",
+        "protocol_version": 1,
+        "ram_total_bytes": 16831893504,
+        "ram_used_bytes": 12181979136,
+        "rtt_ewma_ms": 27.758731818634406,
+        "rtt_ms": 3.720896002050722,
+        "sample_age_s": 0.117,
+        "scores": {
+          "conditions": {
+            "background_load_high": false,
+            "budget_exhausted": false,
+            "budget_s": 90.0,
+            "cpu_load_percent_before": 14.1,
+            "duration_s": 26.578,
+            "on_battery": false,
+            "priority_lowered": true
+          },
+          "measured_at": "2026-11-03T11:35:20.103703+00:00",
+          "metrics": [
+            {
+              "backend": "numpy",
+              "backend_version": "2.5.3",
+              "detail": "",
+              "gpu_index": null,
+              "lower_bound": false,
+              "mean": 14.017577631651339,
+              "n": 5,
+              "name": "cpu_fp32_gflops_1t",
+              "reason": null,
+              "status": "ok",
+              "stdev": 0.503949346535901,
+              "threads_effective": 1,
+              "throttling_suspected": false,
+              "unit": "GFLOP/s"
+            },
+            {
+              "backend": "numpy",
+              "backend_version": "2.5.3",
+              "detail": "",
+              "gpu_index": null,
+              "lower_bound": false,
+              "mean": 404.02100272300305,
+              "n": 5,
+              "name": "cpu_fp32_gflops_all",
+              "reason": null,
+              "status": "ok",
+              "stdev": 48.24763608085538,
+              "threads_effective": 12,
+              "throttling_suspected": false,
+              "unit": "GFLOP/s"
+            },
+            {
+              "backend": "numpy",
+              "backend_version": "2.5.3",
+              "detail": "",
+              "gpu_index": null,
+              "lower_bound": false,
+              "mean": 18.057889908635445,
+              "n": 5,
+              "name": "cpu_fp64_gflops_all",
+              "reason": null,
+              "status": "ok",
+              "stdev": 2.7430736170207277,
+              "threads_effective": 12,
+              "throttling_suspected": false,
+              "unit": "GFLOP/s"
+            },
+            {
+              "backend": "numpy",
+              "backend_version": "2.5.3",
+              "detail": "",
+              "gpu_index": null,
+              "lower_bound": true,
+              "mean": 3.3931647465679844,
+              "n": 5,
+              "name": "mem_triad_gb_s",
+              "reason": null,
+              "status": "ok",
+              "stdev": 0.3675004967135662,
+              "threads_effective": 1,
+              "throttling_suspected": false,
+              "unit": "GB/s"
+            },
+            {
+              "backend": null,
+              "backend_version": null,
+              "detail": "torch is not installed (ADR-0011): no GPU score without it",
+              "gpu_index": 0,
+              "lower_bound": false,
+              "mean": null,
+              "n": 0,
+              "name": "gpu_fp32_tflops",
+              "reason": "torch_not_installed",
+              "status": "unavailable",
+              "stdev": null,
+              "threads_effective": null,
+              "throttling_suspected": null,
+              "unit": "TFLOP/s"
+            },
+            {
+              "backend": null,
+              "backend_version": null,
+              "detail": "torch is not installed (ADR-0011): no GPU score without it",
+              "gpu_index": 0,
+              "lower_bound": false,
+              "mean": null,
+              "n": 0,
+              "name": "gpu_fp16_tflops",
+              "reason": "torch_not_installed",
+              "status": "unavailable",
+              "stdev": null,
+              "threads_effective": null,
+              "throttling_suspected": null,
+              "unit": "TFLOP/s"
+            },
+            {
+              "backend": null,
+              "backend_version": null,
+              "detail": "torch is not installed (ADR-0011): no GPU score without it",
+              "gpu_index": 0,
+              "lower_bound": false,
+              "mean": null,
+              "n": 0,
+              "name": "gpu_mem_gb_s",
+              "reason": "torch_not_installed",
+              "status": "unavailable",
+              "stdev": null,
+              "threads_effective": null,
+              "throttling_suspected": null,
+              "unit": "GB/s"
+            }
+          ],
+          "run_id": "score_01M6GK2E974BV3BEYVN4H2P5XR",
+          "score_version": 1,
+          "status": "measured"
+        },
+        "session_epoch": 37,
+        "state": "online"
+      },
+      {
+        "agent_version": "0.17.0",
+        "agent_version_status": "same",
+        "cache": {
+          "blob": {
+            "bytes": 531,
+            "count": 3
+          },
+          "env": {
+            "bytes": 539369,
+            "count": 1
+          },
+          "tree": {
+            "bytes": 531,
+            "count": 1
+          }
+        },
+        "certificate": {
+          "fingerprint_sha256": "c0c691b95530bced45d93fde7651ff97845e8c04c08366405e1c8e05d216cc22",
+          "not_after": "2026-12-03T10:58:38+00:00",
+          "public_key_fingerprint_sha256": "b7a55b482a36b2ab42b92dd7e9aa53d095279fc98bf9f11e4e8ddb9756b564ce",
+          "serial": "3127bcc01347dfb8e8a47818f973cc4ed9593f70"
+        },
+        "clock": {
+          "bound_ms": 9.678,
+          "clock_offset_ms": -36.677,
+          "consistent": true,
+          "exchanges": 32,
+          "live": true,
+          "uncertain": false
+        },
+        "connected": true,
+        "cpu_percent": 4.1,
+        "display_name": "L3",
+        "first_seen_at": "2026-11-03T10:58:38.497721+00:00",
+        "gpus": [],
+        "hardware": {
+          "capabilities": [
+            "v0.3",
+            "bench-conditions:cache,cpu_load",
+            "exec",
+            "exec-split",
+            "exec-subprocess",
+            "exec-venv",
+            "hardware-scores",
+            "python3.12"
+          ],
+          "cpu_cores": 10,
+          "cpu_model": "12th Gen Intel(R) Core(TM) i5-1235U",
+          "cpu_threads": 12,
+          "ram_bytes": "8260263936"
+        },
+        "hostname": "Mohit",
+        "last_seen_at": "2026-11-03T12:36:33.497316+00:00",
+        "last_session_id": "sess_01M6GMYCBEXZ6YXY03FK4CZ6GQ",
+        "node_id": "node_01M6GGZ7VNCSRKFAEDH3AX7QQY",
+        "not_enforced": [
+          "max_vram_bytes:no_runtime_limit"
+        ],
+        "os": "Windows 11",
+        "owner_policy": {
+          "accept_gpu_sessions": false,
+          "accept_jobs": true,
+          "allow_network": false,
+          "allow_unsandboxed": true,
+          "allowed_users_count": 0,
+          "max_cpu_percent": 50,
+          "max_ram_bytes": null,
+          "max_vram_bytes": null,
+          "not_enforced": [
+            "max_vram_bytes:no_runtime_limit"
+          ],
+          "pause_benchmarks": false,
+          "refused": null,
+          "revision": 0
+        },
+        "peer_address": "ipv4:192.168.31.71:56602",
+        "peer_endpoint": null,
+        "platform": "AMD64",
+        "protocol_version": 1,
+        "ram_total_bytes": 8260263936,
+        "ram_used_bytes": 6975336448,
+        "rtt_ewma_ms": 33.21898787133128,
+        "rtt_ms": 42.909687999781454,
+        "sample_age_s": 3.38,
+        "scores": {
+          "conditions": {
+            "background_load_high": false,
+            "budget_exhausted": false,
+            "budget_s": 90.0,
+            "cpu_load_percent_before": 3.7,
+            "duration_s": 19.64,
+            "on_battery": false,
+            "priority_lowered": true
+          },
+          "measured_at": "2026-11-03T10:58:54.759625+00:00",
+          "metrics": [
+            {
+              "backend": "numpy",
+              "backend_version": "2.5.3",
+              "detail": "",
+              "gpu_index": null,
+              "lower_bound": false,
+              "mean": 25.487846659777535,
+              "n": 5,
+              "name": "cpu_fp32_gflops_1t",
+              "reason": null,
+              "status": "ok",
+              "stdev": 0.6489429556580916,
+              "threads_effective": 1,
+              "throttling_suspected": false,
+              "unit": "GFLOP/s"
+            },
+            {
+              "backend": "numpy",
+              "backend_version": "2.5.3",
+              "detail": "",
+              "gpu_index": null,
+              "lower_bound": false,
+              "mean": 244.55879235636831,
+              "n": 5,
+              "name": "cpu_fp32_gflops_all",
+              "reason": null,
+              "status": "ok",
+              "stdev": 42.16977468902236,
+              "threads_effective": 12,
+              "throttling_suspected": false,
+              "unit": "GFLOP/s"
+            },
+            {
+              "backend": "numpy",
+              "backend_version": "2.5.3",
+              "detail": "",
+              "gpu_index": null,
+              "lower_bound": false,
+              "mean": 85.42160583754813,
+              "n": 5,
+              "name": "cpu_fp64_gflops_all",
+              "reason": null,
+              "status": "ok",
+              "stdev": 12.335557843037025,
+              "threads_effective": 12,
+              "throttling_suspected": false,
+              "unit": "GFLOP/s"
+            },
+            {
+              "backend": "numpy",
+              "backend_version": "2.5.3",
+              "detail": "",
+              "gpu_index": null,
+              "lower_bound": true,
+              "mean": 4.905681129670528,
+              "n": 5,
+              "name": "mem_triad_gb_s",
+              "reason": null,
+              "status": "ok",
+              "stdev": 0.7772575920128948,
+              "threads_effective": 1,
+              "throttling_suspected": false,
+              "unit": "GB/s"
+            }
+          ],
+          "run_id": "score_01M6GGZR57EMD8K751DSRHXR1K",
+          "score_version": 1,
+          "status": "measured"
+        },
+        "session_epoch": 2,
+        "state": "online"
+      }
+    ],
+    "notes": []
+  },
+  "git": {
+    "commit": "a8558892",
+    "dirty": false,
+    "modified_files": 0,
+    "untracked_files": 0
+  },
+  "host": {
+    "hostname": "JARVISM3",
+    "label": "L1",
+    "machine": "x86_64",
+    "os": "Linux",
+    "os_release": "6.8.0-147-generic",
+    "python": "3.12.13"
+  },
+  "link": null,
+  "params": {
+    "controller_url": "https://192.168.31.13:47110"
+  },
+  "schema_version": 1,
+  "spike": "V0.3",
+  "timestamp_utc": "2026-11-03T12:36:35Z",
+  "tool": {
+    "interpreter": "CPython 3.12.13 linux",
+    "name": "fabric_check",
+    "subcommand": "inventory",
+    "version": 1
+  },
+  "topic": "V0.3-fabric-inventory"
+}

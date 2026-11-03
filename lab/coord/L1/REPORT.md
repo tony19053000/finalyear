@@ -343,3 +343,12 @@ result: L1 agent restarted 18:05:04 IST -> journal agent.execution.ready + cpu_c
     F5 workaround confirmed on Linux too: policy saved in console, then restart = jobs accepted.
 evidence: lab/reports/raw/2026-11-03-V0.17-install/C17-k-hello-run4-L1.txt, ...-run3.txt
 SIGNAL: V0.17a-done
+
+## Phase V0.3
+
+### C3.15-a - Inventory, checklist part C (0.3.15 c1, 0.3.3) - OK
+commands:
+    export MESHFORGE_CLI__CONTROLLER_URL=https://192.168.31.13:47110; uv run python lab/fabric_check.py --name L1 inventory
+result: exit 0. 4 nodes online/connected, agent 0.17.0. Expected vs actual written: all 4 rows match their inventory JSON (CPU, threads, RAM, NVIDIA GPU/VRAM).
+    L1 caps include docker, exec-docker, exec-gpu, nvidia-container-toolkit; L2/L4 exec-gpu without docker; L3 no GPU.
+evidence: lab/reports/2026-11-03-V0.3-fabric-inventory.md, lab/reports/raw/2026-11-03-V0.3-fabric-inventory/l1-dffe8596.json, lab/reports/inventory/*.json (copied from L2-L4)
