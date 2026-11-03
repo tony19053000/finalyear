@@ -24,7 +24,10 @@ CA is pinned**:
 7. :func:`store` - ``ca.crt`` then ``node.crt`` beside ``node.key``, under the
    identity lock, owner-only (``0600`` / Windows ACL): both are staged in full
    first, then swapped in with ``os.replace``, so a failed (``--force``) re-join
-   keeps the old enrolment (D153 item 2).
+   keeps the old enrolment (D153 item 2);
+8. V1.0 G8 F4: ``<host dialled>:<EnrollResponse.session_port>`` becomes the
+   last-known controller endpoint (``agent/known_controller.py``) - the agent's
+   fallback when mDNS finds nothing. A dial hint only; no trust attached.
 
 :func:`load` reads an enrolment back strictly (``identity show``; G3 uses it for
 mTLS): regular owner-only files (``private_files.read_private``), the pair must
@@ -586,6 +589,31 @@ def load(identity: NodeIdentity) -> Enrollment | None:
 class JoinResult:
     enrollment: Enrollment
     address: str
+    session_address: str | None = None
+    """V1.0 G8 F4: ``<host enrolled against>:<EnrollResponse.session_port>``,
+    stored as the last-known controller endpoint; ``None`` when the controller
+    did not name its session port (an older controller)."""
+
+
+def _remember_session_endpoint(
+    identity: NodeIdentity, host: str, session_port: int
+) -> str | None:
+    """Store (or, without a port, clear) the last-known controller endpoint
+    for this new enrolment - a previous fabric's hint must not survive a
+    re-join. Never fails the join (``known_controller`` logs its problems)."""
+    from meshforge.agent import known_controller
+    from meshforge.agent.discovery import format_target
+
+    node_id = str(identity.node_id)
+    if not 0 < session_port <= 65535:
+        known_controller.forget(identity.path, node_id=node_id)
+        return None
+    address = format_target(host, session_port)
+    if not known_controller.remember(
+        identity.path, address, source="join", node_id=node_id
+    ):
+        return None
+    return address
 
 
 def join(
@@ -634,15 +662,29 @@ def join(
     )
     response = enroll(code.address, ca, code.token, csr, timeout_s=timeout_s)
     cert, fabric_id = check_issued(response, pinned_ca=ca, identity=identity)
+    if force and is_enrolled(identity.path):
+        # F4: drop the old fabric's hint *before* the new pair goes in, so a
+        # crash between store() and the hint write below can never leave the
+        # old controller's address next to the new enrolment. A failed store
+        # only costs the hint (mDNS, then the next accepted session restore it).
+        from meshforge.agent import known_controller
+
+        known_controller.forget(identity.path, node_id=str(identity.node_id))
     store(identity, cert, ca, force=force)
     enrollment = load(identity)
     if enrollment is None:  # pragma: no cover - just written under the lock
         raise JoinError(JoinReason.STORAGE, "the enrolment vanished after writing")
+    session_address = _remember_session_endpoint(
+        identity, code.host, int(response.session_port)
+    )
     log.info(
         "agent.join.enrolled",
         node_id=identity.node_id,
         fabric_id=fabric_id,
         cert_fingerprint=pki.short_fingerprint(cert),
         not_after=cert.not_valid_after_utc.isoformat(),
+        session_address=session_address,
     )
-    return JoinResult(enrollment=enrollment, address=code.address)
+    return JoinResult(
+        enrollment=enrollment, address=code.address, session_address=session_address
+    )

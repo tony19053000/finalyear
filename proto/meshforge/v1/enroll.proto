@@ -42,4 +42,10 @@ message EnrollResponse {
   string fabric_id = 3;
   // The node_id the certificate names (echo of the CSR's, for the agent's check).
   string node_id = 4;
+  // V1.0 G8 F4: the port of the controller's session (AgentControl) listener.
+  // The agent remembers "<host it enrolled against>:session_port" as its
+  // last-known controller endpoint and dials it when mDNS finds nothing. A dial
+  // hint only: trust still comes from the fabric CA (mTLS). 0 = not known (an
+  // older controller, or the session listener is not bound yet).
+  uint32 session_port = 5;
 }

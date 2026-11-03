@@ -207,10 +207,14 @@ class EnrollmentServicer(enroll_pb2_grpc.EnrollmentServicer):
         limiter: SourceRateLimiter,
         *,
         deadline_s: float = ENROLL_DEADLINE_S,
+        session_port: Callable[[], int] = lambda: 0,
     ) -> None:
+        """``session_port`` (V1.0 G8 F4): the session listener's bound port,
+        read per call (it is bound after this listener starts; 0 until then)."""
         self._enroller = enroller
         self._limiter = limiter
         self._deadline_s = deadline_s
+        self._session_port = session_port
 
     async def Enroll(  # noqa: N802 - gRPC method name
         self,
@@ -260,6 +264,7 @@ class EnrollmentServicer(enroll_pb2_grpc.EnrollmentServicer):
             ca_cert_pem=result.ca_cert_pem,
             fabric_id=result.fabric_id,
             node_id=result.node_id,
+            session_port=max(0, min(int(self._session_port()), 65535)),
         )
 
 
