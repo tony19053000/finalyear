@@ -236,3 +236,5 @@ result: join steps paused until ANNOUNCE says "joining may start". Full S1 Wi-Fi
 commands:
     uv run python lab/spikes/s1_network.py serve --bind 192.168.31.13 --idle 3600 --duration 14400  (background; ufw inactive)
 SIGNAL: s1-serve-up L1 ip=192.168.31.13
+
+S1 client RUNNING L1-to-L3
