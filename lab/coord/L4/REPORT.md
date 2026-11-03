@@ -327,3 +327,8 @@ BUG: Windows service did not create the inbound 47120 peer rule at start althoug
     Not adding a rule myself (rules: no firewall changes by the agent); Lead to decide a manual rule.
 NOTE: bind pins L4's Wi-Fi IP 192.168.31.244 (DHCP); update if it changes.
 SIGNAL: peer-on L4 ip=192.168.31.244
+
+### PAUSE - 2026-11-04
+result: L1 confirms 47120 on L4 is blocked from L1 (no firewall rule). L1 paused the lab until tomorrow; waiting for the
+    human/Lead decision on a manual Private 47120 rule. L4 state: joined + connected, peer serving on 192.168.31.244:47120,
+    config.toml = controller_address 192.168.31.13:47100 + [agent.peer] bind 192.168.31.244. Next for L4: V0.6 (C6.13 c/d if the long job lands here).
