@@ -375,3 +375,14 @@ result: the human chose to restart only the MeshForge service, not Windows. Note
     before RUNNING PID 25472 -> after RUNNING PID 15228; same node_id node_01M6GCKN7PYT2J297BT241P436, enrolled True, session_epoch 1 -> 2.
     agent.log: agent.session.starting 12:09:02Z -> discovery found controller 192.168.31.13:47100 (mDNS) 12:09:08 -> HELLO_SENT -> ONLINE 12:09:10.2Z (sess_01M6GN0CQQTWEQG43RMD6DJSNM, heartbeat 2 s, lease 6 s): back online ~8 s after start. Scores re-run scheduled ("hardware or backend changed").
 evidence: lab/reports/raw/2026-11-03-V0.17-install/L2-service-restart.txt
+
+### C4.15-a clock offset - OK (2026-11-04 00:42)
+`w32tm /stripchart /computer:time.windows.com /samples:3 /dataonly` (non-admin, no resync): sample 1 error 0x800705B4 (timeout), then +43.8 ms, +36.8 ms. Mean ~40 ms.
+SIGNAL: clock-offset L2 ms=40
+
+### C4.15-e LIVE - pending human check (2026-11-04 00:42)
+Sleeper job job_01M6HBMPPBVRV9NH30256888X2 cancelled by L1. Non-admin `Get-CimInstance Win32_Process -Filter "Name like 'python%'"` shows 2 python processes (PIDs 25068, 25460) with CommandLine hidden (other user / SYSTEM, not readable without admin). Asked the human to check in an Administrator window. Result follows.
+
+### C4.15-g part G Windows tests - OK (2026-11-04 00:42)
+`uv sync --extra agent --extra controller --group dev; uv run pytest tests/unit/common/test_bundle_case_insensitive.py tests/component/agent/test_docker_sandbox.py -q -rs`: 3 passed, 9 skipped (7 "Docker is not available", 2 GPU tests need --run-gpu). Case-insensitive tests pass, Docker tests skip as expected. Note: uv sync removed CUDA torch from .venv (reinstall when a GPU step needs it).
+SIGNAL: v04-g-done L2
