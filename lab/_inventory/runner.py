@@ -15,6 +15,11 @@ Three guarantees (tester defects 0.2.2 D-2/D-3):
   instead of paying the same timeout again.
 
 Without :func:`start_budget` (unit tests, library use) there is no deadline.
+
+PowerShell scripts run from a temporary ``.ps1`` file (:func:`powershell_script`),
+never via ``-EncodedCommand``: on a real Windows 11 laptop (lab L3, R1-3/R1-5) a
+~6000-character encoded command hung for more than 40 s (most likely Defender /
+AMSI scanning it) while the same script run with ``-File`` answered in ~3 s.
 """
 
 from __future__ import annotations
@@ -25,7 +30,9 @@ import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import time
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
@@ -44,6 +51,20 @@ _MAX_OUTPUT_CHARS: Final = 1_000_000
 
 SKIPPED_DEADLINE: Final = "skipped: run deadline exceeded"
 SKIPPED_HUNG: Final = "skipped: did not respond earlier in this run"
+
+#: Options for every ``powershell`` call; ``-File <script>`` is appended last.
+POWERSHELL_OPTIONS: Final = (
+    "-NoProfile",
+    "-NonInteractive",
+    "-ExecutionPolicy",
+    "Bypass",
+)
+_PS_DIR_PREFIX: Final = "meshforge-ps-"
+_PS_FILE_NAME: Final = "script.ps1"
+#: Deleting the script can briefly fail on Windows while a just-killed
+#: PowerShell still holds it open; retried this often, this far apart.
+_CLEANUP_TRIES: Final = 5
+_CLEANUP_PAUSE_S: Final = 0.2
 
 
 @dataclass(frozen=True, slots=True)
@@ -248,3 +269,36 @@ def run(
         _decode(out, encoding),
         _decode(err, encoding),
     )
+
+
+def _remove_tree(path: Path) -> None:
+    """Delete ``path`` (a script directory); retried briefly, never raises."""
+    for attempt in range(_CLEANUP_TRIES):
+        shutil.rmtree(path, ignore_errors=True)
+        if not path.exists():
+            return
+        if attempt + 1 < _CLEANUP_TRIES:
+            time.sleep(_CLEANUP_PAUSE_S)
+
+
+@contextlib.contextmanager
+def powershell_script(script: str) -> Iterator[list[str]]:
+    """Arguments for ``powershell`` that run ``script`` from a temporary file.
+
+    The script is written as UTF-8 *with* BOM (Windows PowerShell 5.1 reads a
+    BOM-less file in the ANSI code page and would garble non-ASCII text) into a
+    fresh private directory (``mkdtemp``: mode 0700 on POSIX, the user's own
+    ``%TEMP%`` on Windows). The directory is deleted when the block ends -
+    normally, on a timeout result, or on any exception (Ctrl-C included)::
+
+        with powershell_script(SCRIPT) as args:
+            result = run("powershell", args, timeout=20.0)
+    """
+    directory = Path(tempfile.mkdtemp(prefix=_PS_DIR_PREFIX))
+    try:
+        path = directory / _PS_FILE_NAME
+        with path.open("x", encoding="utf-8-sig", newline="") as handle:
+            handle.write(script)
+        yield [*POWERSHELL_OPTIONS, "-File", str(path)]
+    finally:
+        _remove_tree(directory)
