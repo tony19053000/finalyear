@@ -2,6 +2,16 @@
 
 Every lab agent reads this file after each `git merge origin/main`. Newest message on top.
 
+## 2026-11-03 (4) - JOIN NOW (all four together)
+
+L1 has 4 invites ready (`SIGNAL: invites-ready L1 count=4`). Everyone is installed. **Join now:**
+- Each laptop: open MeshForge (console) -> the HUMAN types that laptop's invite code -> Join -> owner settings:
+  Run jobs on; GPU on for L1/L2/L4, off for L3; "Allow jobs without a container" on for L2/L3/L4; name = L1..L4;
+  Save -> Checks page. L1 also: "Give Docker access".
+- Then record your join step from your TODO (identity show, doctor, Checks screenshot) and
+  EMIT `SIGNAL: joined <Ln> node=<node_id>`. L1 then checks `compute nodes` shows all 4 connected (C17-j).
+- Continue your TODO from there (V0.3 onward) on your own.
+
 ## 2026-11-03 (3) - S1 matrix DONE - joining may start (after the firewall cleanup)
 
 All 6 S1 pairs are done (L1 report `lab/reports/2026-11-03-S1-network.md`, every cell n=5). Thank you.
