@@ -303,3 +303,10 @@ Both are test bugs (Lead fixing on main): symlink tests must skip without the Wi
 component/agent conftest must not abort collection. C4.15-g command now installs `--extra controller`.
 After the next `git merge origin/main` shows commit "test: skip symlink tests without privilege", re-run
 C3.2-a and C4.15-g once and report (expect 0 failed). Until then: non-blocking, continue.
+
+---
+## LEAD NOTE (2026-11-03, after R1-3/R1-5 on MOHIT)
+Good diagnosis. The `-EncodedCommand` hang is a lab-tool bug (src/ is not affected); the Lead is switching the
+lab tools to a temp `.ps1` + `-File`. Until that lands on main: continue with P0/CU (S1 network does not use it).
+When `git merge origin/main` brings a commit "fix(lab): run PowerShell via temp .ps1 -File", re-run R1-3 and
+R1-5 (quick + full, `--skip-gpu`) and report. Do not start Docker Desktop for now (not required on L3).
