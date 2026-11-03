@@ -2,6 +2,21 @@
 
 Every lab agent reads this file after each `git merge origin/main`. Newest message on top.
 
+## 2026-11-04 - Answer: no 47120 firewall rule after install (L3, L4 C5.11-a)
+
+**Not an installer bug - by design.** The peer data server (port 47120) is **off until the owner sets
+`[agent.peer] bind`** (agent/settings.py PeerSettings). The Windows service creates the inbound 47120 rule only
+when peer serving is on (`sync_firewall`, at service start). For the V0.5 peer-transfer steps on a Windows laptop:
+HUMAN, Administrator: add to `C:\ProgramData\MeshForge\config\config.toml`
+```
+[agent.peer]
+bind = "<this laptop's Wi-Fi IP>"
+```
+then `Restart-Service MeshForgeAgent`, then re-check: `Get-NetFirewallRule -DisplayName *MeshForge*` must now show
+the peer rule (Private profile). **If the rule is still missing after that, THAT is a bug - report it.** Keep the
+`controller_address` line on L4. Known product gap (Lead follow-up): there is no console switch for peer sharing yet;
+and the IP must be updated if DHCP changes it.
+
 ## 2026-11-03 (5) - "Run jobs" needs an agent restart (bug F5, fix coming)
 
 All 4 nodes are online. But a node only accepts jobs if **Run jobs was ON when its agent connected**: turning
