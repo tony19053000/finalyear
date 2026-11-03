@@ -138,3 +138,14 @@ result: torch not installed; the ~2.5 GB CUDA torch install needs the human's ye
 result: inventory, S6, S7 (3 runs), network facts are in lab/reports/. S1: L4 was server only (no client JSON on L4).
 SIGNAL: v02-raw-pushed L4
 SIGNAL: s1-matrix-done L4
+
+### C17-c - install (no join) - OK
+when: 2026-11-03 (local)
+laptop: L4 (Windows 11, LAPTOP-7ORVM30G) - not a timed run (L3 is Windows and does the timed criterion-1 run)
+commands:
+    HUMAN: MeshForge-Agent-Setup-0.17.0-1.exe (SmartScreen Run anyway, UAC Yes, Finish). Join NOT done (Lead: wait).
+    sc.exe queryex MeshForgeAgent; type "C:\Program Files\MeshForge\current.txt"; Get-NetFirewallRule -DisplayName *MeshForge*
+result: service MeshForgeAgent RUNNING (PID 1552), current.txt = 0.17.0-1, CLI at C:\Program Files\MeshForge\0.17.0-1\bin\meshforge-agent.cmd.
+    Firewall: no rule named *MeshForge* found (non-admin query) - to recheck from an Administrator shell at C17-e.
+    agent.log and `identity show` need Administrator: done at C17-e after joining.
+SIGNAL: installed L4
