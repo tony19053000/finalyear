@@ -90,3 +90,19 @@ commands:
     netsh wlan show interfaces; Get-NetAdapter | ft Name,LinkSpeed; Get-NetConnectionProfile
 result: Wi-Fi 5 GHz 802.11ax, Private, same room as L1. MAC/BSSID lines left out.
 evidence: lab/reports/raw/2026-11-03-V0.2-network-facts/L3.txt
+
+### C0-b - human batch - OK (clock: FAIL, non-blocking)
+when: 2026-11-03 15:09 (local)
+laptop: L3 (MOHIT)
+result: sleep on AC = 0 (off), on charger (battery status 2), Wi-Fi profile Private, S1 firewall rules TCP/UDP 47201 Private enabled (CU-0). Windows Update pause: asked of human.
+  `w32tm /query /status` -> `The service has not been started. (0x80070426)`: Windows Time service stopped. Matters for C4.0 clock offset later.
+
+### CU-0 - S1 firewall - OK
+result: `MeshForge S1 TCP True Private`, `MeshForge S1 UDP True Private`.
+
+### CU-b - S1 server - running
+when: 2026-11-03 15:09 (local)
+commands:
+    uv run python lab/spikes/s1_network.py serve --bind 192.168.31.71 --idle 3600 --duration 14400
+result: listening on 192.168.31.71:47201. Waiting for L1, L2, L4 clients.
+SIGNAL: s1-serve-up L3 ip=192.168.31.71
