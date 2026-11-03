@@ -61,7 +61,10 @@ class ConditionMarker:
             return {}
         if len(data) > _MAX_BYTES:
             raise ValueError("the condition marker is too large")
-        body = json.loads(data.decode("utf-8"))
+        try:
+            body = json.loads(data.decode("utf-8"))
+        except RecursionError:  # nested too deeply (F6): corrupt, like bad JSON
+            raise ValueError("the condition marker is nested too deeply") from None
         if not isinstance(body, dict) or not all(
             isinstance(k, str) and isinstance(v, dict) for k, v in body.items()
         ):

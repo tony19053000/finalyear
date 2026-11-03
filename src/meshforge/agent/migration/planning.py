@@ -66,7 +66,7 @@ def _peek_node_id(directory: Path, home_root: Path) -> str | None:
         with opened_dir(directory, expected_uid(directory, home_root)) as held:
             found = read_file(held, JSON_FILE_NAME)
         data = json.loads(found.data) if found is not None else None
-    except (UnsafeSourceError, OSError, ValueError):
+    except (UnsafeSourceError, OSError, ValueError, RecursionError):
         return None
     value = data.get("node_id") if isinstance(data, dict) else None
     return value if isinstance(value, str) else None
@@ -243,6 +243,8 @@ def check_config_bytes(raw: bytes, path: Path) -> str | None:
         data = tomllib.loads(raw.removeprefix(b"\xef\xbb\xbf").decode())
     except (UnicodeDecodeError, tomllib.TOMLDecodeError) as exc:
         return f"cannot read {path} as TOML: {exc}"
+    except RecursionError:
+        return f"cannot read {path} as TOML: nested too deeply"
     known = set(AgentSettings.model_fields)
     unknown = sorted(set(data) - known)
     if unknown:

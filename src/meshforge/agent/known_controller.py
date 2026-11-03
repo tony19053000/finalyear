@@ -42,6 +42,8 @@ from __future__ import annotations
 import ipaddress
 import json
 import re
+import sys
+import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -76,6 +78,15 @@ _MAX_BYTES: Final = 4096
 _FILE_MODE: Final = 0o600
 
 Source = Literal["join", "session"]
+
+_RETRY_SHARING: Final = sys.platform.startswith("win")
+"""Windows only (V1.0 G8 F6): a reader's open and the writer's ``os.replace``
+collide - CPython opens without ``FILE_SHARE_DELETE``, so ``os.replace`` onto a
+file a reader holds fails "Access is denied", and an open that lands in the
+rename window fails the same way. Both are transient: retried briefly."""
+_SHARING_ATTEMPTS: Final = 6
+_SHARING_BACKOFF_S: Final = 0.01
+"""Linear backoff: at most 10+20+30+40+50 ms = 0.15 s of sleeping per call."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -123,6 +134,63 @@ def _valid_address(address: str) -> bool:
     return True
 
 
+# The retry loops below sleep with ``time.sleep``: they are blocking and must
+# stay off the event loop (callers use ``asyncio.to_thread``, as for every
+# function in this module).
+
+
+def _read_raw(directory: Path) -> bytes:
+    """``read_private`` of the hint, retrying a transient Windows sharing
+    violation (:data:`_RETRY_SHARING`); a persistent one is raised as is."""
+    attempt = 1
+    while True:
+        try:
+            return read_private(
+                _path(directory), limit=_MAX_BYTES, what="controller hint"
+            )
+        except PrivateFileError as exc:
+            if (
+                not _RETRY_SHARING
+                or exc.reason is not PrivateFileReason.UNREADABLE
+                or attempt >= _SHARING_ATTEMPTS
+            ):
+                raise
+        time.sleep(_SHARING_BACKOFF_S * attempt)
+        attempt += 1
+
+
+def _write_raw(directory: Path, data: bytes) -> None:
+    """``atomic_write_bytes`` of the hint, retrying a transient Windows
+    sharing violation (a reader holds the file open, :data:`_RETRY_SHARING`)."""
+    attempt = 1
+    while True:
+        try:
+            atomic_write_bytes(_path(directory), data, mode=_FILE_MODE)
+        except PermissionError:
+            if not _RETRY_SHARING or attempt >= _SHARING_ATTEMPTS:
+                raise
+        else:
+            return
+        time.sleep(_SHARING_BACKOFF_S * attempt)
+        attempt += 1
+
+
+def _unlink_raw(directory: Path) -> None:
+    """Delete the hint (missing is fine), retrying a transient Windows sharing
+    violation - a reader holding the file open (:data:`_RETRY_SHARING`)."""
+    attempt = 1
+    while True:
+        try:
+            _path(directory).unlink(missing_ok=True)
+        except PermissionError:
+            if not _RETRY_SHARING or attempt >= _SHARING_ATTEMPTS:
+                raise
+        else:
+            return
+        time.sleep(_SHARING_BACKOFF_S * attempt)
+        attempt += 1
+
+
 def load_known(directory: Path) -> KnownController | None:
     """The stored hint, or ``None`` (missing, unreadable or malformed - the
     last two are logged; the caller just falls back to "not found")."""
@@ -130,7 +198,7 @@ def load_known(directory: Path) -> KnownController | None:
     # never a symlink, FIFO or device - opened O_NONBLOCK | O_NOFOLLOW, so a
     # planted FIFO cannot hang the resolver thread.
     try:
-        raw = read_private(_path(directory), limit=_MAX_BYTES, what="controller hint")
+        raw = _read_raw(directory)
     except PrivateFileError as exc:
         if exc.reason is PrivateFileReason.MISSING:
             return None
@@ -143,7 +211,10 @@ def load_known(directory: Path) -> KnownController | None:
     data: object = None
     try:
         data = json.loads(raw)
-    except (UnicodeDecodeError, json.JSONDecodeError):
+    except (ValueError, RecursionError):
+        # ValueError covers JSONDecodeError and UnicodeDecodeError; a deeply
+        # nested document raises RecursionError instead - at a much smaller
+        # depth on Windows (smaller C stack), F6. A hint must never raise.
         problem = "not JSON"
     if problem is None:
         if not isinstance(data, dict) or data.get("format") != KNOWN_CONTROLLER_FORMAT:
@@ -190,7 +261,7 @@ def remember(
             current = load_known(directory)
             if current is not None and current.address == address:
                 return True
-            atomic_write_bytes(_path(directory), data, mode=_FILE_MODE)
+            _write_raw(directory, data)
     except (OSError, MeshForgeError) as exc:
         log.warning(
             "agent.known_controller.not_saved",
@@ -217,7 +288,7 @@ def forget(
     """Delete the hint (missing is fine; a failure is logged)."""
     try:
         with locked_identity(directory, lock_timeout_s=lock_timeout_s):
-            _path(directory).unlink(missing_ok=True)
+            _unlink_raw(directory)
     except (OSError, MeshForgeError) as exc:
         log.warning(
             "agent.known_controller.not_deleted",

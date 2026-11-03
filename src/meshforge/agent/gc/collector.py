@@ -113,7 +113,7 @@ def scan_env_dirs(root: Path) -> dict[str, int]:
             try:
                 with (entry / _ENV_MARKER).open("rb") as fh:
                     data = json.loads(fh.read(_MAX_MARKER_BYTES))
-            except (OSError, ValueError):
+            except (OSError, ValueError, RecursionError):
                 continue
             if not isinstance(data, dict) or data.get("env_hash") != entry.name:
                 continue

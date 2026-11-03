@@ -38,6 +38,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final, Protocol
 
+from meshforge.common.aio import finished_within, run_to_completion
 from meshforge.common.errors import ConfigError
 from meshforge.common.logging import get_logger
 from meshforge.common.netaddr import (
@@ -198,9 +199,7 @@ class MdnsResolver:
             )
             return None
         finally:
-            if browser is not None:
-                await browser.async_cancel()
-            await azc.async_close()
+            await _close_browse(azc, browser)
 
     @staticmethod
     def _pick(addresses: list[str], port: int) -> str | None:
@@ -210,6 +209,28 @@ class MdnsResolver:
             if is_lan_address(address):
                 return format_target(address, port)
         return None
+
+
+_CLOSE_TIMEOUT_S: Final = 5.0
+"""Bound on one browse close (zeroconf's own close waits up to 1 s for start)."""
+
+
+async def _close_browse(azc: Any, browser: Any | None) -> None:
+    """Cancel the browser and close the zeroconf instance - to the end even
+    when the caller is being cancelled (a stop during DISCOVERING lands here
+    every time the browse window just ended): an interrupted close leaked the
+    UDP sockets on port 5353 (V1.0 G8 F6). Bounded by :data:`_CLOSE_TIMEOUT_S`
+    (a wedged close is logged, never waited on forever)."""
+
+    async def close() -> None:
+        try:
+            if browser is not None:
+                await browser.async_cancel()
+        finally:
+            await azc.async_close()
+
+    if not await run_to_completion(finished_within(close(), _CLOSE_TIMEOUT_S)):
+        log.warning("agent.discovery.close_timeout", timeout_s=_CLOSE_TIMEOUT_S)
 
 
 class LastKnownFallbackResolver:
@@ -352,7 +373,5 @@ async def browse_controllers(
             label = "".join(ch for ch in label if ch.isprintable())[:128]
             found[name] = FoundController(name=label, host=host, port=port)
     finally:
-        if browser is not None:
-            await browser.async_cancel()
-        await azc.async_close()
+        await _close_browse(azc, browser)
     return sorted(found.values(), key=lambda f: (f.name, f.host))

@@ -774,7 +774,7 @@ def _read_json(json_path: Path) -> dict[str, Any]:
         ) from exc
     try:
         meta = json.loads(raw)
-    except (ValueError, UnicodeDecodeError) as exc:
+    except (ValueError, RecursionError) as exc:
         raise IdentityError(
             f"corrupt identity metadata (not JSON): {exc}", json_path, _REMEDY
         ) from exc

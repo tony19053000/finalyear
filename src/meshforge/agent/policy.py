@@ -213,6 +213,13 @@ def parse_overlay(raw: bytes, path: Path) -> dict[str, Any]:
             f"the live policy file {path} is not valid TOML: {exc}",
             details={"reason": "toml"},
         ) from None
+    except RecursionError:
+        # tomllib recurses per nesting level: ~300 nested arrays exhaust the
+        # default recursion limit (F6). Typed, like any other bad TOML.
+        raise ConfigError(
+            f"the live policy file {path} is not valid TOML: nested too deeply",
+            details={"reason": "toml"},
+        ) from None
     unknown = sorted(set(data) - set(LIVE_KEYS))
     if unknown:
         raise ConfigError(
