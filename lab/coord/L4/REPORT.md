@@ -225,3 +225,14 @@ result: agent now dials the controller (session_epoch 0 -> 5, CONNECTING -> HELL
     Test-NetConnection 192.168.31.13:47100 = True. Attempt 2 uses 47100.
 BUG (Lead note / ANNOUNCE): "gRPC 47101" should be 47100 for the agent session; 47101 is enrollment.
 NOTE: this line pins L1's IP; if L1's IP changes, controller_address must be updated.
+
+### C17-e workaround - attempt 2 - OK (L4 CONNECTED)
+when: 2026-11-03 17:05 (local)
+commands (human, Administrator): config.toml now exactly:
+        [agent]
+        controller_address = "192.168.31.13:47100"
+    Restart-Service MeshForgeAgent; agent.log -Tail 5; Get-NetTCPConnection -State Established | ? RemotePort -eq 47100
+result: agent.session.reconciled session sess_01M6GK1YGA4CQHQ6KKN8ACEV6Y first_connect true; scores scheduled; cache snapshot sent;
+    gc command received from controller. Established TCP L4:12335 -> 192.168.31.13:47100. session_epoch >= 5.
+NOTE: controller_address pins L1's IP 192.168.31.13 - if L1's IP changes, update this line and restart the service.
+SIGNAL: connected L4 node=node_01M6GGJP3FW5VHBDFKYQ6SF318
