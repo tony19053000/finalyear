@@ -8,10 +8,10 @@
 ## Progress
 
 ```
-TOTAL   ███████████████▒▒▒░░  73%  117/159 done, 25 in progress
+TOTAL   ███████████████▒▒▒░░  74%  118/159 done, 24 in progress
 
 V0.1    ████████████████████ 100%  12/12  Foundations & engineering system
-V0.2    ████▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒░  18%   2/11  Lab setup & feasibility validation
+V0.2    █████▒▒▒▒▒▒▒▒▒▒▒▒▒░░  27%   3/11  Lab setup & feasibility validation
 V0.3    ███████████████▒▒▒▒░  73%  11/15  Fabric core: controller ⇄ agent
 V0.4    ████████████████▒▒░░  82%  14/17  Remote execution core (Mode 1 foundation)
 V0.5    ██████████████████░░  90%  10/11  Data plane & environments
