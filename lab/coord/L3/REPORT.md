@@ -68,3 +68,13 @@ result: exit 0. Wi-Fi Private: done (R1-1b). CUDA torch: not applicable (no NVID
 
 ### R1-7 - Push - OK
 result: round 1 pushed. Open: R1-5 BLOCKED by the -EncodedCommand hang (see R1-5 BUG); R1-3 inventory incomplete for the same reason.
+
+### C0-a - P0 sync - OK
+when: 2026-11-03 14:28 (local)
+laptop: L3 (MOHIT)
+commands:
+    git fetch origin; git checkout lab/L3; git merge origin/main; git rev-parse --short HEAD; uv sync --extra agent
+result: HEAD dc257850, uv sync --extra agent exit 0.
+
+### C0-c - ready - OK
+SIGNAL: L3-ready ip=192.168.31.71 os=windows host=MOHIT
