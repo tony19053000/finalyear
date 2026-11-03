@@ -238,3 +238,5 @@ commands:
 SIGNAL: s1-serve-up L1 ip=192.168.31.13
 
 S1 client RUNNING L1-to-L3
+
+S1 client RUNNING L1-to-L4
