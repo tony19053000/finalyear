@@ -528,3 +528,10 @@ QUESTION: parts G/H need a peer endpoint. Per TODO, skipped unless owners turn o
 result: HUMAN installed iperf3 (/usr/bin/iperf3). `iperf3 -s -B 192.168.31.13` running in background. L2: run the client and record the receiver Bitrate.
 SIGNAL: iperf3-server-up ip=192.168.31.13
     correction: the manual `iperf3 -s` failed "Address already in use" - the apt install started the iperf3 systemd service (active, *:5201). That service is the server; same port, L2 unaffected.
+
+### C5.11-d - Part E upload once (c1) - OK
+commands: compute data push ds5g ~/mf-lab/ds5g (x2); append "c,d" to labels.csv; push again
+result: push 1: "uploaded 6 files / 5368752863 bytes, skipped 0", "registered ds5g@1 (6 files, 5.0 GiB)", 37.1 s (local controller, no Wi-Fi hop).
+    push 2: "uploaded 0 files / 0 bytes, skipped 6", "already registered as ds5g@1", 7.0 s (hashing only).
+    push 3: "uploaded 1 files / 43748 bytes, skipped 5", "registered ds5g@2". (43748 bytes for a ~12-byte csv: QUESTION - is that the chunk/manifest framing? not a fail.)
+evidence: lab/reports/raw/2026-11-04-V0.5-data/E.txt

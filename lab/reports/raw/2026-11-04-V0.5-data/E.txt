@@ -1,0 +1,12 @@
+## push 1
+compute: uploaded 6 files / 5368752863 bytes, skipped 0
+registered ds5g@1 (6 files, 5.0 GiB)
+real 37.14 s
+## push 2
+compute: uploaded 0 files / 0 bytes, skipped 6
+already registered as ds5g@1 (6 files, 5.0 GiB)
+real 7.02 s
+## push 3 (labels.csv changed)
+compute: uploaded 1 files / 43748 bytes, skipped 5
+registered ds5g@2 (6 files, 5.0 GiB)
+real 5.96 s
