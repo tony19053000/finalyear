@@ -241,3 +241,6 @@ SIGNAL: connected L4 node=node_01M6GGJP3FW5VHBDFKYQ6SF318
 result: per origin/lab/L1 REPORT: n=6, OFFLINE mean 5.00 s (all <= 8 s); ONLINE 14.52/8.21/8.46/7.85/8.13/6.96 s
     (rep 1 > 10 s, reps 2-6 within); agent restarted: no. L4 human toggled Wi-Fi on L1's cue.
 evidence: on L1: lab/reports/2026-11-03-V0.3-fabric-watch.md
+
+### C3.7-b-L4 - agent restart (LIVE) - WAITING
+result: waiting for L1's cue. No new commit on origin/lab/L1 for 70 min, L2 2 h, L3 3 h (lab looks paused). Human told after 30 min.
