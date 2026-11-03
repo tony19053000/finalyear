@@ -285,3 +285,9 @@ result: identity show: node_id node_01M6BMFVHJVZXC7AET3CFRE3AV (= dev node_id, m
 result: human forgot the admin password. HUMAN ran `sudo meshforge-controller user reset-password admin` -> "password of admin reset (1 API token(s) revoked)".
     The CLI login token of C17-f is revoked -> `compute login` must be redone. Password not recorded anywhere.
     Browser: human reached the dashboard login page with Chrome "Not secure" (CA not yet imported; ~/meshforge-fabric-ca.crt exported for import, C8.10-a).
+
+### C17-i (part 1) - invites for the joint join - in progress
+result: HUMAN made invite inv_01M6GG62NQVEV7TTJ6D3BM7E1T (`fabric invite --ttl 2h`) but pasted the code into the agent chat -> treated as exposed:
+    revoked with `compute fabric invites --revoke inv_01M6GG62NQVEV7TTJ6D3BM7E1T` (status revoked). Code not written anywhere in the repo.
+    Setup-page invite inv_01M6BMCGQSRKVKVCTB... expired unused. HUMAN makes 4 fresh invites (L1-L4), codes on paper only.
+    compute login redone after the password reset: OK as admin, valid until 2027-02-01.
