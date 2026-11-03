@@ -97,3 +97,14 @@ commands:
     netsh wlan show interfaces; Get-NetAdapter | ft Name,LinkSpeed; Get-NetConnectionProfile
 result: Intel Wi-Fi 6E AX211, SSID JARVIS, 5 GHz ch 157, 802.11ax, 1.2 Gbps, signal 97%, profile Private.
 evidence: lab/reports/raw/2026-11-03-V0.2-network-facts/L4.txt
+
+### C0-b - HUMAN BATCH - OK
+result: sleep on AC = 0 (off), Windows Update paused until 2026-11-13, clock resynced (Leap 0, last sync 15:08:21, time.windows.com).
+
+### CU-0 - S1 firewall - OK
+result: "MeshForge S1 TCP" / "MeshForge S1 UDP" inbound 47201 from 192.168.31.0/24, Private, enabled (added by human, Administrator).
+
+### CU-b - S1 server (0.2.5) - RUNNING
+commands:
+    uv run python lab/spikes/s1_network.py serve --bind 192.168.31.244 --idle 3600 --duration 14400
+SIGNAL: s1-serve-up L4 ip=192.168.31.244
