@@ -544,3 +544,12 @@ result: job_01M6HFPX055QCKC2B6HFSWN7JE failed (node_lost) after 17 s, exit 126. 
 BUG candidate (Lead): starting a 5 GB fetch over Wi-Fi made every Wi-Fi agent miss its 6 s lease - bulk data starves the control-plane heartbeats
     on a shared Wi-Fi (or the fetch shares the agent's connection/event loop with the session). Reproduce: run part F on Wi-Fi. Rerunning once to see if it repeats.
 evidence: lab/reports/raw/2026-11-04-V0.5-data/F-attempt1.txt, F-attempt1-controller-journal.txt
+
+### C5.11-e - Part F attempt 2 - OK (after one transfer_error retry)
+result: job_01M6HG3V035J571YC78TT392DR succeeded, 412 s total. Attempt 1 (att_01M6HG3V1E...) failed transfer_error after 84 s of preparing
+    (failure_detail null), auto-retried on L2; attempt 2 staged 20:04:23 -> running 20:09:36 = 313 s, ran 10 s.
+    L2 printed "dataset sha256 b9124ddf4d3e9b6fd609354190cd4ac38907a1b11f72fbcfb0926b6c4976c113" = L1 local hash of ds5g part*.bin: data intact.
+    Throughput (attempt 2 staging): 5 GiB / 313 s ~ 137 Mbit/s vs iperf3 L1->L2 169 Mbit/s = ratio ~0.81 (upper bound: attempt 1 may have cached part of it).
+    Criterion 2 is Ethernet: NOT RUN (D425); Wi-Fi number recorded, no pass mark.
+BUG candidate (Lead): transfer_error with failure_detail=null (no reason given). Together with attempt-1 node_lost: big fetches on Wi-Fi are fragile.
+evidence: lab/reports/raw/2026-11-04-V0.5-data/F-attempt2.txt, F-attempt2-controller-journal.txt
