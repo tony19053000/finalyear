@@ -352,3 +352,6 @@ commands:
 result: exit 0. 4 nodes online/connected, agent 0.17.0. Expected vs actual written: all 4 rows match their inventory JSON (CPU, threads, RAM, NVIDIA GPU/VRAM).
     L1 caps include docker, exec-docker, exec-gpu, nvidia-container-toolkit; L2/L4 exec-gpu without docker; L3 no GPU.
 evidence: lab/reports/2026-11-03-V0.3-fabric-inventory.md, lab/reports/raw/2026-11-03-V0.3-fabric-inventory/l1-dffe8596.json, lab/reports/inventory/*.json (copied from L2-L4)
+
+### C3.7-a - Wi-Fi drop, L3 (Mohit) - RUNNING (LIVE)
+SIGNAL: C3.7-a GO L3 - L1 is at ">>> PULL" (5 reps): on L1's spoken "now" L3's human turns Wi-Fi OFF; at ">>> PLUG" Wi-Fi ON.
