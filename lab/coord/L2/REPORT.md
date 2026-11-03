@@ -415,3 +415,10 @@ Agent log copied by the human (admin) to a user folder; extract in `lab/reports/
 **For the Lead (transfer_error bug):** error texts are `chunk fetch failed: ConnectError` (job 1, while the session was down) and `chunk fetch failed: RemoteProtocolError` (job 2 attempt 1, session up — server closed the HTTP connection mid-chunk?). The detail is only in the agent's `agent.cas.source_dropped` warning, not passed to the controller's failure reason. Also job 1's retries (8 in 27 s) all fell inside the outage, so they could not help.
 
 SIGNAL: V0.5-done
+
+### V0.6 part C peer serving on - BUG: no firewall rule (2026-11-04 03:05)
+HUMAN (Administrator): config.toml was **empty** before; appended `[agent.peer]` / `bind = "192.168.31.155"` (current Wi-Fi IP), `Restart-Service MeshForgeAgent` -> Running (new service PID 17152).
+- Peer server is up: `Get-NetTCPConnection -LocalPort 47120 -State Listen` -> 192.168.31.155:47120, PID 20012.
+- `Get-NetFirewallRule -DisplayName *MeshForge*` (admin and non-admin): **no rule at all** after restart.
+**BUG:** peer serving on + service restarted, but `sync_firewall` created no inbound 47120 rule (ANNOUNCE 2026-11-04: missing rule after restart = bug). Peers on Windows Firewall Private will likely be blocked from fetching from L2. Did not add a rule by hand (RULES: no firewall changes by the agent); waiting for the Lead's call. Need the service.log lines from the restart? Can ask the human for an admin copy.
+SIGNAL: peer-on L2 ip=192.168.31.155
