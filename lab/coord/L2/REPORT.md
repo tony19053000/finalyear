@@ -361,3 +361,9 @@ result: console "Done": "This laptop is in the fabric fab_01M6BMCGQBHTN059R0R5MY
 evidence: lab/reports/raw/2026-11-03-V0.17-install/L2-console-done.png, L2-joined.txt, L2-checks.txt, L2-checks2.txt
 QUESTIONS: accept_gpu_sessions is False although the human turned the GPU option on - is that the Mode 2 remote-GPU switch (deferred) and GPU jobs are allowed through max_gpu_jobs? max_cpu_percent 50: console default?
 SIGNAL: joined L2 node=node_01M6GCKN7PYT2J297BT241P436
+
+### C17-f - Firewall (part) - OK, finding
+when: 2026-11-03 (local)
+commands:
+    Get-NetFirewallRule | Where-Object DisplayName -like '*MeshForge*' | Get-NetFirewallPortFilter
+result: no MeshForge firewall rule at all: the v0.17.0 Windows installer opened no inbound port (agent is outbound-only to the controller, ADR-0002). Relevant for C5.11-a (peer port 47120). Checks-page screenshot: asked the human.
