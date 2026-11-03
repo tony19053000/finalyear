@@ -244,3 +244,15 @@ evidence: on L1: lab/reports/2026-11-03-V0.3-fabric-watch.md
 
 ### C3.7-b-L4 - agent restart (LIVE) - WAITING
 result: waiting for L1's cue. No new commit on origin/lab/L1 for 70 min, L2 2 h, L3 3 h (lab looks paused). Human told after 30 min.
+
+### C3.7-b-L4 - agent restart keeps node_id (LIVE, run by L1) - OK
+result: per origin/lab/L1: 6 reps, same node_id node_01M6GGJP3FW5VHBDFKYQ6SF318 every rep, restarted = yes;
+    OFFLINE after stop 0.06-0.18 s; ONLINE after start 7.25/5.25/4.98/6.40/5.49/6.48 s. L4 human ran Stop-/Start-Service (Administrator).
+    Service Running after the test.
+
+### LEAD CHECKPOINT V0.3 (L4)
+SIGNAL: V0.3-done
+
+### LEAD CHECKPOINT V0.4 (L4)
+result: L4's V0.4 parts (C4.0 clock-offset, C4.15-g part G) were done earlier.
+SIGNAL: V0.4-done
