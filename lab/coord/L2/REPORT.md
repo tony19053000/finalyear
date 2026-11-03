@@ -291,3 +291,13 @@ when: 2026-11-03 15:04 (local)
 result: Wi-Fi 192.168.31.155 (unchanged), JARVIS Private, 5 GHz, signal 96%. L2-ready unchanged, not re-emitted.
     Found: MeshForgeAgent service Running, C:\Program Files\MeshForge\current.txt = 0.17.0-1 (installed during the break). C:\ProgramData\MeshForge not readable without admin; join state unknown - asking the human.
     Leftover firewall rule "MeshForge S2" still present.
+
+### C17-d - Check (part 1) - partial
+when: 2026-11-03 15:20 (local)
+commands:
+    (human, Administrator) Remove-NetFirewallRule -DisplayName "MeshForge S2"; meshforge-agent identity show / policy show / --version; sc.exe qc / queryex MeshForgeAgent; current.txt; setup-result.json   -> saved to file
+result: "MeshForge S2" rule removed (no MeshForge lab rules left).
+    sc qc: AUTO_START (DELAYED), binPath "C:\Program Files\MeshForge\0.17.0-1\python\python.exe" -I -m meshforge.agent.winservice host --config C:\ProgramData\MeshForge\config\config.toml ..., runs as NT SERVICE\MeshForgeAgent.
+    sc queryex: RUNNING, PID 25472. current.txt 0.17.0-1. setup-result.json: outcome ok, version 0.17.0-1, node_id null (at install time, before any join).
+    meshforge-agent: "not recognized" in the admin window (that window was probably opened before the installer added C:\Program Files\MeshForge\bin to PATH). Retrying with the full path.
+evidence: lab/reports/raw/2026-11-03-V0.17-install/L2-checks.txt
