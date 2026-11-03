@@ -291,3 +291,8 @@ result: HUMAN made invite inv_01M6GG62NQVEV7TTJ6D3BM7E1T (`fabric invite --ttl 2
     revoked with `compute fabric invites --revoke inv_01M6GG62NQVEV7TTJ6D3BM7E1T` (status revoked). Code not written anywhere in the repo.
     Setup-page invite inv_01M6BMCGQSRKVKVCTB... expired unused. HUMAN makes 4 fresh invites (L1-L4), codes on paper only.
     compute login redone after the password reset: OK as admin, valid until 2027-02-01.
+
+### C17-i (part 2) - 4 invites ready - OK
+result: HUMAN ran `sudo meshforge-controller fabric invite --ttl 2h` 4 times (L1-L4). `compute fabric invites`: 4 pending, 1 revoked, 1 expired.
+    Codes kept by the human (paper/screen), never in a file. Valid ~2 h. Waiting for the Lead's go for the joint join.
+SIGNAL: invites-ready L1 count=4
