@@ -338,3 +338,10 @@ result: exit 0. TCP x1 L4->L2 248.26 +- 4.17 Mbit/s; x4 L4->L2 361.43 +- 3.82; x
 evidence: lab/reports/raw/2026-11-03-S1-network/ailesh-1ad242f0__to-laptop-7orvm30g_wifi-305efdfb.json
 SIGNAL: s1-client-done L2-to-L4
     Both L2 client runs of the matrix are done. L2's own S1 server (ANNOUNCE (2)) is not started: it needs the human to re-add the 47201 firewall rules; no pair in the table needs another laptop to run a client against L2 (L1-L2 done 2026-11-01).
+
+### S1 matrix - L2 part done
+when: 2026-11-03 (local)
+result: L2 ran L2->L3 and L2->L4; raw files pushed (lab/reports/raw/2026-11-03-S1-network/). Firewall cleanup: Get-NetFirewallRule -Group "MeshForge lab" prints nothing on L2 (no S1 rules were re-added; "MeshForge S2" removed earlier today in C17-d part 1). IP still 192.168.31.155.
+SIGNAL: s1-matrix-done L2
+
+### C17 - resumed (ANNOUNCE 2026-11-03 (3): joining may start)
