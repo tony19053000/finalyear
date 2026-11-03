@@ -309,3 +309,21 @@ result: L1: J1 attempt 1 transfer_error 20:55:33Z (before the stop), attempt 2 n
     J2 resumed_chunks = not reported (0 / absent) -> c3 (> 0) NOT met. Only blob-level reuse (2 blobs) is shown.
     Part I: SKIPPED (not quick on Windows: service config edit + restart + restore).
 SIGNAL: V0.5-done
+
+### C6.13-a-L4 (prep) - peer serving on - PARTIAL (peer listens, firewall rule MISSING = BUG)
+when: 2026-11-04 (local)
+commands (human, Administrator):
+    Add-Content config.toml; config.toml is now exactly:
+        [agent]
+        controller_address = "192.168.31.13:47100"
+
+        [agent.peer]
+        bind = "192.168.31.244"
+    Restart-Service MeshForgeAgent; Get-NetFirewallRule -DisplayName *MeshForge*
+result: service Running; peer server LISTENING on 192.168.31.244:47120 (Get-NetTCPConnection -State Listen).
+    Firewall: Get-NetFirewallRule *MeshForge* (name or group) -> 0 rules after the restart.
+BUG: Windows service did not create the inbound 47120 peer rule at start although [agent.peer] bind is set (ANNOUNCE 2026-11-04:
+    "If the rule is still missing after that, THAT is a bug"). Inbound peer connections to L4 will likely be blocked by Windows Firewall.
+    Not adding a rule myself (rules: no firewall changes by the agent); Lead to decide a manual rule.
+NOTE: bind pins L4's Wi-Fi IP 192.168.31.244 (DHCP); update if it changes.
+SIGNAL: peer-on L4 ip=192.168.31.244
