@@ -123,3 +123,5 @@ commands:
 result: exit 0, failed probes none, problems none. CPU i5-1235U (10 cores / 12 threads), RAM 7.7 GiB, GPU Intel UHD Graphics 1024 MiB (no NVIDIA), torch not installed, docker not installed, Wi-Fi 600.5 Mbit/s, secure boot enabled. The fix works on MOHIT.
 evidence: lab/reports/inventory/MOHIT.json (attempt 1 kept as MOHIT.attempt1.json)
 note: R1-5 (S7) rerun deferred until no S1 client is measuring against L3 (S7 loads the CPU).
+
+S1 client RUNNING L3-to-L4 (2026-11-03 15:33)
