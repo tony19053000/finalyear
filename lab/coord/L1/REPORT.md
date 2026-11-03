@@ -565,3 +565,12 @@ result: job 1 (node_lost): 8 x agent.cas.source_dropped "chunk fetch failed: Con
     `discovery_failed controller_not_found` for ~4 min 13 s (back ONLINE 20:00:30 UTC) - same discovery weakness L4 hit at join (mDNS).
     job 2 attempt 1: "chunk fetch failed: RemoteProtocolError" with the session up -> failed transfer_error, no retry; the detail is not passed to the controller (failure_detail null).
     L2: SIGNAL V0.5-done.
+
+### C5.11-f - Part G first half: reader on L3 - OK after one transfer_error retry (peer half SKIPPED)
+commands: compute run ~/mf-lab/reader --node <L3-ID> -f   (L3 free 174.5 GB; peer serving off everywhere -> controller is the only source)
+result: job_01M6HHQX4TS0MF1JPBN2NNCHQR succeeded in 464 s. Attempt 1 failed transfer_error after 95 s staging (same as L2 job 2),
+    attempt 2 staged 20:33:01 -> running 20:38:54 = 354 s (~121 Mbit/s for 5 GiB). L3 printed the same dataset sha256 b9124ddf... = data intact.
+    Expected "transfer lines from the controller AND from L2": NOT possible - no peer endpoints (QUESTION above). Second half (L1 Wi-Fi vs others Ethernet): NOT RUN (D425).
+    Pattern: the FIRST attempt of every 5 GB fetch so far failed (L2 node_lost, L2 transfer_error, L3 transfer_error); the retry always succeeded.
+evidence: lab/reports/raw/2026-11-04-V0.5-data/G-L3.txt (+ L3's L3-agent.txt)
+SIGNAL: v05-f-done L3

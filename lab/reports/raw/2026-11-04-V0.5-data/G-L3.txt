@@ -1,0 +1,20 @@
+20:31:20
+compute: uploaded 0 files / 0 bytes, skipped 2
+job_01M6HHQX4TS0MF1JPBN2NNCHQR
+compute: the attempt ended (transfer_error); the job was retried - following attempt 2
+dataset sha256 b9124ddf4d3e9b6fd609354190cd4ac38907a1b11f72fbcfb0926b6c4976c113
+real 464.30 s
+20:39:04
+20:31:20.734 submitted
+20:31:20.735 planning
+20:31:20.736 queued
+20:31:20.760 preparing
+20:32:56.031 retrying
+20:32:56.033 planning
+20:32:56.035 queued
+20:33:01.125 preparing
+20:38:54.645 running
+20:39:04.635 collecting
+20:39:04.667 succeeded
+att_01M6HHQX5PY9YCTW2KRM77PBET failed transfer_error
+att_01M6HHTZ62N38BH998NT5DYX6F done None
