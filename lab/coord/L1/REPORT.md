@@ -252,3 +252,14 @@ result: both exit 0. Run one after the other (L1-to-L3 RUNNING line stayed open 
 evidence: lab/reports/raw/2026-11-03-S1-network/jarvism3-249e3a41__to-mohit_wifi-930c4d45.json, lab/reports/raw/2026-11-03-S1-network/jarvism3-249e3a41__to-laptop-7orvm30g_wifi-305efdfb.json
 SIGNAL: s1-client-done L1-to-L3
 SIGNAL: s1-client-done L1-to-L4
+
+### S1-ALL-c - S1 matrix report L1-L4 (Wi-Fi) - OK
+commands:
+    stopped L1 S1 server; git checkout origin/lab/{L2,L3,L4} -- lab/reports/raw   (peers' raw files, not edited)
+    uv run python lab/spikes/s1_network.py matrix --results <tmp dir: L1-L2 2026-11-01 file + all 5 2026-11-03 files> --out lab/reports/2026-11-03-S1-network.md --labels L1=JARVISM3,L2=AILESH,L3=Mohit,L4=LAPTOP-7ORVM30G --date 2026-11-03 --force
+result: 6 result files, all 6 pairs filled, every cell n=5. Old TIWARI_JI files left out (retired L3).
+    TCP x1 range 171-248 Mbit/s, x4 181-361 Mbit/s; RTT 2.61-3.54 ms; loss 0 % except L2-L3 0.10 %.
+    TBD cells: Ethernet tables (NOT RUN, D425); host table link speed + power mode (hand sections, Lead). No INVALID cells.
+    First run used L3=MOHIT (hostname case is "Mohit") -> regenerated with --force (no hand text existed yet).
+evidence: lab/reports/2026-11-03-S1-network.md, lab/reports/raw/2026-11-03-S1-network/
+SIGNAL: s1-matrix-done L1

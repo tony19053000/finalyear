@@ -1,0 +1,1664 @@
+{
+  "cases": {
+    "grpc-bidi-idle120s-kaoff": {
+      "aborted": false,
+      "attrs": {
+        "idle_s": 120.0,
+        "keepalive": "off",
+        "keepalive_settings": {
+          "client_options": {
+            "grpc.max_receive_message_length": 536870912,
+            "grpc.max_send_message_length": 65536
+          },
+          "mode": "off",
+          "server_options": {
+            "grpc.http2.min_ping_interval_without_data_ms": 5000,
+            "grpc.http2.min_recv_ping_interval_without_data_ms": 5000,
+            "grpc.keepalive_permit_without_calls": 1,
+            "grpc.keepalive_time_ms": 20000,
+            "grpc.keepalive_timeout_ms": 10000,
+            "grpc.max_receive_message_length": 65536,
+            "grpc.max_send_message_length": 536870912,
+            "grpc.so_reuseport": 0
+          }
+        },
+        "kind": "grpc",
+        "op": "bidi_session"
+      },
+      "errors": [],
+      "label": "gRPC Session (bidi, 5 s active + 120 s idle, keepalive off) L2 → L1",
+      "metrics": {
+        "active_rtt_mean_ms": "ms",
+        "alive_s": "s",
+        "final_rtt_ms": "ms",
+        "idle_survived_s": "s",
+        "msgs_down": "count",
+        "msgs_up": "count",
+        "survived": "0/1"
+      },
+      "requested_reps": 5,
+      "requested_warmup": 1,
+      "samples": [
+        {
+          "active_rtt_mean_ms": 6.03188001550734,
+          "alive_s": 125.16975859995,
+          "beats": 4,
+          "channel_ready_ms": 87.95989997452125,
+          "failure": null,
+          "final_rtt_ms": 156.93630004534498,
+          "hold_s": 5.0,
+          "idle_s": 120.0,
+          "idle_survived_s": 120.0,
+          "keepalive": "off",
+          "msgs_down": 12,
+          "msgs_up": 8,
+          "pings_active": 5,
+          "survived": 1
+        },
+        {
+          "active_rtt_mean_ms": 6.309299974236637,
+          "alive_s": 125.02076129999477,
+          "beats": 4,
+          "channel_ready_ms": 93.16270000999793,
+          "failure": null,
+          "final_rtt_ms": 6.803800002671778,
+          "hold_s": 5.0,
+          "idle_s": 120.0,
+          "idle_survived_s": 120.0,
+          "keepalive": "off",
+          "msgs_down": 12,
+          "msgs_up": 8,
+          "pings_active": 5,
+          "survived": 1
+        },
+        {
+          "active_rtt_mean_ms": 6.31811999483034,
+          "alive_s": 125.23564420000184,
+          "beats": 4,
+          "channel_ready_ms": 10.732199996709824,
+          "failure": null,
+          "final_rtt_ms": 217.01219998067245,
+          "hold_s": 5.0,
+          "idle_s": 120.0,
+          "idle_survived_s": 120.0,
+          "keepalive": "off",
+          "msgs_down": 12,
+          "msgs_up": 8,
+          "pings_active": 5,
+          "survived": 1
+        },
+        {
+          "active_rtt_mean_ms": 5.338820000179112,
+          "alive_s": 125.13125149998814,
+          "beats": 5,
+          "channel_ready_ms": 54.33529999572784,
+          "failure": null,
+          "final_rtt_ms": 87.34299999196082,
+          "hold_s": 5.0,
+          "idle_s": 120.0,
+          "idle_survived_s": 120.0,
+          "keepalive": "off",
+          "msgs_down": 13,
+          "msgs_up": 8,
+          "pings_active": 5,
+          "survived": 1
+        },
+        {
+          "active_rtt_mean_ms": 5.6305799866095185,
+          "alive_s": 125.0500963999657,
+          "beats": 5,
+          "channel_ready_ms": 212.843100016471,
+          "failure": null,
+          "final_rtt_ms": 7.027700019534677,
+          "hold_s": 5.0,
+          "idle_s": 120.0,
+          "idle_survived_s": 120.0,
+          "keepalive": "off",
+          "msgs_down": 13,
+          "msgs_up": 8,
+          "pings_active": 5,
+          "survived": 1
+        }
+      ],
+      "summary": {
+        "active_rtt_mean_ms": {
+          "max": 6.31811999483034,
+          "mean": 5.92573999427259,
+          "median": 6.03188001550734,
+          "min": 5.338820000179112,
+          "n": 5,
+          "p95": 6.3163559907116,
+          "stdev": 0.43125993807847096
+        },
+        "alive_s": {
+          "max": 125.23564420000184,
+          "mean": 125.12150239998009,
+          "median": 125.13125149998814,
+          "min": 125.02076129999477,
+          "n": 5,
+          "p95": 125.22246707999147,
+          "stdev": 0.08760656705267005
+        },
+        "final_rtt_ms": {
+          "max": 217.01219998067245,
+          "mean": 95.02460000803694,
+          "median": 87.34299999196082,
+          "min": 6.803800002671778,
+          "n": 5,
+          "p95": 204.99701999360695,
+          "stdev": 92.60049147895145
+        },
+        "idle_survived_s": {
+          "max": 120.0,
+          "mean": 120.0,
+          "median": 120.0,
+          "min": 120.0,
+          "n": 5,
+          "p95": 120.0,
+          "stdev": 0.0
+        },
+        "msgs_down": {
+          "max": 13.0,
+          "mean": 12.4,
+          "median": 12.0,
+          "min": 12.0,
+          "n": 5,
+          "p95": 13.0,
+          "stdev": 0.5477225575051661
+        },
+        "msgs_up": {
+          "max": 8.0,
+          "mean": 8.0,
+          "median": 8.0,
+          "min": 8.0,
+          "n": 5,
+          "p95": 8.0,
+          "stdev": 0.0
+        },
+        "survived": {
+          "max": 1.0,
+          "mean": 1.0,
+          "median": 1.0,
+          "min": 1.0,
+          "n": 5,
+          "p95": 1.0,
+          "stdev": 0.0
+        }
+      },
+      "warmup": [
+        {
+          "active_rtt_mean_ms": 5.944940005429089,
+          "alive_s": 125.12464669998735,
+          "beats": 5,
+          "channel_ready_ms": 10.47789998119697,
+          "failure": null,
+          "final_rtt_ms": 81.18890004698187,
+          "hold_s": 5.0,
+          "idle_s": 120.0,
+          "idle_survived_s": 120.0,
+          "keepalive": "off",
+          "msgs_down": 13,
+          "msgs_up": 8,
+          "pings_active": 5,
+          "survived": 1
+        }
+      ]
+    },
+    "grpc-bidi-idle120s-kaon": {
+      "aborted": false,
+      "attrs": {
+        "idle_s": 120.0,
+        "keepalive": "on",
+        "keepalive_settings": {
+          "client_options": {
+            "grpc.http2.max_pings_without_data": 0,
+            "grpc.http2.min_time_between_pings_ms": 10000,
+            "grpc.keepalive_permit_without_calls": 1,
+            "grpc.keepalive_time_ms": 20000,
+            "grpc.keepalive_timeout_ms": 10000,
+            "grpc.max_receive_message_length": 536870912,
+            "grpc.max_send_message_length": 65536
+          },
+          "mode": "on",
+          "server_options": {
+            "grpc.http2.min_ping_interval_without_data_ms": 5000,
+            "grpc.http2.min_recv_ping_interval_without_data_ms": 5000,
+            "grpc.keepalive_permit_without_calls": 1,
+            "grpc.keepalive_time_ms": 20000,
+            "grpc.keepalive_timeout_ms": 10000,
+            "grpc.max_receive_message_length": 65536,
+            "grpc.max_send_message_length": 536870912,
+            "grpc.so_reuseport": 0
+          }
+        },
+        "kind": "grpc",
+        "op": "bidi_session"
+      },
+      "errors": [],
+      "label": "gRPC Session (bidi, 5 s active + 120 s idle, keepalive on) L2 → L1",
+      "metrics": {
+        "active_rtt_mean_ms": "ms",
+        "alive_s": "s",
+        "final_rtt_ms": "ms",
+        "idle_survived_s": "s",
+        "msgs_down": "count",
+        "msgs_up": "count",
+        "survived": "0/1"
+      },
+      "requested_reps": 5,
+      "requested_warmup": 1,
+      "samples": [
+        {
+          "active_rtt_mean_ms": 6.14218000555411,
+          "alive_s": 125.09216459997697,
+          "beats": 5,
+          "channel_ready_ms": 46.02950002299622,
+          "failure": null,
+          "final_rtt_ms": 42.25379996933043,
+          "hold_s": 5.0,
+          "idle_s": 120.0,
+          "idle_survived_s": 120.0,
+          "keepalive": "on",
+          "msgs_down": 13,
+          "msgs_up": 8,
+          "pings_active": 5,
+          "survived": 1
+        },
+        {
+          "active_rtt_mean_ms": 8.091420016717166,
+          "alive_s": 125.06440159998601,
+          "beats": 5,
+          "channel_ready_ms": 357.95700002927333,
+          "failure": null,
+          "final_rtt_ms": 6.309100019279867,
+          "hold_s": 5.0,
+          "idle_s": 120.0,
+          "idle_survived_s": 120.0,
+          "keepalive": "on",
+          "msgs_down": 13,
+          "msgs_up": 8,
+          "pings_active": 5,
+          "survived": 1
+        },
+        {
+          "active_rtt_mean_ms": 5.167059972882271,
+          "alive_s": 125.01990149996709,
+          "beats": 4,
+          "channel_ready_ms": 33.04160002153367,
+          "failure": null,
+          "final_rtt_ms": 4.828999983146787,
+          "hold_s": 5.0,
+          "idle_s": 120.0,
+          "idle_survived_s": 120.0,
+          "keepalive": "on",
+          "msgs_down": 12,
+          "msgs_up": 8,
+          "pings_active": 5,
+          "survived": 1
+        },
+        {
+          "active_rtt_mean_ms": 5.882540007587522,
+          "alive_s": 125.12094460002845,
+          "beats": 5,
+          "channel_ready_ms": 407.605100015644,
+          "failure": null,
+          "final_rtt_ms": 74.54419997520745,
+          "hold_s": 5.0,
+          "idle_s": 120.0,
+          "idle_survived_s": 120.0,
+          "keepalive": "on",
+          "msgs_down": 13,
+          "msgs_up": 8,
+          "pings_active": 5,
+          "survived": 1
+        },
+        {
+          "active_rtt_mean_ms": 6.631360005121678,
+          "alive_s": 125.02158729999792,
+          "beats": 4,
+          "channel_ready_ms": 26.717200002167374,
+          "failure": null,
+          "final_rtt_ms": 6.166999984998256,
+          "hold_s": 5.0,
+          "idle_s": 120.0,
+          "idle_survived_s": 120.0,
+          "keepalive": "on",
+          "msgs_down": 12,
+          "msgs_up": 8,
+          "pings_active": 5,
+          "survived": 1
+        }
+      ],
+      "summary": {
+        "active_rtt_mean_ms": {
+          "max": 8.091420016717166,
+          "mean": 6.382912001572549,
+          "median": 6.14218000555411,
+          "min": 5.167059972882271,
+          "n": 5,
+          "p95": 7.799408014398068,
+          "stdev": 1.0917126717024477
+        },
+        "alive_s": {
+          "max": 125.12094460002845,
+          "mean": 125.06379991999128,
+          "median": 125.06440159998601,
+          "min": 125.01990149996709,
+          "n": 5,
+          "p95": 125.11518860001816,
+          "stdev": 0.044100476509277536
+        },
+        "final_rtt_ms": {
+          "max": 74.54419997520745,
+          "mean": 26.820619986392558,
+          "median": 6.309100019279867,
+          "min": 4.828999983146787,
+          "n": 5,
+          "p95": 68.08611997403204,
+          "stdev": 31.01067941945558
+        },
+        "idle_survived_s": {
+          "max": 120.0,
+          "mean": 120.0,
+          "median": 120.0,
+          "min": 120.0,
+          "n": 5,
+          "p95": 120.0,
+          "stdev": 0.0
+        },
+        "msgs_down": {
+          "max": 13.0,
+          "mean": 12.6,
+          "median": 13.0,
+          "min": 12.0,
+          "n": 5,
+          "p95": 13.0,
+          "stdev": 0.5477225575051661
+        },
+        "msgs_up": {
+          "max": 8.0,
+          "mean": 8.0,
+          "median": 8.0,
+          "min": 8.0,
+          "n": 5,
+          "p95": 8.0,
+          "stdev": 0.0
+        },
+        "survived": {
+          "max": 1.0,
+          "mean": 1.0,
+          "median": 1.0,
+          "min": 1.0,
+          "n": 5,
+          "p95": 1.0,
+          "stdev": 0.0
+        }
+      },
+      "warmup": [
+        {
+          "active_rtt_mean_ms": 5.599739984609187,
+          "alive_s": 125.04317430005176,
+          "beats": 4,
+          "channel_ready_ms": 84.9189999862574,
+          "failure": null,
+          "final_rtt_ms": 29.216700000688434,
+          "hold_s": 5.0,
+          "idle_s": 120.0,
+          "idle_survived_s": 120.0,
+          "keepalive": "on",
+          "msgs_down": 12,
+          "msgs_up": 8,
+          "pings_active": 5,
+          "survived": 1
+        }
+      ]
+    },
+    "grpc-bidi-idle30s-kaoff": {
+      "aborted": false,
+      "attrs": {
+        "idle_s": 30.0,
+        "keepalive": "off",
+        "keepalive_settings": {
+          "client_options": {
+            "grpc.max_receive_message_length": 536870912,
+            "grpc.max_send_message_length": 65536
+          },
+          "mode": "off",
+          "server_options": {
+            "grpc.http2.min_ping_interval_without_data_ms": 5000,
+            "grpc.http2.min_recv_ping_interval_without_data_ms": 5000,
+            "grpc.keepalive_permit_without_calls": 1,
+            "grpc.keepalive_time_ms": 20000,
+            "grpc.keepalive_timeout_ms": 10000,
+            "grpc.max_receive_message_length": 65536,
+            "grpc.max_send_message_length": 536870912,
+            "grpc.so_reuseport": 0
+          }
+        },
+        "kind": "grpc",
+        "op": "bidi_session"
+      },
+      "errors": [],
+      "label": "gRPC Session (bidi, 5 s active + 30 s idle, keepalive off) L2 → L1",
+      "metrics": {
+        "active_rtt_mean_ms": "ms",
+        "alive_s": "s",
+        "final_rtt_ms": "ms",
+        "idle_survived_s": "s",
+        "msgs_down": "count",
+        "msgs_up": "count",
+        "survived": "0/1"
+      },
+      "requested_reps": 5,
+      "requested_warmup": 1,
+      "samples": [
+        {
+          "active_rtt_mean_ms": 6.4123599906452,
+          "alive_s": 35.141594400047325,
+          "beats": 6,
+          "channel_ready_ms": 10.395699995569885,
+          "failure": null,
+          "final_rtt_ms": 93.21550000458956,
+          "hold_s": 5.0,
+          "idle_s": 30.0,
+          "idle_survived_s": 30.0,
+          "keepalive": "off",
+          "msgs_down": 14,
+          "msgs_up": 8,
+          "pings_active": 5,
+          "survived": 1
+        },
+        {
+          "active_rtt_mean_ms": 24.798099976032972,
+          "alive_s": 35.24083009996684,
+          "beats": 6,
+          "channel_ready_ms": 60.47620001481846,
+          "failure": null,
+          "final_rtt_ms": 19.779799971729517,
+          "hold_s": 5.0,
+          "idle_s": 30.0,
+          "idle_survived_s": 30.0,
+          "keepalive": "off",
+          "msgs_down": 14,
+          "msgs_up": 8,
+          "pings_active": 5,
+          "survived": 1
+        },
+        {
+          "active_rtt_mean_ms": 10.152219980955124,
+          "alive_s": 35.08676059998106,
+          "beats": 4,
+          "channel_ready_ms": 12.496299983467907,
+          "failure": null,
+          "final_rtt_ms": 73.3092000009492,
+          "hold_s": 5.0,
+          "idle_s": 30.0,
+          "idle_survived_s": 30.0,
+          "keepalive": "off",
+          "msgs_down": 12,
+          "msgs_up": 8,
+          "pings_active": 5,
+          "survived": 1
+        },
+        {
+          "active_rtt_mean_ms": 5.646059988066554,
+          "alive_s": 35.05174449994229,
+          "beats": 5,
+          "channel_ready_ms": 9.466300019994378,
+          "failure": null,
+          "final_rtt_ms": 6.662300031166524,
+          "hold_s": 5.0,
+          "idle_s": 30.0,
+          "idle_survived_s": 30.0,
+          "keepalive": "off",
+          "msgs_down": 13,
+          "msgs_up": 8,
+          "pings_active": 5,
+          "survived": 1
+        },
+        {
+          "active_rtt_mean_ms": 5.912019987590611,
+          "alive_s": 35.08386840001913,
+          "beats": 5,
+          "channel_ready_ms": 10.310799989383668,
+          "failure": null,
+          "final_rtt_ms": 37.208300025667995,
+          "hold_s": 5.0,
+          "idle_s": 30.0,
+          "idle_survived_s": 30.0,
+          "keepalive": "off",
+          "msgs_down": 13,
+          "msgs_up": 8,
+          "pings_active": 5,
+          "survived": 1
+        }
+      ],
+      "summary": {
+        "active_rtt_mean_ms": {
+          "max": 24.798099976032972,
+          "mean": 10.584151984658092,
+          "median": 6.4123599906452,
+          "min": 5.646059988066554,
+          "n": 5,
+          "p95": 21.868923977017403,
+          "stdev": 8.152304906642447
+        },
+        "alive_s": {
+          "max": 35.24083009996684,
+          "mean": 35.12095959999133,
+          "median": 35.08676059998106,
+          "min": 35.05174449994229,
+          "n": 5,
+          "p95": 35.22098295998294,
+          "stdev": 0.07438210559269173
+        },
+        "final_rtt_ms": {
+          "max": 93.21550000458956,
+          "mean": 46.03502000682056,
+          "median": 37.208300025667995,
+          "min": 6.662300031166524,
+          "n": 5,
+          "p95": 89.23424000386149,
+          "stdev": 36.357039312112576
+        },
+        "idle_survived_s": {
+          "max": 30.0,
+          "mean": 30.0,
+          "median": 30.0,
+          "min": 30.0,
+          "n": 5,
+          "p95": 30.0,
+          "stdev": 0.0
+        },
+        "msgs_down": {
+          "max": 14.0,
+          "mean": 13.2,
+          "median": 13.0,
+          "min": 12.0,
+          "n": 5,
+          "p95": 14.0,
+          "stdev": 0.8366600265340756
+        },
+        "msgs_up": {
+          "max": 8.0,
+          "mean": 8.0,
+          "median": 8.0,
+          "min": 8.0,
+          "n": 5,
+          "p95": 8.0,
+          "stdev": 0.0
+        },
+        "survived": {
+          "max": 1.0,
+          "mean": 1.0,
+          "median": 1.0,
+          "min": 1.0,
+          "n": 5,
+          "p95": 1.0,
+          "stdev": 0.0
+        }
+      },
+      "warmup": [
+        {
+          "active_rtt_mean_ms": 6.073760008439422,
+          "alive_s": 35.12756679998711,
+          "beats": 6,
+          "channel_ready_ms": 10.63810003688559,
+          "failure": null,
+          "final_rtt_ms": 82.01280003413558,
+          "hold_s": 5.0,
+          "idle_s": 30.0,
+          "idle_survived_s": 30.0,
+          "keepalive": "off",
+          "msgs_down": 14,
+          "msgs_up": 8,
+          "pings_active": 5,
+          "survived": 1
+        }
+      ]
+    },
+    "grpc-bidi-idle30s-kaon": {
+      "aborted": false,
+      "attrs": {
+        "idle_s": 30.0,
+        "keepalive": "on",
+        "keepalive_settings": {
+          "client_options": {
+            "grpc.http2.max_pings_without_data": 0,
+            "grpc.http2.min_time_between_pings_ms": 10000,
+            "grpc.keepalive_permit_without_calls": 1,
+            "grpc.keepalive_time_ms": 20000,
+            "grpc.keepalive_timeout_ms": 10000,
+            "grpc.max_receive_message_length": 536870912,
+            "grpc.max_send_message_length": 65536
+          },
+          "mode": "on",
+          "server_options": {
+            "grpc.http2.min_ping_interval_without_data_ms": 5000,
+            "grpc.http2.min_recv_ping_interval_without_data_ms": 5000,
+            "grpc.keepalive_permit_without_calls": 1,
+            "grpc.keepalive_time_ms": 20000,
+            "grpc.keepalive_timeout_ms": 10000,
+            "grpc.max_receive_message_length": 65536,
+            "grpc.max_send_message_length": 536870912,
+            "grpc.so_reuseport": 0
+          }
+        },
+        "kind": "grpc",
+        "op": "bidi_session"
+      },
+      "errors": [],
+      "label": "gRPC Session (bidi, 5 s active + 30 s idle, keepalive on) L2 → L1",
+      "metrics": {
+        "active_rtt_mean_ms": "ms",
+        "alive_s": "s",
+        "final_rtt_ms": "ms",
+        "idle_survived_s": "s",
+        "msgs_down": "count",
+        "msgs_up": "count",
+        "survived": "0/1"
+      },
+      "requested_reps": 5,
+      "requested_warmup": 1,
+      "samples": [
+        {
+          "active_rtt_mean_ms": 6.189399992581457,
+          "alive_s": 35.017134099965915,
+          "beats": 4,
+          "channel_ready_ms": 7.936600013636053,
+          "failure": null,
+          "final_rtt_ms": 4.911700030788779,
+          "hold_s": 5.0,
+          "idle_s": 30.0,
+          "idle_survived_s": 30.0,
+          "keepalive": "on",
+          "msgs_down": 12,
+          "msgs_up": 8,
+          "pings_active": 5,
+          "survived": 1
+        },
+        {
+          "active_rtt_mean_ms": 6.406860006973147,
+          "alive_s": 35.12287439999636,
+          "beats": 5,
+          "channel_ready_ms": 109.22859999118373,
+          "failure": null,
+          "final_rtt_ms": 73.96030001109466,
+          "hold_s": 5.0,
+          "idle_s": 30.0,
+          "idle_survived_s": 30.0,
+          "keepalive": "on",
+          "msgs_down": 13,
+          "msgs_up": 8,
+          "pings_active": 5,
+          "survived": 1
+        },
+        {
+          "active_rtt_mean_ms": 8.140699996147305,
+          "alive_s": 35.157256999984384,
+          "beats": 5,
+          "channel_ready_ms": 109.23090000869706,
+          "failure": null,
+          "final_rtt_ms": 142.87849998800084,
+          "hold_s": 5.0,
+          "idle_s": 30.0,
+          "idle_survived_s": 30.0,
+          "keepalive": "on",
+          "msgs_down": 13,
+          "msgs_up": 8,
+          "pings_active": 5,
+          "survived": 1
+        },
+        {
+          "active_rtt_mean_ms": 5.91996000148356,
+          "alive_s": 35.12188150000293,
+          "beats": 5,
+          "channel_ready_ms": 72.03969999682158,
+          "failure": null,
+          "final_rtt_ms": 75.25440002791584,
+          "hold_s": 5.0,
+          "idle_s": 30.0,
+          "idle_survived_s": 30.0,
+          "keepalive": "on",
+          "msgs_down": 13,
+          "msgs_up": 8,
+          "pings_active": 5,
+          "survived": 1
+        },
+        {
+          "active_rtt_mean_ms": 8.29523999709636,
+          "alive_s": 35.11896069999784,
+          "beats": 5,
+          "channel_ready_ms": 8.08080000570044,
+          "failure": null,
+          "final_rtt_ms": 59.814699983689934,
+          "hold_s": 5.0,
+          "idle_s": 30.0,
+          "idle_survived_s": 30.0,
+          "keepalive": "on",
+          "msgs_down": 13,
+          "msgs_up": 8,
+          "pings_active": 5,
+          "survived": 1
+        }
+      ],
+      "summary": {
+        "active_rtt_mean_ms": {
+          "max": 8.29523999709636,
+          "mean": 6.990431998856366,
+          "median": 6.406860006973147,
+          "min": 5.91996000148356,
+          "n": 5,
+          "p95": 8.264331996906549,
+          "stdev": 1.1350946237879735
+        },
+        "alive_s": {
+          "max": 35.157256999984384,
+          "mean": 35.10762153998949,
+          "median": 35.12188150000293,
+          "min": 35.017134099965915,
+          "n": 5,
+          "p95": 35.15038047998678,
+          "stdev": 0.052953348427162455
+        },
+        "final_rtt_ms": {
+          "max": 142.87849998800084,
+          "mean": 71.36392000829801,
+          "median": 73.96030001109466,
+          "min": 4.911700030788779,
+          "n": 5,
+          "p95": 129.35367999598384,
+          "stdev": 49.20745420333022
+        },
+        "idle_survived_s": {
+          "max": 30.0,
+          "mean": 30.0,
+          "median": 30.0,
+          "min": 30.0,
+          "n": 5,
+          "p95": 30.0,
+          "stdev": 0.0
+        },
+        "msgs_down": {
+          "max": 13.0,
+          "mean": 12.8,
+          "median": 13.0,
+          "min": 12.0,
+          "n": 5,
+          "p95": 13.0,
+          "stdev": 0.4472135954999579
+        },
+        "msgs_up": {
+          "max": 8.0,
+          "mean": 8.0,
+          "median": 8.0,
+          "min": 8.0,
+          "n": 5,
+          "p95": 8.0,
+          "stdev": 0.0
+        },
+        "survived": {
+          "max": 1.0,
+          "mean": 1.0,
+          "median": 1.0,
+          "min": 1.0,
+          "n": 5,
+          "p95": 1.0,
+          "stdev": 0.0
+        }
+      },
+      "warmup": [
+        {
+          "active_rtt_mean_ms": 6.053060002159327,
+          "alive_s": 35.04736430000048,
+          "beats": 4,
+          "channel_ready_ms": 7.833399984519929,
+          "failure": null,
+          "final_rtt_ms": 36.33070003706962,
+          "hold_s": 5.0,
+          "idle_s": 30.0,
+          "idle_survived_s": 30.0,
+          "keepalive": "on",
+          "msgs_down": 12,
+          "msgs_up": 8,
+          "pings_active": 5,
+          "survived": 1
+        }
+      ]
+    },
+    "grpc-stream": {
+      "aborted": false,
+      "attrs": {
+        "bytes": 33554432,
+        "keepalive": "on",
+        "kind": "grpc",
+        "op": "server_stream"
+      },
+      "errors": [],
+      "label": "gRPC Download (server-streaming) 34 MB L2 → L1",
+      "metrics": {
+        "channel_ready_ms": "ms",
+        "mbps": "Mbit/s",
+        "ttfb_ms": "ms"
+      },
+      "requested_reps": 5,
+      "requested_warmup": 1,
+      "samples": [
+        {
+          "bytes": 33554432,
+          "channel_ready_ms": 7.801000028848648,
+          "mbps": 339.0172979617847,
+          "ttfb_ms": 15.375000017229468
+        },
+        {
+          "bytes": 33554432,
+          "channel_ready_ms": 10.828699974808842,
+          "mbps": 334.06341687963584,
+          "ttfb_ms": 10.600699984934181
+        },
+        {
+          "bytes": 33554432,
+          "channel_ready_ms": 72.72219995502383,
+          "mbps": 308.92761841559,
+          "ttfb_ms": 15.213799953926355
+        },
+        {
+          "bytes": 33554432,
+          "channel_ready_ms": 10.149699985049665,
+          "mbps": 328.6947728972119,
+          "ttfb_ms": 14.031199971213937
+        },
+        {
+          "bytes": 33554432,
+          "channel_ready_ms": 8.82739998633042,
+          "mbps": 285.6087989055561,
+          "ttfb_ms": 11.631900037173182
+        }
+      ],
+      "summary": {
+        "channel_ready_ms": {
+          "max": 72.72219995502383,
+          "mean": 22.06579998601228,
+          "median": 10.149699985049665,
+          "min": 7.801000028848648,
+          "n": 5,
+          "p95": 60.343499958980814,
+          "stdev": 28.34200269072686
+        },
+        "mbps": {
+          "max": 339.0172979617847,
+          "mean": 319.2623810119557,
+          "median": 328.6947728972119,
+          "min": 285.6087989055561,
+          "n": 5,
+          "p95": 338.02652174535496,
+          "stdev": 22.009477104439924
+        },
+        "ttfb_ms": {
+          "max": 15.375000017229468,
+          "mean": 13.370519992895424,
+          "median": 14.031199971213937,
+          "min": 10.600699984934181,
+          "n": 5,
+          "p95": 15.342760004568845,
+          "stdev": 2.153301038137804
+        }
+      },
+      "warmup": [
+        {
+          "bytes": 33554432,
+          "channel_ready_ms": 95.08449997520074,
+          "mbps": 335.2257298406755,
+          "ttfb_ms": 10.80689998343587
+        }
+      ]
+    },
+    "grpc-unary": {
+      "aborted": false,
+      "attrs": {
+        "keepalive": "on",
+        "kind": "grpc",
+        "op": "unary"
+      },
+      "errors": [],
+      "label": "gRPC Echo (unary) L2 → L1",
+      "metrics": {
+        "channel_ready_ms": "ms",
+        "rtt_ms": "ms"
+      },
+      "requested_reps": 5,
+      "requested_warmup": 1,
+      "samples": [
+        {
+          "channel_ready_ms": 98.92420005053282,
+          "peer_identity": {
+            "hostname": "JARVISM3",
+            "machine": "x86_64",
+            "name": "L1",
+            "ok": true,
+            "op": "echo_reply",
+            "peer": "192.168.31.155",
+            "protocol": 1,
+            "python": "3.12.13",
+            "python_implementation": "CPython",
+            "release": "6.8.0-147-generic",
+            "seq": 1,
+            "sys_platform": "linux",
+            "system": "Linux",
+            "version": "#147-Ubuntu SMP PREEMPT_DYNAMIC Thu Sep 24 11:33:16 UTC 2026",
+            "wsl": {
+              "distro": null,
+              "evidence": {
+                "WSL_DISTRO_NAME": null,
+                "WSL_INTEROP": false,
+                "osrelease": "6.8.0-147-generic",
+                "proc_version": "Linux version 6.8.0-147-generic (buildd@lcy02-amd64-081) (x86_64-linux-gnu-gcc-13 (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0, GNU ld (GNU Binutils for Ubuntu) 2.42) #147-Ubuntu SMP PREEMPT_DYNAMIC Thu Se"
+              },
+              "is_wsl": false,
+              "native": true,
+              "platform": "linux",
+              "wsl_version": null
+            }
+          },
+          "rtt_ms": 3.977100015617907
+        },
+        {
+          "channel_ready_ms": 13.813700003083795,
+          "peer_identity": {
+            "hostname": "JARVISM3",
+            "machine": "x86_64",
+            "name": "L1",
+            "ok": true,
+            "op": "echo_reply",
+            "peer": "192.168.31.155",
+            "protocol": 1,
+            "python": "3.12.13",
+            "python_implementation": "CPython",
+            "release": "6.8.0-147-generic",
+            "seq": 2,
+            "sys_platform": "linux",
+            "system": "Linux",
+            "version": "#147-Ubuntu SMP PREEMPT_DYNAMIC Thu Sep 24 11:33:16 UTC 2026",
+            "wsl": {
+              "distro": null,
+              "evidence": {
+                "WSL_DISTRO_NAME": null,
+                "WSL_INTEROP": false,
+                "osrelease": "6.8.0-147-generic",
+                "proc_version": "Linux version 6.8.0-147-generic (buildd@lcy02-amd64-081) (x86_64-linux-gnu-gcc-13 (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0, GNU ld (GNU Binutils for Ubuntu) 2.42) #147-Ubuntu SMP PREEMPT_DYNAMIC Thu Se"
+              },
+              "is_wsl": false,
+              "native": true,
+              "platform": "linux",
+              "wsl_version": null
+            }
+          },
+          "rtt_ms": 5.692700040526688
+        },
+        {
+          "channel_ready_ms": 8.418900019023567,
+          "peer_identity": {
+            "hostname": "JARVISM3",
+            "machine": "x86_64",
+            "name": "L1",
+            "ok": true,
+            "op": "echo_reply",
+            "peer": "192.168.31.155",
+            "protocol": 1,
+            "python": "3.12.13",
+            "python_implementation": "CPython",
+            "release": "6.8.0-147-generic",
+            "seq": 3,
+            "sys_platform": "linux",
+            "system": "Linux",
+            "version": "#147-Ubuntu SMP PREEMPT_DYNAMIC Thu Sep 24 11:33:16 UTC 2026",
+            "wsl": {
+              "distro": null,
+              "evidence": {
+                "WSL_DISTRO_NAME": null,
+                "WSL_INTEROP": false,
+                "osrelease": "6.8.0-147-generic",
+                "proc_version": "Linux version 6.8.0-147-generic (buildd@lcy02-amd64-081) (x86_64-linux-gnu-gcc-13 (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0, GNU ld (GNU Binutils for Ubuntu) 2.42) #147-Ubuntu SMP PREEMPT_DYNAMIC Thu Se"
+              },
+              "is_wsl": false,
+              "native": true,
+              "platform": "linux",
+              "wsl_version": null
+            }
+          },
+          "rtt_ms": 4.085899970959872
+        },
+        {
+          "channel_ready_ms": 300.9668000158854,
+          "peer_identity": {
+            "hostname": "JARVISM3",
+            "machine": "x86_64",
+            "name": "L1",
+            "ok": true,
+            "op": "echo_reply",
+            "peer": "192.168.31.155",
+            "protocol": 1,
+            "python": "3.12.13",
+            "python_implementation": "CPython",
+            "release": "6.8.0-147-generic",
+            "seq": 4,
+            "sys_platform": "linux",
+            "system": "Linux",
+            "version": "#147-Ubuntu SMP PREEMPT_DYNAMIC Thu Sep 24 11:33:16 UTC 2026",
+            "wsl": {
+              "distro": null,
+              "evidence": {
+                "WSL_DISTRO_NAME": null,
+                "WSL_INTEROP": false,
+                "osrelease": "6.8.0-147-generic",
+                "proc_version": "Linux version 6.8.0-147-generic (buildd@lcy02-amd64-081) (x86_64-linux-gnu-gcc-13 (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0, GNU ld (GNU Binutils for Ubuntu) 2.42) #147-Ubuntu SMP PREEMPT_DYNAMIC Thu Se"
+              },
+              "is_wsl": false,
+              "native": true,
+              "platform": "linux",
+              "wsl_version": null
+            }
+          },
+          "rtt_ms": 6.333899975288659
+        },
+        {
+          "channel_ready_ms": 20.356900000479072,
+          "peer_identity": {
+            "hostname": "JARVISM3",
+            "machine": "x86_64",
+            "name": "L1",
+            "ok": true,
+            "op": "echo_reply",
+            "peer": "192.168.31.155",
+            "protocol": 1,
+            "python": "3.12.13",
+            "python_implementation": "CPython",
+            "release": "6.8.0-147-generic",
+            "seq": 5,
+            "sys_platform": "linux",
+            "system": "Linux",
+            "version": "#147-Ubuntu SMP PREEMPT_DYNAMIC Thu Sep 24 11:33:16 UTC 2026",
+            "wsl": {
+              "distro": null,
+              "evidence": {
+                "WSL_DISTRO_NAME": null,
+                "WSL_INTEROP": false,
+                "osrelease": "6.8.0-147-generic",
+                "proc_version": "Linux version 6.8.0-147-generic (buildd@lcy02-amd64-081) (x86_64-linux-gnu-gcc-13 (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0, GNU ld (GNU Binutils for Ubuntu) 2.42) #147-Ubuntu SMP PREEMPT_DYNAMIC Thu Se"
+              },
+              "is_wsl": false,
+              "native": true,
+              "platform": "linux",
+              "wsl_version": null
+            }
+          },
+          "rtt_ms": 4.377400036901236
+        }
+      ],
+      "summary": {
+        "channel_ready_ms": {
+          "max": 300.9668000158854,
+          "mean": 88.49610001780093,
+          "median": 20.356900000479072,
+          "min": 8.418900019023567,
+          "n": 5,
+          "p95": 260.55828002281487,
+          "stdev": 124.38379420022095
+        },
+        "rtt_ms": {
+          "max": 6.333899975288659,
+          "mean": 4.893400007858872,
+          "median": 4.377400036901236,
+          "min": 3.977100015617907,
+          "n": 5,
+          "p95": 6.205659988336265,
+          "stdev": 1.057336116590764
+        }
+      },
+      "warmup": [
+        {
+          "channel_ready_ms": 54.89820003276691,
+          "peer_identity": {
+            "hostname": "JARVISM3",
+            "machine": "x86_64",
+            "name": "L1",
+            "ok": true,
+            "op": "echo_reply",
+            "peer": "192.168.31.155",
+            "protocol": 1,
+            "python": "3.12.13",
+            "python_implementation": "CPython",
+            "release": "6.8.0-147-generic",
+            "seq": 0,
+            "sys_platform": "linux",
+            "system": "Linux",
+            "version": "#147-Ubuntu SMP PREEMPT_DYNAMIC Thu Sep 24 11:33:16 UTC 2026",
+            "wsl": {
+              "distro": null,
+              "evidence": {
+                "WSL_DISTRO_NAME": null,
+                "WSL_INTEROP": false,
+                "osrelease": "6.8.0-147-generic",
+                "proc_version": "Linux version 6.8.0-147-generic (buildd@lcy02-amd64-081) (x86_64-linux-gnu-gcc-13 (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0, GNU ld (GNU Binutils for Ubuntu) 2.42) #147-Ubuntu SMP PREEMPT_DYNAMIC Thu Se"
+              },
+              "is_wsl": false,
+              "native": true,
+              "platform": "linux",
+              "wsl_version": null
+            }
+          },
+          "rtt_ms": 9.020299999974668
+        }
+      ]
+    },
+    "http-blob": {
+      "aborted": false,
+      "attrs": {
+        "bytes": 33554432,
+        "kind": "http",
+        "op": "blob"
+      },
+      "errors": [],
+      "label": "HTTP GET /blob 34 MB L2 → L1",
+      "metrics": {
+        "connect_ms": "ms",
+        "mbps": "Mbit/s",
+        "ttfb_ms": "ms"
+      },
+      "requested_reps": 5,
+      "requested_warmup": 1,
+      "samples": [
+        {
+          "bytes": 33554432,
+          "connect_ms": 15.075100003741682,
+          "mbps": 305.5167234174421,
+          "ttfb_ms": 3.728999989107251
+        },
+        {
+          "bytes": 33554432,
+          "connect_ms": 9.903399972245097,
+          "mbps": 284.0109877864696,
+          "ttfb_ms": 3.4181999508291483
+        },
+        {
+          "bytes": 33554432,
+          "connect_ms": 104.08670001197606,
+          "mbps": 326.43705265587687,
+          "ttfb_ms": 3.479600010905415
+        },
+        {
+          "bytes": 33554432,
+          "connect_ms": 28.925699996761978,
+          "mbps": 306.17746184640424,
+          "ttfb_ms": 6.682800012640655
+        },
+        {
+          "bytes": 33554432,
+          "connect_ms": 6.944299966562539,
+          "mbps": 280.0186515409404,
+          "ttfb_ms": 5.023600009735674
+        }
+      ],
+      "summary": {
+        "connect_ms": {
+          "max": 104.08670001197606,
+          "mean": 32.98703999025747,
+          "median": 15.075100003741682,
+          "min": 6.944299966562539,
+          "n": 5,
+          "p95": 89.05450000893323,
+          "stdev": 40.631184071628475
+        },
+        "mbps": {
+          "max": 326.43705265587687,
+          "mean": 300.4321754494266,
+          "median": 305.5167234174421,
+          "min": 280.0186515409404,
+          "n": 5,
+          "p95": 322.3851344939823,
+          "stdev": 18.851272801652485
+        },
+        "ttfb_ms": {
+          "max": 6.682800012640655,
+          "mean": 4.466639994643629,
+          "median": 3.728999989107251,
+          "min": 3.4181999508291483,
+          "n": 5,
+          "p95": 6.350960012059659,
+          "stdev": 1.3999247226654066
+        }
+      },
+      "warmup": [
+        {
+          "bytes": 33554432,
+          "connect_ms": 13.15359998261556,
+          "mbps": 266.4349293295322,
+          "ttfb_ms": 4.213500011246651
+        }
+      ]
+    },
+    "http-ping": {
+      "aborted": false,
+      "attrs": {
+        "kind": "http",
+        "op": "ping"
+      },
+      "errors": [],
+      "label": "HTTP GET /ping L2 → L1",
+      "metrics": {
+        "connect_ms": "ms",
+        "total_ms": "ms",
+        "ttfb_ms": "ms"
+      },
+      "requested_reps": 5,
+      "requested_warmup": 1,
+      "samples": [
+        {
+          "connect_ms": 32.69859997089952,
+          "peer_identity": {
+            "hostname": "JARVISM3",
+            "machine": "x86_64",
+            "max_blob_bytes": 536870912,
+            "name": "L1",
+            "ok": true,
+            "peer": "192.168.31.155",
+            "protocol": 1,
+            "python": "3.12.13",
+            "python_implementation": "CPython",
+            "release": "6.8.0-147-generic",
+            "sys_platform": "linux",
+            "system": "Linux",
+            "version": "#147-Ubuntu SMP PREEMPT_DYNAMIC Thu Sep 24 11:33:16 UTC 2026",
+            "wsl": {
+              "distro": null,
+              "evidence": {
+                "WSL_DISTRO_NAME": null,
+                "WSL_INTEROP": false,
+                "osrelease": "6.8.0-147-generic",
+                "proc_version": "Linux version 6.8.0-147-generic (buildd@lcy02-amd64-081) (x86_64-linux-gnu-gcc-13 (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0, GNU ld (GNU Binutils for Ubuntu) 2.42) #147-Ubuntu SMP PREEMPT_DYNAMIC Thu Se"
+              },
+              "is_wsl": false,
+              "native": true,
+              "platform": "linux",
+              "wsl_version": null
+            }
+          },
+          "total_ms": 54.980000015348196,
+          "ttfb_ms": 4.084400017745793
+        },
+        {
+          "connect_ms": 11.967999977059662,
+          "peer_identity": {
+            "hostname": "JARVISM3",
+            "machine": "x86_64",
+            "max_blob_bytes": 536870912,
+            "name": "L1",
+            "ok": true,
+            "peer": "192.168.31.155",
+            "protocol": 1,
+            "python": "3.12.13",
+            "python_implementation": "CPython",
+            "release": "6.8.0-147-generic",
+            "sys_platform": "linux",
+            "system": "Linux",
+            "version": "#147-Ubuntu SMP PREEMPT_DYNAMIC Thu Sep 24 11:33:16 UTC 2026",
+            "wsl": {
+              "distro": null,
+              "evidence": {
+                "WSL_DISTRO_NAME": null,
+                "WSL_INTEROP": false,
+                "osrelease": "6.8.0-147-generic",
+                "proc_version": "Linux version 6.8.0-147-generic (buildd@lcy02-amd64-081) (x86_64-linux-gnu-gcc-13 (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0, GNU ld (GNU Binutils for Ubuntu) 2.42) #147-Ubuntu SMP PREEMPT_DYNAMIC Thu Se"
+              },
+              "is_wsl": false,
+              "native": true,
+              "platform": "linux",
+              "wsl_version": null
+            }
+          },
+          "total_ms": 52.55250004120171,
+          "ttfb_ms": 3.1531000277027488
+        },
+        {
+          "connect_ms": 52.02350002946332,
+          "peer_identity": {
+            "hostname": "JARVISM3",
+            "machine": "x86_64",
+            "max_blob_bytes": 536870912,
+            "name": "L1",
+            "ok": true,
+            "peer": "192.168.31.155",
+            "protocol": 1,
+            "python": "3.12.13",
+            "python_implementation": "CPython",
+            "release": "6.8.0-147-generic",
+            "sys_platform": "linux",
+            "system": "Linux",
+            "version": "#147-Ubuntu SMP PREEMPT_DYNAMIC Thu Sep 24 11:33:16 UTC 2026",
+            "wsl": {
+              "distro": null,
+              "evidence": {
+                "WSL_DISTRO_NAME": null,
+                "WSL_INTEROP": false,
+                "osrelease": "6.8.0-147-generic",
+                "proc_version": "Linux version 6.8.0-147-generic (buildd@lcy02-amd64-081) (x86_64-linux-gnu-gcc-13 (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0, GNU ld (GNU Binutils for Ubuntu) 2.42) #147-Ubuntu SMP PREEMPT_DYNAMIC Thu Se"
+              },
+              "is_wsl": false,
+              "native": true,
+              "platform": "linux",
+              "wsl_version": null
+            }
+          },
+          "total_ms": 46.53819999657571,
+          "ttfb_ms": 4.301699984353036
+        },
+        {
+          "connect_ms": 19.010000047273934,
+          "peer_identity": {
+            "hostname": "JARVISM3",
+            "machine": "x86_64",
+            "max_blob_bytes": 536870912,
+            "name": "L1",
+            "ok": true,
+            "peer": "192.168.31.155",
+            "protocol": 1,
+            "python": "3.12.13",
+            "python_implementation": "CPython",
+            "release": "6.8.0-147-generic",
+            "sys_platform": "linux",
+            "system": "Linux",
+            "version": "#147-Ubuntu SMP PREEMPT_DYNAMIC Thu Sep 24 11:33:16 UTC 2026",
+            "wsl": {
+              "distro": null,
+              "evidence": {
+                "WSL_DISTRO_NAME": null,
+                "WSL_INTEROP": false,
+                "osrelease": "6.8.0-147-generic",
+                "proc_version": "Linux version 6.8.0-147-generic (buildd@lcy02-amd64-081) (x86_64-linux-gnu-gcc-13 (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0, GNU ld (GNU Binutils for Ubuntu) 2.42) #147-Ubuntu SMP PREEMPT_DYNAMIC Thu Se"
+              },
+              "is_wsl": false,
+              "native": true,
+              "platform": "linux",
+              "wsl_version": null
+            }
+          },
+          "total_ms": 53.33630001405254,
+          "ttfb_ms": 3.370300051756203
+        },
+        {
+          "connect_ms": 25.106200017035007,
+          "peer_identity": {
+            "hostname": "JARVISM3",
+            "machine": "x86_64",
+            "max_blob_bytes": 536870912,
+            "name": "L1",
+            "ok": true,
+            "peer": "192.168.31.155",
+            "protocol": 1,
+            "python": "3.12.13",
+            "python_implementation": "CPython",
+            "release": "6.8.0-147-generic",
+            "sys_platform": "linux",
+            "system": "Linux",
+            "version": "#147-Ubuntu SMP PREEMPT_DYNAMIC Thu Sep 24 11:33:16 UTC 2026",
+            "wsl": {
+              "distro": null,
+              "evidence": {
+                "WSL_DISTRO_NAME": null,
+                "WSL_INTEROP": false,
+                "osrelease": "6.8.0-147-generic",
+                "proc_version": "Linux version 6.8.0-147-generic (buildd@lcy02-amd64-081) (x86_64-linux-gnu-gcc-13 (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0, GNU ld (GNU Binutils for Ubuntu) 2.42) #147-Ubuntu SMP PREEMPT_DYNAMIC Thu Se"
+              },
+              "is_wsl": false,
+              "native": true,
+              "platform": "linux",
+              "wsl_version": null
+            }
+          },
+          "total_ms": 60.98870001733303,
+          "ttfb_ms": 3.510700014885515
+        }
+      ],
+      "summary": {
+        "connect_ms": {
+          "max": 52.02350002946332,
+          "mean": 28.16126000834629,
+          "median": 25.106200017035007,
+          "min": 11.967999977059662,
+          "n": 5,
+          "p95": 48.15852001775056,
+          "stdev": 15.372821582485141
+        },
+        "total_ms": {
+          "max": 60.98870001733303,
+          "mean": 53.67914001690224,
+          "median": 53.33630001405254,
+          "min": 46.53819999657571,
+          "n": 5,
+          "p95": 59.786960016936064,
+          "stdev": 5.184153388253382
+        },
+        "ttfb_ms": {
+          "max": 4.301699984353036,
+          "mean": 3.684040019288659,
+          "median": 3.510700014885515,
+          "min": 3.1531000277027488,
+          "n": 5,
+          "p95": 4.258239991031587,
+          "stdev": 0.48789567527979744
+        }
+      },
+      "warmup": [
+        {
+          "connect_ms": 4.006000002846122,
+          "peer_identity": {
+            "hostname": "JARVISM3",
+            "machine": "x86_64",
+            "max_blob_bytes": 536870912,
+            "name": "L1",
+            "ok": true,
+            "peer": "192.168.31.155",
+            "protocol": 1,
+            "python": "3.12.13",
+            "python_implementation": "CPython",
+            "release": "6.8.0-147-generic",
+            "sys_platform": "linux",
+            "system": "Linux",
+            "version": "#147-Ubuntu SMP PREEMPT_DYNAMIC Thu Sep 24 11:33:16 UTC 2026",
+            "wsl": {
+              "distro": null,
+              "evidence": {
+                "WSL_DISTRO_NAME": null,
+                "WSL_INTEROP": false,
+                "osrelease": "6.8.0-147-generic",
+                "proc_version": "Linux version 6.8.0-147-generic (buildd@lcy02-amd64-081) (x86_64-linux-gnu-gcc-13 (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0, GNU ld (GNU Binutils for Ubuntu) 2.42) #147-Ubuntu SMP PREEMPT_DYNAMIC Thu Se"
+              },
+              "is_wsl": false,
+              "native": true,
+              "platform": "linux",
+              "wsl_version": null
+            }
+          },
+          "total_ms": 51.20599997462705,
+          "ttfb_ms": 3.302199998870492
+        }
+      ]
+    }
+  },
+  "errors": [],
+  "extra": {
+    "complete": true,
+    "endpoint": {
+      "local_address": "192.168.31.155",
+      "local_interface": null,
+      "remote_address": "192.168.31.13",
+      "remote_port": 47203
+    },
+    "firewall": {
+      "profiles": [
+        {
+          "category": 1,
+          "interface": "Wi-Fi",
+          "interface_index": 6,
+          "ipv4_connectivity": 4,
+          "network": "JARVIS"
+        }
+      ],
+      "source": "powershell",
+      "supported": true
+    },
+    "local": {
+      "machine": "AMD64",
+      "python": "3.12.16",
+      "python_implementation": "CPython",
+      "release": "11",
+      "sys_platform": "win32",
+      "system": "Windows",
+      "version": "10.0.26200",
+      "wsl": {
+        "distro": null,
+        "evidence": {
+          "platform": "win32"
+        },
+        "is_wsl": false,
+        "native": true,
+        "platform": "win32",
+        "wsl_version": null
+      }
+    },
+    "operator_note": "Defender prompt: none seen by agent at start; human watching",
+    "outbound_only": {
+      "basis": "by construction, not measured",
+      "client_listens": false,
+      "explanation": "the client dials out only (ADR-0002); it binds no listening socket, so no inbound firewall rule is needed on this machine",
+      "no_inbound_rule_declared": true
+    },
+    "peer_identity": {
+      "hostname": "JARVISM3",
+      "machine": "x86_64",
+      "max_blob_bytes": 536870912,
+      "name": "L1",
+      "ok": true,
+      "peer": "192.168.31.155",
+      "protocol": 1,
+      "python": "3.12.13",
+      "python_implementation": "CPython",
+      "release": "6.8.0-147-generic",
+      "sys_platform": "linux",
+      "system": "Linux",
+      "version": "#147-Ubuntu SMP PREEMPT_DYNAMIC Thu Sep 24 11:33:16 UTC 2026",
+      "wsl": {
+        "distro": null,
+        "evidence": {
+          "WSL_DISTRO_NAME": null,
+          "WSL_INTEROP": false,
+          "osrelease": "6.8.0-147-generic",
+          "proc_version": "Linux version 6.8.0-147-generic (buildd@lcy02-amd64-081) (x86_64-linux-gnu-gcc-13 (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0, GNU ld (GNU Binutils for Ubuntu) 2.42) #147-Ubuntu SMP PREEMPT_DYNAMIC Thu Se"
+        },
+        "is_wsl": false,
+        "native": true,
+        "platform": "linux",
+        "wsl_version": null
+      }
+    },
+    "wsl": {
+      "distro": null,
+      "evidence": {
+        "platform": "win32"
+      },
+      "is_wsl": false,
+      "native": true,
+      "platform": "win32",
+      "wsl_version": null
+    }
+  },
+  "git": {
+    "commit": "c705f723",
+    "dirty": false,
+    "modified_files": 0,
+    "untracked_files": 0
+  },
+  "host": {
+    "hostname": "AILESH",
+    "label": "L2",
+    "machine": "AMD64",
+    "os": "Windows",
+    "os_release": "11",
+    "python": "3.12.16"
+  },
+  "link": "wifi",
+  "params": {
+    "blob_bytes": 33554432,
+    "client_name": "L2",
+    "connect_timeout_s": 5.0,
+    "grpc_port": 47203,
+    "hold_s": 5.0,
+    "http_port": 47202,
+    "idle_gaps_s": [
+      30.0,
+      120.0
+    ],
+    "io_timeout_s": 20.0,
+    "keepalive_settings": {
+      "off": {
+        "client_options": {
+          "grpc.max_receive_message_length": 536870912,
+          "grpc.max_send_message_length": 65536
+        },
+        "mode": "off",
+        "server_options": {
+          "grpc.http2.min_ping_interval_without_data_ms": 5000,
+          "grpc.http2.min_recv_ping_interval_without_data_ms": 5000,
+          "grpc.keepalive_permit_without_calls": 1,
+          "grpc.keepalive_time_ms": 20000,
+          "grpc.keepalive_timeout_ms": 10000,
+          "grpc.max_receive_message_length": 65536,
+          "grpc.max_send_message_length": 536870912,
+          "grpc.so_reuseport": 0
+        }
+      },
+      "on": {
+        "client_options": {
+          "grpc.http2.max_pings_without_data": 0,
+          "grpc.http2.min_time_between_pings_ms": 10000,
+          "grpc.keepalive_permit_without_calls": 1,
+          "grpc.keepalive_time_ms": 20000,
+          "grpc.keepalive_timeout_ms": 10000,
+          "grpc.max_receive_message_length": 536870912,
+          "grpc.max_send_message_length": 65536
+        },
+        "mode": "on",
+        "server_options": {
+          "grpc.http2.min_ping_interval_without_data_ms": 5000,
+          "grpc.http2.min_recv_ping_interval_without_data_ms": 5000,
+          "grpc.keepalive_permit_without_calls": 1,
+          "grpc.keepalive_time_ms": 20000,
+          "grpc.keepalive_timeout_ms": 10000,
+          "grpc.max_receive_message_length": 65536,
+          "grpc.max_send_message_length": 536870912,
+          "grpc.so_reuseport": 0
+        }
+      }
+    },
+    "keepalives": [
+      "on",
+      "off"
+    ],
+    "min_valid_reps": 5,
+    "pause_s": 0.5,
+    "ping_interval_s": 1.0,
+    "reps": 5,
+    "server": "192.168.31.13",
+    "server_name": "L1",
+    "warmup": 1
+  },
+  "schema_version": 1,
+  "spike": "S2",
+  "timestamp_utc": "2026-11-01T06:46:49Z",
+  "tool": {
+    "interpreter": "CPython 3.12.16 win32",
+    "name": "lab/spikes/s2_crossos.py",
+    "protocol": 1
+  },
+  "topic": "S2-crossos"
+}

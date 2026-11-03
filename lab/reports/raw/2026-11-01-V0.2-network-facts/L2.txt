@@ -1,0 +1,48 @@
+
+There is 1 interface on the system: 
+
+    Name                   : Wi-Fi
+    Description            : Intel(R) Wi-Fi 6E AX211 160MHz
+    GUID                   : 396d5989-f20d-465c-a74c-d953a3183401
+    Physical address       : 98:bd:80:bf:36:41
+    Interface type         : Primary
+    State                  : connected
+    SSID                   : JARVIS
+    AP BSSID               : 06:28:d6:37:b8:81
+    Band                   : 5 GHz
+    Channel                : 157
+    Connected Akm-cipher   : [ akm = 00-0f-ac:02, cipher =  00-0f-ac:04 ]
+    Network type           : Infrastructure
+    Radio type             : 802.11ax
+    Authentication         : WPA2-Personal
+    Cipher                 : CCMP
+    Connection mode        : Profile
+    Receive rate (Mbps)    : 1201
+    Transmit rate (Mbps)   : 1201
+    Signal                 : 92% 
+    Rssi                   : -32
+    Profile                : JARVIS 
+    QoS MSCS Configured         : 0
+    QoS Map Configured          : 0
+    QoS Map Allowed by Policy   : 0
+
+
+Name       Status       LinkSpeed
+----       ------       ---------
+Ethernet   Disconnected 0 bps    
+McAfee VPN Disconnected 1 Gbps   
+Wi-Fi      Up           1.2 Gbps 
+
+
+
+
+Name                     : JARVIS
+InterfaceAlias           : Wi-Fi
+InterfaceIndex           : 6
+NetworkCategory          : Private
+DomainAuthenticationKind : None
+IPv4Connectivity         : Internet
+IPv6Connectivity         : Internet
+
+
+
