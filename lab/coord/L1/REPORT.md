@@ -527,3 +527,4 @@ QUESTION: parts G/H need a peer endpoint. Per TODO, skipped unless owners turn o
 ### C5.11-c - Part D2 iperf3 server - started
 result: HUMAN installed iperf3 (/usr/bin/iperf3). `iperf3 -s -B 192.168.31.13` running in background. L2: run the client and record the receiver Bitrate.
 SIGNAL: iperf3-server-up ip=192.168.31.13
+    correction: the manual `iperf3 -s` failed "Address already in use" - the apt install started the iperf3 systemd service (active, *:5201). That service is the server; same port, L2 unaffected.
