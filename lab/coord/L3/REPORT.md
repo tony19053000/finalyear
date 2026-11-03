@@ -155,3 +155,15 @@ result: first removal attempt by the human did not take (2 rules still present);
 SIGNAL: v02-raw-pushed L3
 SIGNAL: s1-matrix-done L3
 SIGNAL: V0.2-done
+
+### C17-c (part 1, install only - Lead: do NOT join yet) - OK
+when: 2026-11-03 16:00 (local)
+laptop: L3 (MOHIT)
+commands:
+    agent: Start-Process $HOME\mf-pkgs\MeshForge-Agent-Setup-0.17.0-1.exe   (launched 15:57:06; human clicked SmartScreen/UAC/wizard)
+    sc.exe queryex MeshForgeAgent; type "C:\Program Files\MeshForge\current.txt"; Get-NetFirewallRule *MeshForge*
+result: install dir created 15:57:30; service MeshForgeAgent RUNNING (PID 19208); current.txt = 0.17.0-1; bin dir `C:\Program Files\MeshForge\bin` on machine PATH (compute.cmd, meshforge-agent.cmd).
+  Not a timed run (installer launched by the agent; Lead asked install only). Join NOT done.
+  `meshforge-agent identity show` from a normal shell -> exit 4 "only administrators may change ... run it in an elevated prompt" (expected; admin check in C17-e).
+  Firewall: `Get-NetFirewallRule` with MeshForge in name or group -> 0 rules after install. QUESTION: does the installer open the agent ports only at join, or is a rule missing? (CAMPAIGN Lead decision 7 asks to report which ports it opens: none so far.)
+SIGNAL: installed L3
