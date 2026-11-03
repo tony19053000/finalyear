@@ -400,3 +400,10 @@ commands:
 result: 6 reps, same node_id node_01M6GGZ7VNCSRKFAEDH3AX7QQY every time, agent restarted = yes, end reason agent_closed.
     OFFLINE after stop 0.03-0.20 s. ONLINE after start 15.79 / 9.05 / 9.21 / 8.42 / 8.21 / 8.53 s.
 evidence: lab/reports/2026-11-03-V0.3-fabric-watch.md, lab/reports/raw/2026-11-03-V0.3-fabric-watch/l1-dffe8596__mohit-agent-151409-0299391f.json
+
+### C3.7-b - Agent restart keeps node_id, L4 (LAPTOP-7ORVM30G) - OK
+commands:
+    uv run python lab/fabric_check.py --name L1 watch --node LAPTOP-7ORVM30G --action agent --link wifi --reps 6   (LIVE: Stop-/Start-Service on L4)
+result: 6 reps, same node_id node_01M6GGJP3FW5VHBDFKYQ6SF318 every time, agent restarted = yes, end reason agent_closed.
+    OFFLINE after stop 0.06-0.18 s. ONLINE after start 7.25 / 5.25 / 4.98 / 6.40 / 5.49 / 6.48 s.
+evidence: lab/reports/2026-11-03-V0.3-fabric-watch.md, lab/reports/raw/2026-11-03-V0.3-fabric-watch/l1-dffe8596__laptop-7orvm30g-agent-151945-1c8b5fb9.json

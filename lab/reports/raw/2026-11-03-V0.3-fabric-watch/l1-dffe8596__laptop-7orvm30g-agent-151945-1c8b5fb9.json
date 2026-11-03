@@ -1,0 +1,508 @@
+{
+  "cases": {
+    "node_01M6GGJP3FW5VHBDFKYQ6SF318": {
+      "aborted": false,
+      "attrs": {
+        "expect": [
+          "offline",
+          "online"
+        ],
+        "hostname": "LAPTOP-7ORVM30G",
+        "node_id": "node_01M6GGJP3FW5VHBDFKYQ6SF318"
+      },
+      "errors": [],
+      "label": "LAPTOP-7ORVM30G (node_01M6GGJP3FW5VHBDFKYQ6SF318)",
+      "metrics": {
+        "offline_s": "s",
+        "online_s": "s"
+      },
+      "requested_reps": 6,
+      "requested_warmup": 0,
+      "samples": [
+        {
+          "changes": [
+            {
+              "field": "state",
+              "new": "offline",
+              "old": "online",
+              "t_s": 97.994,
+              "wall": "2026-11-03T15:16:39.996+00:00"
+            },
+            {
+              "field": "connected",
+              "new": false,
+              "old": true,
+              "t_s": 97.994,
+              "wall": "2026-11-03T15:16:39.996+00:00"
+            },
+            {
+              "field": "state",
+              "new": "online",
+              "old": "offline",
+              "t_s": 119.296,
+              "wall": "2026-11-03T15:17:01.298+00:00"
+            },
+            {
+              "field": "connected",
+              "new": true,
+              "old": false,
+              "t_s": 119.296,
+              "wall": "2026-11-03T15:17:01.298+00:00"
+            },
+            {
+              "field": "session_epoch",
+              "new": 44,
+              "old": 43,
+              "t_s": 119.296,
+              "wall": "2026-11-03T15:17:01.298+00:00"
+            },
+            {
+              "field": "last_session_id",
+              "new": "sess_01M6GZRBPCNH80V1QSCY4REB40",
+              "old": "sess_01M6GQRGCEAZF27V19HWDTE39B",
+              "t_s": 119.296,
+              "wall": "2026-11-03T15:17:01.298+00:00"
+            }
+          ],
+          "end_reason": "agent_closed",
+          "epoch_after": 44,
+          "epoch_before": 43,
+          "first_new_sequence": 1,
+          "marks": {
+            "offline": "2026-11-03T15:16:39.996+00:00",
+            "online": "2026-11-03T15:16:54.099+00:00"
+          },
+          "offline_s": 0.072,
+          "offline_within_bound": null,
+          "online_s": 7.254,
+          "online_within_bound": null,
+          "rep": 0,
+          "restarted": true,
+          "sequence_before": 3665,
+          "session_after": "sess_01M6GZRBPCNH80V1QSCY4REB40",
+          "session_before": "sess_01M6GQRGCEAZF27V19HWDTE39B"
+        },
+        {
+          "changes": [
+            {
+              "field": "state",
+              "new": "suspect",
+              "old": "online",
+              "t_s": 1.888,
+              "wall": "2026-11-03T15:17:03.796+00:00"
+            },
+            {
+              "field": "state",
+              "new": "online",
+              "old": "suspect",
+              "t_s": 1.991,
+              "wall": "2026-11-03T15:17:03.899+00:00"
+            },
+            {
+              "field": "state",
+              "new": "offline",
+              "old": "online",
+              "t_s": 18.39,
+              "wall": "2026-11-03T15:17:20.298+00:00"
+            },
+            {
+              "field": "connected",
+              "new": false,
+              "old": true,
+              "t_s": 18.39,
+              "wall": "2026-11-03T15:17:20.298+00:00"
+            },
+            {
+              "field": "state",
+              "new": "online",
+              "old": "offline",
+              "t_s": 37.088,
+              "wall": "2026-11-03T15:17:38.996+00:00"
+            },
+            {
+              "field": "connected",
+              "new": true,
+              "old": false,
+              "t_s": 37.088,
+              "wall": "2026-11-03T15:17:38.996+00:00"
+            },
+            {
+              "field": "session_epoch",
+              "new": 45,
+              "old": 44,
+              "t_s": 37.088,
+              "wall": "2026-11-03T15:17:38.996+00:00"
+            },
+            {
+              "field": "last_session_id",
+              "new": "sess_01M6GZSGFZ0WFB3Y9E753BZFRD",
+              "old": "sess_01M6GZRBPCNH80V1QSCY4REB40",
+              "t_s": 37.088,
+              "wall": "2026-11-03T15:17:38.996+00:00"
+            }
+          ],
+          "end_reason": "agent_closed",
+          "epoch_after": 45,
+          "epoch_before": 44,
+          "first_new_sequence": 1,
+          "marks": {
+            "offline": "2026-11-03T15:17:20.200+00:00",
+            "online": "2026-11-03T15:17:33.798+00:00"
+          },
+          "offline_s": 0.179,
+          "offline_within_bound": null,
+          "online_s": 5.246,
+          "online_within_bound": null,
+          "rep": 1,
+          "restarted": true,
+          "sequence_before": 3683,
+          "session_after": "sess_01M6GZSGFZ0WFB3Y9E753BZFRD",
+          "session_before": "sess_01M6GZRBPCNH80V1QSCY4REB40"
+        },
+        {
+          "changes": [
+            {
+              "field": "state",
+              "new": "offline",
+              "old": "online",
+              "t_s": 7.388,
+              "wall": "2026-11-03T15:17:46.998+00:00"
+            },
+            {
+              "field": "connected",
+              "new": false,
+              "old": true,
+              "t_s": 7.388,
+              "wall": "2026-11-03T15:17:46.998+00:00"
+            },
+            {
+              "field": "state",
+              "new": "online",
+              "old": "offline",
+              "t_s": 25.986,
+              "wall": "2026-11-03T15:18:05.596+00:00"
+            },
+            {
+              "field": "connected",
+              "new": true,
+              "old": false,
+              "t_s": 25.986,
+              "wall": "2026-11-03T15:18:05.596+00:00"
+            },
+            {
+              "field": "session_epoch",
+              "new": 46,
+              "old": 45,
+              "t_s": 25.986,
+              "wall": "2026-11-03T15:18:05.596+00:00"
+            },
+            {
+              "field": "last_session_id",
+              "new": "sess_01M6GZTADEW3NXFTF6V3ZYD8F1",
+              "old": "sess_01M6GZSGFZ0WFB3Y9E753BZFRD",
+              "t_s": 25.986,
+              "wall": "2026-11-03T15:18:05.596+00:00"
+            }
+          ],
+          "end_reason": "agent_closed",
+          "epoch_after": 46,
+          "epoch_before": 45,
+          "first_new_sequence": 2,
+          "marks": {
+            "offline": "2026-11-03T15:17:46.898+00:00",
+            "online": "2026-11-03T15:18:00.697+00:00"
+          },
+          "offline_s": 0.179,
+          "offline_within_bound": null,
+          "online_s": 4.976,
+          "online_within_bound": null,
+          "rep": 2,
+          "restarted": true,
+          "sequence_before": 3683,
+          "session_after": "sess_01M6GZTADEW3NXFTF6V3ZYD8F1",
+          "session_before": "sess_01M6GZSGFZ0WFB3Y9E753BZFRD"
+        },
+        {
+          "changes": [
+            {
+              "field": "connected",
+              "new": false,
+              "old": true,
+              "t_s": 16.693,
+              "wall": "2026-11-03T15:18:23.002+00:00"
+            },
+            {
+              "field": "state",
+              "new": "offline",
+              "old": "online",
+              "t_s": 16.787,
+              "wall": "2026-11-03T15:18:23.096+00:00"
+            },
+            {
+              "field": "state",
+              "new": "online",
+              "old": "offline",
+              "t_s": 34.988,
+              "wall": "2026-11-03T15:18:41.297+00:00"
+            },
+            {
+              "field": "connected",
+              "new": true,
+              "old": false,
+              "t_s": 34.988,
+              "wall": "2026-11-03T15:18:41.297+00:00"
+            },
+            {
+              "field": "session_epoch",
+              "new": 47,
+              "old": 46,
+              "t_s": 34.988,
+              "wall": "2026-11-03T15:18:41.297+00:00"
+            },
+            {
+              "field": "last_session_id",
+              "new": "sess_01M6GZVD9BMQSAF9JX7CWH7YP6",
+              "old": "sess_01M6GZTADEW3NXFTF6V3ZYD8F1",
+              "t_s": 34.988,
+              "wall": "2026-11-03T15:18:41.297+00:00"
+            }
+          ],
+          "end_reason": "agent_closed",
+          "epoch_after": 47,
+          "epoch_before": 46,
+          "first_new_sequence": 1,
+          "marks": {
+            "offline": "2026-11-03T15:18:23.002+00:00",
+            "online": "2026-11-03T15:18:34.898+00:00"
+          },
+          "offline_s": 0.106,
+          "offline_within_bound": null,
+          "online_s": 6.402,
+          "online_within_bound": null,
+          "rep": 3,
+          "restarted": true,
+          "sequence_before": 3683,
+          "session_after": "sess_01M6GZVD9BMQSAF9JX7CWH7YP6",
+          "session_before": "sess_01M6GZTADEW3NXFTF6V3ZYD8F1"
+        },
+        {
+          "changes": [
+            {
+              "field": "state",
+              "new": "suspect",
+              "old": "online",
+              "t_s": 1.486,
+              "wall": "2026-11-03T15:18:43.795+00:00"
+            },
+            {
+              "field": "state",
+              "new": "online",
+              "old": "suspect",
+              "t_s": 1.686,
+              "wall": "2026-11-03T15:18:43.996+00:00"
+            },
+            {
+              "field": "state",
+              "new": "offline",
+              "old": "online",
+              "t_s": 7.586,
+              "wall": "2026-11-03T15:18:49.896+00:00"
+            },
+            {
+              "field": "connected",
+              "new": false,
+              "old": true,
+              "t_s": 7.586,
+              "wall": "2026-11-03T15:18:49.896+00:00"
+            },
+            {
+              "field": "state",
+              "new": "online",
+              "old": "offline",
+              "t_s": 23.889,
+              "wall": "2026-11-03T15:19:06.198+00:00"
+            },
+            {
+              "field": "connected",
+              "new": true,
+              "old": false,
+              "t_s": 23.889,
+              "wall": "2026-11-03T15:19:06.198+00:00"
+            },
+            {
+              "field": "session_epoch",
+              "new": 48,
+              "old": 47,
+              "t_s": 23.889,
+              "wall": "2026-11-03T15:19:06.198+00:00"
+            },
+            {
+              "field": "last_session_id",
+              "new": "sess_01M6GZW5NST8102M4GMKW98CDJ",
+              "old": "sess_01M6GZVD9BMQSAF9JX7CWH7YP6",
+              "t_s": 23.889,
+              "wall": "2026-11-03T15:19:06.198+00:00"
+            }
+          ],
+          "end_reason": "agent_closed",
+          "epoch_after": 48,
+          "epoch_before": 47,
+          "first_new_sequence": 1,
+          "marks": {
+            "offline": "2026-11-03T15:18:49.896+00:00",
+            "online": "2026-11-03T15:19:00.797+00:00"
+          },
+          "offline_s": 0.096,
+          "offline_within_bound": null,
+          "online_s": 5.485,
+          "online_within_bound": null,
+          "rep": 4,
+          "restarted": true,
+          "sequence_before": 3683,
+          "session_after": "sess_01M6GZW5NST8102M4GMKW98CDJ",
+          "session_before": "sess_01M6GZVD9BMQSAF9JX7CWH7YP6"
+        },
+        {
+          "changes": [
+            {
+              "field": "state",
+              "new": "suspect",
+              "old": "online",
+              "t_s": 1.79,
+              "wall": "2026-11-03T15:19:08.698+00:00"
+            },
+            {
+              "field": "state",
+              "new": "online",
+              "old": "suspect",
+              "t_s": 2.089,
+              "wall": "2026-11-03T15:19:08.997+00:00"
+            },
+            {
+              "field": "state",
+              "new": "offline",
+              "old": "online",
+              "t_s": 8.688,
+              "wall": "2026-11-03T15:19:15.596+00:00"
+            },
+            {
+              "field": "connected",
+              "new": false,
+              "old": true,
+              "t_s": 8.688,
+              "wall": "2026-11-03T15:19:15.596+00:00"
+            },
+            {
+              "field": "state",
+              "new": "online",
+              "old": "offline",
+              "t_s": 37.888,
+              "wall": "2026-11-03T15:19:44.796+00:00"
+            },
+            {
+              "field": "connected",
+              "new": true,
+              "old": false,
+              "t_s": 37.888,
+              "wall": "2026-11-03T15:19:44.796+00:00"
+            },
+            {
+              "field": "session_epoch",
+              "new": 49,
+              "old": 48,
+              "t_s": 37.888,
+              "wall": "2026-11-03T15:19:44.796+00:00"
+            },
+            {
+              "field": "last_session_id",
+              "new": "sess_01M6GZXBB25J5HFTG9B0J2186D",
+              "old": "sess_01M6GZW5NST8102M4GMKW98CDJ",
+              "t_s": 37.888,
+              "wall": "2026-11-03T15:19:44.796+00:00"
+            }
+          ],
+          "end_reason": "agent_closed",
+          "epoch_after": 49,
+          "epoch_before": 48,
+          "first_new_sequence": 1,
+          "marks": {
+            "offline": "2026-11-03T15:19:15.596+00:00",
+            "online": "2026-11-03T15:19:38.397+00:00"
+          },
+          "offline_s": 0.064,
+          "offline_within_bound": null,
+          "online_s": 6.482,
+          "online_within_bound": null,
+          "rep": 5,
+          "restarted": true,
+          "sequence_before": 3683,
+          "session_after": "sess_01M6GZXBB25J5HFTG9B0J2186D",
+          "session_before": "sess_01M6GZW5NST8102M4GMKW98CDJ"
+        }
+      ],
+      "summary": {
+        "offline_s": {
+          "max": 0.179,
+          "mean": 0.11599999999999999,
+          "median": 0.101,
+          "min": 0.064,
+          "n": 6,
+          "p95": 0.179,
+          "stdev": 0.05114293695125457
+        },
+        "online_s": {
+          "max": 7.254,
+          "mean": 5.974166666666666,
+          "median": 5.9435,
+          "min": 4.976,
+          "n": 6,
+          "p95": 7.061,
+          "stdev": 0.8768987208718384
+        }
+      },
+      "warmup": []
+    }
+  },
+  "errors": [],
+  "extra": {
+    "interrupted": false
+  },
+  "git": {
+    "commit": "21fdec39",
+    "dirty": false,
+    "modified_files": 0,
+    "untracked_files": 0
+  },
+  "host": {
+    "hostname": "JARVISM3",
+    "label": "L1",
+    "machine": "x86_64",
+    "os": "Linux",
+    "os_release": "6.8.0-147-generic",
+    "python": "3.12.13"
+  },
+  "link": "wifi",
+  "params": {
+    "action": "agent",
+    "bounds_s": {},
+    "controller_url": "https://192.168.31.13:47110",
+    "detect_timeout_s": 60.0,
+    "expect": [
+      "offline",
+      "online"
+    ],
+    "node_id": "node_01M6GGJP3FW5VHBDFKYQ6SF318",
+    "poll_s": 0.1,
+    "reps": 6
+  },
+  "schema_version": 1,
+  "spike": "V0.3",
+  "timestamp_utc": "2026-11-03T15:19:45Z",
+  "tool": {
+    "interpreter": "CPython 3.12.13 linux",
+    "name": "fabric_check",
+    "subcommand": "watch",
+    "version": 1
+  },
+  "topic": "V0.3-fabric-watch"
+}
