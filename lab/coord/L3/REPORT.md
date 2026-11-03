@@ -125,3 +125,12 @@ evidence: lab/reports/inventory/MOHIT.json (attempt 1 kept as MOHIT.attempt1.jso
 note: R1-5 (S7) rerun deferred until no S1 client is measuring against L3 (S7 loads the CPU).
 
 S1 client RUNNING L3-to-L4 (2026-11-03 15:33)
+
+### CU-L3L4 - S1 client L3 -> L4 (0.2.5) - OK
+when: 2026-11-03 15:38 (local)
+laptop: L3 (MOHIT) -> L4 (LAPTOP-7ORVM30G, 192.168.31.244), Wi-Fi 5 GHz, same room
+commands:
+    uv run python lab/spikes/s1_network.py client --link wifi --server 192.168.31.244
+result: exit 0. TCP x1 L4->L3 215.9 +- 3.9 Mbit/s, L3->L4 192.1 +- 0.6; TCP x4 L4->L3 266.9 +- 38.8, L3->L4 262.9 +- 27.9; UDP RTT mean 3.54 ms, p95 4.84 ms, jitter 0.73 ms, loss 0 %. n=5 each.
+evidence: lab/reports/raw/2026-11-03-S1-network/mohit-69e390d0__to-laptop-7orvm30g_wifi-305efdfb.json
+SIGNAL: s1-client-done L3-to-L4
