@@ -201,3 +201,11 @@ laptop: L3 (MOHIT)
 commands:
     w32tm /stripchart /computer:time.windows.com /samples:3 /dataonly
 result: offsets +618.3, +612.2, +621.4 ms (mean ~ +617 ms) > 200 ms limit. Windows Time service (w32time) is stopped (C0-b: 0x80070426). HUMAN asked to start it and resync; will re-measure.
+
+### C4.15-g - part G Windows checks - OK
+when: 2026-11-04 00:46 (local)
+laptop: L3 (MOHIT)
+commands:
+    uv sync --extra agent --extra controller --group dev; uv run pytest tests/unit/common/test_bundle_case_insensitive.py tests/component/agent/test_docker_sandbox.py -q -rs
+result: 3 passed, 9 skipped, 0 failed. Docker tests SKIPPED (7: no Docker on L3), GPU tests SKIPPED (2: no NVIDIA). Case-insensitive bundle tests passed.
+SIGNAL: v04-g-done L3
