@@ -386,3 +386,10 @@ result: n=6, valid row. OFFLINE 5.33/5.03/4.78/5.51/4.62/4.71 s (mean 5.00) - al
     (L3 3/4, L2 1/4, L4 1/6) - Wi-Fi re-association time is inside the number. Lead decides how the 10 s bound applies on Wi-Fi.
 evidence: lab/reports/2026-11-03-V0.3-fabric-watch.md, lab/reports/raw/2026-11-03-V0.3-fabric-watch/l1-dffe8596__laptop-7orvm30g-cable-125717-503906e8.json
 SIGNAL: C3.7-a done L4
+
+### C3.7-b - Agent restart keeps node_id, L2 (AILESH) - OK
+commands:
+    uv run python lab/fabric_check.py --name L1 watch --node AILESH --action agent --link wifi --reps 6   (LIVE: Stop-/Start-Service MeshForgeAgent on L2)
+result: 6 reps, all came back under the same node_id node_01M6GCKN7PYT2J297BT241P436, agent process restarted = yes every rep, end reason agent_closed.
+    OFFLINE after stop 0.05-0.42 s. ONLINE after start 14.45 / 11.28 / 7.97 / 45.77 / 8.46 / 8.33 s (rep 4 slow: likely Start typed late; Windows service start ~8 s).
+evidence: lab/reports/2026-11-03-V0.3-fabric-watch.md, lab/reports/raw/2026-11-03-V0.3-fabric-watch/l1-dffe8596__ailesh-agent-143345-64a9c64e.json
