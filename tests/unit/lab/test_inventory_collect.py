@@ -563,7 +563,10 @@ def test_windows_nvidia_laptop(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) 
     assert_lab_fields_present(doc)
     powershell_calls = [c for c in calls if c[0] == "powershell"]
     assert len(powershell_calls) == 1  # one cached CIM bundle for all sections
-    assert "-EncodedCommand" in powershell_calls[0]
+    # Run from a temporary .ps1 (-File), never -EncodedCommand (lab L3 R1-3 hang).
+    assert powershell_calls[0][1:-1] == (*runner.POWERSHELL_OPTIONS, "-File")
+    assert "-EncodedCommand" not in powershell_calls[0]
+    assert not Path(powershell_calls[0][-1]).exists()  # deleted afterwards
     s = {k: v["value"] for k, v in doc["sections"].items()}
     assert (s["os"]["name"], s["os"]["build"]) == ("Microsoft Windows 11 Home", "22631")
     assert (s["cpu"]["physical_cores"], s["cpu"]["base_mhz"]) == (8, 3201)
