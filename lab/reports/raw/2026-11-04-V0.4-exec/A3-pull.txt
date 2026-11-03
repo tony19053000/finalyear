@@ -4,3 +4,19 @@ Status: Image is up to date for python@sha256:f77ac9e44ae96ef2c90b8053ea08c31f8b
 docker.io/library/python:3.12-slim@sha256:f77ac9e44ae96ef2c90b8053ea08c31f8be030f824196b0ae4db6d462c84e51f
 exit=0
 docker.io/pytorch/pytorch@sha256:a77983eb7a3042ccf41a94da547a7f54a47fb70da15c36d67a8e8a329ebaa098: Pulling from pytorch/pytorch
+a2b96aae4b96: Download complete
+73847a9ca5f4: Download complete
+73847a9ca5f4: Pull complete
+5051a8b333d1: Download complete
+ababfeb3bb29: Download complete
+ababfeb3bb29: Pull complete
+c4f9cb101129: Download complete
+faf6169b2c71: Download complete
+faf6169b2c71: Pull complete
+c4f9cb101129: Pull complete
+5051a8b333d1: Pull complete
+a2b96aae4b96: Pull complete
+Digest: sha256:a77983eb7a3042ccf41a94da547a7f54a47fb70da15c36d67a8e8a329ebaa098
+Status: Downloaded newer image for pytorch/pytorch@sha256:a77983eb7a3042ccf41a94da547a7f54a47fb70da15c36d67a8e8a329ebaa098
+docker.io/pytorch/pytorch:2.14.0-cuda12.6-cudnn9-runtime@sha256:a77983eb7a3042ccf41a94da547a7f54a47fb70da15c36d67a8e8a329ebaa098
+exit=0

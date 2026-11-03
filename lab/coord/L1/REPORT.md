@@ -445,3 +445,8 @@ result: human agreed to the ~4 GB image pull. IP still 192.168.31.13; controller
 commands: timedatectl; timedatectl timesync-status (chrony not installed)
 result: synchronized yes, NTP ntp.ubuntu.com, L1 offset +128.954 ms (vs NTP, poll 34 min). Waiting for SIGNAL clock-offset from L2/L3/L4.
 SIGNAL: clock-offset L1 ms=+129
+
+### C4.8-a - Pull the pinned images (A3) - OK
+commands: docker pull python:3.12-slim@sha256:f77ac9e4...; docker pull pytorch/pytorch:2.14.0-cuda12.6-cudnn9-runtime@sha256:a77983eb...
+result: both exit 0. Disk now 17 GB free (91 % used) - watch it for V0.5 (needs >= 20 GB free: C5.11-a may fail).
+evidence: lab/reports/raw/2026-11-04-V0.4-exec/A3-pull.txt
