@@ -77,8 +77,12 @@ from meshforge.agent.cas import AgentCas
 from meshforge.agent.conditions.runner import ConditionRunner, probe_kinds
 from meshforge.agent.console.node_name import effective_node_name
 from meshforge.agent.envs.node_prepare import PrepareService
+from meshforge.agent.execution.activation import (
+    ExecutionActivator,
+    exec_capabilities,
+)
 from meshforge.agent.execution.executor import Executor
-from meshforge.agent.execution.offer import build_execution
+from meshforge.agent.execution.offer import build_execution, warn_unpinned
 from meshforge.agent.gc.collector import GarbageCollector, GcConfig
 from meshforge.agent.gc.service import GcService
 from meshforge.agent.hardware import (
@@ -125,7 +129,6 @@ from meshforge.agent.settings import AgentSettings, parse_controller_address
 from meshforge.common import owner_policy
 from meshforge.common.bench_conditions import capability_tag
 from meshforge.common.capabilities import (
-    EXEC_SPLIT_CAPABILITY,
     HARDWARE_SCORES_CAPABILITY,
 )
 from meshforge.common.config import INSECURE_DEV_BANNER
@@ -409,20 +412,18 @@ async def serve(
         hardware.capabilities[:] = clip_capabilities(
             [*hardware.capabilities, HARDWARE_SCORES_CAPABILITY]
         )
-    # D45: the exec* tags only when the owner enabled execution and a runtime
-    # was found; the controller never dispatches to a node without ``exec``.
+    # D45/D428 (V1.0 G8 F5): the exec* tags say which runtimes this agent CAN
+    # use; whether its owner ALLOWS jobs is the live policy (Hello.policy /
+    # PolicyUpdate, re-checked per attempt). Jobs off at start = a look-only
+    # setup (no container started, no cgroup written) that the first live
+    # "Run jobs on" completes (execution/activation.py) - no restart.
     execution = await build_execution(
         settings, node_id=node_id, host_has_nvidia_gpu=bool(hardware.gpus)
     )
-    if execution.offer.capabilities:
-        # V0.10 G4 (D263): an executing node runs Mode 3 lanes too
-        hardware.capabilities[:] = clip_capabilities(
-            [
-                *hardware.capabilities,
-                *execution.offer.capabilities,
-                EXEC_SPLIT_CAPABILITY,
-            ]
-        )
+    # V0.10 G4 (D263): an executing node runs Mode 3 lanes too (exec-split)
+    hardware.capabilities[:] = clip_capabilities(
+        [*hardware.capabilities, *exec_capabilities(execution)]
+    )
     # V0.9 G4 (D217): the benchmark conditions this node can apply, one tag.
     condition_kinds = (
         await probe_kinds(settings.agent.conditions, has_gpu=bool(hardware.gpus))
@@ -510,11 +511,14 @@ async def serve(
         activity_task = asyncio.create_task(
             activity.run(), name=f"agent-owner-activity:{node_id}"
         )
-    # 0.5.8 controller part: `compute node prepare` (only where jobs may run).
-    preparer = (
-        PrepareService(settings, execution, client.send_report, node_id=node_id)
-        if execution.enabled
-        else None
+    # 0.5.8 controller part: `compute node prepare` (only where jobs may run:
+    # the owner's live policy, read per request - V1.0 G8 F5, D428).
+    preparer = PrepareService(
+        settings,
+        execution,
+        client.send_report,
+        node_id=node_id,
+        policy=lambda: live_policy.policy,
     )
     # V0.6 G4 (D111): measure links when the controller asks.
     prober = ProbeService(
@@ -523,15 +527,28 @@ async def serve(
     client.command_handler = route_commands(
         executor,
         gc=gc,
-        prepare=preparer.handle if preparer is not None else None,
+        prepare=preparer.handle,
         probe=prober.handle,
     )
-    if execution.enabled:
+    if execution.enabled and execution.complete:
         await executor.start()
     else:
         await conditions.sweep()  # a crashed run's leftovers (V0.9 G4)
+    activator = ExecutionActivator(
+        settings,
+        execution,
+        node_id=node_id,
+        host_has_nvidia_gpu=bool(hardware.gpus),
+        hardware=hardware,
+        targets=(executor, preparer),
+        start=executor.start,
+        on_cgroup=cgroup_updater(live_policy, gpu_count=len(hardware.gpus)),
+        request_handover=client.request_handover,
+    )
     renew_task = start_renewer(settings, client, http_tls=http_tls, peer=peer)
-    policy_task = start_policy_watch(settings, client, live_policy, guard=bench_guard)
+    policy_task = start_policy_watch(
+        settings, client, live_policy, guard=bench_guard, activator=activator
+    )
     if install_signals:
         install_signal_handlers(client.request_stop)
     if on_client is not None:
@@ -607,28 +624,82 @@ def build_live_policy(
     )
 
 
+def cgroup_updater(live: LivePolicy, *, gpu_count: int) -> Callable[[bool], bool]:
+    """V1.0 G8 F5: recompute what the live policy enforces once the CPU-share
+    cgroup is (or is not) available - after the first "Run jobs on"."""
+
+    def update(available: bool) -> bool:
+        return live.set_not_enforced(
+            functools.partial(
+                not_enforced_caps, gpu_count=gpu_count, cpu_cgroup=available
+            )
+        )
+
+    return update
+
+
 def start_policy_watch(
     settings: AgentSettings,
     client: AgentSessionClient,
     live: LivePolicy,
     *,
     guard: OwnerGuard | None = None,
+    activator: ExecutionActivator | None = None,
 ) -> asyncio.Task[None]:
     """Watch the live policy file; each effective change goes to the
     controller as a ``PolicyUpdate`` report (buffered, replayed, acked).
     V0.9 G5: ``guard`` re-evaluates first (``bench pause`` stops running
-    benchmark attempts before the controller hears of it)."""
+    benchmark attempts before the controller hears of it).
+    V1.0 G8 F5 (D428): the first ``accept_jobs`` on of an agent started with
+    it off runs the ``activator`` before the controller hears of it (full
+    probes, setup swapped in), then the session is handed over so a fresh
+    Hello carries the new capabilities; every off -> on logs the
+    unpinned-controller warning when the controller is found by mDNS."""
+    accepting = [live.policy.accept_jobs]
 
-    async def push(state: PolicyState) -> None:
-        if guard is not None:
-            await guard.refresh()
+    async def send(state: PolicyState) -> None:
         update = agent_pb2.PolicyUpdate(policy=owner_policy.to_proto(state.policy))
         if state.policy.accept_jobs:
             update.max_cpu_jobs, update.max_gpu_jobs = state.cpu_slots, state.gpu_slots
         await client.send_report("policy_update", update)
 
+    async def activate() -> bool:
+        """Run the activator; True when it completed the setup now. The live
+        file is re-read afterwards (an "off" written during the probes wins)."""
+        if activator is None or not await activator.activate():
+            return False
+        await asyncio.to_thread(live.reload)
+        accepting[0] = live.policy.accept_jobs
+        return True
+
+    async def push(state: PolicyState) -> None:
+        if guard is not None:
+            await guard.refresh()
+        turned_on = state.policy.accept_jobs and not accepting[0]
+        accepting[0] = state.policy.accept_jobs
+        activated = False
+        if state.policy.accept_jobs and activator is not None and activator.pending:
+            activated = await activate()  # warns unpinned itself (full build)
+        elif turned_on:
+            warn_unpinned(settings, client.node_id)
+        # always sent - also when the activation failed (it is retried)
+        await send(live.state if activated else state)
+        if activated and activator is not None:
+            activator.readvertise()
+
+    async def retry() -> None:
+        """A failed activation is retried while jobs stay on (no file change
+        needed), after the activator's backoff."""
+        if activator is None or not live.policy.accept_jobs or not activator.due():
+            return
+        if await activate():
+            await send(live.state)
+            activator.readvertise()
+
     return asyncio.create_task(
-        live.watch(push, interval_s=settings.agent.policy.reload_interval_s),
+        live.watch(
+            push, interval_s=settings.agent.policy.reload_interval_s, on_idle=retry
+        ),
         name=f"agent-policy-watch:{client.node_id}",
     )
 

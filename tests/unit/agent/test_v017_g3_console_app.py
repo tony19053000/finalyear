@@ -328,7 +328,7 @@ async def test_policy_round_trip_equals_the_cli(
         headers=ORIGIN,
     )
     assert r.status_code == 200, r.text
-    assert r.json()["restart_needed"] == ["accept_jobs"]
+    assert r.json()["restart_needed"] == []  # V1.0 G8 F5 (D428): live
     config = tmp_path / "config.toml"
     config.write_text(
         f'data_dir = "{settings.data_dir.as_posix()}"\n'

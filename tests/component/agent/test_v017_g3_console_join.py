@@ -229,7 +229,7 @@ async def test_owner_joins_sets_policy_restarts_and_leaves_from_the_console(
                 headers=origin,
             )
             assert put.status_code == 200, put.text
-            assert put.json()["restart_needed"] == ["accept_jobs"]
+            assert put.json()["restart_needed"] == []  # F5 (D428): live
             await _until(
                 lambda: (
                     (p := controller_policy()) is not None

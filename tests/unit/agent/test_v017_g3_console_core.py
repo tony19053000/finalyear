@@ -284,10 +284,10 @@ def test_apply_changes_validates_first_and_merges(tmp_path: Path) -> None:
     settings = _settings(tmp_path)
     path = policy_path(settings)
     result = apply_changes(settings, {"accept_jobs": True, "max_cpu_percent": 50})
-    assert result.restart_keys == ("accept_jobs",)
+    assert result.restart_keys == ()  # V1.0 G8 F5 (D428): live, no restart
     assert result.effective.max_cpu_percent == 50
     again = apply_changes(settings, {"accept_jobs": True})
-    assert again.restart_keys == ()  # was already on
+    assert again.restart_keys == ()
     before = path.read_bytes()
     for bad in ({"max_cpu_percent": 0}, {"bogus": 1}, {"max_cpu_jobs": 999}):
         with pytest.raises(ConfigError):

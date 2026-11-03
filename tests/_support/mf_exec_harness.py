@@ -32,6 +32,8 @@ from meshforge.agent.cache import CacheReporter
 from meshforge.agent.cas import AgentCas
 from meshforge.agent.conditions.runner import ConditionRunner, probe_kinds
 from meshforge.agent.envs.node_prepare import PrepareService
+from meshforge.agent.execution.activation import ExecutionActivator
+from meshforge.agent.execution.cpu_cgroup import CpuCgroupProbe
 from meshforge.agent.execution.docker_runtime import DockerConfig, DockerRuntime
 from meshforge.agent.execution.executor import Executor
 from meshforge.agent.execution.offer import ExecutionSetup, build_execution
@@ -47,6 +49,7 @@ from meshforge.agent.peer.probe import ProbeService
 from meshforge.agent.policy import LivePolicy
 from meshforge.agent.runtime import (
     build_live_policy,
+    cgroup_updater,
     controller_endpoint,
     controller_host,
     route_commands,
@@ -131,6 +134,8 @@ class ExecAgent:
         self.policy_task: asyncio.Task[None] | None = None
         self.live_policy: LivePolicy | None = None
         self.guard: OwnerGuard | None = None
+        self.activator: ExecutionActivator | None = None
+        """V1.0 G8 F5: completes a look-only setup at the first Run jobs on."""
         self.activity = FakeActivity()
         self.task: asyncio.Task[None] = asyncio.create_task(client.run())
 
@@ -156,6 +161,7 @@ class ExecAgent:
         agent_overrides: Mapping[str, Any] | None = None,
         fake_gpus: int = 0,
         renew: bool = False,
+        cgroup_probe: Callable[[], CpuCgroupProbe] | None = None,
     ) -> ExecAgent:
         """``fake_gpus`` (V0.6 G2): declare that many 4 GiB NVIDIA GPUs and let
         the subprocess runtime "pass" them (it only sets CUDA_VISIBLE_DEVICES),
@@ -169,19 +175,28 @@ class ExecAgent:
         )
         identity = load_or_create(settings.identity_dir)
         hardware = basic_hardware()
-        if setup is None:
-            setup = await build_execution(
+
+        async def build(*_a: Any, **kw: Any) -> ExecutionSetup:
+            """build_execution as serve() calls it (+ the harness's runtimes);
+            V1.0 G8 F5: also what the activator calls with side_effects=True."""
+            built = await build_execution(
                 settings,
                 node_id=str(identity.node_id),
                 host_has_nvidia_gpu=fake_gpus > 0,
                 docker_factory=None if docker else no_docker,
+                side_effects=kw.get("side_effects"),
+                **({} if cgroup_probe is None else {"cgroup_probe": cgroup_probe}),
             )
             if not venv:
-                setup = dataclasses.replace(
-                    setup,
-                    offer=dataclasses.replace(setup.offer, venv=None),
-                    runtimes={k: v for k, v in setup.runtimes.items() if k != "venv"},
+                built = dataclasses.replace(
+                    built,
+                    offer=dataclasses.replace(built.offer, venv=None),
+                    runtimes={k: v for k, v in built.runtimes.items() if k != "venv"},
                 )
+            return built
+
+        if setup is None:
+            setup = await build()
         hardware.capabilities[:] = clip_capabilities(
             [*hardware.capabilities, *setup.offer.capabilities]
         )
@@ -201,7 +216,9 @@ class ExecAgent:
             )
         client = AgentSessionClient(settings, identity, hardware=hardware)
         # V0.7 G5 (D142): the owner's live policy, wired as in serve().
-        live_policy = build_live_policy(settings, gpu_count=fake_gpus)
+        live_policy = build_live_policy(
+            settings, gpu_count=fake_gpus, cpu_cgroup=setup.cpu_cgroups is not None
+        )
         client.live_policy = live_policy
         # V0.7 G3: HTTPS with the node certificate, as in serve().
         http_tls = None if settings.security.insecure else load_http_tls(identity)
@@ -244,7 +261,13 @@ class ExecAgent:
         guard.preempt = executor.preempt_benchmarks
         client.owner_heartbeat = guard.heartbeat_fields
         preparer = (
-            PrepareService(settings, setup, client.send_report, node_id=client.node_id)
+            PrepareService(
+                settings,
+                setup,
+                client.send_report,
+                node_id=client.node_id,
+                policy=lambda: live_policy.policy,  # V1.0 G8 F5, as in serve()
+            )
             if setup.enabled
             else None
         )
@@ -261,15 +284,29 @@ class ExecAgent:
             prepare=preparer.handle if preparer is not None else None,
             probe=prober.handle,
         )
-        if setup.enabled:
+        if setup.enabled and setup.complete:
             await executor.start()
+        targets: list[Any] = [executor] if preparer is None else [executor, preparer]
+        activator = ExecutionActivator(
+            settings,
+            setup,
+            node_id=client.node_id,
+            host_has_nvidia_gpu=fake_gpus > 0,
+            hardware=hardware,
+            targets=targets,
+            start=executor.start,
+            on_cgroup=cgroup_updater(live_policy, gpu_count=fake_gpus),
+            request_handover=client.request_handover,
+            build=build,
+        )
         agent = cls(client, executor, setup)
+        agent.activator = activator
         agent.http_tls = http_tls
         agent.live_policy = live_policy
         agent.guard = guard
         agent.activity = activity
         agent.policy_task = start_policy_watch(
-            settings, client, live_policy, guard=guard
+            settings, client, live_policy, guard=guard, activator=activator
         )
         if renew:
             agent.renew_task = start_renewer(

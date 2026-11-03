@@ -19,6 +19,16 @@ one built and reports ``hit``. The command is network input: at most
 :data:`MAX_IMAGES` bases (known names only), :data:`MAX_ENVS` envs, each
 requirements file within ``[agent.envs] max_requirements_bytes`` and normalised
 (local paths refused) before anything runs.
+
+The owner's **live** policy is read per request (V1.0 G8 F5, D428: the agent
+probes every runtime at start, so the policy - not the runtime set - is what
+says no): ``accept_jobs`` off fails every item ``unauthorized`` /
+``policy_not_accepting`` and nothing is pulled or built (re-checked before
+every item, also after waiting for an earlier request); a look-only setup (jobs
+just turned on, the full one not built yet) fails them ``resource_busy`` /
+``execution_setup_pending``; ``allow_unsandboxed``
+off leaves only Docker to build with (an env that names an unsandboxed runtime
+fails ``unauthorized`` / ``policy_unsandboxed``).
 """
 
 from __future__ import annotations
@@ -42,6 +52,7 @@ from meshforge.agent.execution.runtime import (
     RunSpec,
     Stream,
 )
+from meshforge.common import owner_policy
 from meshforge.common.errors import FailureType
 from meshforge.common.ids import new_attempt_id
 from meshforge.common.logging import get_logger
@@ -60,6 +71,7 @@ MAX_ENVS: Final = 32
 _REQUEST_ID_RE: Final = re.compile(r"[A-Za-z0-9_-]{1,64}")
 _PYTHON_RE: Final = re.compile(r"3\.\d{1,2}")
 _RUNTIMES: Final = ("docker", "venv", "subprocess")
+_UNSANDBOXED: Final = frozenset({"venv", "subprocess"})
 _REMEMBERED: Final = 64
 _DETAIL_CHARS: Final = 300
 
@@ -124,8 +136,12 @@ class PrepareService:
         prepare_images: Callable[[Sequence[str]], Awaitable[PrepareReport]]
         | None = None,
         clock: Callable[[], float] = time.monotonic,
+        policy: Callable[[], owner_policy.OwnerPolicy] | None = None,
     ) -> None:
+        """``policy``: the owner's current policy (None = no owner policy:
+        tools and tests; the agent always wires its live one)."""
         self._settings = settings
+        self._policy = policy
         self._setup = setup
         self._send = send_report
         self._node_id = node_id
@@ -221,15 +237,39 @@ class PrepareService:
             request.done = True
             await self._report(request)
             return
+        blocked = self._blocked()
+        if blocked is not None:
+            for item in request.items:
+                item.fail(*blocked)
+            request.done = True
+            log.info(
+                "agent.prepare.refused",
+                node_id=self._node_id,
+                request_id=request.request_id,
+                reason=blocked[1],
+            )
+            await self._report(request)
+            return
         await self._report(request)  # accepted: every item pending
         async with self._lock:
+            # reviewer F5 (TOCTOU): a request can wait here behind another one
+            # while the owner turns jobs off - re-checked before every item
             images = [i for i in request.items if i.kind == "image"]
             if images:
-                await self._images(images)
+                blocked = self._blocked()
+                if blocked is not None:
+                    for item in images:
+                        item.fail(*blocked)
+                else:
+                    await self._images(images)
                 await self._report(request)
             for index, env in enumerate(request.envs):
                 item = request.items[len(images) + index]
-                await self._env(request, item, env)
+                blocked = self._blocked()
+                if blocked is not None:
+                    item.fail(*blocked)
+                else:
+                    await self._env(request, item, env)
                 await self._report(request)
         request.done = True
         await self._report(request)
@@ -271,8 +311,37 @@ class PrepareService:
                     image.reason,
                 )
 
+    def replace_setup(self, setup: ExecutionSetup) -> None:
+        """V1.0 G8 F5 (D428): the full setup built at the first enable."""
+        self._setup = setup
+
+    def _blocked(self) -> tuple[FailureType, str, str] | None:
+        """Why nothing may be pulled or built right now (None = go on)."""
+        policy = None if self._policy is None else self._policy()
+        if policy is not None and not policy.accept_jobs:
+            return (
+                FailureType.UNAUTHORIZED,
+                "policy_not_accepting",
+                "the node's owner does not accept jobs now ([agent.policy] "
+                "accept_jobs): nothing is pulled or built",
+            )
+        if not self._setup.complete:
+            return (
+                FailureType.RESOURCE_BUSY,
+                "execution_setup_pending",
+                "Run jobs was just turned on; this node is setting up its "
+                "runtimes - try again in a moment",
+            )
+        return None
+
+    def _unsandboxed_allowed(self) -> bool:
+        policy = None if self._policy is None else self._policy()
+        return policy is None or policy.allow_unsandboxed
+
     def _runtime(self, wanted: str, base: str) -> tuple[str, _Preparer] | None:
-        order = (wanted,) if wanted else _RUNTIMES
+        order: tuple[str, ...] = (wanted,) if wanted else _RUNTIMES
+        if not self._unsandboxed_allowed():
+            order = tuple(name for name in order if name not in _UNSANDBOXED)
         for name in order:
             if name == "venv" and base != "python-cpu":
                 continue  # the venv runtime provides python-cpu only (G2)
@@ -297,6 +366,18 @@ class PrepareService:
             item.fail(exc.failure_type, exc.reason, exc.message)
             return
         chosen = self._runtime(env.runtime, env.base)
+        if (
+            chosen is None
+            and env.runtime in _UNSANDBOXED
+            and not self._unsandboxed_allowed()
+        ):
+            item.fail(
+                FailureType.UNAUTHORIZED,
+                "policy_unsandboxed",
+                f"the node's owner does not allow the unsandboxed {env.runtime} "
+                "runtime ([agent.policy] allow_unsandboxed)",
+            )
+            return
         if chosen is None:
             item.fail(
                 FailureType.NO_FEASIBLE_PLAN,

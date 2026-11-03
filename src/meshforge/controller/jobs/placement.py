@@ -10,14 +10,19 @@ stream to it, either return nothing (the job may go there) or raise
 
 * ``not_found`` - no such node;
 * ``no_feasible_plan`` - the node is not ONLINE, has no live session, or the
-  planner rejects it statically: no ``exec`` capability (its owner has not
-  enabled execution, D45), cannot give a GPU to a job that requires one (no
+  planner rejects it statically: no ``exec`` capability (its agent has no
+  runtime, D45/D428), cannot give a GPU to a job that requires one (no
   GPU, no ``exec-gpu``, or the owner allows no GPU jobs), reports less VRAM /
   RAM / CPU threads than the manifest asks for, has no runtime for the job's
   base, or allows no jobs of its kind (D105 slots), or (V0.7 G5, D142) its
   owner's live policy refuses the job (``policy_*`` codes: not accepting, the
   submitter not in ``allowed_users``, RAM/CPU/VRAM over the per-job limit, a
   network or an unsandboxed runtime the owner does not allow).
+
+The slot limits are the node's live ones when a session gives them (``slots``:
+``LiveSession.policy_slots``, set by every ``PolicyUpdate`` - V1.0 G8 F5: the
+owner turning the GPU switch on or off after the Hello counts at submit, as it
+does in the planner), else the Hello's.
 
 Hardware numbers come from the node's last ``Hello.hardware`` (proto field names,
 64-bit values as JSON strings); a value the node did not report is not held
@@ -44,6 +49,13 @@ __all__ = ["MAX_REJECTIONS_SHOWN", "PlacementError", "check_auto", "check_placem
 
 MAX_REJECTIONS_SHOWN: Final = 64
 
+Slots = tuple[int | None, int | None]
+"""``(max_cpu_jobs, max_gpu_jobs)`` as a session holds them (None = not sent)."""
+
+
+def _slots(node: NodeRecord, live: Slots | None) -> Slots:
+    return (node.cpu_slots, node.gpu_slots) if live is None else live
+
 
 class PlacementError(MeshForgeError):
     default_failure_type = FailureType.NO_FEASIBLE_PLAN
@@ -56,22 +68,25 @@ def check_placement(
     connected: bool,
     policy: OwnerPolicy | None = None,
     owner_name: str | None = None,
+    slots: Slots | None = None,
 ) -> None:
-    """Raise :class:`PlacementError` unless ``node`` can take this job now."""
+    """Raise :class:`PlacementError` unless ``node`` can take this job now.
+    ``slots``: the session's live slot limits (module docstring)."""
     if node is None:
         raise PlacementError("no such node", failure_type=FailureType.NOT_FOUND)
     if node.state is not NodeState.ONLINE:
         raise PlacementError(f"the node is {node.state.value}, not online")
     if not connected:
         raise PlacementError("the node has no live session with this controller")
+    cpu_slots, gpu_slots = _slots(node, slots)
     snapshot = node_snapshot(
         node.node_id,
         state=node.state.value,
         connected=connected,
         hardware=node.hardware,
         hardware_scores=node.hardware_scores,
-        advertised_cpu_slots=node.cpu_slots,
-        advertised_gpu_slots=node.gpu_slots,
+        advertised_cpu_slots=cpu_slots,
+        advertised_gpu_slots=gpu_slots,
         policy=policy,
     )
     request = plan_request(
@@ -93,6 +108,7 @@ def check_auto(
     *,
     policies: Mapping[str, OwnerPolicy | None] | None = None,
     owner_name: str | None = None,
+    slots: Mapping[str, Slots | None] | None = None,
 ) -> None:
     """D104: an auto-placed job must be runnable on at least one enrolled node
     **some day** - the static rules only (capabilities, hardware, owner slot
@@ -108,16 +124,18 @@ def check_auto(
         owner_name=owner_name,
     )
     policies = policies or {}
+    live_slots = slots or {}
     rejections: list[dict[str, str]] = []
     for node in sorted(nodes, key=lambda n: n.node_id):
+        cpu_slots, gpu_slots = _slots(node, live_slots.get(node.node_id))
         snapshot = node_snapshot(
             node.node_id,
             state=node.state.value,
             connected=False,
             hardware=node.hardware,
             hardware_scores=node.hardware_scores,
-            advertised_cpu_slots=node.cpu_slots,
-            advertised_gpu_slots=node.gpu_slots,
+            advertised_cpu_slots=cpu_slots,
+            advertised_gpu_slots=gpu_slots,
             policy=policies.get(node.node_id),
         )
         refused = static_rejection(request, snapshot)

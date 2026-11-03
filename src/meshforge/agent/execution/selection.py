@@ -1,21 +1,26 @@
 """Which runtimes this node offers, the capability tags that say so, and which runtime
 runs a given job (brief D45/D51, ADR-0014).
 
-The tags are **computed here but not sent yet**: G4 adds them to ``Hello``'s
-``HardwareSummary.capabilities``. The rules:
+The tags go into ``Hello``'s ``HardwareSummary.capabilities``. They say what this
+agent **can** run, never what its owner **allows** (V1.0 G8 F5, D428: the owner's
+live policy decides that, on both sides). The rules:
 
-* ``[agent.execution] enabled = false`` -> no tag at all (the owner has not opted in;
-  the controller never dispatches to a node without ``exec``).
+* an offer built ``enabled = false`` (:func:`~.offer.disabled_setup`, tests and
+  tools) -> no tag at all; the agent itself always probes (``offer.build_execution``).
 * ``exec-docker`` when the Docker probe found a usable daemon.
-* ``exec-subprocess`` only with ``allow_unsandboxed = true`` (the second opt-in):
-  otherwise the unsandboxed runtime is neither advertised nor chosen.
-* ``exec-venv`` (V0.5 D86) likewise only with ``allow_unsandboxed = true``: the venv
-  runtime is unsandboxed too (it differs from ``subprocess`` in *which* Python and
-  packages a job sees, not in isolation).
+* ``exec-subprocess`` when the unsandboxed subprocess runtime is offered. The agent
+  offers it whatever ``allow_unsandboxed`` says now; the policy is checked per
+  attempt (and by the planner), so turning it on is live. ``allow_unsandboxed =
+  False`` here (:func:`execution_offer`) still leaves it out, for callers that want
+  the old shape.
+* ``exec-venv`` (V0.5 D86) likewise: the venv runtime is unsandboxed too (it
+  differs from ``subprocess`` in *which* Python and packages a job sees, not in
+  isolation).
 * ``exec`` when at least one runtime is offered.
 * ``exec-gpu`` when an offered runtime can give a job an NVIDIA GPU: Docker whose
   probe verified (or, without a local probe image, assumed) GPU pass-through, or the
-  subprocess runtime on a host with an NVIDIA GPU.
+  subprocess runtime on a host with an NVIDIA GPU. Whether GPU jobs may run is the
+  owner's ``max_gpu_jobs`` (live slots), not this tag.
 
 The constants are the wire spelling and live in :mod:`meshforge.common.capabilities`
 (D60), which the controller's placement check reads too; they are re-exported here.

@@ -48,3 +48,22 @@ mDNS. Both are acceptable for telemetry, not for execution. Details: `docs/brief
   capability tags `exec`, `exec-docker`, `exec-subprocess`, `exec-gpu`, `FailureType.unauthorized` on the job API.
 - V0.7 must supersede this ADR: mTLS identity for agents, and user/API-key identity for REST.
 - Revisit earlier if the lab ever runs on a network the team does not control.
+
+## Amendment 2026-11-03 (V1.0 G8 F5, D428) - CAN vs ALLOWS, look only, act later
+
+*Supersedes in part* D45 ("only an enabled agent advertises the `exec` capability"; "`allow_unsandboxed = false`:
+`exec-subprocess` is not advertised") and D160 / V0.7 G5 fix r1 ("`policy set`, then restart once").
+
+- **Capabilities say what the agent CAN run**, the owner's live policy (`[agent.policy]` + `policy.toml`) says what it
+  **ALLOWS**. An agent advertises `exec*` for the runtimes it found even while `accept_jobs` is off; the controller
+  refuses `policy_not_accepting`, the agent refuses every attempt. Turning Run jobs (or Allow jobs without a
+  container) on applies live, no restart.
+- **Run jobs off = look only** (team decision). With `accept_jobs` off at start the agent performs read-only checks
+  only: Docker API (ping, version, info, local image lookup; GPU pass-through assumed from the registered runtimes),
+  `uv --version`, NVIDIA GPU discovery/NVML reads, `tc qdisc show`. It does **not** start any container (GPU-probe
+  container, orphan sweep) and does **not** write cgroups (`cgroup.subtree_control`, leftover sweep).
+- **First Run jobs on = act, once**: the side-effecting probes run, the full setup replaces the look-only one, and
+  the session is handed over so a fresh Hello carries the new capabilities (`agent/execution/activation.py`).
+- Unchanged: the controller never dispatches to a node without `exec`; an agent never runs an attempt its current
+  policy refuses; fail-closed on a broken policy (`DENY_ALL`, no slots); the unpinned-controller warning (now also at
+  every off -> on).
