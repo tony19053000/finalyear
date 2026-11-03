@@ -282,3 +282,12 @@ evidence: this entry
 when: 2026-11-01 (local, after the block above)
 result: origin/lab/L1 has SIGNAL: controller-up url=https://192.168.31.13:47110 fp=05:6B:7B:A3:...:45:72:45:85
 SIGNAL: installed L2
+
+---
+# 2026-11-03 - after the break
+
+### IP re-check - OK
+when: 2026-11-03 15:04 (local)
+result: Wi-Fi 192.168.31.155 (unchanged), JARVIS Private, 5 GHz, signal 96%. L2-ready unchanged, not re-emitted.
+    Found: MeshForgeAgent service Running, C:\Program Files\MeshForge\current.txt = 0.17.0-1 (installed during the break). C:\ProgramData\MeshForge not readable without admin; join state unknown - asking the human.
+    Leftover firewall rule "MeshForge S2" still present.
