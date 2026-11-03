@@ -211,3 +211,17 @@ BUG: on L4 (Windows 11, Wi-Fi JARVIS, Private) the installed agent never finds t
     Possible workaround (Lead to decide, not done): set `[agent] controller_address = "192.168.31.13:47101"` in
     C:\ProgramData\MeshForge\config\config.toml (Administrator) + Restart-Service MeshForgeAgent.
     Blocks: every L4 job/phase (V0.3 C3.7 LIVE included).
+
+### C17-e workaround (Lead note) - attempt 1 - FAIL (wrong port in the note)
+when: 2026-11-03 17:03 (local)
+commands (human, Administrator):
+    C:\ProgramData\MeshForge\config\config.toml did NOT exist (only C:\ProgramData\MeshForge\policy.toml). Created it with exactly:
+        [agent]
+        controller_address = "192.168.31.13:47101"
+    Restart-Service MeshForgeAgent; agent.log -Tail 5; identity show
+result: agent now dials the controller (session_epoch 0 -> 5, CONNECTING -> HELLO_SENT), then
+    stream_ended code UNIMPLEMENTED "Method not found!" -> BACKOFF. 47101 is the ENROLL port
+    (src/meshforge/controller/settings.py: DEFAULT_GRPC_PORT = 47100, DEFAULT_ENROLL_PORT = 47101).
+    Test-NetConnection 192.168.31.13:47100 = True. Attempt 2 uses 47100.
+BUG (Lead note / ANNOUNCE): "gRPC 47101" should be 47100 for the agent session; 47101 is enrollment.
+NOTE: this line pins L1's IP; if L1's IP changes, controller_address must be updated.
