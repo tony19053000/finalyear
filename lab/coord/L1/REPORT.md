@@ -607,3 +607,9 @@ result: "No node pair measured yet"; probes on, started 0, measured 0, failed 0.
     L2 7.8 MB/s, L4 4.5 MB/s, L3 6.7 MB/s (1 sample each). Node-to-node probes need `[agent.peer] bind` on every agent (ANNOUNCE 2026-11-04).
     Linux path for the installed agent: /etc/meshforge/config.toml (SYSTEM_LINUX_CONFIG_DIR; file does not exist yet). HUMAN turns peer serving on in all 4, then retry after 5 min.
 evidence: lab/reports/raw/2026-11-04-V0.6-sched/C-network.txt, C-network.json
+
+### C6.13-a (prep) - L1 peer serving on - OK
+commands: HUMAN: printf '[agent.peer]\nbind = "192.168.31.13"\n' | sudo tee /etc/meshforge/config.toml && sudo systemctl restart meshforge-agent
+result: agent restarted 02:57:20 IST; journal agent.peer.listening; ss: 192.168.31.13:47120 LISTEN. (Correction: my earlier "peer_endpoint None" checks read a JSON key
+    that does not exist in `compute nodes --json` - not evidence that peers were off; V0.5 doctor "peer Off" and the empty probe matrix are.)
+SIGNAL: peer-on L1 ip=192.168.31.13
