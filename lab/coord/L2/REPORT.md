@@ -301,3 +301,12 @@ result: "MeshForge S2" rule removed (no MeshForge lab rules left).
     sc queryex: RUNNING, PID 25472. current.txt 0.17.0-1. setup-result.json: outcome ok, version 0.17.0-1, node_id null (at install time, before any join).
     meshforge-agent: "not recognized" in the admin window (that window was probably opened before the installer added C:\Program Files\MeshForge\bin to PATH). Retrying with the full path.
 evidence: lab/reports/raw/2026-11-03-V0.17-install/L2-checks.txt
+
+### C17-d - Check (part 2) - not joined yet
+when: 2026-11-03 15:25 (local)
+commands:
+    (human, Administrator) "C:\Program Files\MeshForge\bin\meshforge-agent.cmd" identity show / policy show / --version
+result: meshforge-agent 0.17.0 (git 3fca750858ea, python 3.12.14, bundle). node_id node_01M6GCKN7PYT2J297BT241P436, enrolled: False ("not joined to a fabric yet").
+    policy (defaults): accept_jobs False, accept_gpu_sessions False, allow_unsandboxed False, allow_network False, max_cpu_jobs 1.
+    The join (C17-c console part) is still to do: waits for L1's invite code for L2.
+evidence: lab/reports/raw/2026-11-03-V0.17-install/L2-checks2.txt
