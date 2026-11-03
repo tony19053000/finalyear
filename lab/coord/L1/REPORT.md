@@ -475,3 +475,10 @@ result: L1 job_01M6HBHQHWHQDEWAERM8GXECDR + job_01M6HBHV2YAHK73J3QE3X1NAC9: "don
     compare.py: "IDENTICAL: metrics.json and weights.bin are byte-identical"; run.json cuda_device "NVIDIA GeForce RTX 3050 Laptop GPU". L1 OK.
     L2 (RTX 2050) job_01M6HBHYKSTNDHA1GZQ5Z6K10E: failed (user_error) "No module named 'torch'" (no Docker, subprocess runtime has no torch) - as the TODO predicted.
 evidence: lab/reports/raw/2026-11-04-V0.4-exec/D.txt
+
+### C4.15-d - Log latency, part E (c2) - L4 OK (L2, L3 waiting for their clock-offset)
+commands: J=$(compute run lab/workloads/log-ticker --node <L4-ID>); uv run python lab/exec_check.py latency $J --name L4 --clock-offset-ms -304
+    (offset = L4 -175 ms - L1 +129 ms; exec_check needs SSL_CERT_FILE=~/meshforge-fabric-ca.crt - it does not use the compute login CA. Lab-tool note for the Lead.)
+result: attempt 1 job_01M6HBJZH2EEFMVZB0K4K67EFH: CERTIFICATE_VERIFY_FAILED; follower attached ~1 min late -> p50 2408 / max 7592 ms "within false" - INVALID (follower not connected before the ticks).
+    attempt 2 job_01M6HBKM7V5MKR3FB01Q4941MV: 100 lines, p50 365.3, p95 450.3, max 527.4 ms, within true (bound 1000 ms).
+evidence: lab/reports/raw/2026-11-04-V0.4-exec-check.jsonl (tool output)
