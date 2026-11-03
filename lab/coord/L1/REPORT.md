@@ -366,3 +366,13 @@ result: 5 reps, rep 1 not counted (Enter pressed ~20 s after Wi-Fi off: operator
     the fabric part (reconnect once the network is back) is not separated in this measurement. Lead to judge.
 evidence: lab/reports/2026-11-03-V0.3-fabric-watch.md, lab/reports/raw/2026-11-03-V0.3-fabric-watch/l1-dffe8596__mohit-cable-124530-a2ec565d.json
 SIGNAL: C3.7-a done L3 (L3 human: Wi-Fi stays ON now)
+
+### C3.7-a - Wi-Fi drop, L2 (AILESH) - FAIL (exit 3; recorded, non-blocking)
+commands:
+    uv run python lab/fabric_check.py --name L1 watch --node AILESH --link wifi   (LIVE)
+result: rep 1 not counted (Enter 11.26 s after Wi-Fi off: operator timing). 4 valid reps -> INVALID (n=4).
+    OFFLINE: 5.70 / 5.93 / 4.93 / 4.30 s (mean 5.22) - all within 8 s.
+    ONLINE: 7.47 / 13.97 / 8.06 / 7.99 s (mean 9.37) - 3 of 4 within 10 s, rep 3 exceeded. Agent restarted: no (every rep).
+    Note for the Lead: the tool counts the first rep as late every time on Wi-Fi (operator learning); a 6-rep run would give n=5.
+evidence: lab/reports/2026-11-03-V0.3-fabric-watch.md, lab/reports/raw/2026-11-03-V0.3-fabric-watch/l1-dffe8596__ailesh-cable-125301-e8a1e463.json
+SIGNAL: C3.7-a done L2
