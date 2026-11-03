@@ -197,3 +197,17 @@ commands:
     uv run pytest tests/unit/common/test_bundle_case_insensitive.py tests/component/agent/test_docker_sandbox.py -q -rs -p no:cacheprovider
 result: 3 passed, 9 skipped in 2.48 s. Docker tests SKIPPED (7, no Docker daemon); 2 GPU tests skipped (need --run-gpu).
 SIGNAL: v04-g-done L4
+
+### C17-e (recheck) - L4 connected to controller? - FAIL (BLOCKED)
+when: 2026-11-03 16:46 (local)
+commands:
+    (Administrator) Get-Content C:\ProgramData\MeshForge\logs\agent.log -Tail 20; Get-NetTCPConnection -State Established | ? RemotePort -in 47101,47110
+    Test-NetConnection 192.168.31.13 -Port 47101
+result: agent NOT connected. Log loops DISCOVERING -> BACKOFF: "agent.discovery.none" service_type _meshforge-ctl._tcp.local. timeout 5 s,
+    then "discovery_failed", reason "controller_not_found"; attempt 198 at 11:16:35Z. No established TCP to 47101/47110.
+    identity: session_epoch 0 (L3 has 1 = has connected). TCP 192.168.31.13:47101 IS reachable from L4 (Test-NetConnection True).
+BUG: on L4 (Windows 11, Wi-Fi JARVIS, Private) the installed agent never finds the controller via mDNS, although the join worked and
+    the controller port is reachable. Possible cause: mDNS (UDP 5353) replies not reaching the service on this laptop.
+    Possible workaround (Lead to decide, not done): set `[agent] controller_address = "192.168.31.13:47101"` in
+    C:\ProgramData\MeshForge\config\config.toml (Administrator) + Restart-Service MeshForgeAgent.
+    Blocks: every L4 job/phase (V0.3 C3.7 LIVE included).
