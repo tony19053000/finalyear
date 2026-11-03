@@ -217,3 +217,14 @@ result: "logged in to https://192.168.31.13:47110 as admin (admin)", login lasts
 
 ### C17-g - controller up - OK
 SIGNAL: controller-up url=https://192.168.31.13:47110 fp=05:6B:7B:A3:97:89:CC:FB:A2:CC:A0:18:3F:2B:36:65:A3:99:7F:1D:4A:06:3A:51:98:72:8C:FF:45:72:45:85
+
+### C17-h (part 1) - L1 agent package install - OK (join pending)
+when: 2026-11-01 (install) / 2026-11-03 (recheck after 2-day break)
+commands:
+    before: uv run meshforge-agent identity show -> dev node_id node_01M6BMFVHJVZXC7AET3CFRE3AV, enrolled False
+    HUMAN: cd ~/mf-pkgs && sudo apt install ./meshforge-agent_0.17.0-1_amd64.deb
+result: installed 0.17.0-1 (291 MB). Package migrated the dev identity: "same node_id" node_01M6BMFVHJVZXC7AET3CFRE3AV,
+    key fingerprint 2058534e9ab79eda... verified, old dir renamed identity.migrated-20261101.
+    Install note: docker not given to the service by default (Give Docker access step). Same harmless _apt note as C17-c.
+    2026-11-03 recheck: merged origin/main (da64df11), read ANNOUNCE.md + LEAD NOTE. IP still 192.168.31.13. meshforge-controller active, meshforge-agent active.
+    `compute nodes` = 0 nodes: L1 agent not joined yet (invite + console join = HUMAN, next).
