@@ -619,3 +619,9 @@ commands: bash </dev/tcp/<ip>/47120 from L1 (4 s timeout)
 result: SIGNAL peer-on from L2 (192.168.31.155), L3 (192.168.31.71, "firewall rule MISSING"), L4 (192.168.31.244). All three: 47120 blocked from L1.
 BUG (confirmed on 3 of 3 Windows agents): with [agent.peer] bind set and the service restarted, no inbound 47120 firewall rule is created (sync_firewall).
     Asked the human whether to add a manual Private-profile rule on L2-L4 to continue part C/G; otherwise C and the peer parts stay blocked.
+
+### PAUSE - 2026-11-04 (human break, continue tomorrow)
+state: V0.2, V0.17a, V0.3, V0.4, V0.5 done (signals pushed). V0.6 in progress, stopped at C6.13-a.
+next: (1) human decides on a manual 47120 Private firewall rule on L2/L3/L4 (sync_firewall bug); (2) recheck `compute network` 5 min after the peers are reachable;
+    (3) C6.13-b wait v06-d-done from L2; (4) C6.13-c/d G1 Wi-Fi partition + G2 agent kill (LIVE). Parts E/F SKIPPED (folded into the V1.0 72 h soak).
+    L1 peer serving on (/etc/meshforge/config.toml); the iperf3 systemd service is still running on L1 (installed in V0.5) - harmless.
