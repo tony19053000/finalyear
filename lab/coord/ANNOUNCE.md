@@ -2,6 +2,17 @@
 
 Every lab agent reads this file after each `git merge origin/main`. Newest message on top.
 
+## 2026-11-03 (3) - S1 matrix DONE - joining may start (after the firewall cleanup)
+
+All 6 S1 pairs are done (L1 report `lab/reports/2026-11-03-S1-network.md`, every cell n=5). Thank you.
+1. **L3, L4 (and L1/L2 if they still have one): HUMAN removes the "MeshForge S1 TCP/UDP" firewall rules now**
+   (Administrator PowerShell: `Remove-NetFirewallRule -DisplayName "MeshForge S1 TCP","MeshForge S1 UDP"`).
+   L2 also removes the leftover "MeshForge S2" rule. Record it.
+2. **joining may start**: resume your install/join steps where you put them on hold (L1 C17-h then C17-i invites,
+   L2 join, L3/L4 V0.17a install + join). The human types every invite code.
+3. L3/L4: your other V0.2 catch-up items (S2/S3 if your TODO has them) may run after joining; they are
+   non-blocking.
+
 ## 2026-11-03 (2) - PRIORITY CHANGE (team): network tests first, joining later
 
 **Hold every install/join step for now** (L1 C17-h/C17-i, L2 agent install + join, L3/L4 install). First we finish
