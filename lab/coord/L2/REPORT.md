@@ -313,3 +313,5 @@ evidence: lab/reports/raw/2026-11-03-V0.17-install/L2-checks2.txt
 
 ### C17 - ON HOLD (ANNOUNCE 2026-11-03 (2): network tests first, joining later)
 result: join paused until ANNOUNCE says "joining may start". Next: S1 server again on L2 + clients L2->L3, L2->L4.
+
+S1 client RUNNING L2-to-L3
