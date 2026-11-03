@@ -435,3 +435,13 @@ result: lab/reports/2026-11-03-V0.3-fabric-{inventory,watch,restart}.md + raw fo
 ### LEAD CHECKPOINT V0.3
 result: C3.15-a OK, C3.7-a FAIL (OFFLINE always <= 6 s; ONLINE over 10 s in 7 of 14 valid Wi-Fi reps), C3.7-b OK (4 laptops x 6), C3.15-b OK.
 SIGNAL: V0.3-done
+
+## Phase V0.4 (2026-11-04)
+
+### C4.0 - HUMAN BATCH - OK
+result: human agreed to the ~4 GB image pull. IP still 192.168.31.13; controller + agent active; 4 nodes online/connected; 27 GB free.
+
+### C4.15-a - Clock offset (A4) - OK (L1 part)
+commands: timedatectl; timedatectl timesync-status (chrony not installed)
+result: synchronized yes, NTP ntp.ubuntu.com, L1 offset +128.954 ms (vs NTP, poll 34 min). Waiting for SIGNAL clock-offset from L2/L3/L4.
+SIGNAL: clock-offset L1 ms=+129
