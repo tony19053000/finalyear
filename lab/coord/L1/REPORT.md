@@ -482,3 +482,12 @@ commands: J=$(compute run lab/workloads/log-ticker --node <L4-ID>); uv run pytho
 result: attempt 1 job_01M6HBJZH2EEFMVZB0K4K67EFH: CERTIFICATE_VERIFY_FAILED; follower attached ~1 min late -> p50 2408 / max 7592 ms "within false" - INVALID (follower not connected before the ticks).
     attempt 2 job_01M6HBKM7V5MKR3FB01Q4941MV: 100 lines, p50 365.3, p95 450.3, max 527.4 ms, within true (bound 1000 ms).
 evidence: lab/reports/raw/2026-11-04-V0.4-exec-check.jsonl (tool output)
+
+### C4.15-e - Cancel + timeout on L2, part F (c3) - cancel OK, timeout FAIL (overshoot 3.47 s > 2 s)
+commands: F1 sleeper (sleep 300) --node <L2-ID>, waited for running, uv run python lab/exec_check.py cancel $J --name L2
+    F2 compute.yaml limits {timeout: 20s}; compute run . --node <L2-ID> -f; transitions from `compute jobs <J> --json`
+result: F1 job_01M6HBMPPBVRV9NH30256888X2: state cancelled, 3.091 s (bound 5 s) - OK.
+    F2 job_01M6HBN8SWHS9CZMQ3J8JJ58AZ: failed (deadline_exceeded), exit 126 - OK; running 18:45:03.063Z -> failed 18:45:26.531Z = 23.47 s,
+    overshoot 3.47 s > 2 s bound - FAIL. Possible cause: the 20 s are counted from the process start on L2 (after venv/env prepare that happens
+    after the controller marks "running"), plus Wi-Fi report delay. Lead to judge (BUG candidate: timeout reference point).
+    LIVE leftover check (Task Manager on L2 for a leftover python after the cancel): asked of L2's human, see L2 REPORT.
