@@ -273,3 +273,10 @@ result: install already done 2026-11-01 (part 1 above): dpkg meshforge-agent 0.1
     `meshforge-agent identity show` / `doctor` need sudo (system state): HUMAN runs them, output added in the next entry.
 evidence: lab/reports/raw/2026-11-01-V0.17-install/L1-agent-journal.txt
 SIGNAL: installed L1
+
+### C17-h (part 3) - identity show + doctor after install (HUMAN ran with sudo) - OK
+result: identity show: node_id node_01M6BMFVHJVZXC7AET3CFRE3AV (= dev node_id, migration kept it), session_epoch 0,
+    key_fingerprint 2058534e9ab79eda..., path /var/lib/meshforge/identity, enrolled False ("not joined yet").
+    doctor 0.17.0 (git 3fca750858ea): OK version/upgrade/gpu (RTX 3050 Laptop)/cuda 13.2/disk 27 GiB/firewall (ufw off)/peer off;
+    WARN joined (expected: joint join pending), WARN docker (Give Docker access not done yet). "doctor: nothing needs attention".
+    Waiting for the joint join (Lead). Human makes 4 invites on the dashboard (codes never written down).
