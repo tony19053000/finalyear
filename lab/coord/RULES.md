@@ -14,7 +14,8 @@ You work through the WHOLE TODO on your own, top to bottom, version after versio
    `git add lab/ && git commit -m "lab(<Ln>): <step id> <ok|FAIL>" && git push origin lab/<Ln>`. Do NOT stop or
    ask anything after a successful step; go straight to the next one.
 3. Every ~30 minutes, and at every `LEAD CHECKPOINT`, run `git fetch origin && git merge origin/main` so you
-   pick up Lead fixes/new TODO lines without being told. Do not stop at a checkpoint: write the SIGNAL line,
+   pick up Lead fixes/new TODO lines without being told. After every merge, read `lab/coord/ANNOUNCE.md`
+   (Lead messages to all laptops, newest on top). Do not stop at a checkpoint: write the SIGNAL line,
    push, and continue.
 4. `WAIT:` steps: check the condition yourself (`git fetch origin`, read the other laptop's REPORT on
    `origin/lab/<Lx>`) every 2-3 minutes. While waiting, you may do later steps that do not depend on it.
