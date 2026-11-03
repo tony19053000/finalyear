@@ -613,3 +613,9 @@ commands: HUMAN: printf '[agent.peer]\nbind = "192.168.31.13"\n' | sudo tee /etc
 result: agent restarted 02:57:20 IST; journal agent.peer.listening; ss: 192.168.31.13:47120 LISTEN. (Correction: my earlier "peer_endpoint None" checks read a JSON key
     that does not exist in `compute nodes --json` - not evidence that peers were off; V0.5 doctor "peer Off" and the empty probe matrix are.)
 SIGNAL: peer-on L1 ip=192.168.31.13
+
+### C6.13-a (prep) - peer ports from L1 - BLOCKED on all 3 Windows laptops
+commands: bash </dev/tcp/<ip>/47120 from L1 (4 s timeout)
+result: SIGNAL peer-on from L2 (192.168.31.155), L3 (192.168.31.71, "firewall rule MISSING"), L4 (192.168.31.244). All three: 47120 blocked from L1.
+BUG (confirmed on 3 of 3 Windows agents): with [agent.peer] bind set and the service restarted, no inbound 47120 firewall rule is created (sync_firewall).
+    Asked the human whether to add a manual Private-profile rule on L2-L4 to continue part C/G; otherwise C and the peer parts stay blocked.
