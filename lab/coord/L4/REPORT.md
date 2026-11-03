@@ -122,3 +122,8 @@ result: ANNOUNCE 2026-11-03 (2): installs/joins held until the Lead posts "joini
 
 ### CU-b - S1 server - still RUNNING (HEAD b46ddab0)
 result: serving on 192.168.31.244:47201, waiting for client runs L1->L4, L2->L4, L3->L4 (L4 runs no client per the ANNOUNCE table).
+
+### CU-b - S1 server (0.2.5) - OK
+result: served the three pairs: origin/lab/L1 s1-client-done L1-to-L4, origin/lab/L2 s1-client-done L2-to-L4,
+    origin/lab/L3 s1-client-done L3-to-L4. Server stopped (killed by agent after the last pair). Server writes no JSON; numbers are in the clients' raw files.
+    Firewall rules "MeshForge S1 TCP/UDP": removal asked of the human.
