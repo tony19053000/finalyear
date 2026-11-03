@@ -157,7 +157,7 @@ def _json(path: Path, require_root: bool) -> dict[str, str] | None:
         return None
     try:
         data = json.loads(text)
-    except ValueError:
+    except (ValueError, RecursionError):
         return None
     if not isinstance(data, dict):
         return None

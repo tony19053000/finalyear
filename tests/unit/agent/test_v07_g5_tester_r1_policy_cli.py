@@ -34,8 +34,9 @@ def _set(*items: str) -> str:
     return result.stdout
 
 
-def test_set_allow_unsandboxed_on_says_a_restart_is_needed() -> None:
-    assert "restart" in _set("allow_unsandboxed=true")
+def test_set_allow_unsandboxed_on_needs_no_restart() -> None:
+    """V1.0 G8 F5 (D428): the runtimes are probed whatever the policy says."""
+    assert "restart" not in _set("allow_unsandboxed=true")
 
 
 def test_turning_things_off_never_asks_for_a_restart() -> None:

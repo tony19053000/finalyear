@@ -1,8 +1,7 @@
 # What your laptop shares - the owner settings
 
 You, the laptop's owner, decide what other people's work may do on it - not the fabric's admin. Open
-**MeshForge** from the app menu and go to **Settings**. Changes apply within seconds; when one needs a restart the
-page says so and offers a *Restart now* button.
+**MeshForge** from the app menu and go to **Settings**. Changes apply within seconds - no restart needed.
 
 ![The owner settings](img/console-settings.png)
 
@@ -21,6 +20,14 @@ page says so and offers a *Restart now* button.
 | Name of this laptop | Shown in the dashboard next to its hostname. | none |
 
 A job that is already running is not stopped when you tighten a limit; the next one follows the new rules.
+
+**Run jobs off** means: your laptop is part of the fabric and says what it *could* run, but nobody's job is
+downloaded, prepared or run on it, and MeshForge only looks - it checks whether Docker and a graphics card are there,
+without starting anything in Docker and without changing system settings. (At start it does clean up what MeshForge
+itself may have left behind after a crash, such as a benchmark's network setting - nothing else.) **The first time you turn Run jobs on**,
+MeshForge finishes setting up (this can start one short check in Docker and set up its CPU limit) and reconnects to
+the fabric by itself within seconds. If that setup fails (for example Docker hangs), MeshForge keeps trying on its
+own for as long as Run jobs stays on. After that, turning Run jobs off and on takes effect at once.
 
 **Docker.** Jobs run safest in Docker containers. Docker access is the same as full admin rights on the laptop, so
 MeshForge never takes it by itself: right-click **MeshForge** in the app menu and choose **Give Docker access**

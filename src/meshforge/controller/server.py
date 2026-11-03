@@ -1221,7 +1221,11 @@ class ControllerRuntime:
             clock=loop.time,
         )
         listener = EnrollListener(
-            EnrollmentServicer(Enroller(engine, self.fabric), limiter)
+            EnrollmentServicer(
+                Enroller(engine, self.fabric),
+                limiter,
+                session_port=lambda: self.grpc_port,
+            )
         )
         self.enroll_port = await listener.start(
             self._enroll_bind,

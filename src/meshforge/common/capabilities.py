@@ -26,8 +26,11 @@ and hardware discovery succeeded. A node with this tag and no stored scores is
 not produce scores unless its configuration changes (brief §5g D37/D38)."""
 
 EXEC_CAPABILITY: Final = "exec"
-"""The agent's owner enabled execution (``[agent.execution] enabled``, D45). The
-controller never places or dispatches a job on a node without it (D50)."""
+"""The agent **can** run jobs: at least one runtime was found (D45/D50). The
+controller never places or dispatches a job on a node without it. Whether the
+owner **allows** jobs is the live policy (``accept_jobs``; V1.0 G8 F5, D428),
+not this tag: an agent from V1.0 on advertises it whatever ``accept_jobs`` says,
+one from before only when ``accept_jobs`` was on at its start."""
 EXEC_DOCKER_CAPABILITY: Final = "exec-docker"
 """A usable Docker runtime (D51)."""
 EXEC_SUBPROCESS_CAPABILITY: Final = "exec-subprocess"

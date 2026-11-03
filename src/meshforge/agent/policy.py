@@ -18,15 +18,13 @@ the controller (a ``PolicyUpdate`` report). No restart.
   local user cannot loosen this laptop's policy.
 * A tightened policy blocks the **next** ``StartAttempt``; attempts already
   running are not killed (the owner can cancel them; documented in OPERATIONS).
-* Two changes need a restart: an agent **started** with ``accept_jobs = false``
-  probed no runtime (D45: nothing is touched on a laptop that runs no jobs), and
-  one started with ``allow_unsandboxed = false`` never built the subprocess/venv
-  runtimes. Turning either on live is advertised but has no runtime to run on
-  until the agent restarts (``policy set`` says so; the planner sees no ``exec``
-  capability meanwhile). The restart probes from the **effective** policy -
-  configuration + this file (:func:`startup_policy`, fix r1 T-8) - so "policy
-  set, then restart once" really enables them. Turning them off and on again on
-  an agent started with them on is live, like every other change.
+* Every change is live, turning ``accept_jobs`` or ``allow_unsandboxed`` **on**
+  included (V1.0 G8 F5, D428): the agent probes all its runtimes at start
+  whatever the policy says (``execution/offer.py``) and advertises what it
+  *can* run; this policy says what it *may* run, re-checked at every
+  ``StartAttempt`` and read live by the controller's planner. (Before F5 an
+  agent started with either key off probed no such runtime and needed one
+  restart; :data:`RESTART_KEYS` is empty now.)
 * A limit set in the configuration is removed live with ``KEY=none``; the file
   stores it as the string ``"none"``.
 """
@@ -215,6 +213,13 @@ def parse_overlay(raw: bytes, path: Path) -> dict[str, Any]:
             f"the live policy file {path} is not valid TOML: {exc}",
             details={"reason": "toml"},
         ) from None
+    except RecursionError:
+        # tomllib recurses per nesting level: ~300 nested arrays exhaust the
+        # default recursion limit (F6). Typed, like any other bad TOML.
+        raise ConfigError(
+            f"the live policy file {path} is not valid TOML: nested too deeply",
+            details={"reason": "toml"},
+        ) from None
     unknown = sorted(set(data) - set(LIVE_KEYS))
     if unknown:
         raise ConfigError(
@@ -246,13 +251,15 @@ def effective_settings(
 
 
 def startup_policy(settings: AgentSettings) -> PolicySettings:
-    """The effective policy the runtimes are probed from at agent start
-    (configuration + ``<data_dir>/policy.toml``; V0.7 G5 fix r1, T-8).
+    """The effective policy at agent start (configuration +
+    ``<data_dir>/policy.toml``; V0.7 G5 fix r1, T-8). Since V1.0 G8 F5 (D428)
+    it no longer decides which runtimes are probed (all are); it is logged and
+    gates the start-up ``unpinned_controller`` warning.
 
     A live file that cannot be read or is not valid gives the configuration
-    alone (``agent.policy.invalid_at_start``): what is probed only decides
-    which runtimes *exist*; :class:`LivePolicy` fails the same file closed, so
-    nothing runs until it is fixed - and once fixed, it applies live."""
+    alone (``agent.policy.invalid_at_start``); :class:`LivePolicy` fails the
+    same file closed, so nothing runs until it is fixed - and once fixed, it
+    applies live."""
     path = policy_path(settings)
     try:
         return effective_settings(settings.agent.policy, read_overlay(path))
@@ -370,8 +377,21 @@ class LivePolicy:
         (or slots, or validity) changed."""
         if self._file_stamp() == self._stamp:
             return False
+        return self._apply(self._compute())
+
+    def set_not_enforced(
+        self,
+        not_enforced: tuple[str, ...] | Callable[[PolicySettings], tuple[str, ...]],
+    ) -> bool:
+        """V1.0 G8 F5 (D428): the enforcement facts changed (the CPU-share
+        cgroup became available when jobs were first turned on); recompute now.
+        True when the effective policy changed (the caller tells the
+        controller)."""
+        self._not_enforced = not_enforced
+        return self._apply(self._compute())
+
+    def _apply(self, state: PolicyState) -> bool:
         before = self.state
-        state = self._compute()
         if (
             state.policy == before.policy
             and state.cpu_slots == before.cpu_slots
@@ -402,15 +422,19 @@ class LivePolicy:
         on_change: Callable[[PolicyState], Awaitable[None]],
         *,
         interval_s: float,
+        on_idle: Callable[[], Awaitable[None]] | None = None,
     ) -> None:
-        """Poll the live file; call ``on_change`` after each effective change.
-        Supervised: a failing callback is logged, the watch goes on."""
+        """Poll the live file; call ``on_change`` after each effective change,
+        ``on_idle`` on every other tick (V1.0 G8 F5: retrying a failed
+        activation). Supervised: a failing callback is logged, the watch goes on."""
         while True:
             await asyncio.sleep(interval_s)
             try:
                 changed = await asyncio.to_thread(self.reload)
                 if changed:
                     await on_change(self.state)
+                elif on_idle is not None:
+                    await on_idle()
             except asyncio.CancelledError:
                 raise
             except Exception:
@@ -503,12 +527,11 @@ def clear_overlay(path: Path) -> bool:
     return False
 
 
-RESTART_KEYS: Final = {
-    "accept_jobs": "runtime",
-    "allow_unsandboxed": "subprocess/venv runtime",
-}
-"""Keys whose turning on needs a restart of an agent started with them off
-(module docstring)."""
+RESTART_KEYS: Final[Mapping[str, str]] = {}
+"""Keys whose turning on needs a restart of an agent started with them off -
+none since V1.0 G8 F5 (D428; module docstring). Was ``accept_jobs`` and
+``allow_unsandboxed``. Kept (empty) so ``PolicyChange.restart_keys`` and the
+console's ``restart_needed`` keep their shape."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -518,8 +541,8 @@ class PolicyChange:
     path: Path
     effective: PolicySettings
     restart_keys: tuple[str, ...]
-    """Keys turned on now that were off before: an agent started with them off
-    needs one restart to get the runtimes (:data:`RESTART_KEYS`)."""
+    """Keys turned on now that were off before and that an agent started with
+    them off only uses after a restart (:data:`RESTART_KEYS`; none since F5)."""
 
 
 def apply_changes(

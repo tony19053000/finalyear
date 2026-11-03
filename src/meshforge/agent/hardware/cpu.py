@@ -6,9 +6,12 @@ Source order per platform, best first, each one guarded:
   for logical threads (it is never wrong and never blocks).
 * **Linux**: ``/proc/cpuinfo`` ``model name`` for the marketing string
   (``platform.processor()`` returns only ``"x86_64"`` there).
-* **Windows**: ``platform.processor()`` (the CPU identifier, always set) and, when
-  a nicer name is wanted, one bounded PowerShell ``Win32_Processor`` CIM query -
-  the technique from ``lab/_inventory``, copied, not imported.
+* **Windows**: the registry's ``ProcessorNameString`` (the marketing string that
+  ``Win32_Processor.Name`` reports - WMI reads it from the same key), read in
+  :mod:`.cpu_windows` with ``winreg``: no child process. Until V1.0 G8 F6 this was
+  a PowerShell CIM query; a stalled PowerShell (Defender/AMSI, cold start) plus
+  its kill took ``hardware show`` past its 6 s deadline on the Windows CI
+  runner. Fallback: ``platform.processor()`` (the CPU identifier, always set).
 * **anything else** (macOS, BSD): ``platform.processor()``.
 
 Nothing here raises: a caller gets whatever was learned, with empty strings and
@@ -26,7 +29,7 @@ from pathlib import Path
 from typing import Final
 
 from meshforge.agent.hardware.optional import psutil_module
-from meshforge.agent.hardware.probe import Budget, ProbeOutcome, guarded, run_command
+from meshforge.agent.hardware.probe import Budget, ProbeOutcome, guarded
 
 __all__ = [
     "CPU_PROBE_CAP_S",
@@ -38,14 +41,10 @@ __all__ = [
 ]
 
 CPU_PROBE_CAP_S: Final = 2.0
-"""Cap for the whole CPU probe (only the Windows CIM path can spend it)."""
+"""Cap for the whole CPU probe (every source is a file or registry read now)."""
 
 _PROC_CPUINFO: Final = Path("/proc/cpuinfo")
 _PROC_MEMINFO: Final = Path("/proc/meminfo")
-
-_CIM_COMMAND: Final = (
-    "(Get-CimInstance Win32_Processor | Select-Object -First 1 -ExpandProperty Name)"
-)
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,7 +87,9 @@ def parse_meminfo_total_bytes(text: str) -> int:
 
 
 def parse_win32_processor(text: str) -> str:
-    """The processor name from the CIM query's output (first non-empty line)."""
+    """The processor name from a ``Win32_Processor.Name`` / registry
+    ``ProcessorNameString`` value: first non-empty line, whitespace collapsed
+    (Intel pads the registry string with leading spaces)."""
     for line in text.splitlines():
         stripped = " ".join(line.split())
         if stripped:
@@ -129,36 +130,35 @@ def _physical_cores(logical: int) -> int:
     return int(physical) if physical else logical
 
 
-def _windows_model(timeout_s: float) -> tuple[str, str]:
-    """``(model, source)`` on Windows: the CIM name if PowerShell answers, else
+def _registry_processor_name() -> str:
+    """``ProcessorNameString`` of CPU 0, or ``""`` (not Windows / not readable)."""
+    name = ""
+    if sys.platform == "win32":
+        from meshforge.agent.hardware.cpu_windows import processor_name_string
+
+        name = processor_name_string()
+    return name
+
+
+def _windows_model() -> tuple[str, str]:
+    """``(model, source)`` on Windows: the registry name, else
     ``platform.processor()`` (the ``PROCESSOR_IDENTIFIER`` string, always set)."""
-    result = run_command(
-        "powershell",
-        [
-            "-NoProfile",
-            "-NonInteractive",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-Command",
-            _CIM_COMMAND,
-        ],
-        timeout_s=timeout_s,
-    )
-    if result.ok:
-        model = parse_win32_processor(result.stdout)
-        if model:
-            return model, "windows-cim"
+    model = parse_win32_processor(_registry_processor_name())
+    if model:
+        return model, "windows-registry"
     return platform.processor(), "platform"
 
 
-def _collect(timeout_s: float) -> CpuFacts:
+def _collect(_timeout_s: float) -> CpuFacts:
+    # The budget slice is unused: no source here can block (F6 removed the
+    # PowerShell query), but ``guarded`` passes one to every probe.
     logical = os.cpu_count() or 0
     model, source = "", "platform"
     if sys.platform.startswith("linux"):
         model = parse_cpuinfo_model(_read(_PROC_CPUINFO))
         source = "proc" if model else "platform"
     elif sys.platform == "win32":
-        model, source = _windows_model(timeout_s)
+        model, source = _windows_model()
     if not model:
         model = platform.processor() or platform.machine() or ""
         source = "platform"

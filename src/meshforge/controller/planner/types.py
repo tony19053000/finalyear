@@ -76,7 +76,11 @@ class RejectCode(StrEnum):
 
     # --- static: the node can never run this job --------------------------------
     NOT_EXEC = "not_exec"
-    """The owner has not enabled execution (no ``exec`` capability)."""
+    """The node's agent can run no job: no ``exec`` capability (no runtime; or
+    an agent older than V1.0 that started with ``accept_jobs`` off). The text
+    names the owner's live ``accept_jobs`` when that is off too (V1.0 G8 F5,
+    D428). A node that *can* run jobs but whose owner has them off now is
+    :attr:`POLICY_NOT_ACCEPTING`."""
     NO_GPU = "no_gpu"
     """The job requires a GPU; the node has none."""
     NO_GPU_RUNTIME = "no_gpu_runtime"

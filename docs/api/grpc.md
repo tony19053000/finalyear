@@ -1161,6 +1161,7 @@ Package `meshforge.v1`.
 | `ca_cert_pem` | 2 | `bytes` | - | The fabric CA certificate, PEM (the same one the agent pinned). |
 | `fabric_id` | 3 | `string` | - | - |
 | `node_id` | 4 | `string` | - | The node_id the certificate names (echo of the CSR's, for the agent's check). |
+| `session_port` | 5 | `uint32` | - | V1.0 G8 F4: the port of the controller's session (AgentControl) listener. The agent remembers "<host it enrolled against>:session_port" as its last-known controller endpoint and dials it when mDNS finds nothing. A dial hint only: trust still comes from the fabric CA (mTLS). 0 = not known (an older controller, or the session listener is not bound yet). |
 
 ## `meshforge/v1/gpu.proto`
 

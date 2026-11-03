@@ -120,6 +120,7 @@ jobs:
           src/meshforge/agent/winservice_supervisor.py src/meshforge/agent/wininstall.py
           src/meshforge/agent/winsetup.py src/meshforge/agent/console/launcher_windows.py
           src/meshforge/agent/console/checks_windows.py src/meshforge/common/windows_service.py
+          src/meshforge/agent/hardware/cpu_windows.py src/meshforge/agent/hardware/cpu.py
       # V0.17 G5: the Windows installer's upgrade records, as Windows code too.
       - name: mypy --platform win32 (G5 upgrade records)
         run: >-
