@@ -535,3 +535,12 @@ result: push 1: "uploaded 6 files / 5368752863 bytes, skipped 0", "registered ds
     push 2: "uploaded 0 files / 0 bytes, skipped 6", "already registered as ds5g@1", 7.0 s (hashing only).
     push 3: "uploaded 1 files / 43748 bytes, skipped 5", "registered ds5g@2". (43748 bytes for a ~12-byte csv: QUESTION - is that the chunk/manifest framing? not a fail.)
 evidence: lab/reports/raw/2026-11-04-V0.5-data/E.txt
+
+### C5.11-e - Part F 5 GB fetch to L2 (c2, Wi-Fi) - attempt 1 FAIL (node_lost)
+commands: cd ~/mf-lab/reader; compute run . --node <L2-ID> -f   (input ds5g@1; L2 iperf3: up 237 / down 169 Mbit/s, 192 GB free)
+result: job_01M6HFPX055QCKC2B6HFSWN7JE failed (node_lost) after 17 s, exit 126. Controller journal: dispatched to L2, then within ~10 s
+    node.lease_expired for L2, L3 AND L4 (all three Windows agents at once), session.closed L2, retry_scheduled node_offline, attempt lost; pinned job -> failed.
+    All 4 nodes back online a few seconds later.
+BUG candidate (Lead): starting a 5 GB fetch over Wi-Fi made every Wi-Fi agent miss its 6 s lease - bulk data starves the control-plane heartbeats
+    on a shared Wi-Fi (or the fetch shares the agent's connection/event loop with the session). Reproduce: run part F on Wi-Fi. Rerunning once to see if it repeats.
+evidence: lab/reports/raw/2026-11-04-V0.5-data/F-attempt1.txt, F-attempt1-controller-journal.txt

@@ -1,0 +1,8 @@
+19:55:50
+compute: uploaded 2 files / 617 bytes, skipped 0
+job_01M6HFPX055QCKC2B6HFSWN7JE
+compute: job_01M6HFPX055QCKC2B6HFSWN7JE failed (node_lost)
+Command exited with non-zero status 126
+real 16.90 s
+19:56:07
+local sha256 b9124ddf4d3e9b6fd609354190cd4ac38907a1b11f72fbcfb0926b6c4976c113
