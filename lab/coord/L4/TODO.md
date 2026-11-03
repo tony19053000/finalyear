@@ -138,3 +138,15 @@ Exactly L3's V1.0 steps C10-0 to C10-g with `L3` -> `L4` (labels, file names `sa
 ---
 ## LEAD NOTE (2026-11-03): no firewall rule after install = by design
 The Windows agent only opens an inbound rule when peer serving is on (`[agent.peer] bind` set; `sync_firewall` in winservice_ops.py). By default it only dials out to the controller, so no rule is correct. V0.5 (peer transfers) turns peer serving on; the rule must appear then - check it there.
+
+---
+## LEAD NOTE (2026-11-03): workaround for C17-e (agent cannot find the controller via mDNS) - APPROVED
+Real product bug, the Lead is fixing it (agent should remember the controller it joined). Unblock L4 now:
+HUMAN, Administrator PowerShell:
+```
+notepad C:\ProgramData\MeshForge\config\config.toml
+```
+Under the `[agent]` section add (or set) the line `controller_address = "192.168.31.13:47101"`, save, then
+`Restart-Service MeshForgeAgent`. Record the exact config lines you changed (no secrets in it), then recheck
+C17-e (log shows connected, Established TCP to 47101, session_epoch >= 1). If L1's IP ever changes, this line must
+be updated - write that in the report. Then continue your TODO.

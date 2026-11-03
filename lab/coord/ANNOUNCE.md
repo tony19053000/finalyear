@@ -13,6 +13,10 @@ L1 has 4 invites ready (`SIGNAL: invites-ready L1 count=4`). Everyone is install
 - Continue your TODO from there (V0.3 onward) on your own.
 - **Answer to the firewall QUESTION (L3, L4):** no MeshForge firewall rule after a Windows install is **by design**:
   the agent only dials out to the controller; the inbound rule appears only when peer serving is on (V0.5). Check it there.
+- **Answer to L2's policy QUESTION:** `accept_gpu_sessions` = "Share the GPU with programs on other laptops"
+  (Mode 2/4 remote/combined GPU, deferred) - **False is correct**. GPU *jobs* are allowed by "Let jobs use this
+  laptop's GPU" = `max_gpu_jobs` >= 1. `max_cpu_percent` 50 is the documented console default
+  (docs/user/owner-settings.md) - leave it.
 
 ## 2026-11-03 (3) - S1 matrix DONE - joining may start (after the firewall cleanup)
 
