@@ -523,3 +523,7 @@ result: 17 GB free after V0.4 pulls (< 20 GB). Human approved removing ONLY pyto
 result: ~/mf-lab/ds5g = 5 x 1 GiB random part*.bin + labels.csv (5.1 G); ~/mf-lab/reader/{main.py,compute.yaml} (input ds5g@1 -> data/ds) as written.
     Part B check: `compute nodes` peer_endpoint = None on ALL 4 agents (peer serving is Off by default, doctor "peer Off").
 QUESTION: parts G/H need a peer endpoint. Per TODO, skipped unless owners turn on peer serving in the console (+ agent restart, bug F5?). Asked the human.
+
+### C5.11-c - Part D2 iperf3 server - started
+result: HUMAN installed iperf3 (/usr/bin/iperf3). `iperf3 -s -B 192.168.31.13` running in background. L2: run the client and record the receiver Bitrate.
+SIGNAL: iperf3-server-up ip=192.168.31.13
