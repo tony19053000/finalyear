@@ -119,9 +119,12 @@ async def test_a_restart_after_policy_set_probes_what_the_live_file_enables(
 
 
 @pytest.mark.asyncio
-async def test_a_live_file_that_turns_jobs_off_probes_nothing_at_start(
+@pytest.mark.extras("agent")
+async def test_a_live_file_that_turns_jobs_off_still_probes_at_start(
     tmp_path: Path,
 ) -> None:
+    """V1.0 G8 F5 (D428, replaces "probes nothing"): the runtimes are probed
+    whatever the policy says; the live policy refuses every attempt instead."""
     settings = _settings(tmp_path, accept_jobs=True, allow_unsandboxed=True)
     write_overlay(settings.data_dir / "policy.toml", {"accept_jobs": False})
     docker = _NoDocker()
@@ -131,14 +134,17 @@ async def test_a_live_file_that_turns_jobs_off_probes_nothing_at_start(
         host_has_nvidia_gpu=False,
         docker_factory=lambda _c: docker,  # type: ignore[arg-type,return-value]
     )
-    assert docker.probed == 0
-    assert not setup.enabled and setup.runtimes == {}
+    assert docker.probed == 1
+    assert setup.enabled and {"subprocess", "venv"} <= set(setup.runtimes)
 
 
 @pytest.mark.asyncio
-async def test_a_live_file_that_turns_unsandboxed_off_builds_no_subprocess(
+@pytest.mark.extras("agent")
+async def test_a_live_file_that_turns_unsandboxed_off_still_builds_them(
     tmp_path: Path,
 ) -> None:
+    """F5 (D428): built, never chosen while the live policy disallows them
+    (``plan_attempt`` -> ``policy_unsandboxed``)."""
     settings = _settings(tmp_path, accept_jobs=True, allow_unsandboxed=True)
     write_overlay(settings.data_dir / "policy.toml", {"allow_unsandboxed": False})
     setup = await build_execution(
@@ -147,7 +153,7 @@ async def test_a_live_file_that_turns_unsandboxed_off_builds_no_subprocess(
         host_has_nvidia_gpu=False,
         docker_factory=lambda _c: _NoDocker(),  # type: ignore[arg-type,return-value]
     )
-    assert "subprocess" not in setup.runtimes and "venv" not in setup.runtimes
+    assert {"subprocess", "venv"} <= set(setup.runtimes)
 
 
 # ------------------------------------------------------------------ T-9
@@ -160,16 +166,15 @@ def _set(*items: str) -> str:
 
 
 @pytest.mark.parametrize("key", ["accept_jobs", "allow_unsandboxed"])
-def test_turning_a_restart_key_on_names_that_key(key: str) -> None:
+def test_turning_a_key_on_needs_no_restart_note(key: str) -> None:
+    """V1.0 G8 F5 (D428): both keys are live now (RESTART_KEYS is empty)."""
     out = _set(f"{key}=true")
-    assert "restart" in out
-    assert f"{key} = false" in out
+    assert "restart" not in out
+    assert "applies it within" in out
 
 
-def test_both_keys_on_at_once_give_both_notes() -> None:
-    out = _set("accept_jobs=true", "allow_unsandboxed=true")
-    assert "accept_jobs = false" in out
-    assert "allow_unsandboxed = false" in out
+def test_both_keys_on_at_once_give_no_note() -> None:
+    assert "restart" not in _set("accept_jobs=true", "allow_unsandboxed=true")
 
 
 def test_no_note_when_the_key_was_already_on_or_is_turned_off() -> None:
@@ -179,13 +184,12 @@ def test_no_note_when_the_key_was_already_on_or_is_turned_off() -> None:
     assert "restart" not in _set("max_cpu_percent=50")
 
 
-def test_a_note_after_an_invalid_old_file_is_given_to_be_safe(tmp_path: Path) -> None:
+def test_no_note_after_an_invalid_old_file_either(tmp_path: Path) -> None:
     path = tmp_path / "data" / "policy.toml"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("max_cpu_percent = 500\n")
     path.chmod(0o600)
-    out = _set("max_cpu_percent=50", "allow_unsandboxed=true")
-    assert "restart" in out
+    assert "restart" not in _set("max_cpu_percent=50", "allow_unsandboxed=true")
 
 
 # ------------------------------------------------------------------ T-6

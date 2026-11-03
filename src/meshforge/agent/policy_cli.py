@@ -124,7 +124,7 @@ def set_(
 
 
 def _apply(config: Path | None, assignments: list[str]) -> None:
-    from meshforge.agent.policy import RESTART_KEYS, apply_changes, parse_assignments
+    from meshforge.agent.policy import apply_changes, parse_assignments
     from meshforge.common.errors import MeshForgeError
 
     settings = _settings(config)
@@ -143,15 +143,7 @@ def _apply(config: Path | None, assignments: list[str]) -> None:
         f"policy saved to {result.path}; a running agent applies it within "
         f"{settings.agent.policy.reload_interval_s:g} s"
     )
-    for key in result.restart_keys:
-        # turned on now while it was off: a running agent may have started with
-        # it off and then never probed these runtimes (fix r1, T-9)
-        if changes.get(key) is True:
-            typer.echo(
-                f"note: if the agent was started with {key} = false it has no "
-                f"{RESTART_KEYS[key]} yet - restart it once (the restart reads this "
-                "policy)"
-            )
+    # V1.0 G8 F5 (D428): every key applies live - no restart note any more
     raise typer.Exit(ExitCode.OK)
 
 
