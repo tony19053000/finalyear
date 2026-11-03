@@ -8,7 +8,6 @@ selected (no serial numbers, user names, registered owner, SSIDs).
 
 from __future__ import annotations
 
-import base64
 import json
 import re
 from typing import Final
@@ -59,11 +58,6 @@ def build_cim_script() -> str:
 
 
 CIM_SCRIPT: Final = build_cim_script()
-
-
-def encoded_command(script: str) -> str:
-    """Base64 UTF-16LE for ``powershell -EncodedCommand`` (immune to Windows quoting)."""
-    return base64.b64encode(script.encode("utf-16-le")).decode("ascii")
 
 
 def parse_cim_bundle(text: str) -> dict[str, dict[str, JSON]]:

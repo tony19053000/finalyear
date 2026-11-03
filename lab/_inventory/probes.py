@@ -27,7 +27,7 @@ from _inventory import parse_linux as pl
 from _inventory import parse_windows as pw
 from _inventory.model import JSON, SCHEMA_VERSION, SECTIONS, Probe, fail, ok
 from _inventory.problems import find_problems
-from _inventory.runner import CmdResult, run, which
+from _inventory.runner import CmdResult, powershell_script, run, which
 
 IS_WINDOWS: Final = sys.platform == "win32"
 IS_LINUX: Final = sys.platform.startswith("linux")
@@ -140,18 +140,8 @@ def _tool_version(name: str, args: list[str] | None = None) -> dict[str, JSON]:
 def _cim_bundle() -> tuple[dict[str, dict[str, JSON]] | None, str]:
     """Run PowerShell once; the bundle, or the error text (a failure is cached too,
     so a missing or hanging PowerShell costs one timeout, not one per section)."""
-    result = run(
-        "powershell",
-        [
-            "-NoProfile",
-            "-NonInteractive",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-EncodedCommand",
-            pw.encoded_command(pw.CIM_SCRIPT),
-        ],
-        timeout=POWERSHELL_TIMEOUT_S,
-    )
+    with powershell_script(pw.CIM_SCRIPT) as args:
+        result = run("powershell", args, timeout=POWERSHELL_TIMEOUT_S)
     if not result.ok:
         return None, f"powershell CIM query failed: {result.describe_failure()}"
     try:
