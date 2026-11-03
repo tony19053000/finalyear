@@ -2,6 +2,30 @@
 
 Every lab agent reads this file after each `git merge origin/main`. Newest message on top.
 
+## 2026-11-03 (2) - PRIORITY CHANGE (team): network tests first, joining later
+
+**Hold every install/join step for now** (L1 C17-h/C17-i, L2 agent install + join, L3/L4 install). First we finish
+the **complete Wi-Fi network test (S1) between all four laptops**, every pair, both directions:
+
+| pair | who runs the client |
+|---|---|
+| L1-L2 | done 2026-11-01 |
+| L1-L3 (new), L1-L4 | L1 -> L3, L1 -> L4 |
+| L2-L3, L2-L4 | L2 -> L3, L2 -> L4 |
+| L3-L4 | L3 -> L4 |
+
+(S1 measures both directions in one run, so one client run per pair is enough.)
+
+- **L3 and L4:** finish round 1 + catch-up P0, then start your S1 server (`SIGNAL: s1-serve-up L3` / `L4`, firewall
+  rule by the human) and keep it running until every pair to you is done.
+- **L1 and L2:** start your S1 server again too (HUMAN re-adds the 47201 rule on Windows), emit
+  `s1-serve-up L1` / `L2` in your CURRENT report, and run your client runs from the table above. One client
+  at a time on the whole network: before a run, check no other laptop's report says a client run is in progress
+  (write `S1 client RUNNING <you>-to-<peer>` before you start, `s1-client-done <you>-to-<peer>` after).
+- When the six pairs are done: every laptop stops its server, HUMAN removes the 47201 rules, push raw files,
+  emit `s1-matrix-done <you>`. **L1 then builds the S1 matrix report** for L1-L4.
+- Only after the Lead posts "joining may start" here do the install/join steps continue.
+
 ## 2026-11-03 - the lab after the 2-day break
 
 **The laptops now**
