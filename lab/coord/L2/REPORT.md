@@ -310,3 +310,6 @@ result: meshforge-agent 0.17.0 (git 3fca750858ea, python 3.12.14, bundle). node_
     policy (defaults): accept_jobs False, accept_gpu_sessions False, allow_unsandboxed False, allow_network False, max_cpu_jobs 1.
     The join (C17-c console part) is still to do: waits for L1's invite code for L2.
 evidence: lab/reports/raw/2026-11-03-V0.17-install/L2-checks2.txt
+
+### C17 - ON HOLD (ANNOUNCE 2026-11-03 (2): network tests first, joining later)
+result: join paused until ANNOUNCE says "joining may start". Next: S1 server again on L2 + clients L2->L3, L2->L4.
