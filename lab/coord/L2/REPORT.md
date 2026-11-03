@@ -367,3 +367,11 @@ when: 2026-11-03 (local)
 commands:
     Get-NetFirewallRule | Where-Object DisplayName -like '*MeshForge*' | Get-NetFirewallPortFilter
 result: no MeshForge firewall rule at all: the v0.17.0 Windows installer opened no inbound port (agent is outbound-only to the controller, ADR-0002). Relevant for C5.11-a (peer port 47120). Checks-page screenshot: asked the human.
+
+### C17-e - Reboot / sign-out check - SKIPPED (human decision: no laptop restart)
+when: 2026-11-03 (local)
+result: the human chose to restart only the MeshForge service, not Windows. Note: LastBootUpTime is 2026-10-28 (no full restart since). Reboot persistence still untested on L2.
+    Instead (extra evidence): (human, Administrator) Restart-Service MeshForgeAgent:
+    before RUNNING PID 25472 -> after RUNNING PID 15228; same node_id node_01M6GCKN7PYT2J297BT241P436, enrolled True, session_epoch 1 -> 2.
+    agent.log: agent.session.starting 12:09:02Z -> discovery found controller 192.168.31.13:47100 (mDNS) 12:09:08 -> HELLO_SENT -> ONLINE 12:09:10.2Z (sess_01M6GN0CQQTWEQG43RMD6DJSNM, heartbeat 2 s, lease 6 s): back online ~8 s after start. Scores re-run scheduled ("hardware or backend changed").
+evidence: lab/reports/raw/2026-11-03-V0.17-install/L2-service-restart.txt
