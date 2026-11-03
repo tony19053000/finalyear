@@ -497,3 +497,18 @@ commands: J=$(compute run lab/workloads/log-ticker --node <L2-ID>); exec_check.p
 result: job_01M6HDA6NYAGKTQ2TM13ADQAH4: 100 lines, p50 344.6, p95 874.6, max 1119.8 ms -> within false (bound 1000 ms). Single run, Wi-Fi.
     Note: the offsets come from NTP status (L1 ±poll 34 min, L2 w32tm), each with ~100 ms uncertainty; the max is 12 % over the bound.
     L2 signals seen: clock-offset L2 ms=40, v04-g-done L2. Leftover-python check after the F1 cancel: not yet in L2's REPORT.
+
+### C4.15-d - Log latency, L3 - OK (with measured offset; L3 clock not synced)
+commands: J=$(compute run lab/workloads/log-ticker --node <L3-ID>); exec_check.py latency $J --name L3 --clock-offset-ms 488
+    (L3 has no clock-offset SIGNAL: its C4.15-a FAILED - w32time stopped, offset ~+617 ms vs time.windows.com; 617 - 129 = +488 vs L1)
+result: job_01M6HER9G1XSY1ZFDJP6WS7BRF: 100 lines, p50 229.6, p95 342.6, max 380.7 ms, within true.
+    Uncertain: offset from L3's stripchart (3 samples) vs L1's NTP status. Re-run after L3's human starts w32time + resync if the Lead wants it.
+    C4.15-d summary: L4 max 527 ms OK, L3 max 381 ms OK, L2 max 1120 ms FAIL.
+
+### C4.x-a - Evidence - OK
+result: lab/reports/raw/2026-11-04-V0.4-exec/{A3-pull,C,D}.txt + lab/reports/raw/2026-11-03-V0.4-exec-check.jsonl. Part G: v04-g-done L2 + L3 (L4 Windows: see its REPORT).
+    Open: L2 leftover-python check after the F1 cancel not yet reported by L2.
+
+### LEAD CHECKPOINT V0.4
+result: C OK (4/4 identical golden digest); D1/D2 OK on L1 only (Windows no torch - QUESTION); E: 2/3 OK; F cancel OK, timeout overshoot 3.47 s FAIL.
+SIGNAL: V0.4-done
