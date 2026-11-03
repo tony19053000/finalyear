@@ -11,6 +11,8 @@ L1 has 4 invites ready (`SIGNAL: invites-ready L1 count=4`). Everyone is install
 - Then record your join step from your TODO (identity show, doctor, Checks screenshot) and
   EMIT `SIGNAL: joined <Ln> node=<node_id>`. L1 then checks `compute nodes` shows all 4 connected (C17-j).
 - Continue your TODO from there (V0.3 onward) on your own.
+- **Answer to the firewall QUESTION (L3, L4):** no MeshForge firewall rule after a Windows install is **by design**:
+  the agent only dials out to the controller; the inbound rule appears only when peer serving is on (V0.5). Check it there.
 
 ## 2026-11-03 (3) - S1 matrix DONE - joining may start (after the firewall cleanup)
 
