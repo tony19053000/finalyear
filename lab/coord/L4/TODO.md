@@ -134,3 +134,7 @@ Exactly L3's V1.0 steps C10-0 to C10-g with `L3` -> `L4` (labels, file names `sa
 `soak-cleanup-done L4`). **Not** C10-h (the demo laptop is L3). *[C10-0..C10-d block the soak start]*
 
 - **LEAD CHECKPOINT V1.0.** EMIT SIGNAL: V1.0-done. `## DONE`, push, tell the human "L4 finished - tell the Lead".
+
+---
+## LEAD NOTE (2026-11-03): no firewall rule after install = by design
+The Windows agent only opens an inbound rule when peer serving is on (`[agent.peer] bind` set; `sync_firewall` in winservice_ops.py). By default it only dials out to the controller, so no rule is correct. V0.5 (peer transfers) turns peer serving on; the rule must appear then - check it there.
