@@ -256,3 +256,8 @@ SIGNAL: V0.3-done
 ### LEAD CHECKPOINT V0.4 (L4)
 result: L4's V0.4 parts (C4.0 clock-offset, C4.15-g part G) were done earlier.
 SIGNAL: V0.4-done
+
+### C5.11-a-L4 - peer port check - recorded (no rule yet)
+commands:
+    Get-NetFirewallRule | Where-Object DisplayName -like '*MeshForge*'
+result: 0 rules. Lead note: the rule appears only when peer serving ([agent.peer] bind) is on; recheck when V0.5 turns peer serving on.
