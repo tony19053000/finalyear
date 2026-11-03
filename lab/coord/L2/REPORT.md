@@ -315,3 +315,13 @@ evidence: lab/reports/raw/2026-11-03-V0.17-install/L2-checks2.txt
 result: join paused until ANNOUNCE says "joining may start". Next: S1 server again on L2 + clients L2->L3, L2->L4.
 
 S1 client RUNNING L2-to-L3
+
+### S1 L2 -> L3 (new L3 MOHIT, 0.2.5 matrix) - OK
+when: 2026-11-03 15:22-15:27 (local)
+laptop: L2 (Windows 11, AILESH, 192.168.31.155), Wi-Fi 5 GHz
+commands:
+    uv run --no-sync python lab/spikes/s1_network.py client --link wifi --server 192.168.31.71
+result: exit 0. TCP x1 L3->L2 198.50 +- 3.58 Mbit/s; x4 L3->L2 273.50 +- 2.65; x1 L2->L3 207.75 +- 4.24; x4 L2->L3 228.53 +- 15.26.
+    UDP echo RTT mean 3.492 ms, p95 4.663 ms, jitter 0.621 ms, loss 0.100 +- 0.224 %.
+evidence: lab/reports/raw/2026-11-03-S1-network/ailesh-1ad242f0__to-mohit_wifi-930c4d45.json
+SIGNAL: s1-client-done L2-to-L3
