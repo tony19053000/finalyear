@@ -868,3 +868,7 @@ result: chat L4->L1 20261105-003740: L4 Wi-Fi off 00:31:58, back 00:32:38; CPU l
     session.opened + state_changed (online) 00:32:45 = ~7 s after Wi-Fi back. The dashboard is push-updated from these events (ui_perf: heartbeat->DOM p95 234 ms).
     L1's live poll started 00:33:16 (after the drop) - missed it; the human's own view of the Nodes page (seconds, no reload) not recorded.
     E2 (CPU sparkline during the load): pending the human's yes/no.
+    E2 (2026-11-05 00:42-00:43): L4 node page Live tab - CPU value changes live (human saw 0/28/32/42/50/70 %), sparkline moves,
+    "Latest sample" advances every ~2 s (00:42:03 -> 00:43:07), 108-111 samples over 300 s, no reload - OK. (Whether the 60 s load from the chat
+    re-run was running at that moment: see L4 REPORT v08-e2-done.)
+    Header now "4 of 6 nodes online" - L2 back.
