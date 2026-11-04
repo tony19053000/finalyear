@@ -650,3 +650,11 @@ result: earlier: auto-placed job_01M6JX0Q65WPN4C7JP6B4PF852 landed on L1 (contro
     succeeded before any drop. Now job job_01M6JY167XY1FVXB1VTAD60AT1 (main.py 300) running on L4 since 14:55:24 IST.
 SIGNAL: v06-g1-go L4 job=job_01M6JY167XY1FVXB1VTAD60AT1 - L4 HUMAN NOW (Administrator PowerShell): $w=(Get-NetAdapter | Where-Object {$_.Name -like '*Wi*Fi*' -and $_.Status -eq 'Up'}).Name; Disable-NetAdapter -Name $w -Confirm:$false; Start-Sleep 60; Enable-NetAdapter -Name $w -Confirm:$false
     then record the times and EMIT SIGNAL: v06-g1-wifi-done L4.
+
+### C6.13-c - G1 Wi-Fi partition on L4 - PARTIAL (lost + fencing OK; "attempt 2 elsewhere" not testable with a pinned job)
+commands: job_01M6JY167XY1FVXB1VTAD60AT1 (main.py 300) pinned to L4 at 14:55:24 IST; Lead relayed the cue; L4 Wi-Fi off ~60 s via Disable-/Enable-NetAdapter.
+result: 14:59:22 attempt 1 lost (node_lost), retry_scheduled; 14:59:27 pinned_node_gone -> dispatch_refused -> job failed (node_lost / placed_node_offline).
+    L4 back online 15:00:28; at 15:00:26 two controller.jobs.status_fenced = L4's late reports for the lost attempt were refused (fencing works).
+    No execution_overlap line in the journal (grep). Job did not succeed: because it was pinned (auto-placement picks L1, the controller host,
+    whose Wi-Fi cannot be dropped). QUESTION (Lead, sent by message): a way to place automatically while excluding the controller host, to show "attempt 2 elsewhere".
+evidence: lab/reports/raw/2026-11-05-V0.6-sched/G1-controller-journal.txt
