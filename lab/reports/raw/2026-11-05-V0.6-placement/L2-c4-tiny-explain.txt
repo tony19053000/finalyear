@@ -1,0 +1,47 @@
+﻿ decision 1544 - attempt 1: dispatched (policy cost_model), objective min_time - chosen node_01M6GCKN7PYT2J297BT241P436, calibration v15,  
+                         replay v2, decided in 2.58 ms, at 2026-11-04T19:43:04.896282+00:00, snapshot bc2f6136ce53                         
++-----------------------------------------------------------------------------------------------------------------------------------------+
+|RANK | NODE                            | MODE    | SLOT | FEASIBLE | SCORE    | PREDICTED | REASON                                       |
+|-----+---------------------------------+---------+------+----------+----------+-----------+----------------------------------------------|
+|1    | node_01M6GCKN7PYT2J297BT241P436 | offload | cpu  | yes      | 0.711807 | 0.71s     | chosen                                       |
+|2    | node_01M6BMFVHJVZXC7AET3CFRE3AV | offload | cpu  | yes      | 6.64907  | 6.65s     | feasible                                     |
+|3    | node_01M6K0TZRNPEGBRN166GP6S61N | offload | cpu  | yes      | 7.34004  | 7.34s     | feasible                                     |
+|4    | node_01M6GGJP3FW5VHBDFKYQ6SF318 | offload | cpu  | yes      | 72.4909  | 72.49s    | feasible                                     |
+|-    | node_01M6GGZ7VNCSRKFAEDH3AX7QQY | offload | -    | no       | -        | -         | revoked: the node was revoked from the fabric|
+|-    | node_01M6K66M7877NWES0Z93DP3EP8 | offload | -    | no       | -        | -         | revoked: the node was revoked from the fabric|
++-----------------------------------------------------------------------------------------------------------------------------------------+
+                                                                                                                        predicted                                                                                                                        
++-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+|NODE                            | QUEUE            | TRANSFER                                 | ENV                                     | COMPUTE                                  | OUTPUT          | RISK                                    | TOTAL |
+|--------------------------------+------------------+------------------------------------------+-----------------------------------------+------------------------------------------+-----------------+-----------------------------------------+-------|
+|node_01M6GCKN7PYT2J297BT241P436 | 0.00s (measured) | 0.00s (measured)                         | 0.00s (measured, cached)                | 0.05s (history, x0.82 calibrated (n=4,   | 0.00s (assumed) | 0.66s (history, p_fail 10.0% (2 of 10   | 0.71s |
+|                                |                  |                                          |                                         | node))                                   |                 | ends in 7d))                            |       |
+|node_01M6BMFVHJVZXC7AET3CFRE3AV | 0.00s (measured) | 6.29s (assumed)                          | 0.27s (history, x0.20 calibrated        | 0.02s (scaled, x0.57 calibrated (n=4,    | 0.00s (assumed) | 0.07s (history, p_fail 1.0% (2 of 271   | 6.65s |
+|                                |                  |                                          | (n=192, node))                          | node))                                   |                 | ends in 7d))                            |       |
+|node_01M6K0TZRNPEGBRN166GP6S61N | 0.00s (measured) | 6.29s (assumed)                          | 0.96s (history, x0.71 calibrated (n=2,  | 0.07s (scaled, x0.87 calibrated (n=90,   | 0.00s (assumed) | 0.02s (history, p_fail 0.3% (0 of 300   | 7.34s |
+|                                |                  |                                          | node))                                  | node))                                   |                 | ends in 7d))                            |       |
+|node_01M6GGJP3FW5VHBDFKYQ6SF318 | 0.00s (measured) | 69.65s (history, from controller (last   | 1.12s (history, x0.84 calibrated (n=1,  | 0.05s (scaled, x0.98 calibrated (n=164,  | 0.00s (assumed) | 1.67s (history, p_fail 2.4% (6 of 277   | 72.49s|
+|                                |                  | transfer 23h ago))                       | node))                                  | node))                                   |                 | ends in 7d))                            |       |
++-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+               actual: attempt att_01M6M1C87MZD972VD3CWKDDXFT on                
+                     node_01M6GCKN7PYT2J297BT241P436 - done                     
++------------------------------------------------------------------------------+
+|TERM     | PREDICTED                                          | ACTUAL | RATIO|
+|---------+----------------------------------------------------+--------+------|
+|env      | 0.00s (measured, cached)                           | 0.02s  | -    |
+|risk     | 0.66s (history, p_fail 10.0% (2 of 10 ends in 7d)) | -      | -    |
+|queue    | 0.00s (measured)                                   | -      | -    |
+|output   | 0.00s (assumed)                                    | 0.05s  | -    |
+|compute  | 0.05s (history, x0.82 calibrated (n=4, node))      | 0.08s  | x1.54|
+|transfer | 0.00s (measured)                                   | 1.78s  | -    |
++------------------------------------------------------------------------------+
+ measured phases  
++----------------+
+|PHASE   | ACTUAL|
+|--------+-------|
+|queue   | 0.07s |
+|stage   | 1.78s |
+|env     | 0.02s |
+|run     | 0.08s |
+|collect | 0.05s |
++----------------+

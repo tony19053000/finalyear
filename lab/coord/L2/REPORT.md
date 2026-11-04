@@ -426,3 +426,14 @@ SIGNAL: peer-on L2 ip=192.168.31.155
 ### V0.6 peer firewall rule - OK (2026-11-05 01:03)
 Chat 20261105-005249-L1-to-L2 step 1. HUMAN (Administrator): `python.exe -I -m meshforge.agent.winservice firewall-sync` -> "peer firewall rule MeshForge-Agent-Peer: present (Private + Domain networks only)". `Get-NetFirewallRule -DisplayName *MeshForge*`: MeshForge-Agent-Peer, Inbound, Allow, Domain+Private, Enabled True. (Earlier BUG "no rule after restart" is worked around by firewall-sync.)
 SIGNAL: peer-rule-ok L2
+
+### C6.13-b V0.6 part D (c4) from L2 - OK with notes (2026-11-05 01:16)
+HUMAN logged in: `compute login ... -u admin` (the human's account is `admin`, not `labadmin`); `compute whoami` -> admin. CLI via `uv run --no-sync --project <repo> compute` from `$HOME\mf-lab\...`.
+- Step 1 c4-tiny (300 MB random blob.bin) pinned on L2: job_01M6M0Y5KQAX3BTDNVGS4PJNTH **succeeded** (upload 314,575,830 B; staged 300 MiB from controller in 85.8 s).
+- Step 2 automatic: job_01M6M1C854QN23GX6XGM9AQBFR -> **chosen L2** (0.71 s predicted; L1 6.65 s, L3 7.34 s, L4 72.49 s), succeeded. L2 transfer 0.00 s (measured), compute 0.05 s history. OK.
+  - Note 1: MODE column shows `offload`, not `local` as the checklist expects (job submitted from L2 and run on L2's agent).
+  - Note 2: L1/L3 transfer = `6.29s (assumed)`, not `measured, from <L2>` — the part C matrix from L2 was not yet re-read (peer rule only just fixed). L4 = 69.65 s history from controller.
+- Step 3 c4-heavy (60 s wall-clock CPU loop, no blob): pinned L2 job_01M6M1CQGN7YC6N5RBT2CYY87Q + pinned L1 (strongest, CPU 518 GF) job_01M6M1CS3NBYJ0C285W4024R3V both succeeded. Automatic job_01M6M1F4FWCJRJZ5CGFDYD1DPJ -> **chosen L1** (34.91 s; L4 47.15, L2 53.77, L3 64.84) = smallest predicted compute. OK.
+  - Note 3 (test design): the loop is time-bound (`while time.time()-t<60`), so it takes 60 s on every laptop; actual on L1 60.08 s vs predicted 34.28 s (x1.75). The planner logic is right, but this workload can't show a CPU-speed difference; a fixed-work loop would.
+Explain outputs: `lab/reports/raw/2026-11-05-V0.6-placement/L2-c4-tiny-explain.txt`, `L2-c4-heavy-explain.txt`.
+SIGNAL: v06-d-done
