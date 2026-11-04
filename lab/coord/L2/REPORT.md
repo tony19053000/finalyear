@@ -474,3 +474,9 @@ S.5 summary: a, b, d, e, f OK; c pending the second-user question.
 
 ### C17-g and S.5 c - SKIPPED (2026-11-05 01:31)
 HUMAN: L2 has **no second, non-admin Windows user**. C17-g (non-admin user view) and V0.7 S.5 c (`type` as another user = Access is denied) SKIPPED. ACLs (S.5 b) show no Users/Everyone/Authenticated Users entries, so a non-admin user has no access by ACL.
+
+### C8.10-g (G) PowerShell completion - BUG, first try (2026-11-05 01:36)
+`Get-Command compute` -> `C:\Program Files\MeshForge\bin\compute.cmd` (installed CLI is on PATH).
+HUMAN, Windows PowerShell (system32 prompt): `Get-ExecutionPolicy -List` before: MachinePolicy/UserPolicy/Process/LocalMachine Undefined, **CurrentUser RemoteSigned**.
+`compute --install-completion` -> **"Shell cmd is not supported."**
+**BUG:** the installed `compute` is a `.cmd` wrapper, so shell detection sees `cmd` (the parent) instead of PowerShell; D187 completion cannot be installed the documented way on a Windows install. (The agent's own attempt to run the install was blocked by the session's safety rule as a profile change; the human runs it.) Trying the explicit shell name next.
