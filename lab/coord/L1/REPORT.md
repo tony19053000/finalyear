@@ -671,3 +671,16 @@ SIGNAL: v06-g2-go L4 job=job_01M6JYXKR18DH1QX6ANJA23K5C (main.py 300, running si
     $a = Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like "*meshforge.agent.winservice*child*" } | Select-Object -First 1; Stop-Process -Id $a.ProcessId -Force
     then BEFORE starting anything: Get-CimInstance Win32_Process -Filter "Name like 'python%'" | Where-Object CommandLine -like '*main.py 300*'  (must print nothing)
     then Start-Service MeshForgeAgent if needed. Record outputs + times, EMIT SIGNAL: v06-g2-done L4 orphan=<yes|no>.
+
+### C6.13-d - G2 agent hard kill on L4 - OK (no orphan; retry elsewhere not testable with a pinned job)
+result: job_01M6JYXKR18DH1QX6ANJA23K5C (main.py 300) on L4 since 15:10:53 IST. L4 human hard-killed the agent child at 15:13:45 (PID 11548);
+    orphan check 3 s later printed nothing (no main.py 300 left) - L4 REPORT. Service came back Running by itself at 15:13:59.
+    Controller: attempt 1 lost (node_lost) 15:13:52; job failed 15:13:59 (pinned to L4, same reason as G1 - auto-placement chooses L1).
+    Criterion part "no orphan" = OK; "the job retries elsewhere and succeeds" = not testable with a pinned job (QUESTION already with the Lead).
+evidence: L4 REPORT C6.13-d-L4; lab/reports/raw/2026-11-05-V0.6-sched/G2-controller-journal.txt
+
+### LEAD CHECKPOINT V0.6
+result: C network matrix OK for L1/L3/L4 (L2 part pending; F8 slow L3 peer server + 0.0 ms RTT); D (from L2) pending;
+    E/F SKIPPED (folded into the V1.0 72 h soak); G1 lost + fencing OK, G2 no orphan OK - both pinned to L4, so "attempt 2 elsewhere" not shown.
+    L2 parts pending: C (L2 cells), D.
+SIGNAL: V0.6-done (L2 parts pending)
