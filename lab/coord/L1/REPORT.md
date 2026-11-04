@@ -788,3 +788,11 @@ evidence: lab/reports/raw/2026-11-05-V0.7-security/E.txt
 
 ### C7.12-i - G4 extras (part) - OK
 result: curl -k https://192.168.31.13:47110/v1/nodes without a token -> 401; /healthz -> 200 {"status":"ok","sessions":3}. Owner rule (alice vs admin jobs): needs an alice login (HUMAN). G4 0.1 dev DB password: NOT RUN (dev-only).
+
+### C7.12-g - Part E step 2 (only_binary = false -> sdist job succeeds) - BLOCKED by the planner (finding)
+commands: tools step2.sh: append `[agent.envs] only_binary = false` to /etc/meshforge/config.toml, restart agent (execution.ready), rerun the docopt job on L1; restore config + restart.
+result: job_01M6KBBEAZRCM94M2EX68EVADW stayed `queued`: compute explain -> L1 infeasible, reason env_known_bad "this job's environment failed to build on
+    the node recently" (decision 48). The planner's memory of the failed build (from step 1, ~10 min earlier) keeps it off L1 even after the owner
+    changed only_binary; no other node is eligible (pinned). Cancelled; config restored (only [agent.peer]), agent active.
+BUG/UX candidate (Lead): env_known_bad is not cleared when the agent's env policy changes (agent restart / new Hello). Workaround for the test: a
+    requirements file with a different hash, or wait for the known-bad window to expire.
