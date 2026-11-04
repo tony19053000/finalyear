@@ -684,3 +684,11 @@ result: C network matrix OK for L1/L3/L4 (L2 part pending; F8 slow L3 peer serve
     E/F SKIPPED (folded into the V1.0 72 h soak); G1 lost + fencing OK, G2 no orphan OK - both pinned to L4, so "attempt 2 elsewhere" not shown.
     L2 parts pending: C (L2 cells), D.
 SIGNAL: V0.6-done (L2 parts pending)
+
+## Phase V0.7 (2026-11-05)
+
+### C7.0 / C7.12-a - HUMAN BATCH + Section 0 - OK (L1 part)
+result: HUMAN: sudo apt install tcpdump tshark -> /usr/bin/tcpdump, /usr/bin/tshark. HUMAN: sudo meshforge-controller user create alice (password kept by the human).
+    compute whoami: admin (admin), token until 2027-02-01. L1 clock: date -u +%s = 1793785751, NTP synchronized. Admin user is `admin` (not labadmin).
+    L2: on hold. WAIT: SIGNAL clock-unix from L3, L4.
+SIGNAL: clock-unix L1 t=1793785751
