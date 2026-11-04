@@ -300,3 +300,19 @@ commands:
     [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
 result: 1793785992 (L1 had 1793785751 earlier; w32time synced, offset ~4 ms)
 SIGNAL: clock-unix L3 t=1793785992
+
+### C7.12-c - part C invite refusals - PARTIAL (3 of 4 as expected; case 4 refused by checksum, not pin_mismatch)
+when: 2026-11-04 15:36 (local)
+laptop: L3 (MOHIT)
+commands:
+    HUMAN (Administrator): powershell -ExecutionPolicy Bypass -File <scratchpad>\v07c.ps1
+      (script reads the 4 codes from origin/lab/L1 REPORT `v07-c-go2 L3`, runs `meshforge-agent join --force <code>` then `identity show` for each; codes masked in all output, never saved)
+result: (1) 15:35:19 `token_used`: "this join code was already used; ..." - OK
+  (2) 15:35:22 `token_revoked`: "this join code was revoked; ask for a new one" - OK
+  (3) 15:35:24 `token_expired`: "this join code has expired; ask for a new one" - OK
+  (4) 15:35:26 expected `pin_mismatch`, got LOCAL refusal "this is not a valid code (a character is wrong); check it or ask for a new one" (no controller contact). - NOT the expected reason.
+  After every case: node_id node_01M6GGZ7VNCSRKFAEDH3AX7QQY (unchanged), enrolled True; service Running.
+evidence: lab/reports/raw/2026-11-04-V0.7-refusals-L3.txt (no codes in it)
+BUG?/QUESTION for L1: the code has a checksum, so changing one character in the CA-pin group is caught before the pin check. To reach `pin_mismatch` the altered code needs a valid checksum (e.g. a code built with a different CA fingerprint), or the test needs another way. The refusal itself is correct and safe; only the tested path differs.
+  Note: the human ran all 4 codes from L1's REPORT, where L1 had posted them (all dead/altered by design; L1 to revoke the 2 h pin invite).
+SIGNAL: v07-c-done L3 pin=checksum-refusal
