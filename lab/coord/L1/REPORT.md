@@ -855,3 +855,9 @@ result: H3 old 47110 tab: header "Nodes unavailable / Reconnecting...", body "Co
     H4 new tab https://192.168.31.13:47121/jobs: signed in as admin, Live, same jobs listed - OK (the cookie/session carried over or the human signed in; screenshot shows signed in).
     H5 after restoring 47110: the old tab went back to Live with the job list by itself, no reload - OK. Config back to http_bind 47110.
     NOTE (Lead): seeded bulk-09986 shows "succeeded" (updated 19:35:06) while all other bulk seeds are "cancelled" - unexpected state in ui_perf seed data.
+
+### C8.10-d - Part E1/E2 live node view (L4 instead of L3/L2) - GO
+SIGNAL: v08-e-go L4 - L1's human watches Nodes in the dashboard. L4 HUMAN, when L1's human says "now":
+    E1: Administrator PowerShell: $w=(Get-NetAdapter | Where-Object {$_.Name -like '*Wi*Fi*' -and $_.Status -eq 'Up'}).Name; Disable-NetAdapter -Name $w -Confirm:$false; Start-Sleep 40; Enable-NetAdapter -Name $w -Confirm:$false
+    E2: after Wi-Fi is back: start something heavy for ~60 s (e.g. a 4K YouTube video, or PowerShell: 1..8 | % { Start-Job { $t=(Get-Date).AddSeconds(60); while((Get-Date) -lt $t){} } }).
+    Record times, EMIT SIGNAL: v08-e-done L4.
