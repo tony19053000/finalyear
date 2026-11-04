@@ -29,6 +29,7 @@ from dataclasses import dataclass, field
 
 import httpx
 
+from meshforge.agent.cas.progress import StagingProgress
 from meshforge.agent.cas.sources import (
     CONTROLLER,
     STREAM,
@@ -107,8 +108,12 @@ class TransferScheduler:
         tuning: FetchTuning,
         clock: Callable[[], float],
         get_range: RangeFn,
+        progress: StagingProgress | None = None,
     ) -> None:
+        """``progress`` (D429): advanced for every chunk verified and written
+        and every blob installed - the staging retry window restarts on it."""
         self._cas = cas
+        self._progress = progress
         self._client = client
         self.sources = sources
         self.stats = stats
@@ -145,6 +150,12 @@ class TransferScheduler:
     def count(self, source: Source, n: int) -> None:
         self.stats.bytes_fetched += n
         source.stats.bytes += n
+
+    def advance(self) -> None:
+        """D429: durable progress (a verified chunk written, a blob or a
+        manifest stored) - see :mod:`meshforge.agent.cas.progress`."""
+        if self._progress is not None:
+            self._progress.advance()
 
     def allow_refetch(self, digest: Digest) -> bool:
         """Spend the refetch budget: each blob at most once, at most
@@ -260,6 +271,7 @@ class TransferScheduler:
                     raise FetchError(
                         exc.message, failure_type=exc.failure_type
                     ) from None
+                self.advance()
             self.stats.blobs_fetched += 1
 
     async def _enqueue(self, units: list[_Unit]) -> None:
@@ -488,6 +500,7 @@ class TransferScheduler:
                     details={"source": source.name},
                 ) from None
             self.stats.chunks_fetched += 1
+            self.advance()
             await self._won(source, unit)
 
     async def _fetch_whole(self, source: Source, unit: _Unit) -> None:
@@ -513,6 +526,7 @@ class TransferScheduler:
                     if unit.done:
                         return
                     await asyncio.to_thread(writer.commit)
+                    self.advance()
                     await self._won(source, unit)
         except CasIntegrityError:
             raise Corrupt from None

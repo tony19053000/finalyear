@@ -1733,6 +1733,17 @@ holds up to one chunk in memory), `slow_source_factor` (4), `endgame_after_s`
 (0.5), `request_timeout_s` (60). `[controller.jobs] max_peer_sources` (4) caps how
 many peers one attempt is given.
 
+**A broken transfer is retried inside the attempt (V1.0 G9-A, D429).** When a
+fetch breaks (Wi-Fi drops a connection, a body is cut off, the controller
+restarts), the agent tries again with backoff, resuming from the chunks it
+already verified. `[agent.execution] staging_retry_s` (60) is how long staging
+may keep failing **without progress**: every try that verified at least one
+chunk (or installed a blob) restarts that window, so a 5 GB fetch over a flaky
+link keeps going as long as it gets somewhere. The agent log shows each retry
+as `agent.execution.stage_retry` with `cause`, `retries` and `progressed`; past
+the window the attempt fails `transfer_error` ("staging did not succeed within
+60 s without progress (last: ...)") and the controller's retry rules decide.
+
 **Network probes (V0.6 G4, D111).** With peer serving on, the controller also
 measures how fast each laptop downloads from each other laptop: now and then it
 asks one laptop to fetch a few MiB of zeros from another's peer port (the same

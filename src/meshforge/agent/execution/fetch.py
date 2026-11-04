@@ -66,6 +66,7 @@ from meshforge.agent.cas import (
 )
 from meshforge.agent.cas.fetcher import FetchError, FetchTuning, SourceStats
 from meshforge.agent.cas.materialise import materialise_subset
+from meshforge.agent.cas.progress import StagingProgress
 from meshforge.agent.cas.sources import TokenLookup
 from meshforge.agent.cas.store import DEFAULT_FREE_DISK_FLOOR_BYTES
 from meshforge.agent.execution.failure_evidence import DISK_FULL_ERRNOS
@@ -353,6 +354,7 @@ async def stage_entries(
     clock: Callable[[], float] = time.monotonic,
     tuning: FetchTuning | None = None,
     token_for: TokenLookup | None = None,
+    progress: StagingProgress | None = None,
 ) -> EntriesReport:
     """V0.10 G4 (D264): fetch only the blobs of ``paths`` (file entries of the
     verified ``tree``) into the cache - verified chunk by chunk, from the
@@ -379,7 +381,13 @@ async def stage_entries(
         timeout=httpx.Timeout(timeout_s), transport=transport, trust_env=False
     ) as client:
         fetcher = BlobFetcher(
-            cas, sources, client, tuning=tuning, clock=clock, token_for=token_for
+            cas,
+            sources,
+            client,
+            tuning=tuning,
+            clock=clock,
+            token_for=token_for,
+            progress=progress,
         )
         await fetcher.ensure_all(sub)
         while True:
@@ -522,6 +530,7 @@ async def stage_tree(
     on_tree: Callable[[Tree], Awaitable[None]] | None = None,
     token_for: TokenLookup | None = None,
     skip: Callable[[Tree], frozenset[str]] | None = None,
+    progress: StagingProgress | None = None,
 ) -> StageReport:
     """Fetch ``tree_id`` into the cache and copy it into ``dest``.
 
@@ -532,7 +541,9 @@ async def stage_tree(
     ``skip`` (V0.10 G4, D264): given the verified tree, the **file** paths to
     leave out - neither fetched nor copied (a lane's split items; each chunk
     places its own with :func:`stage_entries`). A staging that skipped files
-    does not mark the tree complete in the cache."""
+    does not mark the tree complete in the cache. ``progress`` (D429): the
+    attempt's durable-progress counter (verified chunks, installed blobs) that
+    the staging retry window restarts on."""
     try:
         digest = Digest.parse(tree_id)
     except ValueError:
@@ -547,7 +558,13 @@ async def stage_tree(
         timeout=httpx.Timeout(timeout_s), transport=transport, trust_env=False
     ) as client:
         fetcher = BlobFetcher(
-            cas, sources, client, tuning=tuning, clock=clock, token_for=token_for
+            cas,
+            sources,
+            client,
+            tuning=tuning,
+            clock=clock,
+            token_for=token_for,
+            progress=progress,
         )
         full = await fetcher.tree(digest)
         if on_tree is not None:

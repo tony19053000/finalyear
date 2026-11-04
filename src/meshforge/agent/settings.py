@@ -640,12 +640,15 @@ class ExecutionSettings(SectionModel):
         ge=0.0,
         le=3600.0,
         description=(
-            "How long staging keeps retrying a fetch the controller refused (old "
-            "token) or could not answer (connection refused/reset, timeout) - "
-            "e.g. across a controller restart, after which the controller sends "
-            "a fresh fetch token (V0.5 D95). A tree job resumes the chunks it "
-            "already verified. Past it the attempt fails transfer_error; 0 = no "
-            "retry."
+            "How long staging may keep failing WITHOUT PROGRESS before the "
+            "attempt fails transfer_error (V1.0 D429). Failures retried: a fetch "
+            "the controller refused (old token; a restarted controller sends a "
+            "fresh one, V0.5 D95) or that broke (connection refused/reset, a "
+            "body cut off, timeout). A failed try that verified a chunk or "
+            "installed a blob restarts this window and the backoff, and the "
+            "next try resumes from the verified chunks - so a long fetch over a "
+            "flaky link keeps going as long as it gets somewhere. 0 = no retry "
+            "(the first error is reported as is)."
         ),
     )
     upload_retry_s: float = Field(

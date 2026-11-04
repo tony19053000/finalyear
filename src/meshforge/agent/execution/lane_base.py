@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final
 
 from meshforge.agent.execution.runtime import Stream
+from meshforge.agent.execution.stage_retry import STAGE_RETRYABLE
 from meshforge.common.errors import FailureType
 from meshforge.common.hashing import Digest
 from meshforge.common.proto.meshforge.v1 import agent_pb2
@@ -36,9 +37,6 @@ ASK_TIMEOUT_S: Final = 15.0
 """No answer to a ChunkRequest this long: ask again (the request is unbuffered)."""
 RESULT_ACK_WAIT_S: Final = 30.0
 """How long a drained lane waits for its last results' Acks before it ends."""
-STAGE_RETRYABLE: Final = frozenset(
-    {FailureType.TRANSFER_ERROR, FailureType.TIMEOUT, FailureType.UNAUTHORIZED}
-)
 CHUNK_FAILURE_NOT_RETRYABLE: Final = frozenset(
     {
         FailureType.INVALID_INPUT,
@@ -144,6 +142,9 @@ class LaneHost:
             best_effort: bool = False,
         ) -> None: ...
         def _transport(self) -> dict[str, Any]: ...
+        async def _retry_staging[T](
+            self, attempt: _Attempt, try_once: Callable[[str], Awaitable[T]]
+        ) -> T: ...
         def _tuning(self) -> Any: ...
         def _token_lookup(self, attempt: _Attempt, tree_id: str) -> Any: ...
         def _stopped_error(self) -> Exception: ...

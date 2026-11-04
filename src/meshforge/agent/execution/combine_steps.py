@@ -208,6 +208,7 @@ class CombineSteps(LaneSteps):
         base = self._combine_base(attempt, plan)
         if combine.index is None:
             combine.index = await self._parts_index(attempt, base, token)
+            attempt.stage_progress.advance()  # D429: kept by the next try
             combine.folder = CombineFolder(
                 self.work_root,
                 attempt.attempt_id,
@@ -247,6 +248,7 @@ class CombineSteps(LaneSteps):
                         f"safely ({exc.message})"
                     ) from None
                 await asyncio.to_thread(folder.seal_part, index)
+                attempt.stage_progress.advance()  # D429: kept by the next try
             finally:
                 with contextlib.suppress(OSError):
                     bundle.unlink()
