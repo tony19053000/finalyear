@@ -377,3 +377,9 @@ result: 1793785734 (local clock printed 2026-11-04 15:18:54).
 SIGNAL: clock-unix L4 t=1793785734
 
 PAUSED 2026-11-04 15:29 (local) - auto-watch loop cancelled; L4 idle in V0.7 (after C7.12-a), waiting for L3 part C.
+
+## C8.10-d (V0.8 part E1/E2, from chat 20261105-002615-L1-to-L4) - 2026-11-05
+- E1: Wi-Fi disabled ~00:31:58, re-enabled 00:32:38 (Get-Date after Enable-NetAdapter; 40 s off).
+- E2: 8 busy-loop jobs (60 s each) started 00:35:50 (PSBeginTime 00:35:51-52), end ~00:36:52.
+- L1 side observations (offline/online/CPU sparkline) to be recorded by L1.
+SIGNAL: v08-e-done L4
