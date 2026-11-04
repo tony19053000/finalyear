@@ -293,3 +293,10 @@ result: `peer firewall rule MeshForge-Agent-Peer: present (Private + Domain netw
 when: 2026-11-04 14:26 (local)
 result: peer rule MeshForge-Agent-Peer TCP 47120 Private/Domain present, agent listening on 192.168.31.71:47120. Console Checks page: not reported by the human (human said emit the signal).
 SIGNAL: peer-rule-ok L3
+
+### C7.12-a - clock - OK
+when: 2026-11-04 15:23 (local)
+commands:
+    [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+result: 1793785992 (L1 had 1793785751 earlier; w32time synced, offset ~4 ms)
+SIGNAL: clock-unix L3 t=1793785992
