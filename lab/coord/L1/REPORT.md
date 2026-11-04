@@ -756,3 +756,16 @@ result: L3 (Mohit) rejoined with code 2 (invite inv_01M6K0N60Q..., used) -> NEW 
     (L3 0.75 s earlier = clock offset between the laptops); controller marked the attempt lost 0.24 s after L1's stamp -> < 2 s. Criterion c1 OK except
     failure_detail empty (QUESTION above) and "retried elsewhere" not shown (pinned job).
     <L3-ID> is now node_01M6K0TZRNPEGBRN166GP6S61N. Chat: read 20261105-160000-LEAD-to-ALL (auto-watch loops stopped; work on `continue`).
+
+### C7.12-e - Part X captures (c3), L1 side - OK (L2 Wireshark part pending; L4 used instead of L2 for the job)
+commands: lab/reports/raw/2026-11-05-V0.7-security/run_x.sh (one sudo): markers MK_ARGV/MK_FILE + secret LAB_KEY; tcpdump on wlp0s20f3
+    (47100/47101/47110) -> l1.pcap; tcpdump -i any 47101 -> enroll.pcap around a real enrolment (dev CLI, user mode, `join --config` with a
+    throwaway data_dir; new node node_01M6K66M7877... enrolled: True); job with markers on L4 (-f, logs, get --dest) and on L3 (new id), sleeper on L3 + cancel.
+result: l1.pcap: all 9 marker counts 0 (argv, file, secret, secret b64, secret hex, join code, "Bearer ", peer-token prefix, API token);
+    http/http2 frames 0; ServerHello 9 x 47110 0x0304 (TLS 1.3). No new 47100 handshakes in the window (agent sessions were already up - long-lived).
+    enroll.pcap: code 0, token_raw 0, token_hex 0, CSR armour 0, cert armour 0; 2 connections on 47101; 0 non-TLS payload packets; 2 x ServerHello 0x0304.
+    Jobs: L4 job_01M6K66QSNYZA0ME32WKDSX3T9 and L3 job_01M6K66SCPZ25ANGCBTFEJVC72 printed both markers; the secret is not in the env
+    (printed "<file>": delivered as a file by default, as_env not set) - part S checks the as_env case. Sleeper job_01M6K66TZZ... cancelled.
+    Cleanup: throwaway node revoked, LAB_KEY deleted, enrol data dir, secret value and code removed (never in git). Pcaps committed (all counts 0).
+    Pending: L2's peer capture (47120) and the Wireshark protocol-hierarchy screenshot (L2 on hold); step 4 SNI check needs l2.pcap.
+evidence: lab/reports/raw/2026-11-05-V0.7-security/{l1.pcap,enroll.pcap,analysis.txt,run_x.sh}

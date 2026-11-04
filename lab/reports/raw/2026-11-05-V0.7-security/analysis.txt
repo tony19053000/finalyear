@@ -1,0 +1,16 @@
+markers: argv file secret secret_b64 secret_hex code Bearer peer-token-prefix api-token
+== l1.pcap
+0 0 0 0 0 0 0 0 0 
+http/http2 frames: 0
+ServerHello versions (srcport, version):
+      9 47110	0x0304
+== enroll.pcap
+code 0
+token_raw 0
+token_hex 0
+csr_armour 0
+cert_armour 0
+47101 connections: 2
+non-TLS payload pkts: 0
+enroll ServerHello:
+      2 0x0304
