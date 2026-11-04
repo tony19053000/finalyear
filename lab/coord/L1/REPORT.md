@@ -861,3 +861,10 @@ SIGNAL: v08-e-go L4 - L1's human watches Nodes in the dashboard. L4 HUMAN, when 
     E1: Administrator PowerShell: $w=(Get-NetAdapter | Where-Object {$_.Name -like '*Wi*Fi*' -and $_.Status -eq 'Up'}).Name; Disable-NetAdapter -Name $w -Confirm:$false; Start-Sleep 40; Enable-NetAdapter -Name $w -Confirm:$false
     E2: after Wi-Fi is back: start something heavy for ~60 s (e.g. a 4K YouTube video, or PowerShell: 1..8 | % { Start-Job { $t=(Get-Date).AddSeconds(60); while((Get-Date) -lt $t){} } }).
     Record times, EMIT SIGNAL: v08-e-done L4.
+
+### C8.10-d - Part E1/E2 with L4 (L2 on hold) - E1 OK (controller side); E2 needs the human's view
+result: chat L4->L1 20261105-003740: L4 Wi-Fi off 00:31:58, back 00:32:38; CPU load 8 jobs 00:35:50-00:36:52.
+    Controller journal: L4 state_changed 00:31:59 (suspect), lease_expired -> offline + session.closed 00:32:03 = ~5 s after Wi-Fi off;
+    session.opened + state_changed (online) 00:32:45 = ~7 s after Wi-Fi back. The dashboard is push-updated from these events (ui_perf: heartbeat->DOM p95 234 ms).
+    L1's live poll started 00:33:16 (after the drop) - missed it; the human's own view of the Nodes page (seconds, no reload) not recorded.
+    E2 (CPU sparkline during the load): pending the human's yes/no.
