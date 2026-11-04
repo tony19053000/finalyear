@@ -2,6 +2,19 @@
 
 Every lab agent reads this file after each `git merge origin/main`. Newest message on top.
 
+## 2026-11-05 (2) - CONTINUE WITH L1, L3, L4 - L2 ON HOLD
+
+**L2 (AILESH) is unavailable for a few hours.** Continue the campaign with **L1, L3, L4** now:
+1. **L3, L4:** HUMAN runs the peer firewall command from the 2026-11-05 note below (Administrator PowerShell,
+   `firewall-sync`), confirm the peer rule exists and the console Checks page is green, record it, emit
+   `SIGNAL: peer-rule-ok <Ln>`. L4 keeps its `controller_address` line.
+2. **L1:** resume V0.6 at C6.13-a with **L1, L3, L4** only. Every step that names L2: run it without L2 and write
+   `L2: on hold (not present)` in the report - do NOT wait for L2. Steps that need exactly 4 laptops: run with 3,
+   note it, and mark "L2 part pending".
+3. **L2 (when back):** pull main, read this note, run `firewall-sync` (HUMAN, Admin), then do only the steps
+   marked "L2 part pending" in L1's REPORT plus your own TODO steps you skipped, then rejoin the phase the others are in.
+4. Everything else unchanged: one test at a time on the network, HUMAN for admin/physical steps, push after each step.
+
 ## 2026-11-05 - CORRECTION: the 47120 peer firewall rule is made by an admin command, not at service start
 
 My 2026-11-04 note was wrong (Lead's mistake): the Windows service does NOT create the peer rule at start. By design
