@@ -375,3 +375,5 @@ commands:
     [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
 result: 1793785734 (local clock printed 2026-11-04 15:18:54).
 SIGNAL: clock-unix L4 t=1793785734
+
+PAUSED 2026-11-04 15:29 (local) - auto-watch loop cancelled; L4 idle in V0.7 (after C7.12-a), waiting for L3 part C.
