@@ -50,6 +50,36 @@ Time-critical cues from L1 (`...-go <Ln>`) always come first.
   (every 2 min, or the interval the human says, e.g. `start 5m`) and continue. Write `STARTED <time>`.
 - `stop` -> same as pause, and also tell the human in one line where you stopped (step id).
 
+
+## Lab chat (2026-11-05) - human words `send` and `read`
+
+Messages between laptops (and the Lead) live on the shared branch **`lab/chat`**, folder `lab/chat/`, **one file
+per message** (so nobody conflicts). You may push to `lab/chat` (the only exception to "only your own branch").
+
+**`send <to>`** (to = L1, L2, L3, L4, LEAD or ALL; plain `send` = to whoever your current step needs):
+1. `git fetch origin lab/chat` and work in a separate worktree so your own branch is untouched:
+   `git worktree add -f ../mf-chat origin/lab/chat` (first time) or `git -C ../mf-chat pull --rebase origin lab/chat`.
+2. Write `lab/chat/<YYYYMMDD-HHMMSS>-<FROM>-to-<TO>.md` with:
+   ```
+   # <FROM> -> <TO>: <one-line subject>
+   time: <local time>   step: <your step id>   reply-needed: yes|no
+   ## What I need
+   <plain description>
+   ## Do this (exact commands; mark HUMAN/Administrator lines)
+   ## Expected result
+   ## Reply with
+   <what the other side must send back, e.g. the outputs + SIGNAL line>
+   ```
+3. `git add`, commit `chat: <FROM> -> <TO> <subject>`, push to `lab/chat` (on rejection: `pull --rebase`, push
+   again). Tell the human in one line: "Sent to <TO>. Tell <TO> to `read`."
+
+**`read`**: fetch `lab/chat`, list files addressed to you or ALL that are not in your `lab/coord/<Ln>/chat-read.txt`
+(on your own branch); show each in 2-3 lines; then do the tasks in order (HUMAN steps: show exact commands, wait),
+record results in your REPORT as usual, add the file names to `chat-read.txt`, push your branch. If the sender asked
+for a reply, tell the human: "Done. Type `send <FROM>` to reply."
+
+Never put secrets in chat (passwords, tokens, valid invite codes). Deliberately invalid test codes are fine.
+
 ## Hard rules
 
 - **Never edit `src/`, `tests/`, `packaging/`, `.github/`, `docs/`** or anything outside `lab/coord/<Ln>/`
