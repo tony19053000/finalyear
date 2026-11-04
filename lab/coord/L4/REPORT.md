@@ -332,3 +332,14 @@ SIGNAL: peer-on L4 ip=192.168.31.244
 result: L1 confirms 47120 on L4 is blocked from L1 (no firewall rule). L1 paused the lab until tomorrow; waiting for the
     human/Lead decision on a manual Private 47120 rule. L4 state: joined + connected, peer serving on 192.168.31.244:47120,
     config.toml = controller_address 192.168.31.13:47100 + [agent.peer] bind 192.168.31.244. Next for L4: V0.6 (C6.13 c/d if the long job lands here).
+
+### C6.13-a-L4 (prep) - peer firewall rule via firewall-sync - OK
+when: 2026-11-05 (local), HEAD 8d79aa40
+laptop: L4 (Wi-Fi 192.168.31.244 unchanged; config.toml unchanged: controller_address + [agent.peer] bind)
+commands (human, Administrator):
+    & "C:\Program Files\MeshForge\0.17.0-1\python\python.exe" -I -m meshforge.agent.winservice firewall-sync
+    Get-NetFirewallRule -DisplayName *MeshForge* | Get-NetFirewallPortFilter
+result: "peer firewall rule MeshForge-Agent-Peer: present (Private + Domain networks only)";
+    rule MeshForge-Agent-Peer, profiles Domain+Private, Enabled True, TCP 47120. Console Checks page: (human to confirm).
+NOTE: the earlier "BUG: no firewall rule" (C6.13-a prep, 2026-11-04) is UX gap F7, not a defect (ANNOUNCE 2026-11-05).
+SIGNAL: peer-rule-ok L4
