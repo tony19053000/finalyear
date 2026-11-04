@@ -422,3 +422,7 @@ HUMAN (Administrator): config.toml was **empty** before; appended `[agent.peer]`
 - `Get-NetFirewallRule -DisplayName *MeshForge*` (admin and non-admin): **no rule at all** after restart.
 **BUG:** peer serving on + service restarted, but `sync_firewall` created no inbound 47120 rule (ANNOUNCE 2026-11-04: missing rule after restart = bug). Peers on Windows Firewall Private will likely be blocked from fetching from L2. Did not add a rule by hand (RULES: no firewall changes by the agent); waiting for the Lead's call. Need the service.log lines from the restart? Can ask the human for an admin copy.
 SIGNAL: peer-on L2 ip=192.168.31.155
+
+### V0.6 peer firewall rule - OK (2026-11-05 01:03)
+Chat 20261105-005249-L1-to-L2 step 1. HUMAN (Administrator): `python.exe -I -m meshforge.agent.winservice firewall-sync` -> "peer firewall rule MeshForge-Agent-Peer: present (Private + Domain networks only)". `Get-NetFirewallRule -DisplayName *MeshForge*`: MeshForge-Agent-Peer, Inbound, Allow, Domain+Private, Enabled True. (Earlier BUG "no rule after restart" is worked around by firewall-sync.)
+SIGNAL: peer-rule-ok L2
