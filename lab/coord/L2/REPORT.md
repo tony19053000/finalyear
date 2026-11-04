@@ -446,3 +446,21 @@ SIGNAL: clock-unix L2 t=1793821581
 HUMAN (Administrator) `meshforge-agent identity show`: node_01M6GCKN7PYT2J297BT241P436, enrolled True, path C:\ProgramData\MeshForge\identity, cert_serial 40b104b488997fda9bfd619d6a750eb9f5bc7fce, cert_not_after 2026-12-03, renewal_due 2026-11-23, ca_fingerprint matches L1 (056b7ba3...5785), key_rotation_staged False.
 `icacls` node.crt and node.key: each only BUILTIN\Administrators:(F), NT AUTHORITY\SYSTEM:(F), NT SERVICE\MeshForgeAgent:(F). No Users / Everyone. Key file not opened.
 SIGNAL: v07-icacls-done
+
+### C7.12-h part S (S.1, S.3-like, S.5 a/b/d/f) job secrets on Windows L2 - OK; c and e pending (2026-11-05 01:27)
+Run from L2 as the human's `admin` account (no alice yet). Random value `MF-LAB-SECRET-<n>` written to a scratch file outside the repo (never printed); `compute secret set LAB_KEY --from-file` and `LAB_KEY2` (same value). `compute secret list`: LAB_KEY, LAB_KEY2 (names + times only).
+Job s5-secret pinned on L2, `secrets: [LAB_KEY, {name: LAB_KEY2, as_env: true}]`, prints sha256 of the file, the value, env LAB_KEY2, sleeps 300 s: job_01M6M1P9NFXSHCKRMSKACRGYJA (attempt att_01M6M1P9P9DXH7ZB76ATRJH06E) **succeeded**. `compute logs`:
+```
+secrets_dir C:\ProgramData\MeshForge\secrets\meshforge-secrets-0-55c7c5795635\att_01M6M1P9P9DXH7ZB76ATRJH06E
+sha256 a0d6e777b211fdecffc7dccd6654afb3db653f83fe360cafecc1a7a0b946bcea   (= sha256 of the local value file: match)
+value [secret:LAB_KEY]
+env [secret:LAB_KEY]
+done
+```
+Redaction OK for file and as_env. (The env value shows label LAB_KEY because both secrets hold the same bytes.)
+- **S.5 a** (Administrator, during the run): base `C:\ProgramData\MeshForge\secrets\meshforge-secrets-0-55c7c5795635`, one folder `att_01M6M1P9P9DXH7ZB76ATRJH06E` with two files LAB_KEY, LAB_KEY2. OK.
+- **S.5 b** icacls attempt folder: SYSTEM (OI)(CI)(F), Administrators (OI)(CI)(F), OWNER RIGHTS (OI)(CI)(F); file LAB_KEY: same, inherited. No Users / Everyone / Authenticated Users. OK.
+- **S.5 c** second non-admin user `type`: not done yet (human has not confirmed a second Windows user exists; SKIPPED if none).
+- **S.5 d** after the job: only the empty base folder `meshforge-secrets-0-55c7c5795635` is left; the attempt folder is **gone**. OK.
+- **S.5 e** hard kill + start-up sweep: pending (needs the human, admin).
+- **S.5 f** folder is under C:\ProgramData, **not** in OneDrive / a synced folder. OK.
