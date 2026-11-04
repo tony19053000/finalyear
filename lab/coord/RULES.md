@@ -43,6 +43,13 @@ Your session runs a 2-minute loop (`/loop 2m ...`, started by the human once). O
 4. If there is nothing new: continue your TODO; if you are waiting, say nothing (no message to the human).
 Time-critical cues from L1 (`...-go <Ln>`) always come first.
 
+**pause / start / stop (human words):**
+- `pause` -> cancel your auto-watch loop (CronDelete / stop the /loop), finish or safely stop the current step,
+  push, write `PAUSED <time>` in REPORT, then stay idle and silent. No checks, no tokens.
+- `start` -> `git fetch && git merge origin/main`, re-read ANNOUNCE top, then re-create the auto-watch loop yourself
+  (every 2 min, or the interval the human says, e.g. `start 5m`) and continue. Write `STARTED <time>`.
+- `stop` -> same as pause, and also tell the human in one line where you stopped (step id).
+
 ## Hard rules
 
 - **Never edit `src/`, `tests/`, `packaging/`, `.github/`, `docs/`** or anything outside `lab/coord/<Ln>/`
