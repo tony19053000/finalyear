@@ -365,3 +365,13 @@ commands (human, Administrator):
 result: kill 15:13:45, agent child PID 11548 killed. Orphan check (3 s after): printed NOTHING -> no main.py 300 process left.
     Service MeshForgeAgent Running at 15:13:59 by itself (no Start-Service needed). Round 1 (job_01M6JYC715XDXRTJ18WFBH238D) did not count: finished before the cue.
 SIGNAL: v06-g2-done L4 orphan=no
+
+### LEAD CHECKPOINT V0.6 (L4)
+result: L4 parts of V0.6: C6.13-a (peer rule + matrix via L1) OK, C6.13-c G1 done (L1: PARTIAL), C6.13-d G2 OK (orphan=no).
+SIGNAL: V0.6-done
+
+### C7.12-a-L4 - clock (V0.7) - OK
+commands:
+    [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+result: 1793785734 (local clock printed 2026-11-04 15:18:54).
+SIGNAL: clock-unix L4 t=1793785734
