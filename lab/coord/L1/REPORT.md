@@ -769,3 +769,11 @@ result: l1.pcap: all 9 marker counts 0 (argv, file, secret, secret b64, secret h
     Cleanup: throwaway node revoked, LAB_KEY deleted, enrol data dir, secret value and code removed (never in git). Pcaps committed (all counts 0).
     Pending: L2's peer capture (47120) and the Wireshark protocol-hierarchy screenshot (L2 on hold); step 4 SNI check needs l2.pcap.
 evidence: lab/reports/raw/2026-11-05-V0.7-security/{l1.pcap,enroll.pcap,analysis.txt,run_x.sh}
+
+### C7.12-f - Part L CPU share on L1's installed agent - OK
+commands: journal: agent.execution.cpu_cgroup_ready (2026-11-03); systemd 255. HUMAN (console): "Most CPU one job may use" = 25 %,
+    "Allow jobs without a container" on, Save; agent restarted 17:23:06 (F5). Job cpu-burn (8 spinning processes, 60 s) pinned to L1.
+result: job_01M6KB005W95Y51KYPNRHRBF6V ran in a Docker scope (cuda/python image); sum %CPU of the 8 main.py processes = 400-404 % of 1600 % (16 threads)
+    in 5 samples = 25 %; machine total ~25-30 % us. The cap is enforced. (Ran in a container, so this shows the container CPU quota;
+    the no-container path was allowed but not chosen by the agent.)
+    Settings restore: HUMAN pending (CPU empty, "Allow jobs without a container" off).
