@@ -734,3 +734,15 @@ result: L3 (v07-c-done): (1) token_used, (2) token_revoked, (3) token_expired - 
     (blocked as credential leakage, rightly). The altered-pin invite inv_01M6K0281N... was revoked. No pending invites left from this step.
 QUESTION (Lead): how should pin_mismatch be tested? Options: (a) a unit/cluster test that builds a code with a foreign CA pin (no live token);
     (b) L1's human makes such a code locally and gives it to L3 by voice, never in git.
+
+### C7.12-d - Part R revoke the busy L3 (c1) - revoke OK, rejoin pending
+commands: sleep-300 job pinned to L3 (as admin - alice not logged in on L1; deviation); `date +%s.%N; compute node revoke <L3-ID>`
+result: job_01M6K0M22DG59HZ3M03QEQNQYN running on L3 since 15:40:38. Revoke at 1793787054.468 (15:40:54.47 IST), CLI "revoked ... (session cut)".
+    Attempt att_01M6K0M234... lost at 15:40:54.710 = 0.24 s after the revoke (< 2 s). failure_type node_lost, failure_detail EMPTY (expected detail
+    node_revoked - QUESTION/BUG candidate: the reason is not carried). Job pinned -> queued, will not run elsewhere (same pin caveat as V0.6).
+    L3's agent-log time of node_revoked: from L3's REPORT.
+SIGNAL: v07-r-go L3 - L3 was REVOKED. L3: record the local time of the node_revoked line in the agent log. Then HUMAN (Administrator PowerShell):
+    (a) `meshforge-agent join --force <code 1>` -> expect refused node_revoked;
+    (b) `meshforge-agent identity reset --yes`; then `meshforge-agent join <code 2>` (or the console) -> identity show = a NEW node_id;
+    (c) re-apply owner settings (Run jobs on; then Restart-Service MeshForgeAgent for bug F5). Codes come from L1's human by voice (not in git).
+    EMIT SIGNAL: rejoined L3 node=<new id>.
