@@ -892,3 +892,14 @@ result: after L2 peer-rule-ok (chat 20261105-010305), compute network: all L1/L2
     | L3->L4 5.8 | L4->L3 18.5 | L2->L4 1.8 MB/s (93 ms) | L4->L2 1.9 MB/s - the L2<->L4 pair is ~10x slower than S1 (L2-L4 TCP x1 ~248 Mbit/s) - add to F8.
     Old revoked L3 (H3AX7QQY) cells are stale (10 h). Chats read: L2-to-L1 010305 + 013222, LEAD-to-L1 170000 (triage: fixes in v0.17.1, re-run list noted).
 evidence: lab/reports/raw/2026-11-05-V0.6-sched/C-network-3-with-L2.txt/.json
+
+### C7.12-e - Part X L2 capture (L2 part pending -> done) - OK
+commands: L2 Wireshark/dumpcap 02:02:12 (tcp 47120/47100/47110); L1: marker project (argv + data.txt + secret LAB_KEY as_env) pinned to L2
+    (job_01M6M48WFYMZAP7F5E4ENVYZZP) then L4 (job_01M6M48YF73KNGSN73BE4A8RWF; L4 fetched the project from L2's peer server, 18 frames on 47120);
+    L1 greps on origin/lab/L2 l2.pcapng (1660 packets).
+result: all 8 counts 0 (argv, file, secret value, secret b64, secret hex, "Bearer ", peer-token prefix, API token); http/http2 frames 0;
+    ServerHello 4 x 47110 0x0304 + 1 x 47120 0x0304 (TLS 1.3); 0 non-TLS payload on 47120; SNI node-01m6gckn7pyt2j297bt241p436.node.meshforge
+    visible by design (PB-I2). Job logs printed "secret [secret:LAB_KEY]" (redacted in logs). LAB_KEY deleted after (note: it "replaced" an existing
+    LAB_KEY - L2's part S value; told L2).
+    L2 also reports: v08-d-done (Edge D1-D5 PASS, as admin, 4 UI findings in L2 REPORT); V0.8 G FAIL - PowerShell completion "Shell cmd is not supported" (new bug for the Lead).
+evidence: lab/reports/raw/2026-11-05-V0.7-security/l2-analysis.txt; origin/lab/L2 .../l2.pcapng
