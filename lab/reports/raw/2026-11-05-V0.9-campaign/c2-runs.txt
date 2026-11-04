@@ -1,0 +1,23 @@
+                 Campaign camp_01M6M4S854YBNF90K28MASXSDZ: runs                 
++------------------------------------------------------------------------------+
+|SEQ | STATE | REP | FAMILY     | STRATEGY | NODE        | JOB         | DETAIL|
+|----+-------+-----+------------+----------+-------------+-------------+-------|
+|1   | done  | 1   | cpu.primes | local    | node_01M6GC | job_01M6M4S | -     |
+|    |       |     |            |          | KN7PYT2J297 | E18TDF8AYED |       |
+|    |       |     |            |          | BT241P436   | C6HXC7NK    |       |
+|2   | done  | 1   | cpu.primes | local    | node_01M6GC | job_01M6M4S | -     |
+|    |       |     |            |          | KN7PYT2J297 | E1P8EYJPY50 |       |
+|    |       |     |            |          | BT241P436   | JHKS9ZTK    |       |
+|3   | done  | 2   | cpu.primes | local    | node_01M6GC | job_01M6M4S | -     |
+|    |       |     |            |          | KN7PYT2J297 | E23RXVX82N6 |       |
+|    |       |     |            |          | BT241P436   | XDX7ZEJV    |       |
+|4   | done  | 2   | cpu.primes | local    | node_01M6GC | job_01M6M4S | -     |
+|    |       |     |            |          | KN7PYT2J297 | E2JVCVWR99E |       |
+|    |       |     |            |          | BT241P436   | 6F8YM3XC    |       |
+|5   | done  | 3   | cpu.primes | local    | node_01M6GC | job_01M6M4S | -     |
+|    |       |     |            |          | KN7PYT2J297 | E31TV65TNEA |       |
+|    |       |     |            |          | BT241P436   | RKQK3WEA    |       |
+|6   | done  | 3   | cpu.primes | local    | node_01M6GC | job_01M6M4S | -     |
+|    |       |     |            |          | KN7PYT2J297 | E3FJ7MA1GFJ |       |
+|    |       |     |            |          | BT241P436   | EB47SMA1    |       |
++------------------------------------------------------------------------------+

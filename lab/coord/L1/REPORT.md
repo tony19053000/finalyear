@@ -916,3 +916,7 @@ result: cpuload.yaml (cpu_load:2 on L2, nodes/origin L2): "invalid campaign: nod
     BUG candidate (Lead). With on_unsupported: skip -> see plan output below. C1 netem: NOT RUN (no Linux agent other than L1).
 ### C9.10-e - R3 Linux idle source (part 1) - while in use
 result: loginctl: Type=x11, IdleHint=no, IdleSinceHintMonotonic=0. Part 2 (after 6 min idle) + agent owner_activity line: pending.
+    C2 run: with `on_unsupported: skip` the same campaign plans 6 runs (2 configs x 3) INCLUDING cpu_load:2 -> camp_01M6M4S854YBNF90K28MASXSDZ,
+    `bench submit -n 6 --wait`: "submitted 6 ... ended: 6 done, 0 failed", exit 0, all < 1 min. So the default-mode refusal is a validation bug,
+    not a missing capability. L2 burner-process / PriorityClass check: pending from L2.
+evidence: lab/reports/raw/2026-11-05-V0.9-campaign/{cpuload.yaml,c2-submit.txt,c2-runs.txt}

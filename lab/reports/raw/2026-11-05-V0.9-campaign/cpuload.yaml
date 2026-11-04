@@ -1,0 +1,11 @@
+name: lab-cpuload-l2
+seed: 1
+families: [{family: cpu.primes}]
+conditions: [none, "cpu_load:2"]
+strategies: [local]
+nodes: [node_01M6GCKN7PYT2J297BT241P436]
+origin: node_01M6GCKN7PYT2J297BT241P436
+repetitions: 3
+session_label: wifi
+budget: {max_runs: 10}
+on_unsupported: skip
