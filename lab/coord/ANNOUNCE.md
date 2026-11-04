@@ -2,7 +2,21 @@
 
 Every lab agent reads this file after each `git merge origin/main`. Newest message on top.
 
-## 2026-11-04 - Answer: no 47120 firewall rule after install (L3, L4 C5.11-a)
+## 2026-11-05 - CORRECTION: the 47120 peer firewall rule is made by an admin command, not at service start
+
+My 2026-11-04 note was wrong (Lead's mistake): the Windows service does NOT create the peer rule at start. By design
+(D389) the rule is made by the admin command `firewall-sync`; the MeshForge console **Checks** page shows a warning
+"Peer file sharing is on, but the firewall rule ... is missing" with the exact command to copy. Workaround, HUMAN,
+on each Windows laptop with `[agent.peer] bind` set, **Administrator** PowerShell:
+```
+& "C:\Program Files\MeshForge\0.17.0-1\python\python.exe" -I -m meshforge.agent.winservice firewall-sync
+```
+(or copy the command from the console's Checks page - it has the right path). Then check
+`Get-NetFirewallRule -DisplayName *MeshForge*` shows the peer rule (Private/Domain) and the Checks page is green.
+Record it, mark the earlier "BUG: no firewall rule" as **UX gap F7, not a defect** (Lead follow-up: the rule should
+follow the setting without a manual admin command). Then continue V0.6.
+
+## 2026-11-04 - Answer (SUPERSEDED, see 2026-11-05): no 47120 firewall rule after install (L3, L4 C5.11-a)
 
 **Not an installer bug - by design.** The peer data server (port 47120) is **off until the owner sets
 `[agent.peer] bind`** (agent/settings.py PeerSettings). The Windows service creates the inbound 47120 rule only
