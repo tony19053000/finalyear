@@ -708,3 +708,7 @@ SIGNAL: v07-c-codes L3 - try each with `meshforge-agent join --force <code>` (Ad
     (4) wrong-pin code (real invite inv_01M6JZK6NV... with 2nd group ka7bw changed to ba7bw by L1; the posted text is never valid):
         mf1-aecmb-ba7bw-373we-ohoqp-ggp6u-b67qd-urypx-oafaf-nn52h-f4jzt-52ftf-ada7s-wntf6-usujd-q -> expect pin_mismatch (L1 revokes the real invite after)
     After each: identity show = same node, still online. EMIT SIGNAL: v07-c-done L3.
+
+### NOTE - rule check (re-read RULES.md, be06f5e8)
+QUESTIONS: RULES say pairing codes are never written down. The C7.12-c entry above posts 4 codes (human approved, test-only); all are unusable
+    (used, revoked, expired before posting, and one altered by L1 so it never existed). Lead: tell me if they must be removed from the report.
