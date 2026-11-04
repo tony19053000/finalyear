@@ -327,3 +327,5 @@ result: agent log `agent.session.stream_ended` code PERMISSION_DENIED details "n
   (a) join --force with code 1: NOT RUN - the human typed the placeholder `CODE1` literally -> "a join code starts with 'mf1-'". Identity was then reset, so the `node_revoked` refusal can no longer be tested on this identity. **SKIPPED (operator error)**.
   (b) `identity reset --yes` -> "identity reset: C:\ProgramData\MeshForge\identity" OK. `join CODE2` -> placeholder again, "a join code starts with 'mf1-'": not joined yet. Waiting for a real new code from L1's human.
   Restart-Service MeshForgeAgent: done (no output).
+
+PAUSED 2026-11-04 15:53 (human: pause) - at C7.12-d part R: L3 revoked + identity reset, NOT rejoined yet (needs a new code from L1's human; script ready).
