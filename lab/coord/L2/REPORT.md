@@ -471,3 +471,6 @@ Second secret job job_01M6M26TD8RHYFZ9V8QTDDVNGG (attempt att_01M6M26TE4CHXPG004
 - Service status was Running (host restarted the child by itself or Start-Service ran); 01:29:01 after start: only the empty base folder; the attempt folder **gone** (start-up sweep works).
 - Job: failed, node_lost / placed_node_offline (expected after the kill).
 S.5 summary: a, b, d, e, f OK; c pending the second-user question.
+
+### C17-g and S.5 c - SKIPPED (2026-11-05 01:31)
+HUMAN: L2 has **no second, non-admin Windows user**. C17-g (non-admin user view) and V0.7 S.5 c (`type` as another user = Access is denied) SKIPPED. ACLs (S.5 b) show no Users/Everyone/Authenticated Users entries, so a non-admin user has no access by ACL.
