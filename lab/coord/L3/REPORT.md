@@ -288,3 +288,8 @@ commands:
 result: `peer firewall rule MeshForge-Agent-Peer: present (Private + Domain networks only)`; rule `MeshForge-Agent-Peer | Domain, Private | True | TCP 47120`.
   Earlier "BUG: firewall rule missing" (C6-peer) is re-classified per Lead: **UX gap F7, not a defect** (rule is made by the admin command, D389).
   Console Checks page: asked of the human (next entry).
+
+### C6-peer-ok - peer rule ok - OK
+when: 2026-11-04 14:26 (local)
+result: peer rule MeshForge-Agent-Peer TCP 47120 Private/Domain present, agent listening on 192.168.31.71:47120. Console Checks page: not reported by the human (human said emit the signal).
+SIGNAL: peer-rule-ok L3
