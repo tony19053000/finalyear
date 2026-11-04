@@ -329,3 +329,5 @@ result: agent log `agent.session.stream_ended` code PERMISSION_DENIED details "n
   Restart-Service MeshForgeAgent: done (no output).
 
 PAUSED 2026-11-04 15:53 (human: pause) - at C7.12-d part R: L3 revoked + identity reset, NOT rejoined yet (needs a new code from L1's human; script ready).
+
+STOPPED 2026-11-04 16:05 (human: stop) - at C7.12-d (V0.7 part R). L3 revoked, identity reset, NOT rejoined. Next: rejoin with a new L1 code, then EMIT SIGNAL: rejoined L3 node=<new id>.
