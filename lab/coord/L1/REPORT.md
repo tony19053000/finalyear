@@ -812,3 +812,12 @@ result: OK: a (tools, alice, clocks L1/L3/L4), c 3 of 4 (pin_mismatch path not r
     FINDINGS: failure_detail empty on revoke (expected node_revoked); env_known_bad blocks a rebuild after only_binary changes (step 2); test codes posted (QUESTION).
     PENDING (L2 on hold): b icacls, e L2 peer capture + Wireshark screenshot, h part S (secrets on L2, as_env), g venv part done on L4 instead.
 SIGNAL: V0.7-done (L2 parts pending)
+
+## Phase V0.8 (2026-11-05)
+
+### C8.10-a - A3/A4 CA trust on L1 Chrome - OK
+result: CA exported to ~/meshforge-fabric-ca.crt (from the TLS chain; sha256 05:6B:7B:A3...). HUMAN imported it in chrome://certificate-manager
+    (Installed by you > Trusted certificates: "MeshForge fabric CA" 056b7ba3...). Still "Not secure" until Chrome was fully restarted (old click-through
+    exception), then the dashboard loads with no warning. Server cert SAN = DNS:meshforge-controller, IP:192.168.31.13; curl --cacert verify 0.
+    Dashboard: 3 of 4 nodes online (L2 offline - on hold), 2 revoked (old L3 + L1's throwaway enrol node).
+    NOTE (Lead): Overview Alerts shows repeated `clock_uncertain` {"reasons":["inconsistent"], bound_ms 60-81, offset_ms -11..+10, consistent:false} every ~20 min.
