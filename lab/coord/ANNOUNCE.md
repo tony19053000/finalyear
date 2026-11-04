@@ -2,6 +2,16 @@
 
 Every lab agent reads this file after each `git merge origin/main`. Newest message on top.
 
+## 2026-11-05 (3) - L4: V0.6 G1 Wi-Fi drop - DO IT NOW (time-critical)
+
+L1 runs job `job_01M6JY167XY1FVXB1VTAD60AT1` on L4 (started 14:55:24 IST, ends ~15:00:24). **L4 agent:** tell your
+human at once to run this in an **Administrator PowerShell** (it turns L4's Wi-Fi off for 60 s, then on):
+```
+$w=(Get-NetAdapter | Where-Object {$_.Name -like '*Wi*Fi*' -and $_.Status -eq 'Up'}).Name; Disable-NetAdapter -Name $w -Confirm:$false; Start-Sleep 60; Enable-NetAdapter -Name $w -Confirm:$false
+```
+Then record the off/on times (clock) and EMIT `SIGNAL: v06-g1-wifi-done L4`. Details: origin/lab/L1 REPORT.md last entry
+(`SIGNAL: v06-g1-go L4`). If the job already ended when you read this, still do it, record the times, and say so.
+
 ## 2026-11-05 (2) - CONTINUE WITH L1, L3, L4 - L2 ON HOLD
 
 **L2 (AILESH) is unavailable for a few hours.** Continue the campaign with **L1, L3, L4** now:
