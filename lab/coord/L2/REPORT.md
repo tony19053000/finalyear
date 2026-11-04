@@ -464,3 +464,10 @@ Redaction OK for file and as_env. (The env value shows label LAB_KEY because bot
 - **S.5 d** after the job: only the empty base folder `meshforge-secrets-0-55c7c5795635` is left; the attempt folder is **gone**. OK.
 - **S.5 e** hard kill + start-up sweep: pending (needs the human, admin).
 - **S.5 f** folder is under C:\ProgramData, **not** in OneDrive / a synced folder. OK.
+
+### C7.12-h S.5 e hard kill + start-up sweep - OK (2026-11-05 01:31)
+Second secret job job_01M6M26TD8RHYFZ9V8QTDDVNGG (attempt att_01M6M26TE4CHXPG004EBBSAKSQ) pinned on L2, running at 01:27:43. HUMAN (Administrator): `Stop-Process -Force` on the `meshforge.agent.winservice ... child` process.
+- 01:28:21 after kill: attempt folder **still there** with LAB_KEY, LAB_KEY2 (expected).
+- Service status was Running (host restarted the child by itself or Start-Service ran); 01:29:01 after start: only the empty base folder; the attempt folder **gone** (start-up sweep works).
+- Job: failed, node_lost / placed_node_offline (expected after the kill).
+S.5 summary: a, b, d, e, f OK; c pending the second-user question.
