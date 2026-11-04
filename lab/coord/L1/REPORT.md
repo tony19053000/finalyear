@@ -664,3 +664,10 @@ SIGNAL: v06-g2-go L4 job=job_01M6JYC715XDXRTJ18WFBH238D (main.py 300, running si
     $a = Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like "*meshforge.agent.winservice*child*" } | Select-Object -First 1; Stop-Process -Id $a.ProcessId -Force
     then BEFORE starting anything: Get-CimInstance Win32_Process -Filter "Name like 'python%'" | Where-Object CommandLine -like '*main.py 300*'  (must print nothing = no orphan)
     then make sure the service runs again (Start-Service MeshForgeAgent if needed). Record all output, EMIT SIGNAL: v06-g2-done L4 orphan=<yes|no>.
+
+### C6.13-d - G2 round 1 did not count; round 2
+result: round 1 job_01M6JYC715XDXRTJ18WFBH238D succeeded at 15:06 before any kill (cue too late).
+SIGNAL: v06-g2-go L4 job=job_01M6JYXKR18DH1QX6ANJA23K5C (main.py 300, running since 15:10:53 IST, ends ~5 min later) - L4 HUMAN NOW, Administrator PowerShell:
+    $a = Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like "*meshforge.agent.winservice*child*" } | Select-Object -First 1; Stop-Process -Id $a.ProcessId -Force
+    then BEFORE starting anything: Get-CimInstance Win32_Process -Filter "Name like 'python%'" | Where-Object CommandLine -like '*main.py 300*'  (must print nothing)
+    then Start-Service MeshForgeAgent if needed. Record outputs + times, EMIT SIGNAL: v06-g2-done L4 orphan=<yes|no>.
