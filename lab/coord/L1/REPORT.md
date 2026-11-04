@@ -777,3 +777,14 @@ result: job_01M6KB005W95Y51KYPNRHRBF6V ran in a Docker scope (cuda/python image)
     in 5 samples = 25 %; machine total ~25-30 % us. The cap is enforced. (Ran in a container, so this shows the container CPU quota;
     the no-container path was allowed but not chosen by the agent.)
     Settings restore: HUMAN pending (CPU empty, "Allow jobs without a container" off).
+
+### C7.12-g - Part E wheels-only - steps 1 + 3 OK on L1 (Docker) and L4 (venv); step 2 pending (config edit)
+commands: job with requirements.txt `docopt==0.6.2` (sdist only) and a job whose requirements.txt starts with `--no-binary :all:`; each pinned to L1 then L4.
+result: L1 sdist job_01M6KB2BDTXAM9XDC7780KHB1J: env_error setup_failed "installs are wheels-only ([agent.envs] only_binary = true) ... needs only_binary = false" - OK.
+    L1 --no-binary job_01M6KB2DKJ285XWYN18GZCNMCA: env_error requirements_rejected "requirements line 1: option lines are not accepted ('--no-binary :all:')" - OK.
+    L4 sdist job_01M6KB2Q3S20TF2ETKJ72MGQXG: env_error setup_failed (uv: "building from source is disabled") - OK; L4 --no-binary job_01M6KB2TNTZ7WTACV1K2VJNPE9: requirements_rejected line 1 - OK.
+    L4 replaces L2 as the venv laptop (L2 on hold). Step 2 (only_binary = false -> succeeded): needs `[agent.envs] only_binary = false` in /etc/meshforge/config.toml + restart (HUMAN).
+evidence: lab/reports/raw/2026-11-05-V0.7-security/E.txt
+
+### C7.12-i - G4 extras (part) - OK
+result: curl -k https://192.168.31.13:47110/v1/nodes without a token -> 401; /healthz -> 200 {"status":"ok","sessions":3}. Owner rule (alice vs admin jobs): needs an alice login (HUMAN). G4 0.1 dev DB password: NOT RUN (dev-only).

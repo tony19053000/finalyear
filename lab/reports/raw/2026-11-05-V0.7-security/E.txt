@@ -1,0 +1,18 @@
+=== sdist
+job_01M6KB2BDTXAM9XDC7780KHB1J
+ERROR: Could not find a version that satisfies the requirement docopt==0.6.2 (from versions: none)
+ERROR: No matching distribution found for docopt==0.6.2
+compute: job_01M6KB2BDTXAM9XDC7780KHB1J failed (env_error), workload exit code 1
+job_01M6KB2BDTXAM9XDC7780KHB1J failed env_error setup_failed: requirements install failed (exit 1); installs are wheels-only ([agent.envs] only_binary = true): a package with no wheel for this platform needs only_binary = false on this node
+=== nobin
+job_01M6KB2DKJ285XWYN18GZCNMCA
+compute: job_01M6KB2DKJ285XWYN18GZCNMCA failed (env_error)
+job_01M6KB2DKJ285XWYN18GZCNMCA failed env_error requirements_rejected: requirements line 1: option lines are not accepted ('--no-binary :all:'): installs on this node are wheels-only ([agent.envs] only_binary = true; only the node's owner can change that). Remove the line - only `--hash=...` after a requirement is allowed; another package index is the owner's [agent.envs] index_url / find_links
+=== L4 sdist
+hint: Wheels are required for `docopt` because building from source is disabled for all packages (i.e., with `--no-build`)
+compute: job_01M6KB2Q3S20TF2ETKJ72MGQXG failed (env_error)
+job_01M6KB2Q3S20TF2ETKJ72MGQXG failed env_error setup_failed: requirements install failed (exit 1); installs are wheels-only ([agent.envs] only_binary = true): a package with no wheel for this platform needs 
+=== L4 nobin
+job_01M6KB2TNTZ7WTACV1K2VJNPE9
+compute: job_01M6KB2TNTZ7WTACV1K2VJNPE9 failed (env_error)
+job_01M6KB2TNTZ7WTACV1K2VJNPE9 failed env_error requirements_rejected: requirements line 1: option lines are not accepted ('--no-binary :all:'): installs on this node are wheels-only ([agent.envs] only_binary
