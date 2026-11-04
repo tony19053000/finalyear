@@ -846,3 +846,12 @@ result: seeds: history 300 succeeded jobs (100 x 3 laptops - L2 offline/on hold)
     clock (history): offset 0.69 ms, bound 1.5 ms, 0 pings dropped, consistent before/after, reasons [], uncertain false. VERDICT: pass.
     The lab DB now holds 10 400+ seeded jobs (planned).
 evidence: lab/reports/raw/2026-11-05-V0.8-visual/ui-perf.json
+
+### C8.10-g - Part H controller on another port (L1 Chrome; L2 on hold) - OK
+commands: h_move.sh: /etc/meshforge/controller.toml http_bind 47110 -> 47121, restart; h_back.sh: restore + restart.
+    Deviation: port 47121 instead of 47120 - 47120 is L1's own agent peer server ([agent.peer] bind), the controller could not bind there.
+result: H3 old 47110 tab: header "Nodes unavailable / Reconnecting...", body "Could not load jobs - The controller did not answer ... Retry" - no blank page, no crash - OK.
+    Controller on 47121: healthz 200, 3 agent sessions (gRPC 47100 unchanged).
+    H4 new tab https://192.168.31.13:47121/jobs: signed in as admin, Live, same jobs listed - OK (the cookie/session carried over or the human signed in; screenshot shows signed in).
+    H5 after restoring 47110: the old tab went back to Live with the job list by itself, no reload - OK. Config back to http_bind 47110.
+    NOTE (Lead): seeded bulk-09986 shows "succeeded" (updated 19:35:06) while all other bulk seeds are "cancelled" - unexpected state in ui_perf seed data.
