@@ -692,3 +692,10 @@ result: HUMAN: sudo apt install tcpdump tshark -> /usr/bin/tcpdump, /usr/bin/tsh
     compute whoami: admin (admin), token until 2027-02-01. L1 clock: date -u +%s = 1793785751, NTP synchronized. Admin user is `admin` (not labadmin).
     L2: on hold. WAIT: SIGNAL clock-unix from L3, L4.
 SIGNAL: clock-unix L1 t=1793785751
+
+### C7.12-c - Part C invite refusals on L3 - GO
+SIGNAL: v07-c-go L3 - L3: first EMIT SIGNAL: clock-unix L3 t=<date -u +%s>. Then your human types 4 codes that L1's human gives by voice/screen
+    (never written anywhere), each with `meshforge-agent join --force <code>` in an Administrator PowerShell:
+    (1) an already-used code -> expect token_used; (2) a revoked code -> token_revoked; (3) a --ttl 1m code tried after 70 s -> token_expired;
+    (4) a fresh code with one character changed in its 2nd group (CA-pin part) -> pin_mismatch.
+    After each: `meshforge-agent identity show` = same old node, still online. Record the refusal texts (never the codes), EMIT SIGNAL: v07-c-done L3.
