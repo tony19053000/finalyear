@@ -316,3 +316,14 @@ evidence: lab/reports/raw/2026-11-04-V0.7-refusals-L3.txt (no codes in it)
 BUG?/QUESTION for L1: the code has a checksum, so changing one character in the CA-pin group is caught before the pin check. To reach `pin_mismatch` the altered code needs a valid checksum (e.g. a code built with a different CA fingerprint), or the test needs another way. The refusal itself is correct and safe; only the tested path differs.
   Note: the human ran all 4 codes from L1's REPORT, where L1 had posted them (all dead/altered by design; L1 to revoke the 2 h pin invite).
 SIGNAL: v07-c-done L3 pin=checksum-refusal
+
+### C7.12-d - part R revoke victim - IN PROGRESS (step a NOT RUN)
+when: 2026-11-04 15:45 (local)
+laptop: L3 (MOHIT), old node node_01M6GGZ7VNCSRKFAEDH3AX7QQY
+commands:
+    HUMAN (Administrator): Select-String C:\ProgramData\MeshForge\logs\agent.log -Pattern node_revoked
+    HUMAN: meshforge-agent join --force CODE1; identity reset --yes; join CODE2; Restart-Service MeshForgeAgent
+result: agent log `agent.session.stream_ended` code PERMISSION_DENIED details "node_revoked: this node was revoked from the fabric; ... identity reset --yes, then join <code>" at **2026-11-04T10:10:53.722709Z = 15:40:53.72 IST**; state ONLINE -> STOPPING reason node_revoked at 10:10:53.723Z; `agent.revoked` (console supervisor) at 10:10:56.86Z. L1's revoke was at 15:40:54.47 IST (L1 clock) -> L3 log is 0.75 s EARLIER than L1's revoke stamp: clock offset between L1 and L3, not causality (L3 was ~4 ms off time.windows.com).
+  (a) join --force with code 1: NOT RUN - the human typed the placeholder `CODE1` literally -> "a join code starts with 'mf1-'". Identity was then reset, so the `node_revoked` refusal can no longer be tested on this identity. **SKIPPED (operator error)**.
+  (b) `identity reset --yes` -> "identity reset: C:\ProgramData\MeshForge\identity" OK. `join CODE2` -> placeholder again, "a join code starts with 'mf1-'": not joined yet. Waiting for a real new code from L1's human.
+  Restart-Service MeshForgeAgent: done (no output).
