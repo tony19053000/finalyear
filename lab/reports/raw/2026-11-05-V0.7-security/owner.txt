@@ -1,0 +1,14 @@
+== alice jobs list (count, admin job visible?)
+0 False
+== alice get admin job
+compute: the controller refused the request (404): no such job - check the id or name (`compute jobs`, `compute nodes`, `compute data ls`...)
+== alice cancel admin job
+compute: the controller refused the request (404): no such job - check the id or name (`compute jobs`, `compute nodes`, `compute data ls`...)
+== alice logs admin job
+compute: the controller refused the request (404): no such job - check the id or name (`compute jobs`, `compute nodes`, `compute data ls`...)
+== admin sees job state
+running
+== alice own job
+alice job job_01M6KBT8K1NBNGS301JKJ3PQJ2
+== admin cancels alice job
+job_01M6KBT8K1NBNGS301JKJ3PQJ2 cancelled

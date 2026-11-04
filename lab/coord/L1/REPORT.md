@@ -796,3 +796,19 @@ result: job_01M6KBBEAZRCM94M2EX68EVADW stayed `queued`: compute explain -> L1 in
     changed only_binary; no other node is eligible (pinned). Cancelled; config restored (only [agent.peer]), agent active.
 BUG/UX candidate (Lead): env_known_bad is not cleared when the agent's env policy changes (agent restart / new Hello). Workaround for the test: a
     requirements file with a different hash, or wait for the known-bad window to expire.
+
+### C7.12-f (restore) - OK
+result: HUMAN cleared "Most CPU one job may use", unticked "Allow jobs without a container", Save; agent restarted 18:55:40 IST.
+
+### C7.12-i - G4 owner rule (alice vs admin) - OK
+commands: alice logged in with a separate credentials dir (MESHFORGE_CLI__CREDENTIALS_DIR=~/mf-alice; HUMAN typed the password); admin job (sleeper, L4) then alice's own job.
+result: alice `compute jobs` = 0 jobs, admin job not listed; alice jobs/cancel/logs <admin job> -> 404 "no such job" (no existence leak); admin job stayed running.
+    Admin cancelled alice's job_01M6KBT8K1... -> cancelled (admin may). Admin job job_01M6KBT23Z... cancelled afterwards. compute whoami: alice (user) / admin (admin).
+evidence: lab/reports/raw/2026-11-05-V0.7-security/owner.txt
+
+### LEAD CHECKPOINT V0.7
+result: OK: a (tools, alice, clocks L1/L3/L4), c 3 of 4 (pin_mismatch path not reached - QUESTION), d revoke 0.24 s + L3 back as a new node,
+    e captures all marker counts 0 / TLS 1.3 / clean enrolment, f CPU 25 % enforced, g wheels-only refusals on L1 + L4, i curl 401/200 + owner rule.
+    FINDINGS: failure_detail empty on revoke (expected node_revoked); env_known_bad blocks a rebuild after only_binary changes (step 2); test codes posted (QUESTION).
+    PENDING (L2 on hold): b icacls, e L2 peer capture + Wireshark screenshot, h part S (secrets on L2, as_env), g venv part done on L4 instead.
+SIGNAL: V0.7-done (L2 parts pending)
