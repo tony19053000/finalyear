@@ -383,3 +383,7 @@ PAUSED 2026-11-04 15:29 (local) - auto-watch loop cancelled; L4 idle in V0.7 (af
 - E2: 8 busy-loop jobs (60 s each) started 00:35:50 (PSBeginTime 00:35:51-52), end ~00:36:52.
 - L1 side observations (offline/online/CPU sparkline) to be recorded by L1.
 SIGNAL: v08-e-done L4
+
+## C8.10-d E2 rerun (chat 20261105-004015-L1-to-L4) - 2026-11-05
+- 8 busy-loop jobs (60 s) started 00:41:18, load ended ~00:42:20; jobs removed 00:44:28.
+SIGNAL: v08-e2-done L4
