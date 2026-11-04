@@ -1,0 +1,23 @@
+             measured links (FROM downloads from TO's peer server)              
++------------------------------------------------------------------------------+
+|FROM \ TO | 3CFRE3AV                  | T241P436 | YQ6SF318     | H3AX7QQY    |
+|----------+---------------------------+----------+--------------+-------------|
+|3CFRE3AV  | x                         | -        | fail:timeout | fail:timeout|
+|T241P436  | 16.7 MB/s 166.0ms 11.0h   | x        | -            | -           |
+|          | (stale)                   |          |              |             |
+|YQ6SF318  | 18.7 MB/s 23.4ms 13m      | -        | x            | fail:timeout|
+|H3AX7QQY  | 19.1 MB/s 154.8ms 13m     | -        | fail:timeout | x           |
++------------------------------------------------------------------------------+
+  3CFRE3AV = node_01M6BMFVHJVZXC7AET3CFRE3AV
+  T241P436 = node_01M6GCKN7PYT2J297BT241P436
+  YQ6SF318 = node_01M6GGJP3FW5VHBDFKYQ6SF318
+  H3AX7QQY = node_01M6GGZ7VNCSRKFAEDH3AX7QQY
+                controller links (from transfer history)                
++----------------------------------------------------------------------+
+|NODE                            | CONTROLLER -> NODE | SAMPLES | LAST |
+|--------------------------------+--------------------+---------+------|
+|node_01M6GCKN7PYT2J297BT241P436 | 7.8 MB/s           | 1       | 12.8h|
+|node_01M6GGJP3FW5VHBDFKYQ6SF318 | 4.5 MB/s           | 1       | 11.8h|
+|node_01M6GGZ7VNCSRKFAEDH3AX7QQY | 6.7 MB/s           | 1       | 12.3h|
++----------------------------------------------------------------------+
+probes: on - started 13, measured 4, failed 9 (timed out 0), in flight 0; budget 0 B/50.3 MB per minute; stale after 60m

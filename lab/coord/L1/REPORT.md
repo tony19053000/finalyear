@@ -630,3 +630,13 @@ next: (1) human decides on a manual 47120 Private firewall rule on L2/L3/L4 (syn
 result: merged origin/main. Correction to C6.13-a (prep): the missing 47120 rule on L2-L4 is NOT a bug - Windows needs the admin command
     `meshforge.agent.winservice firewall-sync` (D389); recorded as UX gap F7. L2: on hold (not present) - V0.6 continues with L1, L3, L4;
     L2 parts marked "L2 part pending". IP 192.168.31.13 unchanged; controller + agent active. Waiting for SIGNAL peer-rule-ok L3 / L4.
+
+### C6.13-a - Part C network matrix (0.6.6) - OK with L1, L3, L4 (L2 part pending)
+commands: after peer-rule-ok L3/L4 (firewall-sync), compute network (+ --json) at +5 min and +15 min
+result: +5 min: L3->L1 19.1, L4->L1 18.7 MB/s measured; L1->L3, L1->L4, L3<->L4 fail:timeout (probes from before the rules).
+    +15 min: all 6 L1/L3/L4 cells measured, no fail, no stale:
+      L1->L4 24.5 MB/s 4.6 ms | L1->L3 7.3 MB/s 66.5 ms | L4->L1 17.0 MB/s | L4->L3 2.7 MB/s (rtt 0.0 ms ?) | L3->L1 15.0 MB/s | L3->L4 24.4 MB/s
+    vs S1 Wi-Fi TCP x1 (2026-11-03): 171-248 Mbit/s = 21-31 MB/s -> same order of magnitude for 4 of 6 cells; L1->L3 (7.3) and L4->L3 (2.7) are 3-8x lower
+    than S1 (L1->L3 191, L4->L3 216 Mbit/s): downloads FROM L3's peer server are slow. The 0.0 ms RTT on L4->L3 looks wrong (QUESTION).
+    L2 (AILESH): on hold - its only cell is a stale 11 h L2->L1 16.7 MB/s. L2 part pending.
+evidence: lab/reports/raw/2026-11-05-V0.6-sched/C-network.txt/.json, C-network-2.txt/.json

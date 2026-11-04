@@ -1,0 +1,18 @@
+             measured links (FROM downloads from TO's peer server)              
++------------------------------------------------------------------------------+
+|FROM \ TO | 3CFRE3AV         | T241P436 | YQ6SF318         | H3AX7QQY         |
+|----------+------------------+----------+------------------+------------------|
+|3CFRE3AV  | x                | -        | 24.5 MB/s 4.6ms  | 7.3 MB/s 66.5ms  |
+|          |                  |          | 10m              | 7m               |
+|T241P436  | 16.7 MB/s        | x        | -                | -                |
+|          | 166.0ms 11.2h    |          |                  |                  |
+|          | (stale)          |          |                  |                  |
+|YQ6SF318  | 17.0 MB/s 16.4ms | -        | x                | 2.7 MB/s 0.0ms 9m|
+|          | 8m               |          |                  |                  |
+|H3AX7QQY  | 15.0 MB/s        | -        | 24.4 MB/s 16.0ms | x                |
+|          | 108.4ms 8m       |          | 9m               |                  |
++------------------------------------------------------------------------------+
+  3CFRE3AV = node_01M6BMFVHJVZXC7AET3CFRE3AV
+  T241P436 = node_01M6GCKN7PYT2J297BT241P436
+  YQ6SF318 = node_01M6GGJP3FW5VHBDFKYQ6SF318
+  H3AX7QQY = node_01M6GGZ7VNCSRKFAEDH3AX7QQY
