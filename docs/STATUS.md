@@ -2,7 +2,7 @@
 
 > Concise current state. Long-term plan: [`DEVELOPMENT_ROADMAP.md`](DEVELOPMENT_ROADMAP.md). Update at the end of every work session.
 
-**Last updated:** 2026-11-01 (🧑 lab campaign RUNNING on L1–L3 via lab/coord (D425 Wi-Fi only, D426 git coordination); V0.2 in progress: 0.2.1 [x], S1 Wi-Fi matrix L1–L3 done; lab-found fixes eadd62fc, ef2d0421)
+**Last updated:** 2026-11-04 (🧑 lab campaign: 4 laptops joined on v0.17.0, V0.2/V0.17a/V0.3/V0.4 run, V0.5 in progress; lab-found product bugs F4 (D427), F5 (D428), F6 fixed on main, CI green run 41694928760; next: cut v0.17.1 and upgrade the lab)
 
 
 ## Progress
