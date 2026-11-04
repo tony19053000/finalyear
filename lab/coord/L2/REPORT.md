@@ -441,3 +441,8 @@ SIGNAL: v06-d-done
 ### C7.12-a clock - recorded (2026-11-05 01:16)
 `[DateTimeOffset]::UtcNow.ToUnixTimeSeconds()` at 01:16:21 IST -> 1793821581.
 SIGNAL: clock-unix L2 t=1793821581
+
+### C7.12-b (P.3) identity ACLs - OK (2026-11-05 01:17)
+HUMAN (Administrator) `meshforge-agent identity show`: node_01M6GCKN7PYT2J297BT241P436, enrolled True, path C:\ProgramData\MeshForge\identity, cert_serial 40b104b488997fda9bfd619d6a750eb9f5bc7fce, cert_not_after 2026-12-03, renewal_due 2026-11-23, ca_fingerprint matches L1 (056b7ba3...5785), key_rotation_staged False.
+`icacls` node.crt and node.key: each only BUILTIN\Administrators:(F), NT AUTHORITY\SYSTEM:(F), NT SERVICE\MeshForgeAgent:(F). No Users / Everyone. Key file not opened.
+SIGNAL: v07-icacls-done
