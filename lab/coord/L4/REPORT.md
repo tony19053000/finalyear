@@ -343,3 +343,7 @@ result: "peer firewall rule MeshForge-Agent-Peer: present (Private + Domain netw
     rule MeshForge-Agent-Peer, profiles Domain+Private, Enabled True, TCP 47120. Console Checks page: (human to confirm).
 NOTE: the earlier "BUG: no firewall rule" (C6.13-a prep, 2026-11-04) is UX gap F7, not a defect (ANNOUNCE 2026-11-05).
 SIGNAL: peer-rule-ok L4
+
+### C6.13-a-L4 - part C network matrix (run by L1) - OK (L2 part pending)
+result: per origin/lab/L1, +15 min after firewall-sync, all 6 L1/L3/L4 cells measured: L1->L4 24.5 MB/s 4.6 ms,
+    L4->L1 17.0 MB/s, L4->L3 2.7 MB/s (rtt 0.0 ms - odd, L1 flagged), L3->L4 24.4 MB/s. Peer port 47120 on L4 reachable now.
