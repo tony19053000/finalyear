@@ -640,3 +640,13 @@ result: +5 min: L3->L1 19.1, L4->L1 18.7 MB/s measured; L1->L3, L1->L4, L3<->L4 
     than S1 (L1->L3 191, L4->L3 216 Mbit/s): downloads FROM L3's peer server are slow. The 0.0 ms RTT on L4->L3 looks wrong (QUESTION).
     L2 (AILESH): on hold - its only cell is a stale 11 h L2->L1 16.7 MB/s. L2 part pending.
 evidence: lab/reports/raw/2026-11-05-V0.6-sched/C-network.txt/.json, C-network-2.txt/.json
+
+### C6.13-b - Part D (c4, submitted from L2) - PENDING
+result: L2: on hold (not present). L2 part pending (ANNOUNCE 2026-11-05 (2)).
+
+### C6.13-c - G1 Wi-Fi partition on L4 - RUNNING (attempts 1-2 did not count: 120 s/300 s jobs finished before the Wi-Fi drop)
+result: earlier: auto-placed job_01M6JX0Q65WPN4C7JP6B4PF852 landed on L1 (controller host - cannot drop its Wi-Fi) -> cancelled; pinned to L4 instead
+    (deviation: a pinned job retries on L4 itself, not "elsewhere"). job_01M6JX12BHHA62HJR4GEKW6922 (120 s) and job_01M6JXEA5SBHJ5QYSJK59JJES0 (300 s)
+    succeeded before any drop. Now job job_01M6JY167XY1FVXB1VTAD60AT1 (main.py 300) running on L4 since 14:55:24 IST.
+SIGNAL: v06-g1-go L4 job=job_01M6JY167XY1FVXB1VTAD60AT1 - L4 HUMAN NOW (Administrator PowerShell): $w=(Get-NetAdapter | Where-Object {$_.Name -like '*Wi*Fi*' -and $_.Status -eq 'Up'}).Name; Disable-NetAdapter -Name $w -Confirm:$false; Start-Sleep 60; Enable-NetAdapter -Name $w -Confirm:$false
+    then record the times and EMIT SIGNAL: v06-g1-wifi-done L4.
