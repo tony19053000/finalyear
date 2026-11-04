@@ -480,3 +480,6 @@ HUMAN: L2 has **no second, non-admin Windows user**. C17-g (non-admin user view)
 HUMAN, Windows PowerShell (system32 prompt): `Get-ExecutionPolicy -List` before: MachinePolicy/UserPolicy/Process/LocalMachine Undefined, **CurrentUser RemoteSigned**.
 `compute --install-completion` -> **"Shell cmd is not supported."**
 **BUG:** the installed `compute` is a `.cmd` wrapper, so shell detection sees `cmd` (the parent) instead of PowerShell; D187 completion cannot be installed the documented way on a Windows install. (The agent's own attempt to run the install was blocked by the session's safety rule as a profile change; the human runs it.) Trying the explicit shell name next.
+- (2026-11-05 01:37) `compute --install-completion powershell` -> same **"Shell cmd is not supported."** The explicit shell name is ignored. Nothing was written to $PROFILE; execution policy unchanged.
+**C8.10-g result: FAIL** (completion worked: no). Tab tests and the "once in profile" count could not run. For the Lead: the `compute.cmd` launcher needs to pass the real shell (or ship a PowerShell completion script / `compute.ps1`).
+SIGNAL: v08-g-done L2 result=FAIL
