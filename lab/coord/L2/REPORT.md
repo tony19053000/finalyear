@@ -437,3 +437,7 @@ HUMAN logged in: `compute login ... -u admin` (the human's account is `admin`, n
   - Note 3 (test design): the loop is time-bound (`while time.time()-t<60`), so it takes 60 s on every laptop; actual on L1 60.08 s vs predicted 34.28 s (x1.75). The planner logic is right, but this workload can't show a CPU-speed difference; a fixed-work loop would.
 Explain outputs: `lab/reports/raw/2026-11-05-V0.6-placement/L2-c4-tiny-explain.txt`, `L2-c4-heavy-explain.txt`.
 SIGNAL: v06-d-done
+
+### C7.12-a clock - recorded (2026-11-05 01:16)
+`[DateTimeOffset]::UtcNow.ToUnixTimeSeconds()` at 01:16:21 IST -> 1793821581.
+SIGNAL: clock-unix L2 t=1793821581
