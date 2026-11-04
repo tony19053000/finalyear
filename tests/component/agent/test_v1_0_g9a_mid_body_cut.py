@@ -210,3 +210,38 @@ async def test_a_body_cut_mid_stream_is_retried_in_the_attempt_and_resumes(
     staged = [e for e in logs if e["event"] == "agent.cas.staged"]
     assert staged[-1]["chunks_resumed"] >= 4
     assert final.transfers[0].chunks_resumed == staged[-1]["chunks_resumed"]
+
+
+async def test_a_named_input_cut_mid_stream_reports_its_resumed_chunks(
+    tmp_path: Path,
+) -> None:
+    """Item 2: ``agent.cas.input_staged`` and the input's transfer summary
+    carry ``chunks_resumed`` like the project's line."""
+    project = _build(tmp_path, "proj", {"main.py": b"print(1)\n"})  # no ranges
+    data = _build(tmp_path, "data", {"set.bin": os.urandom(CHUNKS * CS)})
+    server = BlobRangeServer(_blobs(project, data), cut_range_request=4)
+    await server.start()
+    runtime, sent = _Runtime(), []
+    executor = _executor(tmp_path, runtime, sent)
+    try:
+        with capture_logs() as logs:
+            executor.handle(_start(server, project, [data]))
+            await asyncio.wait_for(_settle(executor), 30)
+    finally:
+        await executor.shutdown()
+        await server.close()
+    final = sent[-1]
+    assert attempt_state_from_proto(final.state).value == "done", final.failure
+    retries = [e for e in logs if e["event"] == "agent.execution.stage_retry"]
+    assert [e["progressed"] for e in retries] == [True]
+    staged = [e for e in logs if e["event"] == "agent.cas.input_staged"]
+    assert len(staged) == 1 and staged[0]["mount"] == "in0"
+    assert staged[0]["chunks_resumed"] >= 3
+    assert sorted(_whole_ranges(server)) == sorted(
+        (i * CS, (i + 1) * CS - 1) for i in range(CHUNKS)
+    )
+    assert [t.tree_id for t in final.transfers] == [
+        str(project.tree.tree_id),
+        str(data.tree.tree_id),
+    ]
+    assert final.transfers[1].chunks_resumed == staged[0]["chunks_resumed"]

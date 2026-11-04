@@ -1734,6 +1734,9 @@ class Executor(CombineSteps):
                 blobs_hit=report.blobs_hit,
                 blobs_fetched=report.blobs_fetched,
                 bytes_fetched=report.bytes_fetched,
+                # V1.0 G9-A: verified chunks an earlier try kept (like
+                # agent.cas.staged); the transfer telemetry carries it too
+                chunks_resumed=report.chunks_resumed,
             )
             if attempt.stop_reason is not None:
                 raise _StoppedError
