@@ -31,6 +31,18 @@ You work through the WHOLE TODO on your own, top to bottom, version after versio
 
 Keep messages to the human to one or two short lines.
 
+
+## Auto-watch (2026-11-05) - how you notice new work without the human
+
+Your session runs a 2-minute loop (`/loop 2m ...`, started by the human once). On every tick:
+1. `git fetch origin && git merge origin/main` (on your branch).
+2. Read the top of `lab/coord/ANNOUNCE.md` and the newest entries of `origin/lab/L1` REPORT.md. Look for
+   `ACTION <Ln>` items or `SIGNAL: ...-go <Ln>` lines addressed to you that you have not recorded yet.
+3. If there is one: do it now. If it needs the human (admin/UAC, physical action, a code), show the exact command
+   in one short message and wait; then record the result in your REPORT, emit the requested SIGNAL, push.
+4. If there is nothing new: continue your TODO; if you are waiting, say nothing (no message to the human).
+Time-critical cues from L1 (`...-go <Ln>`) always come first.
+
 ## Hard rules
 
 - **Never edit `src/`, `tests/`, `packaging/`, `.github/`, `docs/`** or anything outside `lab/coord/<Ln>/`
