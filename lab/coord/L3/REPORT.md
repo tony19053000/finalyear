@@ -278,3 +278,13 @@ commands:
 result: service Running; peer server LISTENING on 192.168.31.71:47120 (pid 19308). But NO firewall rule: no rule named *MeshForge*, no rule for local port 47120 at all, and agent.log has NO line containing "firewall" (sync_firewall left no trace).
 BUG: Windows service did not create the inbound 47120 rule at start with `[agent.peer] bind` set (ANNOUNCE 2026-11-04 says `sync_firewall` does it at service start). With the Private-profile Windows firewall on, other laptops' peer fetches from L3 will likely be blocked. Reproduce: MOHIT, v0.17.0-1, config above, Restart-Service MeshForgeAgent. Not added by hand (rules: no firewall changes without Lead).
 SIGNAL: peer-on L3 ip=192.168.31.71 (listening; firewall rule MISSING)
+
+### C6-peer-fw - peer firewall rule via firewall-sync (ANNOUNCE 2026-11-05) - OK
+when: 2026-11-04 14:21 (local)
+laptop: L3 (MOHIT), Wi-Fi IP 192.168.31.71
+commands:
+    HUMAN (Administrator): & "C:\Program Files\MeshForge\0.17.0-1\python\python.exe" -I -m meshforge.agent.winservice firewall-sync
+    Get-NetFirewallRule -DisplayName *MeshForge* | Get-NetFirewallPortFilter
+result: `peer firewall rule MeshForge-Agent-Peer: present (Private + Domain networks only)`; rule `MeshForge-Agent-Peer | Domain, Private | True | TCP 47120`.
+  Earlier "BUG: firewall rule missing" (C6-peer) is re-classified per Lead: **UX gap F7, not a defect** (rule is made by the admin command, D389).
+  Console Checks page: asked of the human (next entry).
