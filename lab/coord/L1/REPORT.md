@@ -658,3 +658,9 @@ result: 14:59:22 attempt 1 lost (node_lost), retry_scheduled; 14:59:27 pinned_no
     No execution_overlap line in the journal (grep). Job did not succeed: because it was pinned (auto-placement picks L1, the controller host,
     whose Wi-Fi cannot be dropped). QUESTION (Lead, sent by message): a way to place automatically while excluding the controller host, to show "attempt 2 elsewhere".
 evidence: lab/reports/raw/2026-11-05-V0.6-sched/G1-controller-journal.txt
+
+### C6.13-d - G2 agent hard kill on L4 - RUNNING
+SIGNAL: v06-g2-go L4 job=job_01M6JYC715XDXRTJ18WFBH238D (main.py 300, running since 15:01:23 IST, ends ~5 min later) - L4 HUMAN NOW, Administrator PowerShell:
+    $a = Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like "*meshforge.agent.winservice*child*" } | Select-Object -First 1; Stop-Process -Id $a.ProcessId -Force
+    then BEFORE starting anything: Get-CimInstance Win32_Process -Filter "Name like 'python%'" | Where-Object CommandLine -like '*main.py 300*'  (must print nothing = no orphan)
+    then make sure the service runs again (Start-Service MeshForgeAgent if needed). Record all output, EMIT SIGNAL: v06-g2-done L4 orphan=<yes|no>.
