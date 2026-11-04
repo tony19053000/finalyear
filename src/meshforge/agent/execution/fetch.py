@@ -67,6 +67,7 @@ from meshforge.agent.cas import (
 from meshforge.agent.cas.fetcher import FetchError, FetchTuning, SourceStats
 from meshforge.agent.cas.materialise import materialise_subset
 from meshforge.agent.cas.progress import StagingProgress
+from meshforge.agent.cas.rate import FetchRateLimiter
 from meshforge.agent.cas.sources import TokenLookup
 from meshforge.agent.cas.store import DEFAULT_FREE_DISK_FLOOR_BYTES
 from meshforge.agent.execution.failure_evidence import DISK_FULL_ERRNOS
@@ -157,8 +158,10 @@ async def fetch_bundle(
     max_bytes: int = DEFAULT_MAX_BUNDLE_BYTES,
     timeout_s: float = 60.0,
     transport: httpx.AsyncBaseTransport | None = None,
+    rate: FetchRateLimiter | None = None,
 ) -> int:
-    """Download ``digest`` to ``dest`` (verified); returns its size. See module doc."""
+    """Download ``digest`` to ``dest`` (verified); returns its size. See module
+    doc. ``rate`` (D431): the agent's receive cap, charged per piece."""
     part = dest.with_name(f"{dest.name}.{secrets.token_hex(6)}.part")
     hasher = hashlib.sha256()
     size = 0
@@ -193,6 +196,8 @@ async def fetch_bundle(
                         )
                     hasher.update(chunk)
                     fh.write(chunk)
+                    if rate is not None:
+                        await rate.take(len(chunk))
                 fh.flush()
                 os.fsync(fh.fileno())
         if not hmac.compare_digest(hasher.hexdigest(), digest.hex):
@@ -355,6 +360,7 @@ async def stage_entries(
     tuning: FetchTuning | None = None,
     token_for: TokenLookup | None = None,
     progress: StagingProgress | None = None,
+    rate: FetchRateLimiter | None = None,
 ) -> EntriesReport:
     """V0.10 G4 (D264): fetch only the blobs of ``paths`` (file entries of the
     verified ``tree``) into the cache - verified chunk by chunk, from the
@@ -388,6 +394,7 @@ async def stage_entries(
             clock=clock,
             token_for=token_for,
             progress=progress,
+            rate=rate,
         )
         await fetcher.ensure_all(sub)
         while True:
@@ -531,6 +538,7 @@ async def stage_tree(
     token_for: TokenLookup | None = None,
     skip: Callable[[Tree], frozenset[str]] | None = None,
     progress: StagingProgress | None = None,
+    rate: FetchRateLimiter | None = None,
 ) -> StageReport:
     """Fetch ``tree_id`` into the cache and copy it into ``dest``.
 
@@ -543,7 +551,8 @@ async def stage_tree(
     places its own with :func:`stage_entries`). A staging that skipped files
     does not mark the tree complete in the cache. ``progress`` (D429): the
     attempt's durable-progress counter (verified chunks, installed blobs) that
-    the staging retry window restarts on."""
+    the staging retry window restarts on. ``rate`` (D431): the agent's
+    process-wide receive cap, or None."""
     try:
         digest = Digest.parse(tree_id)
     except ValueError:
@@ -565,6 +574,7 @@ async def stage_tree(
             clock=clock,
             token_for=token_for,
             progress=progress,
+            rate=rate,
         )
         full = await fetcher.tree(digest)
         if on_tree is not None:

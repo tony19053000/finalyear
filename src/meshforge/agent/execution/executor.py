@@ -123,6 +123,7 @@ from typing import TYPE_CHECKING, Any, Final, Protocol
 from meshforge.agent.cas import AgentCas
 from meshforge.agent.cas.fetcher import BlobSource, FetchTuning
 from meshforge.agent.cas.progress import StagingProgress
+from meshforge.agent.cas.rate import FetchRateLimiter
 from meshforge.agent.cas.sources import TokenLookup
 from meshforge.agent.conditions.base import ConditionFailedError
 from meshforge.agent.conditions.runner import ActiveCondition, ConditionRunner
@@ -459,6 +460,13 @@ class Executor(CombineSteps):
             self._fetch_cfg.dscp_bulk, where="agent_fetch"
         )
         """D430: the CS1 mark for blob client sockets (``()`` = none)."""
+        self._fetch_rate = (
+            FetchRateLimiter.from_mbit(self._fetch_cfg.max_rate_mbit)
+            if self._fetch_cfg.max_rate_mbit > 0
+            else None
+        )
+        """D431: the one receive cap of this agent process (None = off),
+        charged by every blob byte any staging receives."""
         self._setup = setup
         self._node_id = node_id
         self._report = report
@@ -966,6 +974,15 @@ class Executor(CombineSteps):
         if self._http_tls is None:
             return {}
         return {"transport": self._http_tls.transport(socket_options=self._bulk_opts)}
+
+    def _fetch_kw(self) -> dict[str, Any]:
+        """Keyword arguments of a whole-blob fetch (``self._fetch``): the
+        transport, and the receive cap when one is set (D431; an injected test
+        fetch that takes neither still works with the cap off)."""
+        kw = self._transport()
+        if self._fetch_rate is not None:
+            kw["rate"] = self._fetch_rate
+        return kw
 
     async def _upload_parts(
         self, base: str, digest: Digest, token: str, path: Path, *, attempt: _Attempt
@@ -1603,7 +1620,7 @@ class Executor(CombineSteps):
         try:
             await self._step(
                 attempt,
-                self._fetch(base, plan.digest, token, bundle, **self._transport()),
+                self._fetch(base, plan.digest, token, bundle, **self._fetch_kw()),
             )
             # Unpacking is not interruptible: it runs to completion in its thread
             # (its caps bound how long) and a stop asked meanwhile is honoured
@@ -1654,6 +1671,7 @@ class Executor(CombineSteps):
                 token_for=self._token_lookup(attempt, spec.tree_id),
                 skip=self._lane_skip(attempt, None),
                 progress=attempt.stage_progress,
+                rate=self._fetch_rate,
                 **self._transport(),
             ),
         )
@@ -1726,6 +1744,7 @@ class Executor(CombineSteps):
                     token_for=self._token_lookup(attempt, item.tree_id),
                     skip=self._lane_skip(attempt, mount),
                     progress=attempt.stage_progress,
+                    rate=self._fetch_rate,
                     **self._transport(),
                 ),
             )

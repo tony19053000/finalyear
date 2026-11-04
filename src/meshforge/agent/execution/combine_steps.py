@@ -232,7 +232,7 @@ class CombineSteps(LaneSteps):
                         token,
                         bundle,
                         max_bytes=part_cap,
-                        **self._transport(),
+                        **self._fetch_kw(),
                     ),
                 )
                 await asyncio.to_thread(folder.drop_part, index)
@@ -277,7 +277,7 @@ class CombineSteps(LaneSteps):
                     token,
                     dest,
                     max_bytes=MAX_PARTS_INDEX_BYTES,
-                    **self._transport(),
+                    **self._fetch_kw(),
                 ),
             )
             data = await asyncio.to_thread(dest.read_bytes)

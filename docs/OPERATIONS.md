@@ -1760,6 +1760,18 @@ is skipped silently. Turn it off with `dscp_bulk = "off"` in
 `tos:0x20` (with `-i`, recent iproute2) - or capture with
 `tcpdump -v -i <wifi> port 47110` (`tos 0x20`).
 
+**Optional download cap for a shared Wi-Fi (V1.0 G9-A, D431).** `[agent.fetch]
+max_rate_mbit` (0 = no cap, the default; otherwise at least 1) limits how fast
+**this agent** receives job files - all its downloads together, from the
+controller and from peers, every staging at once. The agent simply reads more
+slowly and TCP slows the sender, so the Wi-Fi really carries less and the other
+laptops (and the heartbeats) keep air time. Example: `max_rate_mbit = 40` on
+each laptop of a busy lab Wi-Fi. A 5 GB dataset at 40 Mbit/s takes about 17
+minutes - pair a cap with a large enough job `timeout_s`. Keep the cap above
+about 0.6 Mbit/s per request in flight (sources x `per_source`): a peer server
+disconnects a reader slower than its `min_send_rate_bytes_s` (64 KiB/s). Uploads
+and tree manifests are not capped.
+
 **Network probes (V0.6 G4, D111).** With peer serving on, the controller also
 measures how fast each laptop downloads from each other laptop: now and then it
 asks one laptop to fetch a few MiB of zeros from another's peer port (the same

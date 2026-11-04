@@ -133,6 +133,7 @@ class ChunkStagingSteps(LaneHost):
                     tuning=self._tuning(),
                     token_for=self._token_lookup(attempt, str(tree.tree_id)),
                     progress=attempt.stage_progress,
+                    rate=self._fetch_rate,
                     **self._transport(),
                 ),
             )

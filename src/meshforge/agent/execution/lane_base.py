@@ -103,6 +103,7 @@ class LaneHost:
     _cfg: Any
     _settings: Any
     _fetch_cfg: Any
+    _fetch_rate: Any
     _node_id: str
     _scheme: str
     _attempts: dict[str, _Attempt]
@@ -142,6 +143,7 @@ class LaneHost:
             best_effort: bool = False,
         ) -> None: ...
         def _transport(self) -> dict[str, Any]: ...
+        def _fetch_kw(self) -> dict[str, Any]: ...
         async def _retry_staging[T](
             self, attempt: _Attempt, try_once: Callable[[str], Awaitable[T]]
         ) -> T: ...

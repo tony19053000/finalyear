@@ -181,6 +181,7 @@ class LaneSteps(ChunkRunSteps):
                     attempt.fetch_token or plan.fetch_token,
                     dest,
                     max_bytes=MAX_ITEM_LIST_BYTES,
+                    rate=self._fetch_rate,
                     **self._transport(),
                 ),
             )

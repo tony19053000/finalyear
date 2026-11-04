@@ -1170,6 +1170,28 @@ class FetchSettings(SectionModel):
             "Never applied to the gRPC session. 'off' = unmarked."
         ),
     )
+    max_rate_mbit: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=100_000.0,
+        description=(
+            "V1.0 D431: cap on how fast this agent receives job files, in "
+            "megabits per second, over all its downloads together (controller "
+            "and peers, every staging at once); TCP flow control slows the "
+            "sender, so the link really carries less. A knob for a shared Wi-Fi "
+            "where one big fetch starves the other laptops. 0 = no cap (the "
+            "default); else at least 1. Keep it above ~0.6 Mbit/s per request "
+            "in flight (sources x per_source): a peer disconnects a reader "
+            "slower than its min_send_rate_bytes_s."
+        ),
+    )
+
+    @field_validator("max_rate_mbit")
+    @classmethod
+    def _rate_off_or_sane(cls, value: float) -> float:
+        if 0 < value < 1.0:
+            raise ValueError("must be 0 (no cap) or at least 1 Mbit/s")
+        return value
 
 
 PROBE_DEADLINE_FACTOR: Final = 2.0

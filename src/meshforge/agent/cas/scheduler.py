@@ -30,6 +30,7 @@ from dataclasses import dataclass, field
 import httpx
 
 from meshforge.agent.cas.progress import StagingProgress
+from meshforge.agent.cas.rate import FetchRateLimiter
 from meshforge.agent.cas.sources import (
     CONTROLLER,
     STREAM,
@@ -109,11 +110,14 @@ class TransferScheduler:
         clock: Callable[[], float],
         get_range: RangeFn,
         progress: StagingProgress | None = None,
+        rate: FetchRateLimiter | None = None,
     ) -> None:
         """``progress`` (D429): advanced for every chunk verified and written
-        and every blob installed - the staging retry window restarts on it."""
+        and every blob installed - the staging retry window restarts on it.
+        ``rate`` (D431): the process-wide receive cap, charged per piece."""
         self._cas = cas
         self._progress = progress
+        self._rate = rate
         self._client = client
         self.sources = sources
         self.stats = stats
@@ -522,6 +526,8 @@ class TransferScheduler:
                     async for piece in response.aiter_raw(STREAM):
                         self.count(source, len(piece))
                         writer.write(piece)
+                        if self._rate is not None:
+                            await self._rate.take(len(piece))
                 async with blob.lock:
                     if unit.done:
                         return
