@@ -721,3 +721,5 @@ SIGNAL: v07-c-go2 L3 - HUMAN on L3, Administrator PowerShell, one at a time: `me
     (3) expect token_expired: mf1-aecmb-ka7bw-372kj-nseit-2i74a-gagdn-rzenn-7igaf-nn52h-f4jzt-52ftf-ada7s-wntfd-ajpej-y
     (4) expect pin_mismatch:  mf1-aecmb-ba7bw-373ey-ikt6x-ri5or-yxpsv-2pbya-xtrqf-nn52h-f4jzt-52ftf-ada7s-wntfh-57log-a
     Record each refusal text, EMIT SIGNAL: v07-c-done L3.
+
+PAUSED 2026-11-04 15:31 (human: pause) - at C7.12-c, waiting for L3 v07-c-done; pin invite in REPORT (2 h) to revoke after.
