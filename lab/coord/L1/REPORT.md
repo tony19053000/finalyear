@@ -748,3 +748,11 @@ SIGNAL: v07-r-go L3 - L3 was REVOKED. L3: record the local time of the node_revo
     EMIT SIGNAL: rejoined L3 node=<new id>.
 
 PAUSED 2026-11-04 15:53 (human: pause) - at C7.12-d, waiting for L3 rejoin (SIGNAL rejoined L3). Two 2 h invites made for L3 (code 1 unused - revoke after).
+
+### C7.12-d - Part R - L3 rejoined as a NEW node - OK (step a SKIPPED)
+result: L3 (Mohit) rejoined with code 2 (invite inv_01M6K0N60Q..., used) -> NEW node_id node_01M6K0TZRNPEGBRN166GP6S61N, online; old node_01M6GGZ7... stays revoked.
+    Step (a) "join --force -> refused node_revoked": SKIPPED (operator typed the placeholder, identity already reset; L3 REPORT).
+    Unused code 1 invite inv_01M6K0N5S0FP... revoked by L1. L3 revoke timing: L3 agent log node_revoked 15:40:53.72 IST vs L1 revoke stamp 15:40:54.47
+    (L3 0.75 s earlier = clock offset between the laptops); controller marked the attempt lost 0.24 s after L1's stamp -> < 2 s. Criterion c1 OK except
+    failure_detail empty (QUESTION above) and "retried elsewhere" not shown (pinned job).
+    <L3-ID> is now node_01M6K0TZRNPEGBRN166GP6S61N. Chat: read 20261105-160000-LEAD-to-ALL (auto-watch loops stopped; work on `continue`).
