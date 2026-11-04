@@ -699,3 +699,12 @@ SIGNAL: v07-c-go L3 - L3: first EMIT SIGNAL: clock-unix L3 t=<date -u +%s>. Then
     (1) an already-used code -> expect token_used; (2) a revoked code -> token_revoked; (3) a --ttl 1m code tried after 70 s -> token_expired;
     (4) a fresh code with one character changed in its 2nd group (CA-pin part) -> pin_mismatch.
     After each: `meshforge-agent identity show` = same old node, still online. Record the refusal texts (never the codes), EMIT SIGNAL: v07-c-done L3.
+
+### C7.12-c - codes for L3 (human approved posting them; none of them can join anything)
+SIGNAL: v07-c-codes L3 - try each with `meshforge-agent join --force <code>` (Administrator PowerShell), record the refusal text:
+    (1) used code (L1's own join, used 2026-11-03):     mf1-aecmb-ka7bw-372wy-ja5rf-peilt-22g5a-ytunz-r6lqf-nn52h-f4jzt-52ftf-ada7s-wntfx-qqb5q-y   -> expect token_used
+    (2) revoked code (inv_01M6GG62NQVEV7TTJ6D3BM7E1T):  mf1-aecmb-ka7bw-373aa-leqa7-ornrw-7u2jy-svzgf-ahmaf-nn52h-f4jzt-52ftf-ada7s-wntf6-xqk7g-i   -> expect token_revoked
+    (3) expired 1-minute code (inv_01M6JZK6EH..., expired 09:53:40Z, posted after expiry): mf1-aecmb-ka7bw-372kj-nseit-2i74a-gagdn-rzenn-7igaf-nn52h-f4jzt-52ftf-ada7s-wntfd-ajpej-y -> expect token_expired
+    (4) wrong-pin code (real invite inv_01M6JZK6NV... with 2nd group ka7bw changed to ba7bw by L1; the posted text is never valid):
+        mf1-aecmb-ba7bw-373we-ohoqp-ggp6u-b67qd-urypx-oafaf-nn52h-f4jzt-52ftf-ada7s-wntf6-usujd-q -> expect pin_mismatch (L1 revokes the real invite after)
+    After each: identity show = same node, still online. EMIT SIGNAL: v07-c-done L3.
