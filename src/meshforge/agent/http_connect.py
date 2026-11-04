@@ -150,7 +150,9 @@ class CancelSafeBackend(httpcore.AsyncNetworkBackend):
         await self._inner.sleep(seconds)
 
 
-def cancel_safe_transport(verify: ssl.SSLContext) -> httpx.AsyncHTTPTransport:
+def cancel_safe_transport(
+    verify: ssl.SSLContext, *, socket_options: Iterable[Any] | None = None
+) -> httpx.AsyncHTTPTransport:
     """An httpx transport whose connections open through
     :class:`CancelSafeBackend`.
 
@@ -166,8 +168,12 @@ def cancel_safe_transport(verify: ssl.SSLContext) -> httpx.AsyncHTTPTransport:
     must be passed to this ``httpx.AsyncHTTPTransport(...)`` call (add a
     parameter), never by building another transport elsewhere: a transport
     made anywhere else opens its connections through httpcore's default
-    backend and brings the cancel leak back."""
-    transport = httpx.AsyncHTTPTransport(verify=verify)
+    backend and brings the cancel leak back.
+
+    ``socket_options`` (V1.0 G9-A, D430): set on every connection's socket
+    right after connect (the bulk-data DSCP mark,
+    :func:`meshforge.common.dscp.bulk_socket_options`)."""
+    transport = httpx.AsyncHTTPTransport(verify=verify, socket_options=socket_options)
     pool = transport._pool
     if not isinstance(pool, httpcore.AsyncConnectionPool):
         raise TypeError(f"unexpected httpx connection pool {type(pool).__name__}")

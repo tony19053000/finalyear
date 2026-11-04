@@ -1744,6 +1744,22 @@ as `agent.execution.stage_retry` with `cause`, `retries` and `progressed`; past
 the window the attempt fails `transfer_error` ("staging did not succeed within
 60 s without progress (last: ...)") and the controller's retry rules decide.
 
+**Bulk data is background traffic (V1.0 G9-A, D430).** On Linux, job files are
+sent marked DSCP **CS1** ("lower effort", `IP_TOS 0x20`): everything the
+controller's REST/blob port sends, everything an agent's peer blob server sends,
+and every blob download/upload connection an agent opens. Wi-Fi (WMM) and
+QoS-aware routers then send heartbeats, DNS and everything else first, so a
+5 GB transfer is less likely to starve the gRPC session (which is **never**
+marked). Best effort: a network that ignores DSCP behaves as before; a kernel
+that refuses the option logs `common.dscp.unsupported` once and sends unmarked.
+Windows ignores the mark from programs (it needs a Group Policy QoS rule) and
+is skipped silently. Turn it off with `dscp_bulk = "off"` in
+`[controller.http]` (the REST/blob port), `[agent.peer]` (the peer server) or
+`[agent.fetch]` (the agent's own downloads/uploads). Check it on Linux with
+`ss -tni state established '( sport = :47110 )'` - marked sockets show
+`tos:0x20` (with `-i`, recent iproute2) - or capture with
+`tcpdump -v -i <wifi> port 47110` (`tos 0x20`).
+
 **Network probes (V0.6 G4, D111).** With peer serving on, the controller also
 measures how fast each laptop downloads from each other laptop: now and then it
 asks one laptop to fetch a few MiB of zeros from another's peer port (the same

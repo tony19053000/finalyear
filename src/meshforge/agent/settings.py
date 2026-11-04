@@ -28,7 +28,7 @@ from __future__ import annotations
 import re
 import sys
 from pathlib import Path
-from typing import Final
+from typing import Final, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -1080,6 +1080,17 @@ class PeerSettings(SectionModel):
         ),
     )
 
+    dscp_bulk: Literal["cs1", "off"] = Field(
+        default="cs1",
+        description=(
+            "V1.0 D430: mark the blobs this peer server sends as background "
+            "traffic (DSCP CS1, IP_TOS 0x20) so Wi-Fi/QoS sends heartbeats and "
+            "other traffic first. Linux only (Windows needs a QoS policy; "
+            "skipped silently); best effort - an unsupported option logs one "
+            "warning. 'off' = unmarked."
+        ),
+    )
+
     @field_validator("bind", "advertise_host")
     @classmethod
     def _ip_shape(cls, value: str | None) -> str | None:
@@ -1147,6 +1158,17 @@ class FetchSettings(SectionModel):
         ge=1.0,
         le=3600.0,
         description="Connect/read timeout of one blob request.",
+    )
+    dscp_bulk: Literal["cs1", "off"] = Field(
+        default="cs1",
+        description=(
+            "V1.0 D430: mark this agent's blob downloads and uploads (HTTPS to "
+            "the controller and to peers) as background traffic (DSCP CS1, "
+            "IP_TOS 0x20), so the bulk data does not crowd out heartbeats on a "
+            "shared Wi-Fi. Linux only (Windows needs a QoS policy; skipped "
+            "silently); best effort - an unsupported option logs one warning. "
+            "Never applied to the gRPC session. 'off' = unmarked."
+        ),
     )
 
 

@@ -191,6 +191,7 @@ from meshforge.agent.http_tls import AgentHttpTls
 from meshforge.agent.policy import LivePolicy
 from meshforge.agent.settings import AgentSettings
 from meshforge.common.bundle import BundleError, BundleLimits, unpack
+from meshforge.common.dscp import bulk_socket_options
 from meshforge.common.errors import FailureType, InvalidIdError
 from meshforge.common.hashing import Digest
 from meshforge.common.ids import (
@@ -454,6 +455,10 @@ class Executor(CombineSteps):
         self._settings = settings
         self._cfg = settings.agent.execution
         self._fetch_cfg = settings.agent.fetch
+        self._bulk_opts = bulk_socket_options(
+            self._fetch_cfg.dscp_bulk, where="agent_fetch"
+        )
+        """D430: the CS1 mark for blob client sockets (``()`` = none)."""
         self._setup = setup
         self._node_id = node_id
         self._report = report
@@ -952,10 +957,15 @@ class Executor(CombineSteps):
 
     def _transport(self) -> dict[str, Any]:
         """``transport=`` for one HTTP client (a fresh one each: a client
-        closes its transport), or nothing (plain HTTP / injected fakes)."""
+        closes its transport), or nothing (plain HTTP / injected fakes).
+
+        Every blob fetch and upload of an attempt goes through it, so its
+        sockets carry the bulk-data DSCP mark (V1.0 G9-A, D430: ``[agent.fetch]
+        dscp_bulk``, Linux). Plain HTTP (``insecure-dev``, loopback) is not
+        marked."""
         if self._http_tls is None:
             return {}
-        return {"transport": self._http_tls.transport()}
+        return {"transport": self._http_tls.transport(socket_options=self._bulk_opts)}
 
     async def _upload_parts(
         self, base: str, digest: Digest, token: str, path: Path, *, attempt: _Attempt
