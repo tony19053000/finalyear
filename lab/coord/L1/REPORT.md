@@ -712,3 +712,12 @@ SIGNAL: v07-c-codes L3 - try each with `meshforge-agent join --force <code>` (Ad
 ### NOTE - rule check (re-read RULES.md, be06f5e8)
 QUESTIONS: RULES say pairing codes are never written down. The C7.12-c entry above posts 4 codes (human approved, test-only); all are unusable
     (used, revoked, expired before posting, and one altered by L1 so it never existed). Lead: tell me if they must be removed from the report.
+
+### C7.12-c - codes re-posted as a proper -go cue (L3's auto-watch looks for "-go L3")
+result: previous pin invite inv_01M6JZK6NV... revoked; new real pin invite inv_01M6K0281N0AXM84MPP97RH384 (2 h), posted ONLY in altered form.
+SIGNAL: v07-c-go2 L3 - HUMAN on L3, Administrator PowerShell, one at a time: `meshforge-agent join --force <code>`; after each `meshforge-agent identity show` = same node, online.
+    (1) expect token_used:    mf1-aecmb-ka7bw-372wy-ja5rf-peilt-22g5a-ytunz-r6lqf-nn52h-f4jzt-52ftf-ada7s-wntfx-qqb5q-y
+    (2) expect token_revoked: mf1-aecmb-ka7bw-373aa-leqa7-ornrw-7u2jy-svzgf-ahmaf-nn52h-f4jzt-52ftf-ada7s-wntf6-xqk7g-i
+    (3) expect token_expired: mf1-aecmb-ka7bw-372kj-nseit-2i74a-gagdn-rzenn-7igaf-nn52h-f4jzt-52ftf-ada7s-wntfd-ajpej-y
+    (4) expect pin_mismatch:  mf1-aecmb-ba7bw-373ey-ikt6x-ri5or-yxpsv-2pbya-xtrqf-nn52h-f4jzt-52ftf-ada7s-wntfh-57log-a
+    Record each refusal text, EMIT SIGNAL: v07-c-done L3.
