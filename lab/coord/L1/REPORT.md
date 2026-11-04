@@ -885,3 +885,10 @@ result: human watched L4's node page Live tab during the run (4 screenshots 00:5
     A 0 % sample in the middle of a 12-process burn means the Windows CPU sample is wrong or not the machine total.
 BUG candidate (Lead): Windows agent cpu_percent sampling (first-call/interval issue or per-process instead of system-wide?). Reproduce: run
     a 12-process 90 s burn on a Windows node and watch Nodes > node > Live. Compare: Linux (L1) part L showed the real 400 % of 1600 % in top.
+
+### C6.13-a - Part C network matrix, L2 cells (L2 part pending -> done) - OK with 2 slow links
+result: after L2 peer-rule-ok (chat 20261105-010305), compute network: all L1/L2/L3(new 6GP6S61N)/L4 cells measured except L3new<->old rows:
+    L1->L2 26.2 MB/s 5.1 ms | L2->L1 18.5 | L2->L3 16.3 (rtt 0.0 ms again) | L3->L2 7.5 | L1->L3 9.3 | L3->L1 27.1 | L1->L4 16.4 | L4->L1 27.0
+    | L3->L4 5.8 | L4->L3 18.5 | L2->L4 1.8 MB/s (93 ms) | L4->L2 1.9 MB/s - the L2<->L4 pair is ~10x slower than S1 (L2-L4 TCP x1 ~248 Mbit/s) - add to F8.
+    Old revoked L3 (H3AX7QQY) cells are stale (10 h). Chats read: L2-to-L1 010305 + 013222, LEAD-to-L1 170000 (triage: fixes in v0.17.1, re-run list noted).
+evidence: lab/reports/raw/2026-11-05-V0.6-sched/C-network-3-with-L2.txt/.json
