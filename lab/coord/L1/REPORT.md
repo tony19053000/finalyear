@@ -725,3 +725,12 @@ SIGNAL: v07-c-go2 L3 - HUMAN on L3, Administrator PowerShell, one at a time: `me
 PAUSED 2026-11-04 15:31 (human: pause) - at C7.12-c, waiting for L3 v07-c-done; pin invite in REPORT (2 h) to revoke after.
 
 STARTED 2026-11-04 15:35 (human: start, loop 2m)
+
+### C7.12-c - Part C invite refusals - PARTIAL (3 of 4; pin_mismatch path not reached)
+result: L3 (v07-c-done): (1) token_used, (2) token_revoked, (3) token_expired - all refused with the right reason, identity unchanged.
+    (4) one character changed in the 2nd group -> local "this is not a valid code (a character is wrong)" = bad_checksum (codes carry a SHA-256
+    checksum, join_code.py), so the CA-pin check was never reached. Refusal correct and safe; only the tested path differs.
+    Tried: a valid-checksum code with a wrong ca_pin re-encoded from a real invite - NOT done: it would carry a live token in the repo
+    (blocked as credential leakage, rightly). The altered-pin invite inv_01M6K0281N... was revoked. No pending invites left from this step.
+QUESTION (Lead): how should pin_mismatch be tested? Options: (a) a unit/cluster test that builds a code with a foreign CA pin (no live token);
+    (b) L1's human makes such a code locally and gives it to L3 by voice, never in git.
