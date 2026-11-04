@@ -127,15 +127,23 @@ describe("cancel (D176) under awkward use", () => {
     document.cookie = "mf_csrf=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
   });
 
-  it("cancel is enabled exactly in the non-terminal states", async () => {
+  it("cancel is shown (and enabled) exactly in the non-terminal states", async () => {
+    // V1.0 G9: a finished job shows no Cancel button at all (it was shown disabled).
     const live = ["submitted", "planning", "queued", "preparing", "running", "collecting", "retrying"] as const;
     const dead = ["succeeded", "failed", "cancelled"] as const;
-    for (const state of [...live, ...dead]) {
+    for (const state of live) {
       vi.unstubAllGlobals();
       document.body.innerHTML = "";
       renderDetail(detail(state));
       const button = await screen.findByRole<HTMLButtonElement>("button", { name: "Cancel job" });
-      expect(button.disabled, state).toBe(dead.includes(state as (typeof dead)[number]));
+      expect(button.disabled, state).toBe(false);
+    }
+    for (const state of dead) {
+      vi.unstubAllGlobals();
+      document.body.innerHTML = "";
+      renderDetail(detail(state));
+      await screen.findByRole("heading", { level: 1 });
+      expect(screen.queryByRole("button", { name: "Cancel job" }), state).toBeNull();
     }
   });
 

@@ -261,7 +261,7 @@ def test_mode1_job_life_cycle_in_the_browser_matches_the_api_and_the_cli(
     expect(page.get_by_role("region", name="Summary")).to_contain_text(
         "cancelled", timeout=30_000
     )
-    expect(page.get_by_role("button", name="Cancel job")).to_be_disabled()
+    expect(page.get_by_role("button", name="Cancel job")).to_have_count(0)  # V1.0 G9: hidden when finished
     cancelled = get_job(fabric, long_id, NORMAL_USER)  # attempts settled
     _assert_attempts_tab(page, cancelled)
 
