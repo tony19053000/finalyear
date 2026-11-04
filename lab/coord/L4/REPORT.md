@@ -354,3 +354,14 @@ result: Wi-Fi off 14:59:17 IST (printed); "on" line not captured (session droppe
     L1: job_01M6JY167XY1FVXB1VTAD60AT1 lost; L4 back online 15:00:28; two controller.jobs.status_fenced at 15:00:26 (fencing OK);
     "attempt 2 elsewhere" not testable with a pinned job.
 SIGNAL: v06-g1-wifi-done L4
+
+### C6.13-d-L4 - G2 agent hard kill, round 2 (LIVE) - OK on L4's side (no orphan)
+when: 2026-11-05 15:13 IST
+job: job_01M6JYXKR18DH1QX6ANJA23K5C (main.py 300, on L4 since 15:10:53)
+commands (human, Administrator):
+    $a = Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like "*meshforge.agent.winservice*child*" } | Select-Object -First 1; Stop-Process -Id $a.ProcessId -Force
+    Start-Sleep 3; Get-CimInstance Win32_Process -Filter "Name like 'python%'" | Where-Object CommandLine -like '*main.py 300*'
+    Start-Sleep 10; (Get-Service MeshForgeAgent).Status
+result: kill 15:13:45, agent child PID 11548 killed. Orphan check (3 s after): printed NOTHING -> no main.py 300 process left.
+    Service MeshForgeAgent Running at 15:13:59 by itself (no Start-Service needed). Round 1 (job_01M6JYC715XDXRTJ18WFBH238D) did not count: finished before the cue.
+SIGNAL: v06-g2-done L4 orphan=no
