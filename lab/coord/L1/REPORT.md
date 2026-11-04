@@ -876,3 +876,12 @@ result: chat L4->L1 20261105-003740: L4 Wi-Fi off 00:31:58, back 00:32:38; CPU l
     CPU 0 % with no clear 60 s plateau in the sparkline; values 28-70 % were seen around 00:43. So "live updates" = OK, but "the sparkline rises
     with the load" is INCONCLUSIVE (either the PowerShell Start-Job loops did not load the CPU much, or the samples lag). Optional redo with a
     stronger load (e.g. a 4K video or a compile) while watching.
+
+### C8.10-d - E2 redo with a fabric job - FAIL: the Live CPU value does not follow a real load on L4 (BUG candidate)
+commands: job_01M6M0B8E2BDSXSKF90283HMZV pinned to L4: 12 spinning Python processes for 90 s (L4 = 12 threads); ran 00:55:06-00:56:36 IST, "burn done", succeeded.
+result: human watched L4's node page Live tab during the run (4 screenshots 00:55:54, 00:56:02, 00:56:22, 00:56:51): CPU 32 %, 0 %, 27 %, 32 %;
+    no plateau in the sparkline, values look the same as when idle. Latest sample advanced every ~2-8 s; 85-90 samples / 300 s.
+    Expected ~100 % (or the owner cap, if L4 has one; "Most CPU one job may use" on L4 not checked - L2's console showed 50 %).
+    A 0 % sample in the middle of a 12-process burn means the Windows CPU sample is wrong or not the machine total.
+BUG candidate (Lead): Windows agent cpu_percent sampling (first-call/interval issue or per-process instead of system-wide?). Reproduce: run
+    a 12-process 90 s burn on a Windows node and watch Nodes > node > Live. Compare: Linux (L1) part L showed the real 400 % of 1600 % in top.
