@@ -723,3 +723,5 @@ SIGNAL: v07-c-go2 L3 - HUMAN on L3, Administrator PowerShell, one at a time: `me
     Record each refusal text, EMIT SIGNAL: v07-c-done L3.
 
 PAUSED 2026-11-04 15:31 (human: pause) - at C7.12-c, waiting for L3 v07-c-done; pin invite in REPORT (2 h) to revoke after.
+
+STARTED 2026-11-04 15:35 (human: start, loop 2m)
