@@ -625,3 +625,8 @@ state: V0.2, V0.17a, V0.3, V0.4, V0.5 done (signals pushed). V0.6 in progress, s
 next: (1) human decides on a manual 47120 Private firewall rule on L2/L3/L4 (sync_firewall bug); (2) recheck `compute network` 5 min after the peers are reachable;
     (3) C6.13-b wait v06-d-done from L2; (4) C6.13-c/d G1 Wi-Fi partition + G2 agent kill (LIVE). Parts E/F SKIPPED (folded into the V1.0 72 h soak).
     L1 peer serving on (/etc/meshforge/config.toml); the iperf3 systemd service is still running on L1 (installed in V0.5) - harmless.
+
+### RESUME - 2026-11-05 (ANNOUNCE 2026-11-05 + (2))
+result: merged origin/main. Correction to C6.13-a (prep): the missing 47120 rule on L2-L4 is NOT a bug - Windows needs the admin command
+    `meshforge.agent.winservice firewall-sync` (D389); recorded as UX gap F7. L2: on hold (not present) - V0.6 continues with L1, L3, L4;
+    L2 parts marked "L2 part pending". IP 192.168.31.13 unchanged; controller + agent active. Waiting for SIGNAL peer-rule-ok L3 / L4.
