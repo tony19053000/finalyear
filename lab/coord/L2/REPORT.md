@@ -495,3 +495,10 @@ Signed in as **admin** (per L1's chat; alice's password is only on L1).
 - **D5 PASS:** Settings > Secrets: set WEB_TEST (dummy value) -> listed, value hidden, toast "Secret WEB_TEST stored"; Delete -> gone (`compute secret list` shows only LAB_KEY, LAB_KEY2). **Finding:** Edge popped "Password saved" for the secret value field: the form should use `autocomplete="off"`/`new-password` so browsers don't store secret values.
 Screenshots: `lab/reports/raw/2026-11-05-V0.8-visual/L2-D*.png`.
 SIGNAL: v08-d-done L2
+
+### C7.12-e (X) capture on L2 - OK (2026-11-05 02:06)
+C7.0: HUMAN installed Wireshark 4.6.9 + Npcap (service running). Capture by the agent with `dumpcap -i <Wi-Fi> -f "tcp port 47120 or tcp port 47100 or tcp port 47110"` from 02:02:12 IST, stopped on L1's "stop" (chat 20261105-020400): 1660 packets, 257.9 s, `lab/reports/raw/2026-11-05-V0.7-security/l2.pcapng` (299,708 B).
+L1 traffic 02:03:39-46: job_01M6M48WFYMZAP7F5E4ENVYZZP pinned L2, job_01M6M48YF73KNGSN73BE4A8RWF pinned L4.
+TCP conversations: L2<->L1:47100 (gRPC session), L2<->L1:47110 (5 HTTPS connections), and **192.168.31.244 (L4) -> 192.168.31.155:47120 (L2 peer port)** 18 frames / 7.7 kB at ~94.6 s: L4 fetched the project from L2's peer server (the new firewall rule works).
+Byte grep of the whole pcap (all counts must be 0): `MF-LAB-ARGV-2137331377` 0, `MF-LAB-FILE-1672226037` 0, `Bearer ` 0, `eyJhdHQiOiJhdHRf` 0, `MF-LAB-SECRET` 0. L1 greps for the secret value itself.
+SIGNAL: capture-pushed
