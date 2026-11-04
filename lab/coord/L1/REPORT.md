@@ -746,3 +746,5 @@ SIGNAL: v07-r-go L3 - L3 was REVOKED. L3: record the local time of the node_revo
     (b) `meshforge-agent identity reset --yes`; then `meshforge-agent join <code 2>` (or the console) -> identity show = a NEW node_id;
     (c) re-apply owner settings (Run jobs on; then Restart-Service MeshForgeAgent for bug F5). Codes come from L1's human by voice (not in git).
     EMIT SIGNAL: rejoined L3 node=<new id>.
+
+PAUSED 2026-11-04 15:53 (human: pause) - at C7.12-d, waiting for L3 rejoin (SIGNAL rejoined L3). Two 2 h invites made for L3 (code 1 unused - revoke after).
