@@ -347,3 +347,10 @@ SIGNAL: peer-rule-ok L4
 ### C6.13-a-L4 - part C network matrix (run by L1) - OK (L2 part pending)
 result: per origin/lab/L1, +15 min after firewall-sync, all 6 L1/L3/L4 cells measured: L1->L4 24.5 MB/s 4.6 ms,
     L4->L1 17.0 MB/s, L4->L3 2.7 MB/s (rtt 0.0 ms - odd, L1 flagged), L3->L4 24.4 MB/s. Peer port 47120 on L4 reachable now.
+
+### C6.13-c-L4 - G1 Wi-Fi partition (LIVE) - done (L1: PARTIAL)
+commands (human, Administrator): Disable-NetAdapter Wi-Fi; Start-Sleep 60; Enable-NetAdapter Wi-Fi (ANNOUNCE 2026-11-05 (3))
+result: Wi-Fi off 14:59:17 IST (printed); "on" line not captured (session dropped) - ~15:00:17 by the 60 s sleep.
+    L1: job_01M6JY167XY1FVXB1VTAD60AT1 lost; L4 back online 15:00:28; two controller.jobs.status_fenced at 15:00:26 (fencing OK);
+    "attempt 2 elsewhere" not testable with a pinned job.
+SIGNAL: v06-g1-wifi-done L4
