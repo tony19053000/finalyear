@@ -835,3 +835,14 @@ result: C1 no certificate warning after the CA import + Chrome restart; sign-in 
     UI notes: (1) the red "Cancel job" button stays visible on finished jobs (succeeded/cancelled); (2) after picking a folder the page still says
        "No file chosen" next to "Choose files" although the project summary loaded; (3) Plan: transfer predicted 0 ms "assumed", actual 1.8 s (uncalibrated).
 evidence: human screenshots in this session (not committed)
+
+### C8.10-e - Part E3 ui_perf on real hardware (c2) - OK (VERDICT: pass, exit 0)
+commands: uv run playwright install chromium; MF_PASSWORD/MF_TOKEN set by the HUMAN (admin; token "TEST" from Settings > API tokens - to be revoked);
+    uv run python scripts/ui_perf --controller https://192.168.31.13:47110 --ca ~/meshforge-fabric-ca.crt --user admin --history 100 --bulk 10000 --out .../ui-perf.json
+result: seeds: history 300 succeeded jobs (100 x 3 laptops - L2 offline/on hold) in 147.9 s; mixed 20; bulk 10 000 cancelled in 420.8 s.
+    p50/p95/max ms (history | bulk): jobs list cold 52.3/109.9/118.7 | 52.3/67.4/70.9; in-app nav 25.6/31.8/33.1 | 29.4/30.9/31.1;
+    next 50 rows 23.9/31.6/34.2 | 24.2/37.1/40.9; filter 10.1/21.5/23.1 | 9.2/26.8/27.0; job page 20.6/31.0/33.3 | 34.5/35.4/35.5;
+    heartbeat->DOM 167.7/234.1/239.7; job.state->DOM 8.6/41.0/54.1; scroll: 0 long tasks, <= 36 rows in the DOM (371 / 1000 loaded).
+    clock (history): offset 0.69 ms, bound 1.5 ms, 0 pings dropped, consistent before/after, reasons [], uncertain false. VERDICT: pass.
+    The lab DB now holds 10 400+ seeded jobs (planned).
+evidence: lab/reports/raw/2026-11-05-V0.8-visual/ui-perf.json

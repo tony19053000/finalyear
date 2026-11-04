@@ -1,0 +1,202 @@
+{
+  "machine": {
+    "platform": "Linux-6.8.0-147-generic-x86_64-with-glibc2.39",
+    "python": "3.12.13",
+    "cpus": 16,
+    "cpu": "12th Gen Intel(R) Core(TM) i7-12650H",
+    "ram_gib": 15.3
+  },
+  "seeds": {
+    "history": {
+      "jobs": 300,
+      "seconds": 147.9,
+      "states": {
+        "succeeded": 300
+      }
+    },
+    "mixed": {
+      "jobs": 20,
+      "seconds": 0.4,
+      "states": {
+        "cancelled": 20
+      }
+    },
+    "bulk": {
+      "jobs": 10000,
+      "seconds": 420.8,
+      "states": {
+        "cancelled": 10000
+      }
+    }
+  },
+  "phases": {
+    "history": {
+      "list": {
+        "list_first_render": {
+          "n": 5,
+          "min": 48.9,
+          "p50": 52.3,
+          "p95": 109.9,
+          "max": 118.7
+        },
+        "list_in_app_nav": {
+          "n": 5,
+          "min": 23.9,
+          "p50": 25.6,
+          "p95": 31.8,
+          "max": 33.1
+        },
+        "rows_loaded": 371,
+        "load_more_by_scroll": {
+          "n": 7,
+          "min": 19.4,
+          "p50": 23.9,
+          "p95": 31.6,
+          "max": 34.2
+        },
+        "scroll": {
+          "frames": 55,
+          "frame_gap": {
+            "n": 55,
+            "min": 4,
+            "p50": 16.7,
+            "p95": 17.1,
+            "max": 21.7
+          },
+          "long_tasks": 0,
+          "long_task_max": 0.0,
+          "max_dom_rows": 36,
+          "windowed": true
+        },
+        "filter_change": {
+          "n": 5,
+          "min": 9.5,
+          "p50": 10.1,
+          "p95": 21.5,
+          "max": 23.1
+        },
+        "detail_open": {
+          "n": 5,
+          "min": 18.5,
+          "p50": 20.6,
+          "p95": 31.0,
+          "max": 33.3
+        }
+      },
+      "events": {
+        "clock": {
+          "clock_offset_ms": 0.69,
+          "clock_offset_bound_ms": 1.5,
+          "max_bound_ms": 50.0,
+          "pings_dropped": 0,
+          "before": {
+            "clock_offset_ms": 0.69,
+            "clock_offset_bound_ms": 1.5,
+            "rtt_ms": 2.0,
+            "exchanges": 16,
+            "consistent": true,
+            "max_bound_ms": 50.0,
+            "uncertain": false
+          },
+          "after": {
+            "clock_offset_ms": 0.552,
+            "clock_offset_bound_ms": 1.5,
+            "rtt_ms": 2.0,
+            "exchanges": 16,
+            "consistent": true,
+            "max_bound_ms": 50.0,
+            "uncertain": false
+          },
+          "reasons": [],
+          "uncertain": false
+        },
+        "stream_jobs": 131,
+        "stream_errors": [],
+        "job_state_latency": {
+          "n": 917,
+          "min": 3.6,
+          "p50": 8.6,
+          "p95": 41.0,
+          "max": 54.1
+        },
+        "job_terminal_latency": {
+          "n": 131,
+          "min": 6.2,
+          "p50": 7.9,
+          "p95": 10.3,
+          "max": 17.1
+        },
+        "job_terminal_missed": 0,
+        "job_state_superseded": 262,
+        "job_state_revisited": 0,
+        "job_state_retried_jobs": 0,
+        "job_state_missed": 0,
+        "job_state_missed_examples": [],
+        "heartbeat_latency": {
+          "n": 15,
+          "min": 75.7,
+          "p50": 167.7,
+          "p95": 234.1,
+          "max": 239.7
+        },
+        "heartbeat_unmatched": 0,
+        "heartbeat_frames_unreadable": 0
+      }
+    },
+    "bulk": {
+      "list": {
+        "list_first_render": {
+          "n": 5,
+          "min": 50.8,
+          "p50": 52.3,
+          "p95": 67.4,
+          "max": 70.9
+        },
+        "list_in_app_nav": {
+          "n": 5,
+          "min": 27.3,
+          "p50": 29.4,
+          "p95": 30.9,
+          "max": 31.1
+        },
+        "rows_loaded": 1000,
+        "load_more_by_scroll": {
+          "n": 19,
+          "min": 21.0,
+          "p50": 24.2,
+          "p95": 37.1,
+          "max": 40.9
+        },
+        "scroll": {
+          "frames": 155,
+          "frame_gap": {
+            "n": 155,
+            "min": 7.8,
+            "p50": 16.7,
+            "p95": 16.9,
+            "max": 19.5
+          },
+          "long_tasks": 0,
+          "long_task_max": 0.0,
+          "max_dom_rows": 36,
+          "windowed": true
+        },
+        "filter_change": {
+          "n": 5,
+          "min": 7.6,
+          "p50": 9.2,
+          "p95": 26.8,
+          "max": 27.0
+        },
+        "detail_open": {
+          "n": 5,
+          "min": 19.9,
+          "p50": 34.5,
+          "p95": 35.4,
+          "max": 35.5
+        }
+      }
+    }
+  },
+  "verdict": "pass"
+}
