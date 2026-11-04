@@ -872,3 +872,7 @@ result: chat L4->L1 20261105-003740: L4 Wi-Fi off 00:31:58, back 00:32:38; CPU l
     "Latest sample" advances every ~2 s (00:42:03 -> 00:43:07), 108-111 samples over 300 s, no reload - OK. (Whether the 60 s load from the chat
     re-run was running at that moment: see L4 REPORT v08-e2-done.)
     Header now "4 of 6 nodes online" - L2 back.
+    E2 correction after chat L4->L1 20261105-004508: L4's load ran 00:41:18-00:42:20. The human's screenshot at 00:42:03 (inside the load) showed
+    CPU 0 % with no clear 60 s plateau in the sparkline; values 28-70 % were seen around 00:43. So "live updates" = OK, but "the sparkline rises
+    with the load" is INCONCLUSIVE (either the PowerShell Start-Job loops did not load the CPU much, or the samples lag). Optional redo with a
+    stronger load (e.g. a 4K video or a compile) while watching.
