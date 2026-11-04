@@ -903,3 +903,16 @@ result: all 8 counts 0 (argv, file, secret value, secret b64, secret hex, "Beare
     LAB_KEY - L2's part S value; told L2).
     L2 also reports: v08-d-done (Edge D1-D5 PASS, as admin, 4 UI findings in L2 REPORT); V0.8 G FAIL - PowerShell completion "Shell cmd is not supported" (new bug for the Lead).
 evidence: lab/reports/raw/2026-11-05-V0.7-security/l2-analysis.txt; origin/lab/L2 .../l2.pcapng
+
+## Phase V0.9 (2026-11-05)
+
+### C9.10-d - C3 gpu_load on L1 - BLOCKED: L1 does not advertise gpu_load
+result: compute bench plan (gpu_load:50 on L1): "the node does not offer gpu_load (bench-conditions capability)". L1 caps = bench-conditions:cache,cpu_load
+    (no gpu_load) although L1 has the RTX 3050 + CUDA + Docker - likely the installed agent's own Python has no torch (GPU work runs in Docker). QUESTION (Lead).
+### C9.10-c - C2 cpu_load on L2 - BUG: planner refuses cpu_load although every node advertises it
+result: cpuload.yaml (cpu_load:2 on L2, nodes/origin L2): "invalid campaign: node ...BT241P436 x condition cpu_load:2: the node does not offer cpu_load".
+    `compute nodes <id> --json` hardware.capabilities on ALL 4 nodes = ['bench-conditions:cache,cpu_load']. Checkout code (advertised_kinds /
+    unsupported_reason, bench_routes._nodes) would accept it - so the installed v0.17.0 controller reads something else (stale snapshot? different field?).
+    BUG candidate (Lead). With on_unsupported: skip -> see plan output below. C1 netem: NOT RUN (no Linux agent other than L1).
+### C9.10-e - R3 Linux idle source (part 1) - while in use
+result: loginctl: Type=x11, IdleHint=no, IdleSinceHintMonotonic=0. Part 2 (after 6 min idle) + agent owner_activity line: pending.
