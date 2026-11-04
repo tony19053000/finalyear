@@ -821,3 +821,17 @@ result: CA exported to ~/meshforge-fabric-ca.crt (from the TLS chain; sha256 05:
     exception), then the dashboard loads with no warning. Server cert SAN = DNS:meshforge-controller, IP:192.168.31.13; curl --cacert verify 0.
     Dashboard: 3 of 4 nodes online (L2 offline - on hold), 2 revoked (old L3 + L1's throwaway enrol node).
     NOTE (Lead): Overview Alerts shows repeated `clock_uncertain` {"reasons":["inconsistent"], bound_ms 60-81, offset_ms -11..+10, consistent:false} every ~20 min.
+
+### C8.10-c - Part C browser flows on L1 - OK in CHROME (deviation: checklist says Firefox; human uses Chrome) - Firefox run pending if the Lead wants it
+result: C1 no certificate warning after the CA import + Chrome restart; sign-in page shows - OK.
+    C2 keyboard-only sign-in as alice; focus ring clearly visible (screenshot) - OK. (First tries: "Wrong user name or password" message shown correctly.)
+    C3 Submit job (folder ~/mf-lab/v08-small) -> job_01M6KCM17FM1FXEA2EVBAM7RAX succeeded on L3 (planner), live log line 0-4, exit 0 - OK.
+    C4 Outputs download (job_...-attempt1-outputs.tar.zst, 113 B), Plan tab decision table (L3 rank 1, L2 not_online, 2 revoked excluded), Attempts (1) - OK.
+    C5 v08-long job_01M6KCRTRX5KV82G2SKETZ7V8G live log, cancelled via Cancel job + dialog at line 548 - OK (keyboard, per the human).
+    C6 console: after clearing, submitting job_01M6KD060Y7N59DTNDPA5S3N81 added no new error. Earlier 4 x 401 on /session = from the failed sign-ins.
+       One "Uncaught TypeError: Cannot read properties of undefined (reading 'startTime') at et.reportAllChanges (<anonymous>)" in VM47 - not from the
+       app's index-*.js; likely a browser extension (web-vitals style). QUESTION: Lead to confirm.
+    C7 keyboard sign-out -> signed out - OK.
+    UI notes: (1) the red "Cancel job" button stays visible on finished jobs (succeeded/cancelled); (2) after picking a folder the page still says
+       "No file chosen" next to "Choose files" although the project summary loaded; (3) Plan: transfer predicted 0 ms "assumed", actual 1.8 s (uncalibrated).
+evidence: human screenshots in this session (not committed)
