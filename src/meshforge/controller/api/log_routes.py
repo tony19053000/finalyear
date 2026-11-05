@@ -23,9 +23,11 @@ and a normal close. Frames are JSON text:
 * ``{"end": true, "state", "attempt_state", "exit_code", "failure_type",
   "gaps", "final"}``;
 * V0.6 G3: ``{"retry": true, "attempt_id", "fencing_token",
-  "previous_attempt_id", "previous_state", "previous_failure_type"}`` when the
-  followed attempt ended and the job was retried - the frames after it are the
-  new attempt's, from offset 0 (``stdout_offset``/``stderr_offset`` apply to
+  "previous_attempt_id", "previous_state", "previous_failure_type",
+  "previous_detail"}`` when the followed attempt ended and the job was retried
+  (V1.0 G9-B: ``previous_detail`` = the ended attempt's stored ``detail``, e.g.
+  the agent's error text or ``node_revoked``; null when it has none) - the
+  frames after it are the new attempt's, from offset 0 (``stdout_offset``/``stderr_offset`` apply to
   the first attempt followed only). The end frame comes when the **job** ends.
 
 A client that reads too slowly is closed ``4008 slow_consumer`` - the log writer
@@ -405,6 +407,7 @@ async def _follow(f: _Follower, job_id: str) -> Subscription | None:
                 "previous_failure_type": None
                 if record.failure_type is None
                 else record.failure_type.value,
+                "previous_detail": record.detail,
             }
         )
         f.pos = dict.fromkeys(STREAMS, 0)

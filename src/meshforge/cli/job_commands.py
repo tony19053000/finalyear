@@ -90,10 +90,16 @@ def _checked_job_id(value: str) -> str:
 
 
 def _print_retry(frame: Mapping[str, Any]) -> None:
-    """V0.6 G3: the followed attempt ended and the job was retried."""
+    """V0.6 G3: the followed attempt ended and the job was retried. V1.0 G9-B:
+    the ended attempt's ``detail`` (the agent's error text, ``node_revoked``...)
+    follows its failure type - scrubbed, flattened and capped like any
+    server text (:func:`render.echo`)."""
     sys.stdout.flush()
     why = frame.get("previous_failure_type") or frame.get("previous_state")
     word = why if isinstance(why, str) and _WORD.fullmatch(why) else "?"
+    detail = frame.get("previous_detail")
+    if isinstance(detail, str) and detail.strip():
+        word = f"{word}: {render.echo(detail.strip())}"
     token = frame.get("fencing_token")
     number = token if isinstance(token, int) and not isinstance(token, bool) else "?"
     render.note(
