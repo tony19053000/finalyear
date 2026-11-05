@@ -87,7 +87,9 @@ def lab_timeout_s(hint_s: float) -> int:
     """The lab job's ``limits.timeout`` in seconds (whole minutes, capped)."""
     from meshforge.common.manifest import MAX_TIMEOUT_S
 
-    minutes = math.ceil(max(0.0, hint_s) * LAB_TIMEOUT_FACTOR / 60.0)
+    # capped before ceil: a huge or infinite hint never overflows (NaN -> 0)
+    hint = min(max(0.0, hint_s), MAX_TIMEOUT_S / LAB_TIMEOUT_FACTOR)
+    minutes = math.ceil(hint * LAB_TIMEOUT_FACTOR / 60.0)
     return int(min(MAX_TIMEOUT_S, max(LAB_TIMEOUT_FLOOR_S, minutes * 60)))
 
 

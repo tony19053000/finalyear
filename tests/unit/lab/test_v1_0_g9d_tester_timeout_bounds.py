@@ -31,21 +31,7 @@ def test_monotonic_in_the_hint() -> None:
 
 @pytest.mark.parametrize(
     "hint",
-    [
-        1e15,
-        pytest.param(
-            1e308,
-            marks=pytest.mark.xfail(
-                raises=OverflowError, strict=True, reason="tester D1: minor"
-            ),
-        ),
-        pytest.param(
-            float("inf"),
-            marks=pytest.mark.xfail(
-                raises=OverflowError, strict=True, reason="tester D1: minor"
-            ),
-        ),
-    ],
+    [1e15, 1e308, float("inf")],
 )
 def test_huge_hint_is_capped(hint: float) -> None:
     assert lab_timeout_s(hint) == MAX_TIMEOUT_S
