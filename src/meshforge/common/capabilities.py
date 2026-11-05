@@ -8,9 +8,12 @@ share one constant without importing each other.
 
 from __future__ import annotations
 
+import re
+from collections.abc import Iterable
 from typing import Final
 
 __all__ = [
+    "ENV_POLICY_PREFIX",
     "EXEC_CAPABILITY",
     "EXEC_DOCKER_CAPABILITY",
     "EXEC_GPU_CAPABILITY",
@@ -19,6 +22,8 @@ __all__ = [
     "EXEC_TORCH_CAPABILITY",
     "HARDWARE_SCORES_CAPABILITY",
     "TORCH_BASES",
+    "env_policy_of",
+    "env_policy_tag",
 ]
 
 HARDWARE_SCORES_CAPABILITY: Final = "hardware-scores"
@@ -56,3 +61,34 @@ EXEC_SPLIT_CAPABILITY: Final = "exec-split"
 pull, per-chunk process, chunk results). The controller places a split job's
 lanes only on nodes with this tag - an older agent would run a lane as one
 whole attempt."""
+
+ENV_POLICY_PREFIX: Final = "env-policy:"
+"""V1.0 G9-B (D433): ``env-policy:<12 hex>`` - a short hash of the node owner's
+``[agent.envs]`` settings that change what an environment build can do
+(wheels-only, package indexes, wheelhouse, size limits...). The controller
+keeps it with every known-bad environment (D116) and forgets the entry once
+the node advertises another one: the owner changed the policy, so the build
+may now succeed. A node without the tag (an agent from before G9-B) keeps the
+old rule (the entry lives its TTL)."""
+_ENV_POLICY_RE: Final = re.compile(r"[0-9a-f]{12}")
+
+
+def env_policy_tag(fingerprint: str) -> str:
+    """The capability tag for a 12-hex fingerprint (ValueError otherwise)."""
+    if not _ENV_POLICY_RE.fullmatch(fingerprint):
+        raise ValueError("an env-policy fingerprint is 12 lowercase hex digits")
+    return ENV_POLICY_PREFIX + fingerprint
+
+
+def env_policy_of(capabilities: Iterable[str]) -> str | None:
+    """The fingerprint a node advertises, or None (no tag, a malformed one, or
+    two different ones - a peer value is never trusted half-way)."""
+    found = {
+        tag.removeprefix(ENV_POLICY_PREFIX)
+        for tag in capabilities
+        if tag.startswith(ENV_POLICY_PREFIX)
+    }
+    if len(found) != 1:
+        return None
+    (value,) = found
+    return value if _ENV_POLICY_RE.fullmatch(value) else None

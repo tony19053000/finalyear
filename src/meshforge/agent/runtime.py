@@ -77,6 +77,7 @@ from meshforge.agent.cas import AgentCas
 from meshforge.agent.conditions.runner import ConditionRunner, probe_kinds
 from meshforge.agent.console.node_name import effective_node_name
 from meshforge.agent.envs.node_prepare import PrepareService
+from meshforge.agent.envs.policy import env_policy_capability
 from meshforge.agent.execution.activation import (
     ExecutionActivator,
     exec_capabilities,
@@ -423,6 +424,14 @@ async def serve(
     # V0.10 G4 (D263): an executing node runs Mode 3 lanes too (exec-split)
     hardware.capabilities[:] = clip_capabilities(
         [*hardware.capabilities, *exec_capabilities(execution)]
+    )
+    # V1.0 G9-B (D433): the owner's env-build policy, so the controller forgets
+    # a known-bad env once the owner changed what a build may do
+    hardware.capabilities[:] = clip_capabilities(
+        [
+            *hardware.capabilities,
+            env_policy_capability(settings.agent.envs),
+        ]
     )
     # V0.9 G4 (D217): the benchmark conditions this node can apply, one tag.
     condition_kinds = (

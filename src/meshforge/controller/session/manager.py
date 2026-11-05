@@ -101,6 +101,7 @@ import grpc
 from google.protobuf.json_format import MessageToDict
 
 from meshforge import __version__
+from meshforge.common.capabilities import env_policy_of
 from meshforge.common.ids import new_session_id
 from meshforge.common.logging import get_logger
 from meshforge.common.proto.meshforge.v1 import agent_pb2
@@ -721,6 +722,7 @@ class SessionManager:
             writer=writer,
             declared_gpus=declared_gpus(hello.hardware),
             agent_version=hello.agent_version,
+            env_policy=env_policy_of(hello.hardware.capabilities),
         )
         endpoint, refusal = peer_endpoint_of(
             hello, peer, trust=self._trust_peer_endpoints

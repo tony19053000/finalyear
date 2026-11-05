@@ -178,6 +178,9 @@ class LiveSession:
     resource_updates: int = 0
     resource_updates_clamped: int = 0
     """Reports that broke a D12 cap; logged once, counted always."""
+    env_policy: str | None = None
+    """V1.0 G9-B (D433): the ``env-policy:`` fingerprint of this session's
+    Hello (None = none or malformed); a known-bad env records it."""
     agent_version: str = ""
     """V0.17 G5: ``Hello.agent_version`` (already checked against Q37); the
     Nodes page shows it and marks an agent one minor behind."""

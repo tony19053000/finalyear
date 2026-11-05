@@ -56,7 +56,7 @@ from typing import Final
 
 from pydantic import ValidationError
 
-from meshforge.common.capabilities import EXEC_SPLIT_CAPABILITY
+from meshforge.common.capabilities import EXEC_SPLIT_CAPABILITY, env_policy_of
 from meshforge.common.errors import FailureType, InvalidIdError
 from meshforge.common.ids import new_attempt_id
 from meshforge.common.logging import get_logger
@@ -450,7 +450,12 @@ class DispatchPlanner:
         if self._known_bad is None:
             return snapshot
         bad = {
-            n.node_id for n in snapshot.nodes if self._known_bad.is_bad(n.node_id, key)
+            n.node_id
+            for n in snapshot.nodes
+            # D433: the node's current env policy (a changed one clears it)
+            if self._known_bad.is_bad(
+                n.node_id, key, env_policy=env_policy_of(n.capabilities)
+            )
         }
         if not bad:
             return snapshot
