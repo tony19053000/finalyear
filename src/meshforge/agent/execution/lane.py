@@ -359,18 +359,28 @@ class LaneSteps(ChunkRunSteps):
             await asyncio.sleep(every)
             if not lane.held or self._send_now is None:
                 continue
-            await self._send_now(
-                "lease_renew",
-                agent_pb2.LeaseRenew(
+            renew = agent_pb2.LeaseRenew(
+                job_id=attempt.job_id,
+                attempt_id=attempt.attempt_id,
+                fencing_token=attempt.token,
+                leases=[
+                    agent_pb2.ChunkLeaseRef(item_id=i, lease_seq=s)
+                    for i, s in lane.held
+                ],
+            )
+            try:
+                await self._send_now("lease_renew", renew)
+            except Exception as exc:  # noqa: BLE001 - V1.0 G9-D (D437)
+                # One failed write must not end renewals for the rest of the
+                # lane: the held chunk would lose its lease a visibility
+                # timeout later and run again elsewhere. Next tick retries.
+                log.warning(
+                    "agent.lane.renew_failed",
+                    node_id=self._node_id,
                     job_id=attempt.job_id,
                     attempt_id=attempt.attempt_id,
-                    fencing_token=attempt.token,
-                    leases=[
-                        agent_pb2.ChunkLeaseRef(item_id=i, lease_seq=s)
-                        for i, s in lane.held
-                    ],
-                ),
-            )
+                    error=type(exc).__name__,
+                )
 
     # ------------------------------------------------------------ one chunk
 

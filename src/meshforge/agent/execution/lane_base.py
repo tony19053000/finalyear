@@ -43,6 +43,12 @@ CHUNK_FAILURE_NOT_RETRYABLE: Final = frozenset(
         FailureType.UNAUTHORIZED,
         FailureType.CONFIG_ERROR,
         FailureType.NO_FEASIBLE_PLAN,
+        # V1.0 G9-D (D437): the chunk ran past the job's own time limit
+        # (``limits.timeout``, enforced per chunk). Re-running it starts from
+        # zero and meets the same limit - a "don't split" run is one chunk with
+        # every item, so it looped until retry.max_attempts ran out. Final, as
+        # a whole job's ``deadline_exceeded`` is (ARCHITECTURE section 13).
+        FailureType.DEADLINE_EXCEEDED,
     }
 )
 """D267c: every other chunk failure may succeed on another node - the
