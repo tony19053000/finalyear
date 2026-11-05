@@ -899,8 +899,8 @@ Benchmarks run through **the same code paths as users** — so benchmark data re
   secret dropped); `compute_ns` is the whole timed loop and `compute_iterations` its iteration count (D228). The controller keeps a **per-node clock offset** (agent − controller ± bound) from Ping/Pong
   exchanges: wall time at the Ping, the Pong envelope's `sent_at`, receive = Ping wall + monotonic RTT, over a
   recent window (32 exchanges / 300 s) widened by the agent's clock resolution; shown on node detail, stored on the
-  session row and in each record, alert `clock_uncertain` when the bound exceeds 250 ms or the window is
-  inconsistent. No new code subtracts timestamps from two hosts.
+  session row and in each record, alert `clock_uncertain` when the bound exceeds 250 ms (V1.0 G9-B, D434: the bound only - an
+  inconsistent window is reported and logged at info, the bound already covers it). No new code subtracts timestamps from two hosts.
 - **Failure class** on every record: `ok`, `workload`, `infrastructure`, `condition_failed`, `unavailable`.
 - The agent's live-log redaction runs in one worker thread per attempt (D224), so benchmark load cannot stall its
   event loop (heartbeats, pongs, reports).

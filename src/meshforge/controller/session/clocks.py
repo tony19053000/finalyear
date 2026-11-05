@@ -24,11 +24,19 @@ resolution reported over the window, not only the latest one: every exchange in
 the window feeds the estimate, so each one's tick limits it - and a resolution
 that alternates between reports cannot flap the alert on every Ping.
 
-A node's clock is **uncertain** when the bound exceeds :data:`ALERT_BOUND_MS`
-or the window's exchanges contradict each other (``consistent=False``), once at
-least :data:`MIN_EXCHANGES` exchanges are in the window. Entering that state
-raises one alert per episode (an ``audit_event`` ``clock_uncertain`` row and a
-live ``alert`` event); leaving it is logged.
+A node's clock is **uncertain** when the bound exceeds :data:`ALERT_BOUND_MS`,
+once at least :data:`MIN_EXCHANGES` exchanges are in the window. Entering that
+state raises one alert per episode (an ``audit_event`` ``clock_uncertain`` row
+and a live ``alert`` event); leaving it is logged.
+
+**The bound only (V1.0 G9-B, D434).** Exchanges that contradict each other
+(``consistent=False``: an NTP slew or step between two pings makes their
+intervals disjoint) no longer alert by themselves: the estimator already widens
+the bound to cover every interval, so the bound is the honest measure. The lab
+saw an alert every ~20 minutes at a 60-81 ms bound with ``consistent=false``.
+``consistent`` is still reported (API, stored), and a flip of it is logged at
+``info`` (``session.clock_inconsistent`` / ``session.clock_consistent``,
+:attr:`NodeClock.consistency_flipped`).
 
 Pure state; no I/O, no clock reads (the caller passes the times).
 """
@@ -109,6 +117,11 @@ class NodeClock:
     (same order; the window keeps a suffix of what was added)."""
     latest: ClockOffset | None = None
     uncertain: bool = False
+    inconsistent: bool = False
+    """D434: the latest estimate (with >= MIN_EXCHANGES) was inconsistent."""
+    consistency_flipped: bool = False
+    """D434: the last :meth:`observe` flipped :attr:`inconsistent` (the caller
+    logs it at info; never an alert)."""
     exchanges_rejected: int = 0
     """Exchanges refused as unusable (non-finite, negative RTT)."""
 
@@ -123,6 +136,7 @@ class NodeClock:
     ) -> ClockChange | None:
         """Add one exchange and re-estimate; a :class:`ClockChange` when the
         uncertain state flipped, else ``None``."""
+        self.consistency_flipped = False
         exchange = ClockExchange(
             sent_ms=sent_wall_ms, remote_ms=agent_ms, received_ms=sent_wall_ms + rtt_ms
         )
@@ -147,6 +161,9 @@ class NodeClock:
         reasons = uncertain_reasons(clock)
         if clock.exchanges < MIN_EXCHANGES:
             return None
+        if self.inconsistent == clock.consistent:  # D434: logged, not alerted
+            self.inconsistent = not clock.consistent
+            self.consistency_flipped = True
         now_uncertain = bool(reasons)
         if now_uncertain == self.uncertain:
             return None
@@ -155,10 +172,9 @@ class NodeClock:
 
 
 def uncertain_reasons(clock: ClockOffset) -> tuple[str, ...]:
-    """Why ``clock`` is not trustworthy (empty = it is)."""
-    reasons: list[str] = []
-    if not clock.consistent:
-        reasons.append("inconsistent")
+    """Why ``clock`` is not trustworthy (empty = it is). The bound only
+    (D434): ``consistent=False`` alone is not a reason - the bound already
+    covers every exchange's interval."""
     if clock.bound_ms > ALERT_BOUND_MS:
-        reasons.append("bound_over_limit")
-    return tuple(reasons)
+        return ("bound_over_limit",)
+    return ()

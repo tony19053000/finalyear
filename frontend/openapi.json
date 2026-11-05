@@ -7032,7 +7032,7 @@
             "type": "number"
           },
           "consistent": {
-            "description": "False: the window's exchanges contradict each other (a clock stepped).",
+            "description": "False: the window's exchanges contradict each other (a clock stepped or slewed); the bound already covers them, so this alone raises no alert (D434).",
             "title": "Consistent",
             "type": "boolean"
           },
@@ -7046,7 +7046,7 @@
             "type": "boolean"
           },
           "uncertain": {
-            "description": "Bound over 250 ms or inconsistent (an alert is raised).",
+            "description": "Bound over 250 ms (an alert is raised; D434: the bound only).",
             "title": "Uncertain",
             "type": "boolean"
           }

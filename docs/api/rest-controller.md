@@ -3419,10 +3419,10 @@ A node's clock offset (V0.9 G1, D213): the true offset lies within
 |---|---|---|---|
 | `bound_ms` | number | yes | Rounded up: never tighter than measured. |
 | `clock_offset_ms` | number | yes | - |
-| `consistent` | boolean | yes | False: the window's exchanges contradict each other (a clock stepped). |
+| `consistent` | boolean | yes | False: the window's exchanges contradict each other (a clock stepped or slewed); the bound already covers them, so this alone raises no alert (D434). |
 | `exchanges` | integer | yes | - |
 | `live` | boolean | yes | From the live session, or the last session's stored value. |
-| `uncertain` | boolean | yes | Bound over 250 ms or inconsistent (an alert is raised). |
+| `uncertain` | boolean | yes | Bound over 250 ms (an alert is raised; D434: the bound only). |
 
 <a id="schema-nodedetail"></a>
 
