@@ -870,9 +870,13 @@ class PolicySettings(SectionModel):
 
 ENVS_DIR_NAME: Final = "envs"
 """Sub-directory of ``data_dir`` holding cached environments (V0.5 D86)."""
-_INDEX_URL = re.compile(r"https?://[^\s@/?#]+(:\d{1,5})?(/[^\s?#]*)?")
+_INDEX_URL = re.compile(r"https?://[^\s@/?#%]+(:\d{1,5})?(/[^\s?#]*)?")
 """http(s), no userinfo, no ?query / #fragment (a token there would reach process
-listings like userinfo would; G9B-T1)."""
+listings like userinfo would; G9B-T1). No ``%`` in the host part (reviewer r1): a
+percent-encoded ``@`` or ``:`` there (``https://tok%3Asecret%40host/``) is no
+userinfo to the installers - just a host that does not resolve - but it is a
+credential in disguise on the command line, so it is refused; ``%`` in the path
+stays allowed."""
 
 
 MAX_EXTRA_INDEX_URLS: Final = 4

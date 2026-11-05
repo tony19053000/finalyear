@@ -848,7 +848,7 @@ environment (subprocess runtime; install torch there with `uv sync --extra gpu`)
   (no credentials in the URL).
 - **Extra package indexes (V1.0 G9-B, D436).** `[agent.envs] extra_index_urls =
   ["https://download.pytorch.org/whl/cu126"]` keeps PyPI (or your `index_url`) and
-  adds up to 4 more indexes (http(s), no credentials; not with `no_index`). uv
+  adds up to 4 more indexes (http(s), no credentials, no `?query`/`#fragment`, no `%` in the host part; not with `no_index` - the same shape rules as `index_url`). uv
   tries them **before** the main index - the first index that has a package
   wins - so list only indexes you trust. Wheels-only rules are unchanged, and
   the list is part of the env hash (changing it builds new environments).

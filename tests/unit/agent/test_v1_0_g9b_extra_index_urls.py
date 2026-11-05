@@ -196,3 +196,27 @@ def test_the_jobs_own_file_still_cannot_add_an_index() -> None:
             f"--extra-index-url {TORCH}\ntorch\n".encode(), wheels_only=True
         )
     assert info.value.reason == "requirements_rejected"
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://user%40mirror.example/simple",
+        "https://tok%3Asecret%40mirror.example/simple",
+        "https://mirror%2eexample/simple",
+    ],
+)
+def test_a_percent_in_the_host_part_is_refused(url: str) -> None:
+    """Reviewer G9-B r1: ``%40`` in the host is no userinfo to uv/pip (an
+    unresolvable host), but a credential in disguise on the command line -
+    refused, for index_url and extra_index_urls alike."""
+    with pytest.raises(ValidationError):
+        EnvsSettings(extra_index_urls=[url])
+    with pytest.raises(ValidationError):
+        EnvsSettings(index_url=url)
+
+
+def test_a_percent_in_the_path_stays_allowed() -> None:
+    url = "https://mirror.example/simple%20index/"
+    assert EnvsSettings(extra_index_urls=[url]).extra_index_urls == [url]
+    assert EnvsSettings(index_url=url).index_url == url
