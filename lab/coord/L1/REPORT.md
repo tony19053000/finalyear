@@ -940,3 +940,13 @@ result: done (complete), 15 / 15 runs done, 0 failed, infra failures 0 of 39 att
     watch --json (mode3): chunks 17/17; lanes L1 13, L3 2, L4 1, L2 1 (all 4 laptops took work; very uneven - L1 is origin + fastest).
     explain: first decision "not split: the forced node set: 3 of 4 node(s) can take a lane now" (split_too...), later chosen split on L1 lane set.
 evidence: lab/reports/raw/2026-11-05-V0.10-mode3/{c1.yaml,c1-runs.json,c1-digests.txt,c1-verify.txt}
+
+### C10.10-c - Part B single-laptop runs - L1 OK; L2 BUG: a long single chunk loses its lease forever
+result: B1 L1: job_01M6N9DFQPCVT9S8QH5961BA37 `compute run mc --node L1 -f` succeeded in 427 s (one chunk, items 0..4999).
+    B1 L2: job_01M6N9TH2GQBDTGNTK7V90BKFM - one lane, one chunk (5000 items); leased 07:29:56Z, re-leased 07:45:00Z (lease_seq 2, failed_tries 1),
+    again at ~08:00Z (failed_tries 2), chunks_done 0 after 31 min -> cancelled by L1 at 13:31 IST. The chunk on L2 (slower i5-12450H) takes longer than the
+    lease (~15 min = [controller.split] visibility_timeout_s?) and is restarted from zero each time = never finishes.
+BUG (Lead, serious for Mode 3 on slow laptops): a chunk that runs longer than visibility_timeout_s is lost and re-leased with no progress; no lease
+    renewal / heartbeat extension while the chunk runs, or the auto chunk size ignores the node's speed. Single-node "don't split" runs of a long job
+    are one chunk, so they hit it directly. L3/L4 single runs NOT RUN (same risk, slower CPUs). C3 (speedup vs single) needs singles -> INCONCLUSIVE.
+    Note: the L1 single run log said "the attempt ended (done); the job was retried - following attempt 2" (lane + combine, reads like a retry - UI wording).
