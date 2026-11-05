@@ -12,8 +12,8 @@ rebuilds :class:`~.core.Item` values, applies the core transition and writes
 back what changed. Times (``now``) come from the caller - one controller clock -
 and must be timezone-aware.
 
-Locking (deadlock freedom)
---------------------------
+Locking (lock order)
+--------------------
 Order is always **queue row, then item rows in ascending id**:
 
 * ``lease_next`` takes ``FOR KEY SHARE`` on the queue and picks items with
@@ -31,6 +31,16 @@ Order is always **queue row, then item rows in ascending id**:
   the pullers' ``FOR KEY SHARE``: no lease can be granted by a transaction
   that overlaps the close, so a closed queue never gains a live lease.
   (``complete`` closes a queue only as ``done``, when nothing is pending.)
+
+This fixed order prevents lock-order cycles between our own statements, but
+it is **not** deadlock freedom: the queue row is updated by completions
+(``done_count``), and a ``FOR UPDATE`` (``fail``, ``expire_due``, ``cancel``)
+and a ``FOR KEY SHARE`` (``lease_next``, ``release``, ``renew``) that both
+follow that row's update chain can wait for each other; PostgreSQL then aborts
+one with ``40P01`` (rare; reproduced under load in V1.0 G9-D r1 with the server
+log "while locking tuple ... in relation work_queue"). Nothing is half-applied
+(the caller's transaction rolls back); callers re-run the whole transaction
+(the controller's chunk store does, bounded: V1.0 G9-D2, D440).
 
 Completions of one queue therefore serialise on the queue row for the length of
 the caller's transaction; that is what lets the last commit see

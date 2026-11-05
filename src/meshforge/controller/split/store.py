@@ -6,7 +6,14 @@ attempt exists, is a ``lane``, runs on the node whose session sent the message
 then hands the chunk to :mod:`meshforge.workqueue.store` (holder = the lane's
 attempt id, site = its node). Lock order (ADR-0019 addendum): the attempt row,
 then the job row, then work-queue rows - the order of every other writer of
-these rows, so no deadlock.
+these rows. PostgreSQL can still abort one side of a cycle on the work-queue
+row's update chain (``40P01``, G9-D r1), so ``request``, ``result``, ``renew``
+and ``expire`` re-run their **whole** transaction on ``40P01`` / ``40001``
+(:func:`~meshforge.controller.store.conflicts.retry_conflicts`, V1.0 G9-D2,
+D440): after the rollback nothing of the first try is left, and each one's
+effects outside the database are idempotent (the parts index is a
+content-addressed blob write; item lists, parts and chunk times are read
+caches). The callers' acks and sends come after the call returns, once.
 
 * :meth:`ChunkStore.request` - a lane asks for chunks: leases it holds but did
   not list are granted again (their grant was lost on the way), then new ones
@@ -39,7 +46,7 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import datetime as dt
-from collections import OrderedDict
+from collections import Counter, OrderedDict
 from collections.abc import AsyncIterator, Collection, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -89,6 +96,7 @@ from meshforge.controller.split.warnings import (
     NONDETERMINISTIC_CHUNK,
     add_chunk_warning,
 )
+from meshforge.controller.store.conflicts import retry_conflicts
 from meshforge.controller.store.engine import create_session_factory
 from meshforge.controller.store.models.job import Attempt, Job
 from meshforge.controller.store.models.telemetry import ChunkRecord
@@ -298,6 +306,9 @@ class ChunkStore:
         self._blobs = blobs
         self.items = items or ItemLists(blobs)
         self._parts: OrderedDict[str, PartsIndex] = OrderedDict()
+        self.conflict_retries: Counter[str] = Counter()
+        """V1.0 G9-D2 (D440): transactions re-run after a deadlock or
+        serialization failure, per operation."""
 
     async def _lane(
         self,
@@ -326,6 +337,7 @@ class ChunkStore:
     # ------------------------------------------------------------ request
 
     @typed_store_call
+    @retry_conflicts("split.request")
     async def request(
         self,
         *,
@@ -469,6 +481,7 @@ class ChunkStore:
     # ------------------------------------------------------------ results
 
     @typed_store_call
+    @retry_conflicts("split.result")
     async def result(
         self,
         *,
@@ -758,6 +771,7 @@ class ChunkStore:
     # ------------------------------------------------------------ renew/expire
 
     @typed_store_call
+    @retry_conflicts("split.renew")
     async def renew(
         self,
         *,
@@ -784,6 +798,7 @@ class ChunkStore:
             return (renewed, len(outs) - renewed)
 
     @typed_store_call
+    @retry_conflicts("split.expire")
     async def expire(self, *, now: dt.datetime, limit: int = 500) -> int:
         """Expire due leases (their chunks go back to pending)."""
         async with self._sessions() as db, db.begin():
