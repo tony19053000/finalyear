@@ -45,7 +45,9 @@ pytestmark = pytest.mark.unit
 
 DOCKER = RuntimeAvailability("docker", True, sandboxed=True)
 VENV = RuntimeAvailability("venv", True)
-SUB = RuntimeAvailability("subprocess", True)
+SUB = RuntimeAvailability("subprocess", True, torch=True)
+"""The agent's interpreter with torch (``uv sync --extra gpu``, V0.4; D432)."""
+SUB_NO_TORCH = RuntimeAvailability("subprocess", True)
 VENV_GPU = RuntimeAvailability("venv", True, gpu_capable=True)
 
 
@@ -78,6 +80,7 @@ def test_venv_capability_tag() -> None:
         "exec",
         "exec-gpu",
         "exec-subprocess",
+        "exec-torch",  # D432: SUB's interpreter has torch
         EXEC_VENV_CAPABILITY,
     )
     assert choose_runtime(offer, GpuNeed.REQUIRED) is VENV_GPU

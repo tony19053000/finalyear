@@ -41,6 +41,8 @@ from meshforge.common.capabilities import (
     EXEC_GPU_CAPABILITY,
     EXEC_SPLIT_CAPABILITY,
     EXEC_SUBPROCESS_CAPABILITY,
+    EXEC_TORCH_CAPABILITY,
+    TORCH_BASES,
 )
 from meshforge.controller.planner.types import (
     ClusterSnapshot,
@@ -72,8 +74,15 @@ _GIB: Final = 1024**3
 EXEC_VENV_CAPABILITY: Final = "exec-venv"
 """The agent's venv runtime tag (``agent/execution/selection.py``; the wire
 spelling - the controller only reads it here)."""
-_BASE_NEEDS_FULL_RUNTIME: Final = frozenset({"cuda-pytorch"})
-"""Bases the venv runtime cannot provide (selection.py ``VENV_BASES``)."""
+_BASE_NEEDS_FULL_RUNTIME: Final = TORCH_BASES
+"""Bases the venv runtime cannot provide (selection.py ``VENV_BASES``); since
+V1.0 G9-B (D432) the subprocess runtime provides them only with ``exec-torch``."""
+TORCH_VENV_RECIPE: Final = (
+    "or run it on the venv runtime: env.base python-cpu, resources.gpu: "
+    "required, and CUDA torch in requirements.txt"
+)
+"""D432: the GPU path that needs neither Docker nor torch in the agent (the
+Windows laptops without Docker) - only ``cuda-pytorch`` is refused, never it."""
 _REVOKED: Final = "revoked"
 _ONLINE: Final = "online"
 
@@ -184,18 +193,37 @@ def static_rejection(request: PlanRequest, node: NodeSnapshot) -> Rejection | No
             RejectCode.CPUS_SHORT,
             f"the job needs {request.cpus:g} CPUs; the node has {node.cpu_threads}",
         )
-    if (
-        request.base in _BASE_NEEDS_FULL_RUNTIME
-        and EXEC_VENV_CAPABILITY in caps
-        and EXEC_DOCKER_CAPABILITY not in caps
-        and EXEC_SUBPROCESS_CAPABILITY not in caps
-    ):
+    if request.base in _BASE_NEEDS_FULL_RUNTIME:
+        return _torch_base_rejection(request.base, caps)
+    return None
+
+
+def _torch_base_rejection(base: str, caps: frozenset[str]) -> Rejection | None:
+    """A torch base (D432) needs ``exec-docker``, or ``exec-subprocess`` +
+    ``exec-torch`` (the agent's own Python has PyTorch). The venv-only text is
+    the V0.6 one, so a recorded decision of such a node replays unchanged."""
+    if EXEC_DOCKER_CAPABILITY in caps:
+        return None
+    if EXEC_SUBPROCESS_CAPABILITY in caps:
+        if EXEC_TORCH_CAPABILITY in caps:
+            return None
         return Rejection(
             RejectCode.NO_RUNTIME_FOR_BASE,
-            f"env.base {request.base} needs Docker or the subprocess runtime; the "
+            f"env.base {base} needs PyTorch: the node has no Docker and its "
+            f"agent's Python has no torch (install Docker, or PyTorch for the "
+            f"agent; {TORCH_VENV_RECIPE})",
+        )
+    if EXEC_VENV_CAPABILITY in caps:
+        return Rejection(
+            RejectCode.NO_RUNTIME_FOR_BASE,
+            f"env.base {base} needs Docker or the subprocess runtime; the "
             "node only offers the venv runtime",
         )
-    return None
+    return Rejection(
+        RejectCode.NO_RUNTIME_FOR_BASE,
+        f"env.base {base} needs Docker, or PyTorch for the agent's subprocess "
+        f"runtime (install Docker, or PyTorch for the agent; {TORCH_VENV_RECIPE})",
+    )
 
 
 def policy_rejection(request: PlanRequest, node: NodeSnapshot) -> Rejection | None:

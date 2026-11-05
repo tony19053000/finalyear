@@ -81,6 +81,11 @@ def _node(
     caps = {c for c in _CAPS if rng.random() < 0.7}
     if rng.random() < 0.9:
         caps.add("exec")
+    if "exec-subprocess" in caps and sum(map(ord, node_id)) % 4:
+        # V1.0 G9-B (D432): most subprocess nodes have torch, some do not.
+        # Derived from the id, not drawn: the rng stream (every other value
+        # of every seeded case) stays what it was before exec-torch existed.
+        caps.add("exec-torch")
     gpus = tuple(
         rng.choice((4, 8, 12, 0)) * GIB for _ in range(rng.choice((0, 0, 1, 2)))
     )

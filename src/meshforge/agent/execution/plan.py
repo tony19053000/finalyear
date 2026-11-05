@@ -75,6 +75,7 @@ from meshforge.agent.execution.selection import (
     GpuNeed,
     choose_runtime,
     runtime_fits_base,
+    torch_missing,
 )
 from meshforge.agent.settings import ExecutionSettings
 from meshforge.common import owner_policy
@@ -482,6 +483,23 @@ def _check_policy(
         raise _policy_denied(refused)
 
 
+TORCH_MISSING_REASON: Final = "torch_missing"
+"""V1.0 G9-B (D432): the ``env_error`` reason of a torch-base job on a node whose
+only fitting runtime is the subprocess runtime without PyTorch."""
+
+
+def _torch_missing(base: str) -> PlanError:
+    return PlanError(
+        f"{TORCH_MISSING_REASON}: env.base {base} promises PyTorch, but this "
+        "node has no Docker and its agent's Python has no torch (install "
+        "Docker, or PyTorch for the agent; or use env.base python-cpu with "
+        "resources.gpu: required and CUDA torch in requirements.txt - the "
+        "venv runtime)",
+        failure_type=FailureType.ENV_ERROR,
+        details={"reason": TORCH_MISSING_REASON},
+    )
+
+
 def _runtime(
     requested: str, offer: ExecutionOffer, gpu: GpuNeed, base: str
 ) -> RuntimeAvailability:
@@ -495,6 +513,8 @@ def _runtime(
                 failure_type=FailureType.NO_FEASIBLE_PLAN,
             )
         if not runtime_fits_base(found, base):
+            if found is offer.subprocess and torch_missing(offer, gpu, base):
+                raise _torch_missing(base)
             raise PlanError(
                 f"the {requested!r} runtime cannot provide the {base!r} base",
                 failure_type=FailureType.NO_FEASIBLE_PLAN,
@@ -502,6 +522,8 @@ def _runtime(
         return found
     chosen = choose_runtime(offer, gpu, base)
     if chosen is None:
+        if torch_missing(offer, gpu, base):
+            raise _torch_missing(base)
         raise PlanError(
             "no runtime on this node fits the job"
             + (" (it requires a GPU)" if gpu is GpuNeed.REQUIRED else ""),

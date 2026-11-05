@@ -5,6 +5,7 @@ selection. Derived from the roadmap criterion and D85-D87, not from the code."""
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import errno
 import itertools
 import json
@@ -477,7 +478,8 @@ def test_pinned_check_rejects_malformed_digests(image: str) -> None:
 # ------------------------------------------- base -> runtime selection matrix
 D = RuntimeAvailability("docker", True, sandboxed=True)
 V = RuntimeAvailability("venv", True)
-S = RuntimeAvailability("subprocess", True)
+S = RuntimeAvailability("subprocess", True, torch=True)
+S_NO_TORCH = RuntimeAvailability("subprocess", True)
 
 
 @pytest.mark.parametrize("base", ["python-cpu", "cuda-pytorch"])
@@ -502,6 +504,13 @@ def test_selection_matrix(
     elif has_sub:
         expected = "subprocess"
     chosen = choose_runtime(offer, GpuNeed.NONE, base)
+    assert (chosen.name if chosen else None) == expected
+    # D432: without torch in the agent's Python, cuda-pytorch never goes to
+    # the subprocess runtime; python-cpu is unaffected
+    torchless = dataclasses.replace(offer, subprocess=S_NO_TORCH if has_sub else None)
+    chosen = choose_runtime(torchless, GpuNeed.NONE, base)
+    if base == "cuda-pytorch" and expected == "subprocess":
+        expected = None
     assert (chosen.name if chosen else None) == expected
 
 

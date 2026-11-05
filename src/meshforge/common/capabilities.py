@@ -16,7 +16,9 @@ __all__ = [
     "EXEC_GPU_CAPABILITY",
     "EXEC_SPLIT_CAPABILITY",
     "EXEC_SUBPROCESS_CAPABILITY",
+    "EXEC_TORCH_CAPABILITY",
     "HARDWARE_SCORES_CAPABILITY",
+    "TORCH_BASES",
 ]
 
 HARDWARE_SCORES_CAPABILITY: Final = "hardware-scores"
@@ -38,6 +40,17 @@ EXEC_SUBPROCESS_CAPABILITY: Final = "exec-subprocess"
 EXEC_GPU_CAPABILITY: Final = "exec-gpu"
 """A runtime can hand an NVIDIA GPU to a job; required for ``resources.gpu:
 required`` placement (D50)."""
+EXEC_TORCH_CAPABILITY: Final = "exec-torch"
+"""V1.0 G9-B (D432): the interpreter the subprocess runtime runs jobs with (the
+agent's own) has PyTorch installed - probed with ``importlib.util.find_spec``,
+never imported. A :data:`TORCH_BASES` job is placed on a node only with
+``exec-docker`` (the image has torch) or ``exec-subprocess`` + this tag: on a
+Windows laptop without Docker the bundled interpreter has no torch, and the job
+would end ``user_error`` (``ModuleNotFoundError``) instead of never going there.
+An agent from before V1.0 G9-B never sends it, so it gets such jobs only through
+Docker."""
+TORCH_BASES: Final = frozenset({"cuda-pytorch"})
+"""Manifest ``env.base`` values that promise PyTorch to the job (D432)."""
 EXEC_SPLIT_CAPABILITY: Final = "exec-split"
 """V0.10 G4 (D263): the agent runs Mode 3 lanes (``StartAttempt.lane``: chunk
 pull, per-chunk process, chunk results). The controller places a split job's
