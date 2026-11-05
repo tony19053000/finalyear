@@ -924,3 +924,19 @@ evidence: lab/reports/raw/2026-11-05-V0.9-campaign/{cpuload.yaml,c2-submit.txt,c
 ### V0.9 - PARTIAL, rest deferred to an evening (human decision 2026-11-05 morning)
 deferred: C9.10-g/h/i overnight lab-v1-data campaign (needs all laptops idle for 5-7 h), R3 part 2 (L1 idle 6 min), R1/R2/B1/P1 (L2 TODO),
     C2 burner check (sent to L2). Not blocking V0.10 (C9.10-h blocks only V0.14/V0.15).
+
+## Phase V0.10 (2026-11-05)
+
+### C10.10-a - Part 0 - OK (0.1 = installed v0.17.0 on all 4, not a git pull)
+result: compute nodes: L1 JARVISM3, L2 AILESH, L3 Mohit (new id 6GP6S61N), L4 LAPTOP-7ORVM30G all online, accept_jobs True, pause_benchmarks False
+    (read from `compute nodes <id>` policy fields). SESSION_START 2026-11-05T07:06:27Z. Wi-Fi, same router.
+    0.3: mc = split.montecarlo_range items=5000 samples=5e6 seed 10 (whole job ~530.6 s ref laptop); hf = split.hash_files 60 x 1 MiB seed 11 (~0.8 s).
+
+### C10.10-b - Part A C1 identical output (4 laptops) - OK (C1 PASS)
+commands: c1.yaml (split.image_classify images=3000, strategies local/mode1/mode3, nodes L1 L2 L3 L4, origin L1, 3 reps) -> camp_01M6N8FTSB95KJ9E2WF7AD4VGT
+result: done (complete), 15 / 15 runs done, 0 failed, infra failures 0 of 39 attempts.
+    ONE output digest across all 15 jobs: sha256:6aafd7d7f78bd694ec0053cea3af6ac00a567394850d07a10540fb15d198382c (local L1, mode1 L2/L3/L4, mode3 4-node).
+    verify: mode3 job_01M6N8XYAZ... and mode1 job_01M6N8G0EK... both "OK - every item once, in order, each value recomputed", same output digest f968f38c...
+    watch --json (mode3): chunks 17/17; lanes L1 13, L3 2, L4 1, L2 1 (all 4 laptops took work; very uneven - L1 is origin + fastest).
+    explain: first decision "not split: the forced node set: 3 of 4 node(s) can take a lane now" (split_too...), later chosen split on L1 lane set.
+evidence: lab/reports/raw/2026-11-05-V0.10-mode3/{c1.yaml,c1-runs.json,c1-digests.txt,c1-verify.txt}

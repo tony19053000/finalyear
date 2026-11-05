@@ -1,0 +1,11 @@
+name: lab-v010-c1
+seed: 31
+families:
+  - family: split.image_classify
+    params: {images: 3000}
+strategies: [local, mode1, mode3]
+nodes: [node_01M6BMFVHJVZXC7AET3CFRE3AV, node_01M6GCKN7PYT2J297BT241P436, node_01M6K0TZRNPEGBRN166GP6S61N, node_01M6GGJP3FW5VHBDFKYQ6SF318]
+origin: node_01M6BMFVHJVZXC7AET3CFRE3AV
+repetitions: 3
+session_label: wifi
+budget: {max_runs: 20, max_hours: 2}

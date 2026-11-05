@@ -1,0 +1,11 @@
+output digest: sha256:f968f38cedf09faad2af8d4c18ae41429fa61074d6d93fe47405f3ca750d2487  (1 file(s))
+OK - every item once, in order, each value recomputed
+output digest: sha256:f968f38cedf09faad2af8d4c18ae41429fa61074d6d93fe47405f3ca750d2487  (1 file(s))
+OK - every item once, in order, each value recomputed
+chunks 17 / 17 lanes [('3CFRE3AV', 13), ('YQ6SF318', 1), ('T241P436', 1), ('6GP6S61N', 2)]
+        none chosen, calibration v18, replay v2, decided in 1.77 ms, at         
+|-    | node_01M6 | split   | -    | no       | -       | -         | split_too|
+       not split: the forced node set: 3 of 4 node(s) can take a lane now       
+|-    | split   | node_01M6B | -          | -          | -         | split_too_|
+ chosen node_01M6BMFVHJVZXC7AET3CFRE3AV, calibration v18, replay v2, decided in 
+|1    | node_01M6B | split   | cpu  | yes      | 40.4597 | 40.46s    | chosen  |
