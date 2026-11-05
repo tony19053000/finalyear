@@ -846,6 +846,20 @@ environment (subprocess runtime; install torch there with `uv sync --extra gpu`)
   `no_index = true` installs only from a local wheelhouse (the Docker build then
   has no network at all); `index_url = "https://mirror/simple"` uses a mirror
   (no credentials in the URL).
+- **Extra package indexes (V1.0 G9-B, D436).** `[agent.envs] extra_index_urls =
+  ["https://download.pytorch.org/whl/cu126"]` keeps PyPI (or your `index_url`) and
+  adds up to 4 more indexes (http(s), no credentials; not with `no_index`). uv
+  tries them **before** the main index - the first index that has a package
+  wins - so list only indexes you trust. Wheels-only rules are unchanged, and
+  the list is part of the env hash (changing it builds new environments).
+  **GPU jobs on a laptop without Docker (Windows):** the job uses `env.base:
+  python-cpu`, `resources.gpu: required` and `torch` in its `requirements.txt`;
+  the venv runtime installs CUDA torch from this index and gets the GPU
+  (`CUDA_VISIBLE_DEVICES`). The job's own file still cannot add an index
+  (`--extra-index-url` in it is refused while `only_binary = true`).
+  `env.base: cuda-pytorch` there is placed only where Docker runs, or where
+  the agent's own Python has torch (`exec-torch`, D432); elsewhere it is
+  refused `no_runtime_for_base` with the fix named.
 - **Wheels only by default (V0.7 G6, WS-I4).** Every environment build installs
   with `--only-binary :all:` (`[agent.envs] only_binary = true`), so no
   package's own build code (an sdist's `setup.py` / build backend) runs while
@@ -867,7 +881,7 @@ environment (subprocess runtime; install torch there with `uv sync --extra gpu`)
   refused before anything is installed: `env_error` / `requirements_rejected`,
   naming the line. A job that needs another package index (for example the
   PyTorch wheel index) gets it from the laptop owner's `[agent.envs] index_url`
-  or a `find_links` wheelhouse, not from its own file.
+  / `extra_index_urls` (D436) or a `find_links` wheelhouse, not from its own file.
   **A wheel URL must be pinned** (V0.7 G6 fix round 3): while
   `only_binary = true`, a line with the `https://` URL of a wheel is accepted
   only with its digest -
@@ -907,7 +921,7 @@ environment (subprocess runtime; install torch there with `uv sync --extra gpu`)
   (names and sizes); one whose files no longer match (deleted, added, resized) is
   logged as `agent.envs.cache_damaged`, set aside as `<hash>.evicted-…` (deleted by a
   later build after `[agent.envs] evicted_keep_s`, 1 day) and rebuilt before any job
-  uses it. Changing `find_links` (or its wheels), `index_url` or `no_index` gives new
+  uses it. Changing `find_links` (or its wheels), `index_url`, `extra_index_urls` or `no_index` gives new
   environments (the package sources are part of the env hash).
 - **Python version (venv runtime).** `env.python: "3.11"` uses a Python 3.11
   already on this laptop (`uv python list --only-installed`); none = `python_not_found`.

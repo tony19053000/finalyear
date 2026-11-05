@@ -873,6 +873,10 @@ ENVS_DIR_NAME: Final = "envs"
 _INDEX_URL = re.compile(r"https?://[^\s@/]+(:\d{1,5})?(/[^\s]*)?")
 
 
+MAX_EXTRA_INDEX_URLS: Final = 4
+"""``[agent.envs] extra_index_urls`` entries at most (D436)."""
+
+
 class EnvsSettings(SectionModel):
     """``[agent.envs]`` - cached job environments, one per env hash (V0.5 D85/D86).
 
@@ -887,7 +891,9 @@ class EnvsSettings(SectionModel):
 
     ``find_links`` / ``no_index`` / ``index_url`` let a lab install from a local
     wheelhouse (offline) or a mirror; ``index_url`` must not carry credentials
-    (it would end up in process listings).
+    (it would end up in process listings). ``extra_index_urls`` (V1.0 G9-B,
+    D436) adds indexes next to the main one - the PyTorch CUDA wheel index for
+    GPU jobs on the venv runtime - under the same rules.
     """
 
     dir: Path | None = Field(
@@ -938,6 +944,17 @@ class EnvsSettings(SectionModel):
             "still use it) and deleted by a later build once older than this."
         ),
     )
+    extra_index_urls: list[str] = Field(
+        default_factory=list,
+        max_length=MAX_EXTRA_INDEX_URLS,
+        description=(
+            "V1.0 G9-B (D436): more package indexes next to PyPI (or index_url), "
+            "e.g. https://download.pytorch.org/whl/cu126 for CUDA torch in a "
+            "venv GPU job (http(s), no credentials, at most 4). uv tries them "
+            "before the main index (the first index that has a package wins); "
+            "wheels-only rules are unchanged. Part of the env hash."
+        ),
+    )
     only_binary: bool = Field(
         default=True,
         description=(
@@ -969,10 +986,27 @@ class EnvsSettings(SectionModel):
             )
         return value
 
+    @field_validator("extra_index_urls")
+    @classmethod
+    def _extra_index_urls_shape(cls, value: list[str]) -> list[str]:
+        out: list[str] = []
+        for raw in value:
+            url = raw.strip()
+            if len(url) > 300 or not _INDEX_URL.fullmatch(url):
+                raise ValueError(
+                    "extra_index_urls must be http(s) URLs without credentials "
+                    "(no user@)"
+                )
+            if url not in out:
+                out.append(url)
+        return out
+
     @model_validator(mode="after")
     def _no_index_needs_links(self) -> EnvsSettings:
         if self.no_index and self.find_links is None:
             raise ValueError("envs.no_index needs envs.find_links (a wheelhouse)")
+        if self.no_index and self.extra_index_urls:
+            raise ValueError("envs.no_index cannot be used with envs.extra_index_urls")
         return self
 
 

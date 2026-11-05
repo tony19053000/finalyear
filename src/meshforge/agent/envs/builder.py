@@ -186,6 +186,8 @@ class EnvsConfig:
     find_links: Path | None = None
     no_index: bool = False
     index_url: str | None = None
+    extra_index_urls: tuple[str, ...] = ()
+    """V1.0 G9-B (D436): ``--extra-index-url`` each, in the owner's order."""
     allow_python_downloads: bool = False
     evicted_keep_s: float = 86_400.0
     only_binary: bool = True
@@ -205,6 +207,7 @@ class EnvsConfig:
             find_links=cfg.find_links,
             no_index=cfg.no_index,
             index_url=cfg.index_url,
+            extra_index_urls=tuple(cfg.extra_index_urls),
             allow_python_downloads=cfg.allow_python_downloads,
             evicted_keep_s=cfg.evicted_keep_s,
             only_binary=cfg.only_binary,
@@ -216,7 +219,12 @@ class EnvsConfig:
         represented by the names and sizes of its files (not its path: two nodes
         with the same wheels share envs; a changed wheel gives a new env). Blocking
         (one ``scandir``)."""
-        if self.index_url is None and self.find_links is None and not self.no_index:
+        if (
+            self.index_url is None
+            and self.find_links is None
+            and not self.no_index
+            and not self.extra_index_urls
+        ):
             return ""
         wheels: list[list[object]] | str | None = None
         if self.find_links is not None:
@@ -229,11 +237,14 @@ class EnvsConfig:
                     )
             except OSError:
                 wheels = "unreadable"
-        document = {
+        document: dict[str, object] = {
             "index_url": self.index_url,
             "no_index": self.no_index,
             "find_links": wheels,
         }
+        if self.extra_index_urls:
+            # D436: only when set, so every existing env keeps its hash
+            document["extra_index_urls"] = list(self.extra_index_urls)
         canonical = json.dumps(document, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(canonical.encode("utf-8", "surrogatepass")).hexdigest()
 
@@ -242,6 +253,8 @@ class EnvsConfig:
         options: list[str] = []
         if self.index_url:
             options += ["--index-url", self.index_url]
+        for url in self.extra_index_urls:
+            options += ["--extra-index-url", url]
         if self.find_links is not None:
             options += ["--find-links", str(self.find_links)]
         if self.no_index:
