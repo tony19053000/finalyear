@@ -1,0 +1,2 @@
+output digest: sha256:a76d97a1449d6a7071a1f6ec42d318754befcfddd29d9e6ce45dbfd44e26e3b6  (1 file(s))
+OK - every item once, in order, each value recomputed

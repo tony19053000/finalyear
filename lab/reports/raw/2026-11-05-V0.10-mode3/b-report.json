@@ -1,0 +1,28 @@
+{
+  "best_single_node": "node_01M6BMFVHJVZXC7AET3CFRE3AV",
+  "best_single_s": 426.948,
+  "c2": "INCONCLUSIVE",
+  "c3": "INCONCLUSIVE",
+  "ideal_bound_s": null,
+  "items": 5000,
+  "makespan_ratio": null,
+  "makespan_s": 270.275,
+  "node_set": [
+    "node_01M6BMFVHJVZXC7AET3CFRE3AV",
+    "node_01M6GGJP3FW5VHBDFKYQ6SF318",
+    "node_01M6GCKN7PYT2J297BT241P436",
+    "node_01M6K0TZRNPEGBRN166GP6S61N"
+  ],
+  "problems": [
+    "no single-node run measured for ['node_01M6GGJP3FW5VHBDFKYQ6SF318', 'node_01M6GCKN7PYT2J297BT241P436', 'node_01M6K0TZRNPEGBRN166GP6S61N']"
+  ],
+  "rate_ratio": null,
+  "rates": {
+    "node_01M6BMFVHJVZXC7AET3CFRE3AV": 11.722339966614776
+  },
+  "recorded_bound_s": 250.15974,
+  "speedup": 1.579311824456791,
+  "split_job_id": "job_01M6NBKN8VF27R18Z6WX1MJGZ9",
+  "split_job_s": 270.338,
+  "sum_rate": null
+}

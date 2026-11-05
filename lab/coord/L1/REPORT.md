@@ -950,3 +950,12 @@ BUG (Lead, serious for Mode 3 on slow laptops): a chunk that runs longer than vi
     renewal / heartbeat extension while the chunk runs, or the auto chunk size ignores the node's speed. Single-node "don't split" runs of a long job
     are one chunk, so they hit it directly. L3/L4 single runs NOT RUN (same risk, slower CPUs). C3 (speedup vs single) needs singles -> INCONCLUSIVE.
     Note: the L1 single run log said "the attempt ended (done); the job was retried - following attempt 2" (lane + combine, reads like a retry - UI wording).
+
+### C10.10-c - Part B split run (c2, c3) - split OK + correct; c2/c3 INCONCLUSIVE (no singles for L2-L4, lease bug)
+commands: compute run mc -f (planner's own choice) -> job_01M6NBKN8VF27R18Z6WX1MJGZ9; verify; telemetry export since SESSION_START; mode3_check report --single <L1 single>
+result: planner chose split over all 4 laptops (17 chunks x 312 items), exit 0, makespan 270.3 s (recorded bound 250.2 s). Lanes: L1 11 chunks 11.6 items/s,
+    L3 3 / 3.6, L2 2 / 3.1, L4 1 / 1.7 items/s (L4 slowest - same CPU model as L2, half the rate: noisy/loaded?). explain predicted 40.49 s (uncalibrated, x6.7 off).
+    verify: OK - every item once, in order, each value recomputed (digest a76d97a1...).
+    report: best_single 426.9 s (L1) -> speedup 1.579; c2 INCONCLUSIVE, c3 INCONCLUSIVE ("no single-node run measured for L4, L2, L3").
+    Per-lane rates from the split itself: sum 20.0 items/s vs L1 11.7 -> rate_ratio ~1.71; observed speedup 1.58 = ~92 % of that bound.
+evidence: lab/reports/raw/2026-11-05-V0.10-mode3/{b-split.log,b-report.json,b-report.txt}

@@ -1,0 +1,13 @@
+compute: uploaded 0 files / 0 bytes, skipped 7
+compute: idempotency key cli-01M6NBKN7SW9QTJ0EKDEJS0JE0 (after a network error, re-run with --idempotency-key cli-01M6NBKN7SW9QTJ0EKDEJS0JE0 to avoid a second job)
+job_01M6NBKN8VF27R18Z6WX1MJGZ9
+
+===== meshforge: chunk 2 (items 624..935) =====
+benchmark chunk 2: split.montecarlo_range {"items":5000,"samples":5000000} compute_ms=86852.368 check=ok
+
+===== meshforge: chunk 7 (items 2184..2495) =====
+benchmark chunk 7: split.montecarlo_range {"items":5000,"samples":5000000} compute_ms=85141.961 check=ok
+
+===== meshforge: chunk 12 (items 3744..4055) =====
+benchmark chunk 12: split.montecarlo_range {"items":5000,"samples":5000000} compute_ms=85664.055 check=ok
+exit=0 271s
