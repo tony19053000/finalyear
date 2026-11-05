@@ -920,3 +920,7 @@ result: loginctl: Type=x11, IdleHint=no, IdleSinceHintMonotonic=0. Part 2 (after
     `bench submit -n 6 --wait`: "submitted 6 ... ended: 6 done, 0 failed", exit 0, all < 1 min. So the default-mode refusal is a validation bug,
     not a missing capability. L2 burner-process / PriorityClass check: pending from L2.
 evidence: lab/reports/raw/2026-11-05-V0.9-campaign/{cpuload.yaml,c2-submit.txt,c2-runs.txt}
+
+### V0.9 - PARTIAL, rest deferred to an evening (human decision 2026-11-05 morning)
+deferred: C9.10-g/h/i overnight lab-v1-data campaign (needs all laptops idle for 5-7 h), R3 part 2 (L1 idle 6 min), R1/R2/B1/P1 (L2 TODO),
+    C2 burner check (sent to L2). Not blocking V0.10 (C9.10-h blocks only V0.14/V0.15).
