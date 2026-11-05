@@ -303,8 +303,8 @@ class ChunkRunSteps(ChunkStagingSteps):
             # V1.0 G9-D (D437): say which limit - a split job's time limit
             # bounds each chunk (a "don't split" run is one chunk, every item)
             text += (
-                " (the job's limits.timeout bounds each chunk; this one is not "
-                "retried - raise limits.timeout in compute.yaml)"
+                " (the job's limits.timeout bounds each chunk; never re-run on "
+                "this node - raise limits.timeout in compute.yaml)"
             )
         return text
 

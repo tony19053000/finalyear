@@ -580,9 +580,9 @@ async def test_split_item_list_blob_is_readable_only_by_lanes(
 async def test_g9d_tester_deadline_chunk_fails_the_job_once_and_stops_siblings(
     runtime: ControllerRuntime, http: httpx.AsyncClient, tmp_path: Path
 ) -> None:
-    """V1.0 G9-D (D437): a chunk reported ``deadline_exceeded`` (non-retryable)
-    fails the job at once - one try, no re-lease to the same or another lane,
-    the other lanes cancelled, no parts index, the type kept."""
+    """V1.0 G9-D (D437 r1): a chunk that ran past the time limit on every node
+    is tried once more on ANOTHER node, then fails the job - two tries on two
+    distinct nodes, the other lanes cancelled, no parts index, the type kept."""
     from meshforge.common.errors import FailureType
 
     async with _lanes(
@@ -598,17 +598,20 @@ async def test_g9d_tester_deadline_chunk_fails_the_job_once_and_stops_siblings(
         assert job.failure_type is not None
         assert job.failure_type.value == "deadline_exceeded"
         assert job.failure_detail is not None
-        assert job.failure_detail.startswith("chunk_failed: chunk 7 failed on 1 node(s)")
+        assert job.failure_detail.startswith(
+            "chunk_failed: chunk 7 failed on 2 node(s)"
+        )
         assert job.split is not None and job.split.parts_digest is None
         rows = await _sql(
             runtime,
-            "SELECT l.state, i.attempts FROM work_lease l JOIN work_item i "
+            "SELECT l.state, l.site, i.attempts FROM work_lease l JOIN work_item i "
             "ON i.id = l.item_id JOIN work_queue q ON q.id = i.queue_id "
-            "WHERE q.owner_id = :job AND i.idx = 7",
+            "WHERE q.owner_id = :job AND i.idx = 7 ORDER BY l.seq",
             job=job_id,
         )
-        assert [r.state for r in rows] == ["failed"], rows  # one lease, never again
-        assert rows[0].attempts == 1
+        assert [r.state for r in rows] == ["failed", "failed"], rows
+        assert rows[0].site != rows[1].site  # never twice on one node
+        assert rows[0].attempts == 2
         queue = await _sql(
             runtime, "SELECT state FROM work_queue WHERE owner_id = :job", job=job_id
         )

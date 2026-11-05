@@ -46,8 +46,9 @@ CHUNK_FAILURE_NOT_RETRYABLE: Final = frozenset(
         # V1.0 G9-D (D437): the chunk ran past the job's own time limit
         # (``limits.timeout``, enforced per chunk). Re-running it starts from
         # zero and meets the same limit - a "don't split" run is one chunk with
-        # every item, so it looped until retry.max_attempts ran out. Final, as
-        # a whole job's ``deadline_exceeded`` is (ARCHITECTURE section 13).
+        # every item, so it looped until retry.max_attempts ran out. Reported
+        # non-retryable; the controller decides (D437 r1): retried once on
+        # another node's live lane, never here, else final.
         FailureType.DEADLINE_EXCEEDED,
     }
 )

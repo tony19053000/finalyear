@@ -42,7 +42,7 @@ from __future__ import annotations
 
 import datetime as dt
 import math
-from collections.abc import Iterable, Sequence
+from collections.abc import Collection, Iterable, Sequence
 from dataclasses import dataclass
 from typing import Any, Final
 
@@ -634,10 +634,12 @@ async def lease_next(
     k: int = 1,
     now: dt.datetime,
     timeout_s: float | None = None,
+    exclude: Collection[int] = (),
 ) -> list[Grant]:
     """Lease up to ``k`` pending items in ``idx`` order (items that have not
     failed at ``site`` first). ``[]`` when nothing is pending or the queue is
-    closed. ``site`` defaults to ``holder``."""
+    closed. ``site`` defaults to ``holder``. ``exclude``: item ids this caller
+    must not get (left pending for others; V1.0 G9-D)."""
     _aware(now, names=(holder, site or holder), timeout_s=timeout_s)
     site = holder if site is None else site
     if not 1 <= k <= MAX_LEASES_PER_PULL:
@@ -652,6 +654,8 @@ async def lease_next(
         work_item.c.queue_id == queue_id,
         work_item.c.state == ItemState.PENDING.value,
     )
+    if exclude:
+        pending = and_(pending, work_item.c.id.not_in(sorted(set(exclude))))
     picked: list[Row[Any]] = []
     for failed_here in (False, True):
         want = k - len(picked)

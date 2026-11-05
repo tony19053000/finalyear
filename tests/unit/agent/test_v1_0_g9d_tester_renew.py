@@ -7,7 +7,7 @@ import asyncio
 from typing import Any
 
 import pytest
-import test_v1_0_g9d_long_chunk as base  # noqa: F401  (shared fakes)
+import test_v1_0_g9d_long_chunk as base
 
 pytestmark = pytest.mark.unit
 

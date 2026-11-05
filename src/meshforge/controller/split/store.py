@@ -45,7 +45,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any, Final
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from meshforge.common.errors import FailureType
@@ -91,12 +91,14 @@ from meshforge.controller.split.warnings import (
 )
 from meshforge.controller.store.engine import create_session_factory
 from meshforge.controller.store.models.job import Attempt, Job
+from meshforge.controller.store.models.telemetry import ChunkRecord
 from meshforge.workqueue import store as wq
 from meshforge.workqueue.core import (
     MAX_FAILURE_KIND_CHARS,
     AlreadyDone,
     Fenced,
     ItemFailed,
+    ItemState,
     Lease,
     LeaseState,
     QueueState,
@@ -369,6 +371,9 @@ class ChunkStore:
             ]
             k = max(0, min(want, wq.MAX_LEASES_PER_PULL) - len(lost))
             skip = set(avoid)
+            # D437: a chunk that ran past the time limit here never runs here
+            # again while another node could take it
+            never = await _deadline_elsewhere(db, job.id, queue.id, node_id)
             pulled = (
                 await wq.lease_next(
                     db,
@@ -377,6 +382,7 @@ class ChunkStore:
                     site=node_id,
                     k=min(wq.MAX_LEASES_PER_PULL, k + len(skip)),
                     now=now,
+                    exclude=never,
                 )
                 if k > 0
                 else []
@@ -420,7 +426,7 @@ class ChunkStore:
                     node_id=node_id,
                     now=now,
                     config=self._speculation,
-                    avoid=skip,
+                    avoid=skip | never,
                     cache=self._times,
                     done=counts.done,
                 )
@@ -613,6 +619,10 @@ class ChunkStore:
             False,
         )
         job = lane.job
+        if kind is FailureType.DEADLINE_EXCEEDED:
+            retryable = await _deadline_retryable(
+                db, job.id, item_id, lane.attempt.node_id
+            )
         res = await wq.fail(
             db,
             item_id=item_id,
@@ -856,6 +866,78 @@ async def _check_determinism(
         lease_seq=done.seq,
     )
     return True
+
+
+_DEADLINE: Final = FailureType.DEADLINE_EXCEEDED.value
+
+
+async def _deadline_retryable(
+    db: AsyncSession, job_id: str, item_id: int, node_id: str
+) -> bool:
+    """V1.0 G9-D (D437): may a chunk that ran past the job's time limit on
+    ``node_id`` run again? Re-running it on the same node starts from zero
+    and meets the same limit, so: yes while a live copy of it runs on another
+    node (the copy is kept, never released); otherwise only for its first
+    time-limit failure and only if a live lane of the job sits on a node it
+    has not failed on. A single-lane (pinned) run therefore fails once."""
+    copy = await db.scalar(
+        select(func.count())
+        .select_from(work_lease)
+        .where(
+            work_lease.c.item_id == item_id,
+            work_lease.c.state == LeaseState.LIVE.value,
+            work_lease.c.site != node_id,
+        )
+    )
+    if copy:
+        return True
+    idx = await db.scalar(select(work_item.c.idx).where(work_item.c.id == item_id))
+    earlier = await db.scalar(
+        select(func.count())
+        .select_from(ChunkRecord)
+        .where(
+            ChunkRecord.job_id == job_id,
+            ChunkRecord.chunk_index == idx,
+            ChunkRecord.outcome == "failed",
+            ChunkRecord.failure_type == _DEADLINE,
+        )
+    )
+    if earlier:
+        return False
+    failed = {*await _failed_sites(db, item_id), node_id}
+    return any(x.node_id not in failed for x in await live_lanes(db, job_id))
+
+
+async def _deadline_elsewhere(
+    db: AsyncSession, job_id: str, queue_id: int, node_id: str
+) -> frozenset[int]:
+    """Pending chunks that ran past the time limit on ``node_id`` and that a
+    live lane on a node they have not failed on can take (D437): not leased
+    to ``node_id``. With no such lane left (it was lost) the chunk is not
+    excluded - it runs here once more and then fails for good."""
+    rows = (
+        await db.execute(
+            select(work_item.c.id, work_item.c.failed_sites)
+            .join(
+                ChunkRecord,
+                (ChunkRecord.job_id == job_id)
+                & (ChunkRecord.chunk_index == work_item.c.idx),
+            )
+            .where(
+                work_item.c.queue_id == queue_id,
+                work_item.c.state == ItemState.PENDING.value,
+                ChunkRecord.node_id == node_id,
+                ChunkRecord.outcome == "failed",
+                ChunkRecord.failure_type == _DEADLINE,
+            )
+        )
+    ).all()
+    if not rows:
+        return frozenset()
+    nodes = {x.node_id for x in await live_lanes(db, job_id)}
+    return frozenset(
+        int(r.id) for r in rows if nodes - {*(r.failed_sites or ()), node_id}
+    )
 
 
 async def _failed_sites(db: AsyncSession, item_id: int) -> list[str]:
