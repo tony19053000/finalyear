@@ -5232,6 +5232,17 @@
             ],
             "title": "Best Single S"
           },
+          "blocked": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Blocked"
+          },
           "forced": {
             "anyOf": [
               {

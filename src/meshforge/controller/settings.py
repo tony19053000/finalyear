@@ -1871,6 +1871,15 @@ class SplitSettings(SectionModel):
         le=1.0,
         description="Expected tail of a set: this share of its longest chunk.",
     )
+    require_measured_rates: bool = Field(
+        default=True,
+        description=(
+            "Never split a job on assumed per-item rates: with no recorded run "
+            "of the workload on any node the job runs whole once, and that "
+            "run's time decides the next split (V1.0 G9-E, D438). Benchmark "
+            "campaigns that force a node set still split."
+        ),
+    )
     # --- V0.10 G4 (D263/D267): lanes and chunk leases ----------------------
     visibility_timeout_s: float = Field(
         default=60.0,

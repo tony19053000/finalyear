@@ -374,6 +374,7 @@ class DispatchPlanner:
                 max_chunks=self._split.max_chunks,
                 chunk_overhead_s=self._split.chunk_overhead_s,
                 tail_frac=self._split.tail_frac,
+                require_measured_rates=self._split.require_measured_rates,
             ),
             # V0.14 G3 (D294-D296)
             risk=RiskConfig(

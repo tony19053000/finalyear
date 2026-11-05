@@ -159,6 +159,9 @@ class MarginTestOut(_Stored):
     passed: bool
     forced: str | None = None
     """Why no set was compared: pinned, split_too_small, split_too_few_nodes."""
+    blocked: str | None = None
+    """V1.0 G9-E (D438): why a set fast enough on time did not pass:
+    ``rates_assumed`` (no recorded run of the workload; it runs whole first)."""
 
 
 class PrunedOut(_Stored):

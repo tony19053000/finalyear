@@ -1642,7 +1642,10 @@ compute get <JOB_ID>               # outputs -> ./outputs/<JOB_ID>/ (--dest, --f
   controller process (a restart resets them; the job stays bounded).
   Planner knobs: `split_margin` (0.10), `target_chunk_s` (20),
   `max_overhead_frac` (0.05), `min_chunks_per_node` (4), `chunk_overhead_s`
-  (1.5), `tail_frac` (0.5); `wait_retry_s` (2) is how long an idle lane waits
+  (1.5), `tail_frac` (0.5), `require_measured_rates` (true: a job whose
+  workload has no recorded run anywhere is never split on assumed per-item
+  rates - it runs whole once and that run decides the next split; explain
+  shows `blocked: rates_assumed`; D438); `wait_retry_s` (2) is how long an idle lane waits
   while the rest is leased elsewhere. Caps (`[controller.split]`): `max_items` (100 000) items and
   `max_chunks` (10 000) chunks per job; `list_file` up to 64 MiB, `lines` files
   up to 256 MiB with lines up to 16 MiB (the file is scanned while blob GC

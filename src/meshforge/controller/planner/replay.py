@@ -57,6 +57,12 @@ byte of what a v1 replay decodes to.
 list; absent = every mode, so every replay before it (and every replay of a
 controller that disables nothing) is byte-identical and decodes unchanged.
 
+**V1.0 G9-E optional key (D438).** The split configuration's
+``require_measured_rates`` is written only when true; absent = false (the
+planner before G9-E, which let assumed per-item rates pass the margin test),
+so every older replay decodes to the planner that made its decision and
+reproduces unchanged. ``REPLAY_VERSION`` stays 2.
+
 **V0.15 G4 optional key (D364).** A decision planned with an ML model adds
 ``ml: {version}`` (the model set's version) and, when its predictor failed
 and it fell back to calibration (D363), ``ml.fallback`` (the error) - absent
@@ -262,6 +268,8 @@ REPLAY_FIELDS: Final[Mapping[type, frozenset[str]]] = {
             "max_chunks",
             "chunk_overhead_s",
             "tail_frac",
+            # V1.0 G9-E (D438: optional, written only when true)
+            "require_measured_rates",
         }
     ),
     LinkStat: frozenset({"bw_bytes_s", "rtt_ms", "samples", "measured_at"}),
@@ -499,6 +507,11 @@ def _config(config: PlannerConfig) -> dict[str, Any]:
             "max_chunks": split.max_chunks,
             "chunk_overhead_s": _num(split.chunk_overhead_s),
             "tail_frac": _num(split.tail_frac),
+            # V1.0 G9-E (D438): written only when on; absent = off (older
+            # replays decode to the planner that split on assumed rates)
+            **(
+                {"require_measured_rates": True} if split.require_measured_rates else {}
+            ),
         },
         # V0.14 G3 (D294-D296)
         "risk": {
@@ -867,6 +880,7 @@ def _from_config(data: Mapping[str, Any]) -> PlannerConfig:
             max_chunks=_int(split["max_chunks"]),
             chunk_overhead_s=_dnum(split["chunk_overhead_s"]),
             tail_frac=_dnum(split["tail_frac"]),
+            require_measured_rates=_bool(split.get("require_measured_rates", False)),
         ),
         **_g3_config(data),
     )

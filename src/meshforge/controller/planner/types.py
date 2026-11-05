@@ -487,6 +487,12 @@ class SplitConfig:
     tail_frac: float = 0.5
     """Expected tail of a set: this fraction of its longest chunk time (the
     lanes do not finish together; pulling keeps it under one chunk)."""
+    require_measured_rates: bool = True
+    """V1.0 G9-E (D438): a set whose every active lane's per-item rate is
+    ``assumed`` (no recorded run of the workload anywhere) never passes the
+    margin test - the job runs whole once, and that run is the evidence the
+    next decision splits on. False = the pre-G9-E planner (a replay stored
+    before it decodes to False)."""
 
 
 # --- V0.14 G3 (D296): reliability inputs and the risk configuration ---------
@@ -673,6 +679,10 @@ class MarginTest:
     ``split_too_few_nodes``; ``node_set`` (V0.10 G8) = a benchmark forced the
     set: the test ran and is shown, the set runs whatever it says; None = the
     test ran and decided."""
+    blocked: str | None = None
+    """V1.0 G9-E (D438): why a set that is fast enough on time still did not
+    pass: ``rates_assumed`` = every rate behind its prediction is assumed
+    (:attr:`SplitConfig.require_measured_rates`). None = not blocked."""
 
 
 @dataclass(frozen=True, slots=True)

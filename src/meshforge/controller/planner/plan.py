@@ -143,6 +143,11 @@ def _without_unset_g3(data: dict[str, Any]) -> dict[str, Any]:
     for name, default in (*_G3_CONFIG_DEFAULTS.items(), *_V10_CONFIG_DEFAULTS.items()):
         if config.get(name) == default:
             config.pop(name, None)
+    # V1.0 G9-E (D438): off = the planner before it (and what a replay
+    # without the key decodes to) - the digest of every older decision
+    split = config.get("split")
+    if isinstance(split, dict) and split.get("require_measured_rates") is False:
+        split.pop("require_measured_rates", None)
     return data
 
 

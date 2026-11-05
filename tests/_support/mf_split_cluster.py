@@ -99,7 +99,13 @@ def split_fabric(
     import certifi
 
     extra: dict[str, dict[str, Any]] = {
-        "split": {"visibility_timeout_s": lease_s, "wait_retry_s": 0.3},
+        "split": {
+            "visibility_timeout_s": lease_s,
+            "wait_retry_s": 0.3,
+            # V1.0 G9-E (D438): these fabrics test lanes on a first run (no
+            # history); a test of the evidence rule turns it back on
+            "require_measured_rates": False,
+        },
     }
     for table, values in (controller_extra or {}).items():
         extra.setdefault(table, {}).update(values)

@@ -2958,6 +2958,7 @@ V0.10 G3 (D265): split only when ``set_s <= threshold_s``.
 |---|---|---|---|
 | `best_single_node_id` | string (nullable) | no | - |
 | `best_single_s` | number (nullable) | no | - |
+| `blocked` | string (nullable) | no | - |
 | `forced` | string (nullable) | no | - |
 | `margin` | number | yes | - |
 | `passed` | boolean | yes | - |

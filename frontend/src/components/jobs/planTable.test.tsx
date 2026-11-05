@@ -93,7 +93,7 @@ describe("Plan tab states", () => {
     expect(table.textContent).toContain("node_cccccccc (idle)");
     expect(table.textContent).toContain("30 × 10 items");
     expect(table.textContent).toContain("5.75/s (history), first chunk at 3.5 s");
-    expect(table.textContent).toContain("pass: 41.0 s ≤ 46.8 s = (1 − 0.1) × 52.0 s (node_aaaaaaaa), forced: node_set");
+    expect(table.textContent).toContain("fail: 41.0 s ≤ 46.8 s = (1 − 0.1) × 52.0 s (node_aaaaaaaa), forced: node_set, blocked: rates_assumed");
     expect(screen.getByText(/Margin test:/).closest("p")?.textContent).toContain(
       "split over 3 nodes: 41.00s <= (1 - 0.1) x 52.00s (best single node node_aaaaaaaa), needs <= 46.80s",
     );
@@ -179,5 +179,25 @@ describe("planView helpers", () => {
     expect(rateText({ node_id: "n", mode: "offload", feasible: true })).toBe("—");
     expect(marginText({ node_id: "n", mode: "split", feasible: false, reject_code: "split_too_small" })).toBe("split_too_small");
     expect(marginText({ node_id: "n", mode: "split", feasible: true })).toBe("—");
+  });
+
+  it("shows a set blocked on assumed rates as a fail at <= (V1.0 G9-E, D438)", () => {
+    const text = marginText({
+      node_id: "n",
+      mode: "split",
+      feasible: true,
+      margin_test: {
+        set_s: 33.9,
+        best_single_s: 63,
+        best_single_node_id: "node_l1",
+        margin: 0.1,
+        threshold_s: 56.7,
+        passed: false,
+        blocked: "rates_assumed",
+      },
+    });
+    expect(text.startsWith("fail: ")).toBe(true);
+    expect(text).toContain(" ≤ ");
+    expect(text.endsWith(", blocked: rates_assumed")).toBe(true);
   });
 });

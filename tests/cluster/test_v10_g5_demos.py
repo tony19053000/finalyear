@@ -61,7 +61,13 @@ TIMING: Final = Timing(
 )
 EXEC: Final = {"enabled": True, "allow_unsandboxed": True, "grace_s": 1.0}
 AGENT_ENV: Final = {"DOCKER_HOST": "unix:///nonexistent/meshforge-test.sock"}
-SPLIT: Final = {"split": {"visibility_timeout_s": 10.0, "wait_retry_s": 0.3}}
+SPLIT: Final = {
+    "split": {
+        "visibility_timeout_s": 10.0,
+        "wait_retry_s": 0.3,
+        "require_measured_rates": False,  # first-run splits (D438 off)
+    }
+}
 
 
 def _env(fabric: Fabric, home: Path, local_data: Path | None) -> dict[str, str]:
