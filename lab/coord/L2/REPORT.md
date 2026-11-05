@@ -507,3 +507,11 @@ SIGNAL: capture-pushed
 - P1: `uv sync --all-extras` OK (installs CPU torch 2.14.0). Component bench: 82 passed, 29 skipped (skips = "needs Linux /proc"), 4:24. Unit g3a_publish: 4 passed. Platform: `win32 10.0.26200`.
 - SIGNAL: v09-p1-done L2
 - C2 burner check (non-admin shell): no python process with `conditions.burn` visible. BUT 2 python processes show `<hidden>` command lines (service-owned; needs Administrator to see). Admin re-check + `agent.conditions.applied/finished` log lines pending from the human.
+
+## 2026-11-05 — C9.10-c C2 leftover check (Administrator)
+- Human ran the burner query in an Administrator PowerShell. The pasted output starts at `---LOG---`; nothing was shown above it, so no `conditions.burn` process is left.
+- Agent log, 3 cpu_load:2 runs (camp_01M6M4S854YBNF90K28MASXSDZ):
+  - att_01M6M4SE4EV62XDV9WGN4RZFF9: applied load_cores 1.993 (cores 2) -> finished verified true, reverted true
+  - att_01M6M4TFF2XWB47KGSKQ59HZA1: applied 1.969 -> finished verified true, reverted true
+  - att_01M6M4VWWG0HQHEZXG5HEBJ1DC: applied 1.993 -> finished verified true, reverted true
+- Result: PASS. SIGNAL: v09-c2-check-ok L2
