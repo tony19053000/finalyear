@@ -112,7 +112,8 @@ class ResourceSampler:
         self._clock = clock
         self._max_stale_s = max_stale_s
         self._last_cpu: tuple[float, float] | None = None
-        """(percent, monotonic time) of the last good CPU reading."""
+        """(percent, monotonic time) of the last good CPU reading. No lock: the
+        monitor's one-slot guard runs one sample at a time; add one if that changes."""
 
     @property
     def mounts(self) -> tuple[str, ...]:
