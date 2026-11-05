@@ -201,9 +201,16 @@ def excluded_nodes(job: JobRecord) -> tuple[str, ...]:
     raw = job.placement.get("exclude_nodes")
     if not isinstance(raw, list):
         return ()
-    return tuple(sorted({n for n in raw if isinstance(n, str) and n}))[
-        :MAX_EXCLUDE_NODES
-    ]
+    found = sorted({n for n in raw if isinstance(n, str) and n})
+    if len(found) > MAX_EXCLUDE_NODES:
+        # the API caps it at 16: a longer stored list is a stored-data fault
+        log.warning(
+            "controller.jobs.exclude_nodes_truncated",
+            job_id=job.id,
+            stored=len(found),
+            kept=MAX_EXCLUDE_NODES,
+        )
+    return tuple(found[:MAX_EXCLUDE_NODES])
 
 
 def _idle(snapshot: ClusterSnapshot) -> ClusterSnapshot:

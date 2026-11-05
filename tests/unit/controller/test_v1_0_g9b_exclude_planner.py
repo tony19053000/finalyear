@@ -18,6 +18,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+import structlog
 
 from meshforge.controller.jobs.planning import MAX_EXCLUDE_NODES, excluded_nodes
 from meshforge.controller.planner import NodeSnapshot, PlanRequest, TreeNeed, plan
@@ -80,7 +81,7 @@ def test_the_planner_skips_the_excluded_node_and_fails_when_nothing_is_left() ->
 
 
 def _job(placement: dict[str, Any]) -> Any:
-    return SimpleNamespace(placement=placement)
+    return SimpleNamespace(id="job_x", placement=placement)
 
 
 def test_the_stored_list_is_read_safely() -> None:
@@ -91,7 +92,16 @@ def test_the_stored_list_is_read_safely() -> None:
         "b",
     )
     many = [f"node_{i:02d}" for i in range(40)]
-    assert len(excluded_nodes(_job({"exclude_nodes": many}))) == MAX_EXCLUDE_NODES
+    with structlog.testing.capture_logs() as logs:
+        assert len(excluded_nodes(_job({"exclude_nodes": many}))) == MAX_EXCLUDE_NODES
+    (event,) = [
+        e for e in logs if e["event"] == "controller.jobs.exclude_nodes_truncated"
+    ]
+    assert event["log_level"] == "warning"
+    assert (event["job_id"], event["stored"], event["kept"]) == ("job_x", 40, 16)
+    with structlog.testing.capture_logs() as quiet:
+        excluded_nodes(_job({"exclude_nodes": many[:16]}))
+    assert quiet == []
 
 
 def test_replay_round_trip_and_old_replays() -> None:
