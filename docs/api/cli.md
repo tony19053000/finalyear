@@ -925,6 +925,9 @@ Arguments:
 Options:
   --node <str>             Pin the job to this node (Mode 1).
   --local                  Pin the job to this laptop's own agent.
+  --exclude-node <str>     Never run this job on this node: a node id, or a laptop's name or
+                           hostname as `compute nodes` shows it (repeatable, at most 16; kept for
+                           every retry).
   --policy <str>           Placement policy for an automatic job: random, round_robin, least_loaded,
                            strongest_suitable, resource_score, cache_affinity, cost_model (default:
                            the manifest's, else the controller's).

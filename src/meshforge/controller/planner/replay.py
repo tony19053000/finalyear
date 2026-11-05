@@ -40,6 +40,10 @@ and decodes to the pre-G3 planner (``min_time``, no risk term, no link
 rejection, no pruning - the :class:`~.types.PlannerConfig` defaults), so it
 still reproduces its stored decision exactly.
 
+**V1.0 G9-B optional key.** ``request.exclude_nodes`` (the submitter's
+``--exclude-node`` list) is always written and read when present; absent = no
+node excluded, so every older replay reproduces unchanged.
+
 **Version 2 (the V0.14 G2 + G3 merge, D307).** Written since both groups'
 optional keys exist: the G2 ``calibration`` block and the G3 keys above. The
 layout is version 1's plus those keys, so the decoder reads 1 and 2 alike -
@@ -170,6 +174,7 @@ REPLAY_FIELDS: Final[Mapping[type, frozenset[str]]] = {
             "split",
             "node_set",
             "objective",  # V0.14 G3 (D307: optional - absent = min_time)
+            "exclude_nodes",  # V1.0 G9-B: optional - absent = none
         }
     ),
     History: frozenset(
@@ -427,6 +432,7 @@ def _request(request: PlanRequest) -> dict[str, Any]:
         "split": _split_info(request.split),
         "node_set": list(request.node_set),
         "objective": request.objective,  # V0.14 G3
+        "exclude_nodes": list(request.exclude_nodes),  # V1.0 G9-B
     }
 
 
@@ -735,6 +741,8 @@ def _from_request(data: Mapping[str, Any]) -> PlanRequest:
         split=_from_split(data["split"]),
         node_set=tuple(str(n) for n in data["node_set"]),
         objective=_objective(data.get("objective")),  # V0.14 G3: optional
+        # V1.0 G9-B: optional - a replay stored before it excluded nobody
+        exclude_nodes=tuple(str(n) for n in data.get("exclude_nodes") or ()),
     )
 
 

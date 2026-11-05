@@ -125,6 +125,10 @@ class RejectCode(StrEnum):
     """This job's environment failed to build on this node recently (D116)."""
     DISK_SHORT = "disk_short"
     """The node's latest sample shows less free disk than the job's inputs."""
+    EXCLUDED_BY_USER = "excluded_by_user"
+    """V1.0 G9-B: the submitter excluded this node (``compute run
+    --exclude-node``, ``placement.exclude_nodes``) - static: this job never
+    runs there, on any attempt."""
     RETRY_EXCLUDED = "retry_excluded"
     """V0.6 G3 (D110): an earlier attempt of this job failed here in a way
     another node may avoid (lost, transfer/integrity error, timeout, or a
@@ -172,6 +176,7 @@ STATIC_CODES: frozenset[RejectCode] = frozenset(
         RejectCode.CPUS_SHORT,
         RejectCode.NO_RUNTIME_FOR_BASE,
         RejectCode.REVOKED,
+        RejectCode.EXCLUDED_BY_USER,
         RejectCode.POLICY_NOT_ACCEPTING,
         RejectCode.POLICY_USER_NOT_ALLOWED,
         RejectCode.POLICY_RAM,
@@ -312,6 +317,10 @@ class PlanRequest:
     candidates are exactly these nodes and the job is split over **all** of
     them (whatever the margin test says; the test is still recorded). Empty =
     not forced. Like a pinned job, never excluded on retry."""
+    exclude_nodes: tuple[str, ...] = ()
+    """V1.0 G9-B: nodes the submitter excluded (sorted, unique; at most
+    ``MAX_EXCLUDE_NODES``): rejected :attr:`RejectCode.EXCLUDED_BY_USER` on
+    every attempt. Never the pinned node (the API refuses that, 422)."""
     # V0.14 G3 (D295)
     objective: Objective | None = None
     """What ``cost_model`` ranks by; None = ``min_time`` (a request from before

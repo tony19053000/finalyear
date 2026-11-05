@@ -188,6 +188,24 @@ def forced_set(job: JobRecord) -> tuple[str, ...]:
     return tuple(sorted(set(raw)))
 
 
+MAX_EXCLUDE_NODES: Final = 16
+"""Most nodes ``placement.exclude_nodes`` may name (``POST /v1/jobs`` caps it)."""
+
+
+def excluded_nodes(job: JobRecord) -> tuple[str, ...]:
+    """V1.0 G9-B: the nodes the submitter excluded (``placement.exclude_nodes``,
+    stored with the job, so every retry and a restarted controller keep it) -
+    sorted, unique; () = none. A malformed stored value is a stored-data fault
+    that must not *widen* placement silently, so it is kept as far as it is
+    readable (strings only, capped)."""
+    raw = job.placement.get("exclude_nodes")
+    if not isinstance(raw, list):
+        return ()
+    return tuple(sorted({n for n in raw if isinstance(n, str) and n}))[
+        :MAX_EXCLUDE_NODES
+    ]
+
+
 def _idle(snapshot: ClusterSnapshot) -> ClusterSnapshot:
     """``snapshot`` with no slot, GPU or attempt in use on any node (the shadow
     plan's view, D235): :func:`~meshforge.controller.planner.replay.
@@ -661,6 +679,8 @@ class DispatchPlanner:
             ),
             # V0.10 G8 (D271): a campaign's forced mode3 run
             node_set=forced_set(job),
+            # V1.0 G9-B: compute run --exclude-node
+            exclude_nodes=excluded_nodes(job),
         )
         # V0.14 G3 (D295): the objective the job ranks by
         plan_job = dataclasses.replace(

@@ -7856,6 +7856,20 @@
       "Placement": {
         "additionalProperties": false,
         "properties": {
+          "exclude_nodes": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exclude Nodes"
+          },
           "mode": {
             "enum": [
               "local",

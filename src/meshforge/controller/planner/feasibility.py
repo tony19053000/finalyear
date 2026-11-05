@@ -126,6 +126,11 @@ def static_rejection(request: PlanRequest, node: NodeSnapshot) -> Rejection | No
     caps = node.capabilities
     if node.state == _REVOKED:
         return Rejection(RejectCode.REVOKED, "the node was revoked from the fabric")
+    if node.node_id in request.exclude_nodes:
+        return Rejection(
+            RejectCode.EXCLUDED_BY_USER,
+            "the job's submitter excluded this node (--exclude-node)",
+        )
     if EXEC_CAPABILITY not in caps:
         return Rejection(RejectCode.NOT_EXEC, _not_exec_text(node))
     if request.split is not None and EXEC_SPLIT_CAPABILITY not in caps:

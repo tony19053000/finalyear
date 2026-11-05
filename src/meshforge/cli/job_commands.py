@@ -57,6 +57,8 @@ from meshforge.cli.exits import CliExit
 from meshforge.common.errors import FailureType
 
 _WORD = re.compile(r"[a-z_]{1,32}")
+MAX_EXCLUDE_NODES = 16
+"""``compute run --exclude-node`` at most (``placement.exclude_nodes``)."""
 """A failure type / state name from the controller, printed as is; anything
 else (it comes from the network) is shown as ``?``."""
 
@@ -131,6 +133,15 @@ def run(
         bool,
         typer.Option("--local", help="Pin the job to this laptop's own agent."),
     ] = False,
+    exclude_node: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--exclude-node",
+            help="Never run this job on this node: a node id, or a laptop's "
+            "name or hostname as `compute nodes` shows it (repeatable, at most "
+            f"{MAX_EXCLUDE_NODES}; kept for every retry).",
+        ),
+    ] = None,
     policy: Annotated[
         str | None,
         typer.Option(
@@ -210,6 +221,11 @@ def run(
 
     if node is not None and local:
         cli._die("give at most one of --node NODE_ID and --local", CliExit.USAGE_ERROR)
+    if exclude_node and len(exclude_node) > MAX_EXCLUDE_NODES:
+        cli._die(
+            f"give at most {MAX_EXCLUDE_NODES} --exclude-node options",
+            CliExit.USAGE_ERROR,
+        )
     if policy is not None and policy not in POLICIES:
         cli._die("--policy must be one of " + ", ".join(POLICIES), CliExit.USAGE_ERROR)
     if objective is not None and objective not in OBJECTIVES:
@@ -262,6 +278,14 @@ def run(
     if own_node is not None:
         body["submitter_node_id"] = own_node
     with cli._client(settings) as client:
+        if exclude_node:
+            excluded = _resolve_excluded(client, exclude_node)
+            if node_id is not None and node_id in excluded:
+                cli._die(
+                    "--exclude-node names the node the job is pinned to",
+                    CliExit.USAGE_ERROR,
+                )
+            placement["exclude_nodes"] = excluded
         try:
             report = cli._fetch(lambda: upload_tree(client, built))
         except (TransferError, OSError) as exc:
@@ -303,6 +327,57 @@ def run(
 
             watch_to_exit(client, job_id, interval_s=settings.cli.progress_interval_s)
         _follow_to_exit(client, job_id, settings.cli.timeout_s)
+
+
+def _resolve_excluded(client: Any, values: list[str]) -> list[str]:
+    """V1.0 G9-B: each ``--exclude-node`` value -> a node id. A canonical
+    ``node_<ULID>`` is taken as is; anything else must match exactly one
+    node's display name or hostname (case-insensitive) in ``compute nodes``
+    - none or several is a usage error (never a guess). The node list is
+    fetched once, only when a name is given."""
+    from meshforge.common.errors import InvalidIdError
+    from meshforge.common.ids import validate_node_id
+
+    out: list[str] = []
+    nodes: list[Mapping[str, Any]] | None = None
+    for value in values:
+        try:
+            out.append(str(validate_node_id(value)))
+            continue
+        except InvalidIdError:
+            pass
+        wanted = value.strip().casefold()
+        if not wanted:
+            cli._die("--exclude-node needs a node id or name", CliExit.USAGE_ERROR)
+        if nodes is None:
+            listed = cli._fetch(client.nodes).get("nodes")
+            nodes = [n for n in listed or [] if isinstance(n, Mapping)]
+        matches = sorted(
+            {
+                str(n.get("node_id"))
+                for n in nodes
+                if any(
+                    isinstance(n.get(key), str)
+                    and n[key].strip()
+                    and n[key].strip().casefold() == wanted
+                    for key in ("display_name", "hostname")
+                )
+            }
+        )
+        if not matches:
+            cli._die(
+                f"--exclude-node {render.clip(value)!r}: no node has that id, name "
+                "or hostname; run `compute nodes` to list them",
+                CliExit.USAGE_ERROR,
+            )
+        if len(matches) > 1:
+            cli._die(
+                f"--exclude-node {render.clip(value)!r} matches {len(matches)} nodes "
+                f"({', '.join(render.clip(m) for m in matches)}); give the node id",
+                CliExit.USAGE_ERROR,
+            )
+        out.append(matches[0])
+    return sorted(set(out))
 
 
 def _seed(settings: Any, built: Any) -> bool:

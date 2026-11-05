@@ -112,6 +112,8 @@ _GPU_KW: dict[str, Any] = {
 
 STATIC_CASES: list[tuple[RejectCode, dict[str, Any], dict[str, Any]]] = [
     (RejectCode.REVOKED, {"state": "revoked"}, {}),
+    # V1.0 G9-B: compute run --exclude-node (the node() helper's id is the 1st arg)
+    (RejectCode.EXCLUDED_BY_USER, {}, {"exclude_nodes": ("n1",)}),
     (RejectCode.NOT_EXEC, {"capabilities": frozenset({"docker"})}, {}),
     # V0.10 G4 (D263): a split job on an agent without exec-split
     (RejectCode.NO_SPLIT_SUPPORT, {}, {"split": SplitInfo(items=10)}),

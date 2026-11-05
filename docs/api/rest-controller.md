@@ -3608,6 +3608,7 @@ Type: enum: `counted`, `unmeasured`, `no_replay`
 
 | Field | Type | Required | Description |
 |---|---|---|---|
+| `exclude_nodes` | array of string (nullable) | no | - |
 | `mode` | enum: `local`, `offload`, `auto` | yes | - |
 | `node_id` | string (nullable) | no | - |
 | `node_set` | array of string (nullable) | no | - |

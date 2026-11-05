@@ -293,6 +293,7 @@ def plan_request(
     benchmark: bool = False,
     split: SplitInfo | None = None,
     node_set: Sequence[str] = (),
+    exclude_nodes: Sequence[str] = (),
 ) -> PlanRequest:
     resources = manifest.resources
     return PlanRequest(
@@ -320,4 +321,5 @@ def plan_request(
         benchmark=benchmark,
         split=split,
         node_set=tuple(sorted(set(node_set))),
+        exclude_nodes=tuple(sorted(set(exclude_nodes))),
     )

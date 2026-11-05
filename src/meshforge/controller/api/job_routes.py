@@ -547,8 +547,28 @@ def _node_id_or_none(value: str | None, field: str) -> str | None:
         raise ApiError.invalid(f"{field} is not a canonical node_<ULID>") from None
 
 
+def _excluded_nodes(values: list[str], pinned: str | None) -> tuple[str, ...]:
+    """V1.0 G9-B: ``placement.exclude_nodes`` - canonical ids (400 otherwise),
+    sorted and unique; the pinned node among them is ``422`` (the job could
+    run nowhere - almost surely a typo, never a silent refusal later)."""
+    out = sorted({_node_id_or_none(v, "placement.exclude_nodes") or "" for v in values})
+    if pinned is not None and pinned in out:
+        raise ApiError(
+            FailureType.INVALID_INPUT,
+            "placement.exclude_nodes names the pinned node (placement.node_id)",
+            http_status=422,
+            extra={"reason": "pinned_node_excluded"},
+        )
+    return tuple(out)
+
+
 async def _check_where(
-    fabric: FabricView, manifest: Manifest, node_id: str | None, owner_name: str | None
+    fabric: FabricView,
+    manifest: Manifest,
+    node_id: str | None,
+    owner_name: str | None,
+    *,
+    exclude_nodes: tuple[str, ...] = (),
 ) -> None:
     """Pinned: the V0.4 check of that one node. Auto (D104): at least one
     enrolled node could ever run it; otherwise 409 with every rejection.
@@ -576,7 +596,12 @@ async def _check_where(
                 policies[record.node_id] = None if live is None else live.policy
                 slots[record.node_id] = None if live is None else live.policy_slots
             check_auto(
-                manifest, nodes, policies=policies, owner_name=owner_name, slots=slots
+                manifest,
+                nodes,
+                policies=policies,
+                owner_name=owner_name,
+                slots=slots,
+                exclude_nodes=exclude_nodes,
             )
     except PlacementError as exc:
         # No job_id on purpose: a refused request creates no job (D50, D62-5).
@@ -655,6 +680,7 @@ async def submit_job(
         raise ApiError.invalid(exc.message) from None
     node_id = _node_id_or_none(submission.placement.node_id, "placement.node_id")
     submitter = _node_id_or_none(submission.submitter_node_id, "submitter_node_id")
+    excluded = _excluded_nodes(submission.placement.exclude_nodes, node_id)
     if node_id is None:
         mode: Literal["local", "offload", "auto"] = "auto"
     else:
@@ -664,6 +690,7 @@ async def submit_job(
         node_id=node_id,
         policy=submission.placement.policy,
         objective=submission.placement.objective,  # V0.14 G3 (D295)
+        exclude_nodes=list(excluded) or None,  # V1.0 G9-B
     )
     canonical_manifest = manifest.canonical_dict()
     try:
@@ -723,6 +750,7 @@ async def submit_job(
             manifest,
             node_id,
             None if user.user_id is None else user.name,
+            exclude_nodes=excluded,
         )
         split: SplitRecord | None = None
         if manifest.split is not None:
