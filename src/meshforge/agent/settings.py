@@ -870,7 +870,9 @@ class PolicySettings(SectionModel):
 
 ENVS_DIR_NAME: Final = "envs"
 """Sub-directory of ``data_dir`` holding cached environments (V0.5 D86)."""
-_INDEX_URL = re.compile(r"https?://[^\s@/]+(:\d{1,5})?(/[^\s]*)?")
+_INDEX_URL = re.compile(r"https?://[^\s@/?#]+(:\d{1,5})?(/[^\s?#]*)?")
+"""http(s), no userinfo, no ?query / #fragment (a token there would reach process
+listings like userinfo would; G9B-T1)."""
 
 
 MAX_EXTRA_INDEX_URLS: Final = 4
@@ -982,7 +984,8 @@ class EnvsSettings(SectionModel):
         value = value.strip()
         if len(value) > 300 or not _INDEX_URL.fullmatch(value):
             raise ValueError(
-                "index_url must be an http(s) URL without credentials (no user@)"
+                "index_url must be an http(s) URL without credentials "
+                "(no user@, no ?query or #fragment)"
             )
         return value
 
@@ -995,7 +998,7 @@ class EnvsSettings(SectionModel):
             if len(url) > 300 or not _INDEX_URL.fullmatch(url):
                 raise ValueError(
                     "extra_index_urls must be http(s) URLs without credentials "
-                    "(no user@)"
+                    "(no user@, no ?query or #fragment)"
                 )
             if url not in out:
                 out.append(url)

@@ -48,11 +48,6 @@ def test_the_same_for_index_url_baseline() -> None:
         f"https://h/simple#{SECRET}",
     ],
 )
-@pytest.mark.xfail(
-    strict=True,
-    reason="G9B-T1 (minor): a token in ?query / #fragment is accepted although "
-    "it would reach process listings like userinfo",
-)
 def test_query_or_fragment_secrets_are_not_accepted(url: str) -> None:
     """A token in the query string reaches process listings like userinfo."""
     with pytest.raises(ValidationError):
