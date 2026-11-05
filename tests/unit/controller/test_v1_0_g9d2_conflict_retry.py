@@ -214,3 +214,66 @@ async def test_the_expiry_sweep_survives_store_errors_and_runs_again() -> None:
     await asyncio.wait_for(loop.run(), 10)
     assert loop.expire_calls == 4
     assert loop.stats.db_retries == 1
+
+
+# ---------------------------------------------------------- r1: logs
+
+
+@pytest.mark.asyncio
+async def test_exhausted_conflict_logs_a_warning() -> None:
+    import structlog
+
+    op = _Op(99, _db_error("40001"))
+    with structlog.testing.capture_logs() as logs, pytest.raises(JobStoreError):
+        await _decorated(op, tries=2)(op)
+    events = [e for e in logs if e["event"].startswith("controller.store.conflict")]
+    assert [e["event"] for e in events] == [
+        "controller.store.conflict_retry",
+        "controller.store.conflict_exhausted",
+    ]
+    assert events[-1]["log_level"] == "warning"
+    assert (events[-1]["op"], events[-1]["sqlstate"], events[-1]["tries"]) == (
+        "test.op",
+        "40001",
+        2,
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_rolled_back_try_never_emits_its_log_lines(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``result`` emits ``chunk_failed`` / ``chunks_done`` only after the
+    transaction committed: the first try queues its line, then hits 40P01 -
+    that line is dropped; the re-run's line is emitted once."""
+    emitted: list[int] = []
+    tries = {"n": 0}
+
+    async def fake_result(self: Any, after: list[Any], **_kw: Any) -> str:
+        tries["n"] += 1
+        n = tries["n"]
+        after.append(lambda: emitted.append(n))
+        if n == 1:
+            raise _db_error("40P01")
+        return "committed"
+
+    async def no_sleep(_s: float) -> None:
+        return None
+
+    monkeypatch.setattr(ChunkStore, "_result", fake_result)
+    monkeypatch.setattr("meshforge.controller.store.conflicts.asyncio.sleep", no_sleep)
+    store = ChunkStore.__new__(ChunkStore)
+    store.conflict_retries = Counter()
+    got = await store.result(
+        node_id="n",
+        attempt_id="a",
+        token=1,
+        item_id=1,
+        seq=1,
+        outcome="failed",
+        digest=None,
+        failure=None,
+        now=None,  # type: ignore[arg-type]
+    )
+    assert got == "committed"
+    assert emitted == [2]

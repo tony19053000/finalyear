@@ -14,9 +14,14 @@ transaction** and is safe to run again after a rollback: its only effects
 outside the database are idempotent (content-addressed blob writes, read
 caches, log lines). Bounded (``tries``), jittered exponential backoff; every
 retry is logged at info with the operation and the try number, and counted on
-the instance's ``conflict_retries`` mapping when it has one. Any other error,
-or the last try's conflict, propagates unchanged (the caller's typed-error
-wrapper - :func:`~meshforge.controller.jobs.store.typed_store_call` - turns it
+the instance's ``conflict_retries`` mapping when it has one - duck-typed: the
+first positional argument (``self`` of a method) is checked for a
+``collections.Counter`` named ``conflict_retries``; anything else (a plain
+function, an object without one) is simply not counted. Any other error
+propagates unchanged; the last try's conflict is logged as a warning
+(``controller.store.conflict_exhausted``: op, sqlstate, tries) and
+propagates (the caller's typed-error wrapper -
+:func:`~meshforge.controller.jobs.store.typed_store_call` - turns it
 into ``JobStoreError``; the dispatcher then retries the step).
 """
 
@@ -87,7 +92,15 @@ def retry_conflicts[**P, R](
                     return await method(*args, **kwargs)
                 except DBAPIError as exc:
                     code = sqlstate_of(exc)
-                    if code not in CONFLICT_SQLSTATES or attempt >= tries:
+                    if code not in CONFLICT_SQLSTATES:
+                        raise
+                    if attempt >= tries:
+                        log.warning(
+                            "controller.store.conflict_exhausted",
+                            op=op,
+                            sqlstate=code,
+                            tries=tries,
+                        )
                         raise
                     delay = min(CAP_DELAY_S, BASE_DELAY_S * 2 ** (attempt - 1))
                     delay *= 0.5 + jitter()  # 0.5x .. 1.5x

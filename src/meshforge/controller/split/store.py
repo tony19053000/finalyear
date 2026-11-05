@@ -46,8 +46,9 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import datetime as dt
+import functools
 from collections import Counter, OrderedDict
-from collections.abc import AsyncIterator, Collection, Sequence
+from collections.abc import AsyncIterator, Callable, Collection, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any, Final
@@ -127,6 +128,9 @@ __all__ = [
 ]
 
 log = get_logger(__name__)
+
+_Log = Callable[[], object]
+"""A log line held until the transaction committed (V1.0 G9-D2 r1)."""
 
 _ITEM_LIST_CACHE: Final = 8
 """Item lists kept parsed (one per running split job; bounded)."""
@@ -497,6 +501,44 @@ class ChunkStore:
         size: int | None = None,
         report: ChunkReport | None = None,
     ) -> ResultOutcome:
+        """See :meth:`_result`. Its log lines are emitted only once the
+        transaction committed (V1.0 G9-D2 r1): a try rolled back by a conflict
+        and re-run (D440) never logs a chunk failure or a job's last chunk."""
+        after: list[_Log] = []
+        got = await self._result(
+            after,
+            node_id=node_id,
+            attempt_id=attempt_id,
+            token=token,
+            item_id=item_id,
+            seq=seq,
+            outcome=outcome,
+            digest=digest,
+            failure=failure,
+            now=now,
+            size=size,
+            report=report,
+        )
+        for emit in after:
+            emit()
+        return got
+
+    async def _result(
+        self,
+        after: list[_Log],
+        *,
+        node_id: str,
+        attempt_id: str,
+        token: int,
+        item_id: int,
+        seq: int,
+        outcome: str,
+        digest: str | None,
+        failure: tuple[FailureType, str, bool] | None,
+        now: dt.datetime,
+        size: int | None = None,
+        report: ChunkReport | None = None,
+    ) -> ResultOutcome:
         """``outcome`` = ``done`` (``digest`` verified by the caller under the
         lane's grant, ``size`` = the bytes that grant stored for it),
         ``failed`` (``failure`` = type, detail, retryable) or ``released``. A
@@ -539,6 +581,7 @@ class ChunkStore:
             if outcome == "failed":
                 return await self._failed(
                     db,
+                    after,
                     lane,
                     item_id,
                     seq,
@@ -557,7 +600,7 @@ class ChunkStore:
             measured = dataclasses.replace(measured, digest=digest, output_bytes=size)
             item_count = int(job.split_item_count or 0)
             if isinstance(got, AlreadyDone):
-                mismatch = await _check_determinism(db, job, got, digest)
+                mismatch = await _check_determinism(db, job, got, digest, after)
                 if not got.own:  # a replay of the winner's report has its row
                     await record_try(
                         db,
@@ -604,7 +647,7 @@ class ChunkStore:
                     late=got.late,
                     copy_won=copy_won,
                 )
-            parts = await self._finish(db, job, queue.id)
+            parts = await self._finish(db, job, queue.id, after)
             return ResultOutcome(
                 ResultKind.COMMITTED,
                 job_id=job.id,
@@ -619,6 +662,7 @@ class ChunkStore:
     async def _failed(
         self,
         db: AsyncSession,
+        after: list[_Log],
         lane: _Lane,
         item_id: int,
         seq: int,
@@ -676,13 +720,16 @@ class ChunkStore:
             db, job, JobEvent.FAIL, failure_type=kind, detail=detail, soft=True
         )
         await _fresh(db, job)
-        log.warning(
-            "controller.split.chunk_failed",
-            job_id=job.id,
-            chunk=got.idx,
-            nodes=nodes,
-            failure_type=kind.value,
-            released=len(res.released),
+        after.append(
+            functools.partial(
+                log.warning,
+                "controller.split.chunk_failed",
+                job_id=job.id,
+                chunk=got.idx,
+                nodes=nodes,
+                failure_type=kind.value,
+                released=len(res.released),
+            )
         )
         return ResultOutcome(
             ResultKind.CHUNK_FAILED,
@@ -692,7 +739,9 @@ class ChunkStore:
             cancel_lanes=tuple(await live_lanes(db, job.id)),
         )
 
-    async def _finish(self, db: AsyncSession, job: Job, queue_id: int) -> str | None:
+    async def _finish(
+        self, db: AsyncSession, job: Job, queue_id: int, after: list[_Log]
+    ) -> str | None:
         """The last chunk committed: write the parts index (chunk order - the
         combine's ordered input) and move the job ``RUNNING -> COLLECTING``,
         in the committing transaction (V0.10 G5, D283 pin 1). A COLLECTING
@@ -733,12 +782,15 @@ class ChunkStore:
             await _move_job(db, job, JobEvent.STARTED, soft=True)
         await _move_job(db, job, JobEvent.EXITED, soft=True)
         await _fresh(db, job)
-        log.info(
-            "controller.split.chunks_done",
-            job_id=job.id,
-            chunks=len(rows),
-            parts_digest=str(digest),
-            state=job.state,
+        after.append(
+            functools.partial(
+                log.info,
+                "controller.split.chunks_done",
+                job_id=job.id,
+                chunks=len(rows),
+                parts_digest=str(digest),
+                state=job.state,
+            )
         )
         return str(digest)
 
@@ -858,7 +910,7 @@ async def _live_leases_of(db: AsyncSession, queue_id: int, holder: str) -> list[
 
 
 async def _check_determinism(
-    db: AsyncSession, job: Job, done: AlreadyDone, digest: str
+    db: AsyncSession, job: Job, done: AlreadyDone, digest: str, after: list[_Log]
 ) -> bool:
     """D269 hook (V0.10 G5): a second, *verified* result of a committed chunk
     with another digest, while the job asked for deterministic chunks ->
@@ -873,12 +925,15 @@ async def _check_determinism(
     job.warnings, _fresh_chunk = add_chunk_warning(
         job.warnings, NONDETERMINISTIC_CHUNK, max(chunk, 0)
     )
-    log.warning(
-        "controller.split.nondeterministic_chunk",
-        job_id=job.id,
-        chunk=chunk,
-        winner_seq=done.winner_seq,
-        lease_seq=done.seq,
+    after.append(
+        functools.partial(
+            log.warning,
+            "controller.split.nondeterministic_chunk",
+            job_id=job.id,
+            chunk=chunk,
+            winner_seq=done.winner_seq,
+            lease_seq=done.seq,
+        )
     )
     return True
 
