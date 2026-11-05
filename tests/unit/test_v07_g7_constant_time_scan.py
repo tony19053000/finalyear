@@ -135,10 +135,8 @@ ALLOWED: dict[tuple[str, str], str] = {
     ("agent/execution/executor.py", "attempt.fetch_token != used"): (
         "agent bookkeeping (as above)"
     ),
-    # V0.10 G4: a lane's own token bookkeeping and the lane's epoch check
-    ("agent/execution/lane_staging.py", "attempt.fetch_token == used"): (
-        "agent bookkeeping: which of its own fetch tokens a chunk staging used"
-    ),
+    # V0.10 G4: a lane's epoch check (the lane's token bookkeeping moved into
+    # the shared staging retry loop in executor.py, V1.0 G9-A)
     # V0.17 G3: the console's Host/Origin header checks (public values, not
     # credentials), a group-membership test, exit-code compares
     ("agent/console/auth.py", "host.strip().lower() == expected_host(port)"): (
