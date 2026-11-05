@@ -826,8 +826,17 @@ def console_access(
     )
 
 
-@app.command()
+doctor_app = typer.Typer(
+    name="doctor",
+    add_completion=False,
+    invoke_without_command=True,
+)
+app.add_typer(doctor_app, name="doctor")
+
+
+@doctor_app.callback(invoke_without_command=True)
 def doctor(
+    ctx: typer.Context,
     config: ConfigOption = None,
     as_json: Annotated[
         bool, typer.Option("--json", help="Machine-readable output.")
@@ -835,7 +844,10 @@ def doctor(
 ) -> None:
     """Report what is true about this agent: version, joined or not, the last
     upgrade (rolled back / interrupted) and the Docker/GPU/disk checks.
-    Changes nothing. Exit 1 when something needs attention."""
+    Changes nothing. Exit 1 when something needs attention.
+    `doctor cpu`: live CPU readings and the CPU cap a job gets here."""
+    if ctx.invoked_subcommand is not None:
+        return
     from meshforge.agent.doctor import gather, render
 
     settings = _load_settings(config, **_LOCAL_ONLY)
@@ -846,6 +858,93 @@ def doctor(
     else:
         typer.echo(render(report))
     raise typer.Exit(1 if report.failed else 0)
+
+
+@doctor_app.command("cpu")
+def doctor_cpu(
+    config: ConfigOption = None,
+    seconds: Annotated[
+        int,
+        typer.Option(
+            "--seconds", min=1, max=3600, help="How long to sample (1 s each)."
+        ),
+    ] = 10,
+    job_cpus: Annotated[
+        float | None,
+        typer.Option(
+            "--job-cpus",
+            min=0.01,
+            max=1024,
+            help="Also show the cap for a job asking resources.cpus = this.",
+        ),
+    ] = None,
+    as_json: Annotated[
+        bool, typer.Option("--json", help="One JSON object per line.")
+    ] = False,
+) -> None:
+    """Print the CPU cap a job gets on this node, then one line per second: the
+    whole-machine CPU % the agent reports, per-core min/max, and the pre-V1.0
+    G9-C reading (`old`). Changes nothing. Exit 1 when no CPU % could be read."""
+    from meshforge.agent.doctor_cpu import (
+        CpuSample,
+        cpu_cap,
+        default_threads,
+        render_cap,
+        render_sample,
+        run_samples,
+    )
+    from meshforge.agent.policy import LivePolicy, policy_path
+
+    settings = _load_settings(config, **_LOCAL_ONLY)
+    _quiet_logging(settings)
+    live = LivePolicy(
+        settings.agent.policy,
+        policy_path(settings),
+        gpu_count=0,
+        max_concurrent_attempts=settings.agent.execution.max_concurrent_attempts,
+    )
+    state = live.state
+    source = "live" if "max_cpu_percent" in (state.overlay or {}) else "config"
+    if state.invalid_reason:
+        source += f"; the live policy file is INVALID: {state.invalid_reason}"
+    threads = default_threads()
+    caps = [
+        cpu_cap(
+            state.policy,
+            threads=threads,
+            default_cpus=settings.agent.execution.default_cpus,
+        )
+    ]
+    if job_cpus is not None:
+        caps.append(
+            cpu_cap(
+                state.policy,
+                threads=threads,
+                default_cpus=settings.agent.execution.default_cpus,
+                asked_cpus=job_cpus,
+            )
+        )
+    if as_json:
+        typer.echo(
+            json.dumps(
+                {"caps": [c.as_dict() for c in caps], "policy_source": source},
+                sort_keys=True,
+            )
+        )
+    else:
+        typer.echo("\n".join(render_cap(caps[0], policy_source=source)))
+        for cap in caps[1:]:
+            typer.echo("\n".join(render_cap(cap, policy_source=source)[3:]))
+        typer.echo(f"sampling for {seconds} s (cpu = what the agent reports) ...")
+
+    def emit(sample: CpuSample) -> None:
+        if as_json:
+            typer.echo(json.dumps(sample.as_dict(), sort_keys=True))
+        else:
+            typer.echo(render_sample(sample))
+
+    unknown = run_samples(seconds, emit)
+    raise typer.Exit(1 if unknown == seconds else 0)
 
 
 def _print_scores(as_json: bool, payload: dict[str, object], lines: list[str]) -> None:

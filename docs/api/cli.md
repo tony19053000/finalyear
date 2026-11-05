@@ -1126,7 +1126,7 @@ Options:
 
 The worker agent on every laptop (service, join, identity, setup).
 
-21 commands and groups.
+22 commands and groups.
 
 ### `meshforge-agent`
 
@@ -1146,11 +1146,11 @@ Commands:
   migrate-identity  Move this laptop's per-user identity + config to the system service (V0.17...
   prepare           Pre-pull the pinned base images so the first job does not wait for them.
   console-access    Windows: let another user open the MeshForge console (elevated prompt).
-  doctor            Report what is true about this agent: version, joined or not, the last...
   identity          Inspect or reset this node's identity (node_id + keypair, ADR-0013).
   hardware          Inspect the hardware this node discovers (local only; D13).
   policy            Show or change what this laptop's owner allows (live, no restart).
   bench             Pause or resume benchmark jobs on this laptop (user jobs unaffected).
+  doctor            Report what is true about this agent: version, joined or not, the last...
 ```
 
 ### `meshforge-agent bench`
@@ -1212,16 +1212,38 @@ Options:
 ### `meshforge-agent doctor`
 
 ```text
-Usage: meshforge-agent doctor [OPTIONS]
+Usage: meshforge-agent doctor [OPTIONS] COMMAND [ARGS]...
 
   Report what is true about this agent: version, joined or not, the last upgrade (rolled back /
   interrupted) and the Docker/GPU/disk checks. Changes nothing. Exit 1 when something needs
-  attention.
+  attention. `doctor cpu`: live CPU readings and the CPU cap a job gets here.
 
 Options:
   --config <file>  TOML settings file (default: $MESHFORGE_CONFIG or <config dir>/config.toml).
   --json           Machine-readable output.
   --help           Show this message and exit.
+
+Commands:
+  cpu  Print the CPU cap a job gets on this node, then one line per second: the whole-machine...
+```
+
+### `meshforge-agent doctor cpu`
+
+```text
+Usage: meshforge-agent doctor cpu [OPTIONS]
+
+  Print the CPU cap a job gets on this node, then one line per second: the whole-machine CPU % the
+  agent reports, per-core min/max, and the pre-V1.0 G9-C reading (`old`). Changes nothing. Exit 1
+  when no CPU % could be read.
+
+Options:
+  --config <file>           TOML settings file (default: $MESHFORGE_CONFIG or <config
+                            dir>/config.toml).
+  --seconds <int range>     How long to sample (1 s each).  [default: 10; 1<=x<=3600]
+  --job-cpus <float range>  Also show the cap for a job asking resources.cpus = this.
+                            [0.01<=x<=1024]
+  --json                    One JSON object per line.
+  --help                    Show this message and exit.
 ```
 
 ### `meshforge-agent hardware`

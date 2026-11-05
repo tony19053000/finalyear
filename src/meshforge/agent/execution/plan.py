@@ -96,6 +96,7 @@ __all__ = [
     "AttemptPlan",
     "PlanError",
     "PlannedInput",
+    "job_cpus",
     "plan_attempt",
     "runtime_argv",
     "workload_env",
@@ -114,6 +115,23 @@ _GIB: Final = 1024**3
 
 class PlanError(MeshForgeError):
     default_failure_type = FailureType.INVALID_INPUT
+
+
+def job_cpus(
+    asked: float | None,
+    default: float | None,
+    policy: owner_policy.OwnerPolicy | None,
+    cpu_threads: int | None,
+) -> float | None:
+    """The CPUs (cores) a run is limited to: ``min(asked or default, the owner's
+    max_cpu_percent of the threads)``; None = no CPU limit at all. One rule for
+    :func:`plan_attempt` and ``meshforge-agent doctor cpu`` (V1.0 G9-C)."""
+    cpus = asked or default
+    if policy is not None:
+        cap = owner_policy.allowed_cpus(policy, cpu_threads)
+        if cap is not None:
+            cpus = cap if cpus is None else min(cpus, cap)
+    return cpus
 
 
 @dataclass(frozen=True, slots=True)
@@ -325,7 +343,7 @@ def plan_attempt(
         }
     )
     memory = spec.memory_bytes or settings.default_memory_mb * _MIB
-    cpus = spec.cpus or settings.default_cpus
+    cpus = job_cpus(spec.cpus or None, settings.default_cpus, policy, cpu_threads)
     network = manifest.limits.wants_network
     enforce_memory = False
     if policy is not None:
@@ -335,9 +353,6 @@ def plan_attempt(
             # (rlimit / job object) - not for a GPU run: CUDA reserves far more
             # address space than it uses (advertised as not enforced).
             enforce_memory = not gpus
-        cap = owner_policy.allowed_cpus(policy, cpu_threads)
-        if cap is not None:
-            cpus = cap if cpus is None else min(cpus, cap)
         network = network and policy.allow_network
     run_spec = RunSpec(
         attempt_id=attempt_id,
