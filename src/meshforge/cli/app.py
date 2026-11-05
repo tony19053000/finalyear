@@ -53,7 +53,14 @@ import typer
 from meshforge import __version__
 from meshforge.cli import render
 from meshforge.cli import shared as cli
-from meshforge.cli.completion import take_explicit_shell, use_safe_installers
+from meshforge.cli.completion import (
+    COMPLETION_OPTIONS,
+    clear_explicit_shell,
+    fail_unsupported,
+    misnamed_shell,
+    take_explicit_shell,
+    use_safe_installers,
+)
 from meshforge.cli.exits import CliExit
 
 PROG_NAME = render.PROG_NAME
@@ -264,8 +271,16 @@ def main() -> None:
     for the full traceback. Typer's own pretty traceback is off: with locals it
     would print a token held in a local variable.
     """
+    argv = sys.argv[1:]
     try:
-        app(args=take_explicit_shell(sys.argv[1:]), prog_name=PROG_NAME)
+        if any(arg in COMPLETION_OPTIONS for arg in argv):
+            # D439: a shell named after the option; a command name stays a
+            # command; any other bare word is a mistyped shell (exit 4)
+            misnamed = misnamed_shell(argv, _command_names())
+            if misnamed is not None:
+                fail_unsupported(misnamed)
+            argv = take_explicit_shell(argv)
+        app(args=argv, prog_name=PROG_NAME)
     except Exception as exc:
         if os.environ.get(DEBUG_ENV, "") not in ("", "0"):
             raise
@@ -275,6 +290,18 @@ def main() -> None:
             "report it"
         )
         sys.exit(CliExit.FAILURE)
+    finally:
+        clear_explicit_shell()
+
+
+def _command_names() -> frozenset[str]:
+    """Every top-level command and command-group name of ``compute``."""
+    target: object = app
+    if not isinstance(target, typer.Typer):  # a test replaced the app
+        return frozenset()
+    group = typer.main.get_command(target)
+    commands = getattr(group, "commands", {})
+    return frozenset(commands)
 
 
 # The job commands (V0.4 G5); they look the shared helpers above up at call time.

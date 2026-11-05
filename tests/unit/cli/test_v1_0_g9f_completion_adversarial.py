@@ -101,11 +101,6 @@ def test_unicode_paths_do_not_confuse_the_parser() -> None:
     assert not is_transient_cmd('"C:\\Users\\\u00fcser\\cmd.exe" /k')
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="DEFECT G9F-T1: an unquoted forward-slash program path is split at its "
-    "first '/', so its path segments are read as switches ('cmd.exe' -> /c)",
-)
 def test_forward_slash_program_path_interactive_cmd_is_not_transient() -> None:
     assert not is_transient_cmd("C:/Windows/System32/cmd.exe")
 
@@ -283,11 +278,6 @@ def test_empty_and_single() -> None:
     ]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="DEFECT G9F-T2: after '--' (arguments for a user command) a shell name "
-    "following '--show-completion' is still removed from argv",
-)
 def test_after_double_dash_nothing_is_taken() -> None:
     argv = ["run", "--", "tool", "--show-completion", "bash"]
     assert completion.take_explicit_shell(argv) == argv
@@ -313,12 +303,18 @@ def test_show_completion_powershell_named_through_main(
     monkeypatch.setattr(completion, "detect_shell", lambda **_k: "cmd")
     monkeypatch.setattr(sys, "argv", ["compute", "--show-completion", "powershell"])
     captured: list[list[str]] = []
-    monkeypatch.setattr(
-        cli_app, "app", lambda args, prog_name: captured.append(list(args))
-    )
+    shells: list[str | None] = []
+
+    def fake_app(args: list[str], prog_name: str) -> None:
+        captured.append(list(args))
+        shells.append(completion.current_shell())
+
+    monkeypatch.setattr(cli_app, "app", fake_app)
     cli_app.main()
     assert captured == [["--show-completion"]]
-    assert completion.current_shell() == "powershell"
+    # named during the command; forgotten when main ends (review r1)
+    assert shells == ["powershell"]
+    assert completion.current_shell() == "cmd"
 
 
 def test_unknown_named_shell_exit_4_not_ignored() -> None:
@@ -354,11 +350,6 @@ def test_every_unsupported_shell_exits_4(
     assert out.strip().startswith("compute:")
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="DEFECT G9F-T3: a mistyped shell name (--show-completion powerhsell) is "
-    "silently ignored and the detected shell is used instead",
-)
 def test_mistyped_shell_name_is_an_error() -> None:
     done = subprocess.run(
         [sys.executable, "-m", "meshforge.cli", "--show-completion", "powerhsell"],

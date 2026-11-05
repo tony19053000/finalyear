@@ -31,6 +31,7 @@ operating systems keep shellingham's answer.
 from __future__ import annotations
 
 import os
+import re
 import sys
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
@@ -79,16 +80,29 @@ class Proc:
     cmdline: str | None
 
 
+_GLUED_PROGRAM: Final = re.compile(r"(?i)cmd(?:\.exe)?(?=/)")
+"""``cmd/c`` / ``...\\cmd.exe/c``: a switch glued to the program name."""
+
+
 def _strip_program(cmdline: str) -> str:
-    """The command line after the program token (quoted or not)."""
+    """The command line after the program token: quoted, or up to the first
+    whitespace. A switch glued to an unquoted program (``cmd/c foo``, accepted
+    by cmd.exe) is kept, but only after the ``cmd`` / ``cmd.exe`` name - the
+    ``/`` of a forward-slash path (``C:/Windows/System32/cmd.exe``) is not a
+    switch (review r1 T1)."""
     text = cmdline.lstrip()
     if text.startswith('"'):
         end = text.find('"', 1)
         return "" if end < 0 else text[end + 1 :]
-    head, _, rest = text.partition(" ")
-    # `cmd/c foo` (no space) is accepted by cmd.exe as well
-    slash = head.find("/")
-    return head[slash:] + " " + rest if slash > 0 else rest
+    parts = text.split(None, 1)
+    if not parts:
+        return ""
+    head = parts[0]
+    rest = parts[1] if len(parts) > 1 else ""
+    ends = [match.end() for match in _GLUED_PROGRAM.finditer(head)]
+    if not ends:
+        return rest
+    return head[ends[-1] :] + " " + rest
 
 
 def is_transient_cmd(cmdline: str) -> bool:

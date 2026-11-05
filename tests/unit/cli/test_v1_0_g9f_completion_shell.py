@@ -234,6 +234,63 @@ def test_other_arguments_are_untouched(
     monkeypatch.delenv(completion._TEST_SWITCH, raising=False)
     assert completion.take_explicit_shell(argv) == argv
     assert completion._explicit_shell.get() is None
+    assert completion.misnamed_shell(argv, {"nodes", "run"}) is None
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["run", "--", "tool", "--install-completion", "powershell"],
+        ["--", "--show-completion", "bash"],
+    ],
+)
+def test_nothing_after_double_dash_is_taken(
+    argv: list[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv(completion._TEST_SWITCH, raising=False)
+    assert completion.misnamed_shell([*argv, "--show-completion", "x"], ()) is None
+    assert completion.take_explicit_shell(argv) == argv
+    assert completion._explicit_shell.get() is None
+
+
+@pytest.mark.parametrize("word", ["powerhsell", "PoSh", "elvish"])
+def test_a_bare_unknown_word_is_an_unsupported_shell(word: str, tmp_path: Path) -> None:
+    for option in completion.COMPLETION_OPTIONS:
+        done = subprocess.run(
+            [sys.executable, "-m", "meshforge.cli", option, word],
+            capture_output=True,
+            text=True,
+            env=_env(tmp_path),
+            timeout=_TIMEOUT_S,
+            check=False,
+        )
+        assert done.returncode == 4, done.stdout + done.stderr
+        assert f"{word} has no tab completion support" in done.stderr
+        assert "bash, zsh, fish, powershell, pwsh" in done.stderr
+        assert done.stdout == ""
+
+
+def test_a_command_after_the_option_stays_a_command(tmp_path: Path) -> None:
+    """`compute --show-completion nodes`: `nodes` is a command, not a shell;
+    Typer's detected-shell path runs (not the unsupported-shell line)."""
+    done = subprocess.run(
+        [sys.executable, "-m", "meshforge.cli", "--show-completion", "nodes"],
+        capture_output=True,
+        text=True,
+        env=_env(tmp_path),
+        timeout=_TIMEOUT_S,
+        check=False,
+    )
+    assert "nodes has no tab completion" not in done.stderr
+
+
+def test_main_forgets_the_named_shell(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv(completion._TEST_SWITCH, raising=False)
+    monkeypatch.setattr(sys, "argv", ["compute", "--show-completion", "pwsh"])
+    with pytest.raises(SystemExit) as exited:
+        cli_app.main()
+    assert exited.value.code == 0
+    assert completion._explicit_shell.get() is None
 
 
 def test_typers_test_switch_keeps_the_value(monkeypatch: pytest.MonkeyPatch) -> None:

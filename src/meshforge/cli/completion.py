@@ -32,7 +32,7 @@ from __future__ import annotations
 import os
 import shlex
 import subprocess
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from contextvars import ContextVar
 from pathlib import Path
 from typing import Final, NoReturn
@@ -48,9 +48,12 @@ __all__ = [
     "COMPLETION_OPTIONS",
     "MARKER",
     "SUPPORTED_SHELLS",
+    "clear_explicit_shell",
     "current_shell",
+    "fail_unsupported",
     "install",
     "install_powershell",
+    "misnamed_shell",
     "take_explicit_shell",
     "use_safe_installers",
 ]
@@ -83,17 +86,47 @@ def take_explicit_shell(argv: Sequence[str]) -> list[str]:
     (the shell is detected), so the name after one would be read as a command
     and ignored (lab L2 C8.10-g). A shell name right after either option is
     taken out of ``argv`` and used instead of detection (one without completion,
-    e.g. ``cmd``, then gets :func:`_unsupported`'s line). With Typer's
-    test switch set the options take a value themselves: ``argv`` is unchanged."""
+    e.g. ``cmd``, then gets :func:`fail_unsupported`'s line). Nothing after ``--``
+    is looked at (arguments for the user's own command, review r1 T2). With
+    Typer's test switch set the options take a value themselves: ``argv`` is
+    unchanged."""
     args = list(argv)
     if os.environ.get(_TEST_SWITCH):
         return args
     for index, arg in enumerate(args[:-1]):
+        if arg == "--":
+            break
         if arg in COMPLETION_OPTIONS and args[index + 1].lower() in SHELL_NAMES:
             _explicit_shell.set(args[index + 1].lower())
             del args[index + 1]
             break
     return args
+
+
+def misnamed_shell(argv: Sequence[str], commands: Collection[str]) -> str | None:
+    """A bare word right after either option that is neither a shell name nor
+    one of ``commands`` (``--show-completion powerhsell``): the caller fails
+    with :func:`fail_unsupported` instead of silently using the detected shell
+    (review r1 T3). Run on ``argv`` before :func:`take_explicit_shell`; nothing
+    after ``--`` counts; ``None`` with Typer's test switch set."""
+    if os.environ.get(_TEST_SWITCH):
+        return None
+    for index, arg in enumerate(argv[:-1]):
+        if arg == "--":
+            return None
+        if arg not in COMPLETION_OPTIONS:
+            continue
+        word = argv[index + 1]
+        if word.startswith("-") or word.lower() in SHELL_NAMES or word in commands:
+            continue
+        return word
+    return None
+
+
+def clear_explicit_shell() -> None:
+    """Forget a shell named by :func:`take_explicit_shell` (``main`` calls it
+    when the command ends, so in-process calls do not inherit it)."""
+    _explicit_shell.set(None)
 
 
 def current_shell() -> str | None:
@@ -105,7 +138,7 @@ def current_shell() -> str | None:
     return detect_shell(fallback=_typer_get_shell_name)
 
 
-def _unsupported(shell: str | None) -> NoReturn:
+def fail_unsupported(shell: str | None) -> NoReturn:
     """One line for a shell without completion, then exit 4 (D191 d)."""
     if shell == "cmd":
         render.fail(
@@ -134,14 +167,14 @@ def install(
     if shell is None and not os.environ.get(_TEST_SWITCH):
         shell = current_shell()
     if shell not in SUPPORTED_SHELLS:
-        _unsupported(shell)
+        fail_unsupported(shell)
     return _typer_install(shell=shell, prog_name=prog_name, complete_var=complete_var)
 
 
 def _completion_script(*, prog_name: str, complete_var: str, shell: str) -> str:
     """``--show-completion``'s script lookup, with our unsupported-shell line."""
     if shell not in SUPPORTED_SHELLS:
-        _unsupported(shell)
+        fail_unsupported(shell)
     return _typer_get_completion_script(
         prog_name=prog_name, complete_var=complete_var, shell=shell
     )
