@@ -959,3 +959,6 @@ result: planner chose split over all 4 laptops (17 chunks x 312 items), exit 0, 
     report: best_single 426.9 s (L1) -> speedup 1.579; c2 INCONCLUSIVE, c3 INCONCLUSIVE ("no single-node run measured for L4, L2, L3").
     Per-lane rates from the split itself: sum 20.0 items/s vs L1 11.7 -> rate_ratio ~1.71; observed speedup 1.58 = ~92 % of that bound.
 evidence: lab/reports/raw/2026-11-05-V0.10-mode3/{b-split.log,b-report.json,b-report.txt}
+
+### GPU probe - Lead GO relayed (2026-11-05)
+result: Lead GO (chat 20261105-135430-LEAD-to-L1) for owner [agent.envs] index_url = cu126 on L2/L4 (remove after v0.17.1). Relayed to L2 + L4 via chat. Waiting "envs set".
