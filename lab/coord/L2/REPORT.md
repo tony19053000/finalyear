@@ -502,3 +502,8 @@ L1 traffic 02:03:39-46: job_01M6M48WFYMZAP7F5E4ENVYZZP pinned L2, job_01M6M48YF7
 TCP conversations: L2<->L1:47100 (gRPC session), L2<->L1:47110 (5 HTTPS connections), and **192.168.31.244 (L4) -> 192.168.31.155:47120 (L2 peer port)** 18 frames / 7.7 kB at ~94.6 s: L4 fetched the project from L2's peer server (the new firewall rule works).
 Byte grep of the whole pcap (all counts must be 0): `MF-LAB-ARGV-2137331377` 0, `MF-LAB-FILE-1672226037` 0, `Bearer ` 0, `eyJhdHQiOiJhdHRf` 0, `MF-LAB-SECRET` 0. L1 greps for the secret value itself.
 SIGNAL: capture-pushed
+
+## 2026-11-05 — V0.9 P1 (C9.10-a) + C2 leftover check (C9.10-c, partial)
+- P1: `uv sync --all-extras` OK (installs CPU torch 2.14.0). Component bench: 82 passed, 29 skipped (skips = "needs Linux /proc"), 4:24. Unit g3a_publish: 4 passed. Platform: `win32 10.0.26200`.
+- SIGNAL: v09-p1-done L2
+- C2 burner check (non-admin shell): no python process with `conditions.burn` visible. BUT 2 python processes show `<hidden>` command lines (service-owned; needs Administrator to see). Admin re-check + `agent.conditions.applied/finished` log lines pending from the human.
