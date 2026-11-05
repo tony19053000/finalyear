@@ -933,3 +933,14 @@ switching, and ideally after every finished step:
 
 If a limit hits mid-task with no warning, the next account recovers from this file plus
 `git status` / `git log`; that is exactly why sections 2 and 4 exist.
+
+## BUG-FIX session 2026-11-06 (cut by usage limit)
+Done on main, NOT pushed: G9-C closed (d57b32d5); G9-F PowerShell completion closed (D439, 000aed3f);
+G9-D long chunk = per-chunk limits.timeout, not lease (D437 r1 retry once elsewhere) + D440 PG 40P01 retry, closed (98f705a1).
+G9-E tiny job split on assumed rates (D438, 62d6d468, cf1c319c): implemented, NOT yet tested/reviewed. Behaviour change:
+first run of a new split workload runs whole (`require_measured_rates`, default true); chunk_record now feeds split history.
+Next: (1) combined tester+reviewer for G9-E (decide the first-run-whole default); (2) lab/mode3_check.py warm-up run step;
+(3) rebuild controller web dist (G9-D UI wording + G9-E); (4) full gates (ruff - fix I001 in tests/unit/workqueue/test_v1_0_g9d_tester_deadline.py;
+full unit had 4 failures from in-flight D440 files: test_optional_imports_guarded, test_v07_g7_constant_time_scan (store/conflicts.py:95),
+test_v010_g2_package (workqueue/store.py:43), test_v10_g3_tester_bandit_gate - re-run and fix); (5) push, CI green; (6) v0.17.1 bump/tag;
+(7) ALL lab message with re-run list (G9-B a-h, G9-C doctor cpu, G9-D pinned mc on L2-L4, G9-E hf twice, G9-F L2 PowerShell).
