@@ -104,7 +104,7 @@ from meshforge.workqueue.core import (
     QueueState,
     Renewed,
 )
-from meshforge.workqueue.tables import work_item, work_lease
+from meshforge.workqueue.tables import work_item, work_lease, work_queue
 
 __all__ = [
     "ChunkGrantOut",
@@ -879,7 +879,22 @@ async def _deadline_retryable(
     and meets the same limit, so: yes while a live copy of it runs on another
     node (the copy is kept, never released); otherwise only for its first
     time-limit failure and only if a live lane of the job sits on a node it
-    has not failed on. A single-lane (pinned) run therefore fails once."""
+    has not failed on. A single-lane (pinned) run therefore fails once.
+
+    Concurrency: the caller holds the job row ``FOR UPDATE`` (``result``,
+    ``lock_job=True``); the queue and item rows are locked here too, in
+    ``wq.fail``'s order (queue, then item), so the original and its copy
+    failing at the same moment are decided one after the other - the second
+    sees the first's lease no longer live and cannot also be retryable."""
+    queue_id = await db.scalar(
+        select(work_item.c.queue_id).where(work_item.c.id == item_id)
+    )
+    await db.execute(
+        select(work_queue.c.id).where(work_queue.c.id == queue_id).with_for_update()
+    )
+    await db.execute(
+        select(work_item.c.id).where(work_item.c.id == item_id).with_for_update()
+    )
     copy = await db.scalar(
         select(func.count())
         .select_from(work_lease)
@@ -892,6 +907,11 @@ async def _deadline_retryable(
     if copy:
         return True
     idx = await db.scalar(select(work_item.c.idx).where(work_item.c.id == item_id))
+    # "First time-limit failure" is read from chunk_record (telemetry, written
+    # in the failing try's own transaction). Nothing prunes chunk_record today
+    # (no retention policy deletes it; job/log retention touches only terminal
+    # jobs' logs). A future retention of it must keep the rows of jobs that
+    # are not terminal, or a chunk could get a second retry here.
     earlier = await db.scalar(
         select(func.count())
         .select_from(ChunkRecord)
