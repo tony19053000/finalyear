@@ -35,7 +35,8 @@ unexpected exception (a bug) is one line too, unless ``COMPUTE_DEBUG=1``.
 All human output goes through :mod:`meshforge.cli.render` (``NO_COLOR``, TTY
 detection, the control-character gate, ``--json`` with ``schema_version``).
 Shell completion: ``compute --install-completion`` / ``--show-completion``
-(Typer's, for bash, zsh, fish and PowerShell).
+(Typer's, for bash, zsh, fish and PowerShell; the shell is detected, or named
+after the option - ``compute --install-completion powershell``, D439).
 """
 
 from __future__ import annotations
@@ -52,7 +53,7 @@ import typer
 from meshforge import __version__
 from meshforge.cli import render
 from meshforge.cli import shared as cli
-from meshforge.cli.completion import use_safe_installers
+from meshforge.cli.completion import take_explicit_shell, use_safe_installers
 from meshforge.cli.exits import CliExit
 
 PROG_NAME = render.PROG_NAME
@@ -264,7 +265,7 @@ def main() -> None:
     would print a token held in a local variable.
     """
     try:
-        app(prog_name=PROG_NAME)
+        app(args=take_explicit_shell(sys.argv[1:]), prog_name=PROG_NAME)
     except Exception as exc:
         if os.environ.get(DEBUG_ENV, "") not in ("", "0"):
             raise
