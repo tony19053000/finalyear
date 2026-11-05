@@ -103,6 +103,13 @@ function str(value: unknown): string | null {
   return typeof value === "string" ? value : null;
 }
 
+/** V1.0 G9-D: how the log names an attempt by its role (unknown -> "attempt"). */
+const STEP_WORDS: Record<string, string> = { run: "attempt", lane: "lane", combine: "combine step" };
+
+function stepWord(role: unknown): string {
+  return (typeof role === "string" && Object.hasOwn(STEP_WORDS, role) && STEP_WORDS[role]) || "attempt";
+}
+
 export class LogFollower {
   private readonly opts: Required<Omit<LogFollowerOptions, "onUnauthorized">> &
     Pick<LogFollowerOptions, "onUnauthorized">;
@@ -299,10 +306,21 @@ export class LogFollower {
       this.attempt += 1;
       const previous = str(frame.previous_state) ?? "ended";
       const why = str(frame.previous_failure_type);
-      this.notice(
-        `── attempt ${str(frame.previous_attempt_id) ?? "?"} ${previous}${why ? ` (${why})` : ""}; ` +
-          `retrying as ${str(frame.attempt_id) ?? "?"} ──`,
-      );
+      if (previous === "done") {
+        // V1.0 G9-D: a split job's lane finished and the next step (its
+        // combine, or another lane) follows - not a retry
+        const before = stepWord(frame.previous_role);
+        const after = stepWord(frame.role);
+        this.notice(
+          `── the ${before} ${str(frame.previous_attempt_id) ?? "?"} finished; ` +
+            `following the ${after} ${str(frame.attempt_id) ?? "?"} ──`,
+        );
+      } else {
+        this.notice(
+          `── attempt ${str(frame.previous_attempt_id) ?? "?"} ${previous}${why ? ` (${why})` : ""}; ` +
+            `retrying as ${str(frame.attempt_id) ?? "?"} ──`,
+        );
+      }
       this.offsets = { stdout: 0, stderr: 0 };
       this.decoders = this.newDecoders();
       this.emit();

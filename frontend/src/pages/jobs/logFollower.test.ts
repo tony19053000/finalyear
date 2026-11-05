@@ -185,6 +185,33 @@ describe("LogFollower (job logs over /v1/jobs/{id}/logs/ws)", () => {
     expect(snap().offsets.stdout).toBe(7);
   });
 
+  it("a done lane followed by its combine is the next step, not a retry (V1.0 G9-D)", () => {
+    const { follower, socket, snap } = setup();
+    follower.start();
+    socket().open();
+    socket().frame({
+      retry: true,
+      attempt_id: "att_2",
+      previous_attempt_id: "att_1",
+      previous_state: "done",
+      previous_failure_type: null,
+      role: "combine",
+      previous_role: "lane",
+    });
+    socket().frame({
+      retry: true,
+      attempt_id: "att_3",
+      previous_attempt_id: "att_2",
+      previous_state: "done",
+      role: "toString",
+    });
+    expect(texts(snap())).toEqual([
+      "── the lane att_1 finished; following the combine step att_2 ──",
+      "── the attempt att_2 finished; following the attempt att_3 ──",
+    ]);
+    expect(texts(snap()).join("\n")).not.toMatch(/retrying/);
+  });
+
   it("the end frame flushes the last partial line, records the outcome and stops", () => {
     const { follower, socket, snap, sockets } = setup();
     follower.start();
