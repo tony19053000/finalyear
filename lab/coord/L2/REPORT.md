@@ -515,3 +515,8 @@ SIGNAL: capture-pushed
   - att_01M6M4TFF2XWB47KGSKQ59HZA1: applied 1.969 -> finished verified true, reverted true
   - att_01M6M4VWWG0HQHEZXG5HEBJ1DC: applied 1.993 -> finished verified true, reverted true
 - Result: PASS. SIGNAL: v09-c2-check-ok L2
+
+## 2026-11-05 — C9.10-g policy before the night
+- Admin `meshforge-agent policy show`: accept_jobs True (live), pause_benchmarks False (live); accept_gpu_sessions False, max_cpu_percent 50, max_cpu_jobs 1, allow_network False.
+- Power: BatteryStatus 2 (on AC), 100%. Sleep on AC: 0 (never). Windows Update paused until 2026-11-07. Human: nobody uses L2 tonight.
+- SIGNAL: policy-ok L2
