@@ -962,3 +962,12 @@ evidence: lab/reports/raw/2026-11-05-V0.10-mode3/{b-split.log,b-report.json,b-re
 
 ### GPU probe - Lead GO relayed (2026-11-05)
 result: Lead GO (chat 20261105-135430-LEAD-to-L1) for owner [agent.envs] index_url = cu126 on L2/L4 (remove after v0.17.1). Relayed to L2 + L4 via chat. Waiting "envs set".
+
+### C10.10-e - Part D C5 "don't split" (hf) - FAIL: tiny job was split (finding)
+commands: (in ~/mf-eval/v010) compute network; compute run hf -f --no-progress -> job_01M6PER6F4NFMBJAWJK2A6A4ZJ; compute explain
+result: job ran OK (chunks compute_ms ~130, check=ok) but the planner SPLIT it over 3 nodes (12 x 5 items), predicted 43.28 s <= 0.9 x 65.72 s.
+    Cause: local/offload rates are "(assumed)" (1/s for L1, 0.57-0.78/s others) -> 60 items predicted ~66 s, real whole job ~0.8 s (x80 off).
+    The split test is right given its inputs; the item-rate guess for split.hash_files is not calibrated, so "don't split" never triggers.
+    Links measured (Wi-Fi 7-25 MB/s, some H3AX7QQY rows stale 32 h = old revoked L3).
+FINDING (Lead): uncalibrated per-item rate makes tiny jobs split; use a measured/benchmark rate (or the job's hint ~0.8 s) before the margin test.
+evidence: lab/reports/raw/2026-11-05-V0.10-mode3/{d-network.txt,d-run.log,d-explain.txt}

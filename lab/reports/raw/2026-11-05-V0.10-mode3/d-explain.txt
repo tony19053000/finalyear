@@ -1,0 +1,111 @@
+decision 1591 - attempt 1: dispatched (policy cost_model), objective min_time - 
+ chosen node_01M6BMFVHJVZXC7AET3CFRE3AV, calibration v20, replay v2, decided in 
+      4.92 ms, at 2026-11-05T18:15:16.748740+00:00, snapshot 0bd99ad4b21c       
++------------------------------------------------------------------------------+
+|RANK | NODE      | MODE    | SLOT | FEASIBLE | SCORE   | PREDICTED | REASON   |
+|-----+-----------+---------+------+----------+---------+-----------+----------|
+|1    | node_01M6 | split   | cpu  | yes      | 43.2831 | 43.28s    | chosen   |
+|     | BMFVHJVZX |         |      |          |         |           |          |
+|     | C7AET3CFR |         |      |          |         |           |          |
+|     | E3AV +2   |         |      |          |         |           |          |
+|2    | node_01M6 | split   | cpu  | yes      | 44.2635 | 44.26s    | feasible |
+|     | BMFVHJVZX |         |      |          |         |           |          |
+|     | C7AET3CFR |         |      |          |         |           |          |
+|     | E3AV +3   |         |      |          |         |           |          |
+|3    | node_01M6 | split   | cpu  | yes      | 53.6457 | 53.65s    | feasible |
+|     | BMFVHJVZX |         |      |          |         |           |          |
+|     | C7AET3CFR |         |      |          |         |           |          |
+|     | E3AV +1   |         |      |          |         |           |          |
+|4    | node_01M6 | offload | cpu  | yes      | 65.7158 | 65.72s    | feasible |
+|     | BMFVHJVZX |         |      |          |         |           |          |
+|     | C7AET3CFR |         |      |          |         |           |          |
+|     | E3AV      |         |      |          |         |           |          |
+|5    | node_01M6 | offload | cpu  | yes      | 98.3038 | 98.30s    | feasible |
+|     | GGJP3FW5V |         |      |          |         |           |          |
+|     | HBDFKYQ6S |         |      |          |         |           |          |
+|     | F318      |         |      |          |         |           |          |
+|6    | node_01M6 | offload | cpu  | yes      | 110.919 | 110.92s   | feasible |
+|     | K0TZRNPEG |         |      |          |         |           |          |
+|     | BRN166GP6 |         |      |          |         |           |          |
+|     | S61N      |         |      |          |         |           |          |
+|7    | node_01M6 | offload | cpu  | yes      | 132.588 | 132.59s   | feasible |
+|     | GCKN7PYT2 |         |      |          |         |           |          |
+|     | J297BT241 |         |      |          |         |           |          |
+|     | P436      |         |      |          |         |           |          |
+|-    | node_01M6 | offload | -    | no       | -       | -         | revoked: |
+|     | GGZ7VNCSR |         |      |          |         |           | the node |
+|     | KFAEDH3AX |         |      |          |         |           | was      |
+|     | 7QQY      |         |      |          |         |           | revoked  |
+|     |           |         |      |          |         |           | from the |
+|     |           |         |      |          |         |           | fabric   |
+|-    | node_01M6 | offload | -    | no       | -       | -         | revoked: |
+|     | K66M7877N |         |      |          |         |           | the node |
+|     | WES0Z93DP |         |      |          |         |           | was      |
+|     | 3EP8      |         |      |          |         |           | revoked  |
+|     |           |         |      |          |         |           | from the |
+|     |           |         |      |          |         |           | fabric   |
++------------------------------------------------------------------------------+
+       split over 3 nodes: 43.28s <= (1 - 0.1) x 65.72s (best single node       
+               node_01M6BMFVHJVZXC7AET3CFRE3AV), needs <= 59.14s                
++------------------------------------------------------------------------------+
+|     |         |            |            |            |           | MARGIN    |
+|RANK | MODE    | NODES      | CHUNKS     | RATE       | PREDICTED | TEST      |
+|-----+---------+------------+------------+------------+-----------+-----------|
+|1    | split   | node_01M6B | 12 x 5     | -          | 43.28s    | pass:     |
+|     |         | MFVHJVZXC7 | items      |            |           | 43.28s <= |
+|     |         | AET3CFRE3A |            |            |           | 59.14s =  |
+|     |         | V,         |            |            |           | (1 - 0.1) |
+|     |         | node_01M6G |            |            |           | x 65.72s  |
+|     |         | GJP3FW5VHB |            |            |           | (node_01M6|
+|     |         | DFKYQ6SF31 |            |            |           | BMFVHJVZXC|
+|     |         | 8,         |            |            |           | 7AET3CFRE3|
+|     |         | node_01M6K |            |            |           | AV)       |
+|     |         | 0TZRNPEGBR |            |            |           |           |
+|     |         | N166GP6S61 |            |            |           |           |
+|     |         | N          |            |            |           |           |
+|2    | split   | node_01M6B | 20 x 3     | -          | 44.26s    | pass:     |
+|     |         | MFVHJVZXC7 | items      |            |           | 44.26s <= |
+|     |         | AET3CFRE3A |            |            |           | 59.14s =  |
+|     |         | V,         |            |            |           | (1 - 0.1) |
+|     |         | node_01M6G |            |            |           | x 65.72s  |
+|     |         | GJP3FW5VHB |            |            |           | (node_01M6|
+|     |         | DFKYQ6SF31 |            |            |           | BMFVHJVZXC|
+|     |         | 8,         |            |            |           | 7AET3CFRE3|
+|     |         | node_01M6K |            |            |           | AV)       |
+|     |         | 0TZRNPEGBR |            |            |           |           |
+|     |         | N166GP6S61 |            |            |           |           |
+|     |         | N,         |            |            |           |           |
+|     |         | node_01M6G |            |            |           |           |
+|     |         | CKN7PYT2J2 |            |            |           |           |
+|     |         | 97BT241P43 |            |            |           |           |
+|     |         | 6          |            |            |           |           |
+|3    | split   | node_01M6B | 9 x 7      | -          | 53.65s    | pass:     |
+|     |         | MFVHJVZXC7 | items      |            |           | 53.65s <= |
+|     |         | AET3CFRE3A |            |            |           | 59.14s =  |
+|     |         | V,         |            |            |           | (1 - 0.1) |
+|     |         | node_01M6G |            |            |           | x 65.72s  |
+|     |         | GJP3FW5VHB |            |            |           | (node_01M6|
+|     |         | DFKYQ6SF31 |            |            |           | BMFVHJVZXC|
+|     |         | 8          |            |            |           | 7AET3CFRE3|
+|     |         |            |            |            |           | AV)       |
+|4    | offload | node_01M6B | 1 x 60     | 1/s        | 65.72s    | -         |
+|     |         | MFVHJVZXC7 | items      | (assumed), |           |           |
+|     |         | AET3CFRE3A |            | first      |           |           |
+|     |         | V          |            | chunk at   |           |           |
+|     |         |            |            | 0.27s      |           |           |
+|5    | offload | node_01M6G | 1 x 60     | 0.7799/s   | 98.30s    | -         |
+|     |         | GJP3FW5VHB | items      | (assumed), |           |           |
+|     |         | DFKYQ6SF31 |            | first      |           |           |
+|     |         | 8          |            | chunk at   |           |           |
+|     |         |            |            | 0.98s      |           |           |
+|6    | offload | node_01M6K | 1 x 60     | 0.5697/s   | 110.92s   | -         |
+|     |         | 0TZRNPEGBR | items      | (assumed), |           |           |
+|     |         | N166GP6S61 |            | first      |           |           |
+|     |         | N          |            | chunk at   |           |           |
+|     |         |            |            | 0.84s      |           |           |
+|7    | offload | node_01M6G | 1 x 60     | 0.5925/s   | 132.59s   | -         |
+|     |         | CKN7PYT2J2 | items      | (assumed), |           |           |
+|     |         | 97BT241P43 |            | first      |           |           |
+|     |         | 6          |            | chunk at   |           |           |
+|     |         |            |            | 0.66s      |           |           |
++------------------------------------------------------------------------------+

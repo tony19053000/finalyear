@@ -1,0 +1,36 @@
+             measured links (FROM downloads from TO's peer server)              
++------------------------------------------------------------------------------+
+|FROM \ TO | 3CFRE3AV    | T241P436    | YQ6SF318   | H3AX7QQY    | 6GP6S61N   |
+|----------+-------------+-------------+------------+-------------+------------|
+|3CFRE3AV  | x           | 18.1 MB/s   | 22.2 MB/s  | 11.5 MB/s   | 21.4 MB/s  |
+|          |             | 25.4ms 11m  | 46.3ms 15m | 20.1ms      | 8.7ms 46s  |
+|          |             |             |            | 32.2h       |            |
+|          |             |             |            | (stale)     |            |
+|T241P436  | 20.0 MB/s   | x           | 7.4 MB/s   | -           | 7.7 MB/s   |
+|          | 121.0ms 11m |             | 137.4ms    |             | 211.4ms 12m|
+|          |             |             | 13m        |             |            |
+|YQ6SF318  | 23.4 MB/s   | 8.4 MB/s    | x          | 8.7 MB/s    | 25.2 MB/s  |
+|          | 43.7ms 13m  | 46.8ms 12m  |            | 98.5ms      | 88.1ms 14m |
+|          |             |             |            | 32.3h       |            |
+|          |             |             |            | (stale)     |            |
+|H3AX7QQY  | 17.1 MB/s   | -           | 15.4 MB/s  | x           | -          |
+|          | 34.3ms      |             | 116.4ms    |             |            |
+|          | 32.3h       |             | 32.3h      |             |            |
+|          | (stale)     |             | (stale)    |             |            |
+|6GP6S61N  | 23.3 MB/s   | 12.7 MB/s   | 13.4 MB/s  | -           | x          |
+|          | 6.4ms 20s   | 50.8ms 12m  | 31.1ms 13m |             |            |
++------------------------------------------------------------------------------+
+  3CFRE3AV = node_01M6BMFVHJVZXC7AET3CFRE3AV
+  T241P436 = node_01M6GCKN7PYT2J297BT241P436
+  YQ6SF318 = node_01M6GGJP3FW5VHBDFKYQ6SF318
+  H3AX7QQY = node_01M6GGZ7VNCSRKFAEDH3AX7QQY
+  6GP6S61N = node_01M6K0TZRNPEGBRN166GP6S61N
+                controller links (from transfer history)                
++----------------------------------------------------------------------+
+|NODE                            | CONTROLLER -> NODE | SAMPLES | LAST |
+|--------------------------------+--------------------+---------+------|
+|node_01M6GCKN7PYT2J297BT241P436 | 5.7 MB/s           | 2       | 22.6h|
+|node_01M6GGJP3FW5VHBDFKYQ6SF318 | 4.5 MB/s           | 1       | 45.1h|
+|node_01M6GGZ7VNCSRKFAEDH3AX7QQY | 6.7 MB/s           | 1       | 45.6h|
++----------------------------------------------------------------------+
+probes: on - started 1161, measured 1160, failed 1 (timed out 0), in flight 0; budget 25.2 MB/50.3 MB per minute; stale after 60m

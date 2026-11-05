@@ -1,0 +1,18 @@
+compute: uploaded 62 files / 62924082 bytes, skipped 4
+compute: idempotency key cli-01M6PER552C1S5ADH0EQJCEHN9 (after a network error, re-run with --idempotency-key cli-01M6PER552C1S5ADH0EQJCEHN9 to avoid a second job)
+job_01M6PER6F4NFMBJAWJK2A6A4ZJ
+
+===== meshforge: chunk 1 (items 5..9) =====
+benchmark chunk 1: split.hash_files {"files":60,"rounds":1,"size_kb":1024} compute_ms=124.009 check=ok
+
+===== meshforge: chunk 4 (items 20..24) =====
+benchmark chunk 4: split.hash_files {"files":60,"rounds":1,"size_kb":1024} compute_ms=124.940 check=ok
+
+===== meshforge: chunk 7 (items 35..39) =====
+benchmark chunk 7: split.hash_files {"files":60,"rounds":1,"size_kb":1024} compute_ms=136.402 check=ok
+
+===== meshforge: chunk 8 (items 40..44) =====
+benchmark chunk 8: split.hash_files {"files":60,"rounds":1,"size_kb":1024} compute_ms=127.180 check=ok
+
+===== meshforge: chunk 11 (items 55..59) =====
+benchmark chunk 11: split.hash_files {"files":60,"rounds":1,"size_kb":1024} compute_ms=136.758 check=ok
