@@ -9,7 +9,10 @@ check a split job's output, and compute criteria 2-3. The procedure is
         5 s - 3 min runtime window (a lab job may be longer or shorter; the
         params model, input caps and seed range still apply). Submit it with
         ``compute run DEST``. Prints the items, the split spec and the
-        single-thread time hint of the whole job on the reference laptop.
+        single-thread time hint of the whole job on the reference laptop. The
+        job's time limit (``limits.timeout``, enforced per chunk - a "don't
+        split" run is one chunk with every item) is 10x that hint, at least
+        the benchmark's 15 min, so the slowest lab laptop finishes (D437).
     uv run python lab/mode3_check.py verify FAMILY OUTDIR [--param K=V ...] --seed N
         The family's whole-output check of a job's output folder (``compute get
         JOB --dest OUTDIR``): every item once, in order, each value recomputed
@@ -32,6 +35,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import sys
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -72,8 +76,23 @@ def files_digest(files: Mapping[str, bytes]) -> str:
     return "sha256:" + hasher.hexdigest()
 
 
+LAB_TIMEOUT_FACTOR: Final = 10.0
+"""V1.0 G9-D (D437): a lab job's time limit = this x the whole-job hint on the
+reference laptop (the slowest lab laptop ran chunks ~5.5x slower)."""
+LAB_TIMEOUT_FLOOR_S: Final = 900
+"""Never below the benchmark library's own 15 min (``JOB_TIMEOUT``)."""
+
+
+def lab_timeout_s(hint_s: float) -> int:
+    """The lab job's ``limits.timeout`` in seconds (whole minutes, capped)."""
+    from meshforge.common.manifest import MAX_TIMEOUT_S
+
+    minutes = math.ceil(max(0.0, hint_s) * LAB_TIMEOUT_FACTOR / 60.0)
+    return int(min(MAX_TIMEOUT_S, max(LAB_TIMEOUT_FLOOR_S, minutes * 60)))
+
+
 def build(family: str, dest: Path, params: dict[str, Any], seed: int) -> int:
-    from meshforge.bench.workloads import base, build_job, get_family
+    from meshforge.bench.workloads import base, build_job, get_family, materialise
 
     try:
         fam = get_family(family)
@@ -84,20 +103,25 @@ def build(family: str, dest: Path, params: dict[str, Any], seed: int) -> int:
         print(f"{family} is not a split (Mode 3) family", file=sys.stderr)
         return EXIT_USAGE
     saved = base.MIN_RUNTIME_S, base.MAX_RUNTIME_S
+    saved_timeout = materialise.JOB_TIMEOUT
     base.MIN_RUNTIME_S, base.MAX_RUNTIME_S = 0.0, float("inf")  # type: ignore[misc]
     try:
+        limit_s = lab_timeout_s(fam.expected_runtime_s(fam.parse_params(params)))
+        materialise.JOB_TIMEOUT = limit_s  # type: ignore[misc]
         built = build_job(fam, params, seed, dest)
     except ValueError as exc:  # ParamsError / MaterialiseError
         print(f"cannot build: {exc}", file=sys.stderr)
         return EXIT_USAGE
     finally:
         base.MIN_RUNTIME_S, base.MAX_RUNTIME_S = saved  # type: ignore[misc]
+        materialise.JOB_TIMEOUT = saved_timeout  # type: ignore[misc]
     hint = fam.expected_runtime_s(built.params)
     print(f"job folder: {built.path}")
     print(f"family: {fam.name}  params: {json.dumps(built.params, sort_keys=True)}")
     print(f"seed: {seed}  content: {built.content_digest}")
     print(f"split: {json.dumps(built.manifest.model_dump(mode='json').get('split'))}")
     print(f"whole job on the reference laptop, one core: ~{hint:.1f} s")
+    print(f"time limit (limits.timeout, per chunk): {limit_s} s")
     return EXIT_OK
 
 
