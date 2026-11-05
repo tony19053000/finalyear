@@ -52,8 +52,9 @@ never imported. A :data:`TORCH_BASES` job is placed on a node only with
 ``exec-docker`` (the image has torch) or ``exec-subprocess`` + this tag: on a
 Windows laptop without Docker the bundled interpreter has no torch, and the job
 would end ``user_error`` (``ModuleNotFoundError``) instead of never going there.
-An agent from before V1.0 G9-B never sends it, so it gets such jobs only through
-Docker."""
+The rule applies only to a node that also sends :data:`ENV_POLICY_PREFIX` (the
+G9-B marker): an agent from before V1.0 G9-B, or a snapshot recorded before it,
+keeps the V0.6 rule, so stored decisions replay unchanged."""
 TORCH_BASES: Final = frozenset({"cuda-pytorch"})
 """Manifest ``env.base`` values that promise PyTorch to the job (D432)."""
 EXEC_SPLIT_CAPABILITY: Final = "exec-split"

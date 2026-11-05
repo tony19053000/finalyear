@@ -81,11 +81,15 @@ def _node(
     caps = {c for c in _CAPS if rng.random() < 0.7}
     if rng.random() < 0.9:
         caps.add("exec")
-    if "exec-subprocess" in caps and sum(map(ord, node_id)) % 4:
-        # V1.0 G9-B (D432): most subprocess nodes have torch, some do not.
+    marker = sum(map(ord, node_id))
+    if marker % 2 == 0:
+        # V1.0 G9-B (D432/D433): half the nodes are G9-B agents (env-policy
+        # tag: the torch rule applies), half are older ones (the V0.6 rule).
         # Derived from the id, not drawn: the rng stream (every other value
-        # of every seeded case) stays what it was before exec-torch existed.
-        caps.add("exec-torch")
+        # of every seeded case) stays what it was before G9-B.
+        caps.add("env-policy:" + f"{marker:012x}"[-12:])
+        if "exec-subprocess" in caps and marker % 3:
+            caps.add("exec-torch")  # most G9-B subprocess nodes have torch
     gpus = tuple(
         rng.choice((4, 8, 12, 0)) * GIB for _ in range(rng.choice((0, 0, 1, 2)))
     )

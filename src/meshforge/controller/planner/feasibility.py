@@ -43,6 +43,7 @@ from meshforge.common.capabilities import (
     EXEC_SUBPROCESS_CAPABILITY,
     EXEC_TORCH_CAPABILITY,
     TORCH_BASES,
+    env_policy_of,
 )
 from meshforge.controller.planner.types import (
     ClusterSnapshot,
@@ -205,9 +206,17 @@ def static_rejection(request: PlanRequest, node: NodeSnapshot) -> Rejection | No
 
 def _torch_base_rejection(base: str, caps: frozenset[str]) -> Rejection | None:
     """A torch base (D432) needs ``exec-docker``, or ``exec-subprocess`` +
-    ``exec-torch`` (the agent's own Python has PyTorch). The venv-only text is
-    the V0.6 one, so a recorded decision of such a node replays unchanged."""
+    ``exec-torch`` (the agent's own Python has PyTorch) - **on a G9-B-aware
+    node only**, marked by its ``env-policy:`` tag (D433; every agent that
+    probes torch sends it). A node without the marker - an agent not upgraded
+    yet, or a snapshot recorded before G9-B (a stored replay) - keeps the
+    V0.6 rule exactly (refused only when it offers the venv runtime alone),
+    so recorded decisions replay unchanged under ``REPLAY_VERSION`` 2."""
     if EXEC_DOCKER_CAPABILITY in caps:
+        return None
+    if env_policy_of(caps) is None:  # pre-G9-B node: the V0.6 rule
+        if EXEC_VENV_CAPABILITY in caps and EXEC_SUBPROCESS_CAPABILITY not in caps:
+            return _venv_only(base)
         return None
     if EXEC_SUBPROCESS_CAPABILITY in caps:
         if EXEC_TORCH_CAPABILITY in caps:
@@ -219,15 +228,20 @@ def _torch_base_rejection(base: str, caps: frozenset[str]) -> Rejection | None:
             f"agent; {TORCH_VENV_RECIPE})",
         )
     if EXEC_VENV_CAPABILITY in caps:
-        return Rejection(
-            RejectCode.NO_RUNTIME_FOR_BASE,
-            f"env.base {base} needs Docker or the subprocess runtime; the "
-            "node only offers the venv runtime",
-        )
+        return _venv_only(base)
     return Rejection(
         RejectCode.NO_RUNTIME_FOR_BASE,
         f"env.base {base} needs Docker, or PyTorch for the agent's subprocess "
         f"runtime (install Docker, or PyTorch for the agent; {TORCH_VENV_RECIPE})",
+    )
+
+
+def _venv_only(base: str) -> Rejection:
+    """The V0.6 text (recorded decisions replay byte for byte)."""
+    return Rejection(
+        RejectCode.NO_RUNTIME_FOR_BASE,
+        f"env.base {base} needs Docker or the subprocess runtime; the "
+        "node only offers the venv runtime",
     )
 
 
