@@ -194,6 +194,8 @@ async def test_revoking_a_node_with_a_running_attempt_names_node_revoked(
             assert frame["previous_attempt_id"] == start.attempt_id
             assert frame["previous_failure_type"] == "node_lost"
             assert frame["previous_detail"] == "node_revoked"
+            # V1.0 G9-D: the roles ride along (a whole-job retry: run -> run)
+            assert (frame["previous_role"], frame["role"]) == ("run", "run")
 
             async def retried_on_spare() -> bool:
                 return bool(spare.messages("start_attempt"))

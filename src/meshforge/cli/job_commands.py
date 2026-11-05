@@ -47,7 +47,7 @@ import sys
 import tempfile
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, Final
 
 import typer
 
@@ -104,9 +104,20 @@ def _print_retry(frame: Mapping[str, Any]) -> None:
         word = f"{word}: {render.echo(detail.strip())}"
     token = frame.get("fencing_token")
     number = token if isinstance(token, int) and not isinstance(token, bool) else "?"
+    if frame.get("previous_state") == "done":
+        # V1.0 G9-D: a split job's lane finished and its combine (or another
+        # lane) follows - the next step of the job, not a retry
+        before = _STEP_WORDS.get(str(frame.get("previous_role")), "attempt")
+        after = _STEP_WORDS.get(str(frame.get("role")), "attempt")
+        render.note(f"the {before} finished; following the {after} (attempt {number})")
+        return
     render.note(
         f"the attempt ended ({word}); the job was retried - following attempt {number}"
     )
+
+
+_STEP_WORDS: Final = {"run": "attempt", "lane": "lane", "combine": "combine step"}
+"""V1.0 G9-D: how ``compute run -f`` names an attempt by its role."""
 
 
 def _latest_attempt(job: Mapping[str, Any]) -> Mapping[str, Any] | None:
