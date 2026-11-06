@@ -273,10 +273,10 @@ MAX_SPLIT_NODES: Final = 64
 DEFAULT_CHUNK_OUTPUT_BYTES: Final = 256 * 1024 * 1024
 """``split.max_chunk_output_bytes`` when absent (V0.10 G4, D261/D278)."""
 MAX_CHUNK_OUTPUT_BYTES: Final = 64 * 1024**3
-MAX_SPLIT_ITEM_SECONDS: Final = 7 * 86_400.0
-"""V1.0 G9-E (D438): ``split.item_seconds`` at most a week per item."""
 """Largest ``split.max_chunk_output_bytes`` (the controller's own per-attempt
 ``max_output_bytes`` ceiling)."""
+MAX_SPLIT_ITEM_SECONDS: Final = 7 * 86_400.0
+"""V1.0 G9-E (D438): ``split.item_seconds`` at most a week per item."""
 MAX_SAFE_INT: Final = 2**53 - 1
 """``range`` bounds: integers a JSON reader in any language reads exactly."""
 SPLIT_ENTRYPOINT_PLACEHOLDERS: Final = ("{items_file}", "{chunk_index}", "{out}")
