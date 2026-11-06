@@ -361,7 +361,12 @@ _BURN = (
 @pytest.mark.skipif(sys.platform != "win32", reason="lab bug #8 is Windows-only")
 def test_windows_real_burn_raises_system_cpu_above_idle() -> None:
     """Every read on a fresh thread, as the agent's DeadlineThread does: the
-    machine-wide CPU during an all-cores burn is above idle (and high)."""
+    machine-wide CPU during an all-cores burn is above idle (and high).
+
+    Needs psutil (the agent extra): the ``unit (windows-latest)`` job runs it;
+    the base-install ``fresh-clone`` job has no psutil, where the CPU % is
+    unknown by design (``read_failed``), not a wrong reading."""
+    pytest.importorskip("psutil")
     meter_sampler = ResourceSampler(mounts=[], nvml=no_gpu())
 
     def on_new_thread() -> float | None:

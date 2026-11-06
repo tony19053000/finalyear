@@ -887,6 +887,7 @@ def doctor_cpu(
     G9-C reading (`old`). Changes nothing. Exit 1 when no CPU % could be read."""
     from meshforge.agent.doctor_cpu import (
         CpuSample,
+        SamplingUnavailableError,
         cpu_cap,
         default_threads,
         render_cap,
@@ -943,7 +944,15 @@ def doctor_cpu(
         else:
             typer.echo(render_sample(sample))
 
-    unknown = run_samples(seconds, emit)
+    try:
+        unknown = run_samples(seconds, emit)
+    except SamplingUnavailableError as exc:
+        typer.echo(
+            f"{PROG_NAME}: sampling the CPU needs the agent extra "
+            f"(`uv sync --extra agent`): {exc}",
+            err=True,
+        )
+        raise typer.Exit(ExitCode.FAILURE) from None
     raise typer.Exit(1 if unknown == seconds else 0)
 
 

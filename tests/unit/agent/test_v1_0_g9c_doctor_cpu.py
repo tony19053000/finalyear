@@ -245,3 +245,37 @@ def test_plain_doctor_still_runs_without_a_subcommand(
     done = CliRunner().invoke(app, ["doctor", "--json"])
     assert done.exit_code == 0, done.output
     assert json.loads(done.stdout)["ok"] is True
+
+
+# --------------------------------------------- a base install (no psutil)
+
+
+def test_old_method_without_psutil_is_none_and_nothing_escapes_the_thread(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failed read inside the fresh thread is None, never an unhandled thread
+    exception (pytest turns those into failures; the CLI printed a traceback)."""
+    monkeypatch.setitem(__import__("sys").modules, "psutil", None)
+    assert doctor_cpu._old_method() is None
+
+
+def test_real_sampling_without_psutil_is_a_setup_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setitem(__import__("sys").modules, "psutil", None)
+    emitted: list[CpuSample] = []
+    with pytest.raises(doctor_cpu.SamplingUnavailableError):
+        run_samples(1, emitted.append)
+    assert emitted == []
+
+
+def test_cli_without_psutil_prints_the_cap_then_names_the_extra(
+    isolated: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setitem(__import__("sys").modules, "psutil", None)
+    done = CliRunner().invoke(app, ["doctor", "cpu", "--seconds", "1", "--json"])
+    assert done.exit_code == 1, done.output
+    lines = done.stdout.splitlines()
+    assert len(lines) == 1 and "caps" in json.loads(lines[0])
+    assert "needs the agent extra" in done.stderr
+    assert "psutil" in done.stderr

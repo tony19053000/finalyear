@@ -41,6 +41,7 @@ __all__ = [
     "CpuCap",
     "CpuSample",
     "CpuSources",
+    "SamplingUnavailableError",
     "cpu_cap",
     "default_threads",
     "render_cap",
@@ -161,6 +162,11 @@ class CpuSample:
         }
 
 
+class SamplingUnavailableError(RuntimeError):
+    """The real machine's CPU counters cannot be read here at all (psutil, from
+    the ``agent`` extra, is not installed) - a setup problem, not a reading."""
+
+
 def _psutil() -> Any:
     import psutil  # type: ignore[import-untyped]
 
@@ -168,11 +174,13 @@ def _psutil() -> Any:
 
 
 def _old_method() -> float | None:
-    """``psutil.cpu_percent(interval=None)`` on a fresh thread (pre-G9-C)."""
+    """``psutil.cpu_percent(interval=None)`` on a fresh thread (pre-G9-C);
+    None when it cannot be read (nothing escapes the thread)."""
     box: list[float] = []
 
     def run() -> None:
-        box.append(float(_psutil().cpu_percent(interval=None)))
+        with contextlib.suppress(Exception):
+            box.append(float(_psutil().cpu_percent(interval=None)))
 
     thread = threading.Thread(target=run, name="mf-doctor-cpu-old", daemon=True)
     thread.start()
@@ -205,7 +213,14 @@ def run_samples(
     sources: CpuSources | None = None,
 ) -> int:
     """Emit one :class:`CpuSample` per ``interval_s`` for ``seconds``; returns
-    how many readings had an unknown CPU %. Never raises for a failed read."""
+    how many readings had an unknown CPU %. Never raises for a failed read;
+    raises :class:`SamplingUnavailableError` (before any sample) when the real
+    machine is sampled without psutil installed."""
+    if sources is None:
+        try:
+            _psutil()
+        except ImportError as exc:
+            raise SamplingUnavailableError(str(exc)) from exc
     src = sources if sources is not None else CpuSources()
     meter = CpuMeter(src.cpu_times, clock=src.clock)
     meter.read()

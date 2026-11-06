@@ -56,7 +56,13 @@ async def runtime(pg_settings: DatabaseSettings) -> AsyncIterator[ControllerRunt
         jobs={"dispatch_interval_s": 0.1},
         admission_timeout_s=1.2,
         # leases outlive the slowest chunk (fake lanes never renew)
-        split={"visibility_timeout_s": 60.0, "wait_retry_s": 0.1},
+        split={
+            "visibility_timeout_s": 60.0,
+            "wait_retry_s": 0.1,
+            # V1.0 G9-E (D438): these runs need lanes on a first run (no
+            # history); with assumed rates the job would run whole on one lane
+            "require_measured_rates": False,
+        },
         liveness=LivenessSettings(
             heartbeat_interval_s=HB_S, miss_allowance_s=0.1, lease_multiplier=3
         ),

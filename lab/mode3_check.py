@@ -161,7 +161,8 @@ def build(
     base.MIN_RUNTIME_S, base.MAX_RUNTIME_S = 0.0, float("inf")  # type: ignore[misc]
     try:
         limit_s = lab_timeout_s(fam.expected_runtime_s(fam.parse_params(params)))
-        materialise.JOB_TIMEOUT = limit_s  # type: ignore[misc]
+        # the manifest duration form, like the module constant ("15m")
+        materialise.JOB_TIMEOUT = f"{limit_s}s"  # type: ignore[misc]
         built = build_job(fam, params, seed, dest)
     except ValueError as exc:  # ParamsError / MaterialiseError
         print(f"cannot build: {exc}", file=sys.stderr)
