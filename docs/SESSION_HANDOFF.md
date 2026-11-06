@@ -944,3 +944,9 @@ Next: (1) combined tester+reviewer for G9-E (decide the first-run-whole default)
 full unit had 4 failures from in-flight D440 files: test_optional_imports_guarded, test_v07_g7_constant_time_scan (store/conflicts.py:95),
 test_v010_g2_package (workqueue/store.py:43), test_v10_g3_tester_bandit_gate - re-run and fix); (5) push, CI green; (6) v0.17.1 bump/tag;
 (7) ALL lab message with re-run list (G9-B a-h, G9-C doctor cpu, G9-D pinned mc on L2-L4, G9-E hf twice, G9-F L2 PowerShell).
+
+## 2026-11-06 later: v0.17.1 RELEASED
+G9-A..F + D437-D441 done, CI green (run 42201726246), tag v0.17.1, release run 42211017372 (exe, 2 debs, SHA256SUMS).
+Lab message posted: lab/chat/20261106-120000-LEAD-to-ALL.md (upgrade, remove F4/index_url workarounds, re-run table).
+Next: collect lab replies; open follow-ups: D441 r1 notes (ends.py:276 stale older entry; speculation test comment),
+sample_interval_s < 0.25 s, ML an_src_declared flag, lab checklist V0.10 mentions split.item_seconds, Mode 2/4 deferred.
