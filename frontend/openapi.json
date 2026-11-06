@@ -1332,6 +1332,7 @@
                   "measured",
                   "history",
                   "scaled",
+                  "declared",
                   "assumed"
                 ],
                 "type": "string"
@@ -9925,6 +9926,7 @@
               "measured",
               "history",
               "scaled",
+              "declared",
               "assumed"
             ],
             "title": "Source",

@@ -6,7 +6,7 @@ the policy's score and the predicted total, or the rejection code and reason;
 the predicted terms of each ranked candidate **with their source** (and,
 V0.6 G4, the node(s) or ``controller`` a transfer's bandwidth came from - one
 per missing tree, D131 - with the age of the controller's transfer history)
-(``measured`` / ``history`` / ``scaled`` / ``assumed`` - checklist 18: nothing
+(``measured`` / ``history`` / ``scaled`` / ``declared`` / ``assumed`` - checklist 18: nothing
 assumed reads as measured); and, once the attempt ran, predicted vs actual
 per term with the ratio (V0.14 G5, D320: the API's ``actual_s`` / ``ratio``,
 the calibration's own term -> phase match) and the five measured phases.

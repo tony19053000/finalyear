@@ -1642,10 +1642,8 @@ compute get <JOB_ID>               # outputs -> ./outputs/<JOB_ID>/ (--dest, --f
   controller process (a restart resets them; the job stays bounded).
   Planner knobs: `split_margin` (0.10), `target_chunk_s` (20),
   `max_overhead_frac` (0.05), `min_chunks_per_node` (4), `chunk_overhead_s`
-  (1.5), `tail_frac` (0.5), `require_measured_rates` (true: a job whose
-  workload has no recorded run anywhere is never split on assumed per-item
-  rates - it runs whole once and that run decides the next split; explain
-  shows `blocked: rates_assumed`; D438); `wait_retry_s` (2) is how long an idle lane waits
+  (1.5), `tail_frac` (0.5), `require_measured_rates` (true, see "First run of
+  a split workload" below); `wait_retry_s` (2) is how long an idle lane waits
   while the rest is leased elsewhere. Caps (`[controller.split]`): `max_items` (100 000) items and
   `max_chunks` (10 000) chunks per job; `list_file` up to 64 MiB, `lines` files
   up to 256 MiB with lines up to 16 MiB (the file is scanned while blob GC
@@ -1686,6 +1684,24 @@ compute get <JOB_ID>               # outputs -> ./outputs/<JOB_ID>/ (--dest, --f
   reuses a job's per-node chunk times while none of its chunks committed, at
   most `[controller.split] speculation_cache_s` (5 s; 0 = off), for at most
   `speculation_cache_jobs` (256) jobs.
+- **First run of a split workload (V1.0 G9-E, D438).** The planner splits only
+  on evidence. With no recorded run of the workload (same project, entrypoint
+  and env) on any node, every per-item rate would be an assumption
+  (`[controller.planner] default_compute_s` for the whole job), so the job runs
+  **whole on one node** and `compute explain` shows the set rows as `fail: ...
+  <= ..., blocked: rates_assumed`. That run's chunk record is the history: the
+  next submission is planned on measured per-node rates (a tiny job stays
+  whole on its own per-chunk overhead, a long one splits). Three ways to split
+  on the **first** run:
+  1. **Declare the rate** in `compute.yaml`: `split.item_seconds: 12.5`
+     (seconds per item on your strongest node; `> 0`, at most a week). Rates
+     are shown as `(declared)`, scaled per node by hardware score; recorded
+     history replaces it as soon as it exists. Best for long GPU jobs.
+  2. **Turn the rule off** fabric-wide: `[controller.split]
+     require_measured_rates = false` (the planner before V1.0 G9-E: assumed
+     rates may split - a tiny job can then be split for nothing).
+  3. **A benchmark campaign** that forces the node set (`mode3` config) always
+     splits; the block is still recorded in its decision.
 
 ---
 

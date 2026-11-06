@@ -57,7 +57,9 @@ byte of what a v1 replay decodes to.
 list; absent = every mode, so every replay before it (and every replay of a
 controller that disables nothing) is byte-identical and decodes unchanged.
 
-**V1.0 G9-E optional key (D438).** The split configuration's
+**V1.0 G9-E optional keys (D438).** ``request.split.item_seconds`` (the
+manifest's per-item estimate) is written only when given; absent = none. The
+split configuration's
 ``require_measured_rates`` is written only when true; absent = false (the
 planner before G9-E, which let assumed per-item rates pass the margin test),
 so every older replay decodes to the planner that made its decision and
@@ -197,7 +199,16 @@ REPLAY_FIELDS: Final[Mapping[type, frozenset[str]]] = {
         }
     ),
     SplitInfo: frozenset(
-        {"items", "item_bytes", "items_tree", "chunk_items", "min_nodes", "max_nodes"}
+        {
+            "items",
+            "item_bytes",
+            "items_tree",
+            "chunk_items",
+            "min_nodes",
+            "max_nodes",
+            # V1.0 G9-E (D438: optional, written only when given)
+            "item_seconds",
+        }
     ),
     TreeNeed: frozenset({"key", "size"}),
     NodeSnapshot: frozenset(
@@ -414,6 +425,12 @@ def _split_info(split: SplitInfo | None) -> dict[str, Any] | None:
         "chunk_items": split.chunk_items,
         "min_nodes": split.min_nodes,
         "max_nodes": split.max_nodes,
+        # V1.0 G9-E (D438): written only when given (older replays: absent)
+        **(
+            {}
+            if split.item_seconds is None
+            else {"item_seconds": _num(split.item_seconds)}
+        ),
     }
 
 
@@ -728,6 +745,7 @@ def _from_split(data: Mapping[str, Any] | None) -> SplitInfo | None:
         chunk_items=_int_or_none(data["chunk_items"]),
         min_nodes=_int(data["min_nodes"]),
         max_nodes=_int_or_none(data["max_nodes"]),
+        item_seconds=_dnum(data.get("item_seconds")),
     )
 
 

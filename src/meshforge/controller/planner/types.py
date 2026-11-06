@@ -199,6 +199,10 @@ class TermSource(StrEnum):
     """Past runs on another node, scaled by the hardware-score ratio."""
     ASSUMED = "assumed"
     """A configured default: nothing measured supports it."""
+    DECLARED = "declared"
+    """V1.0 G9-E (D438): the submitter's own estimate (``split.item_seconds``),
+    scaled by hardware score - weaker than any recorded run, stronger than an
+    assumption (it counts as evidence for a split)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -266,6 +270,9 @@ class SplitInfo:
     min_nodes: int = 2
     max_nodes: int | None = None
     """None = every suitable node."""
+    item_seconds: float | None = None
+    """V1.0 G9-E (D438): manifest ``split.item_seconds`` - seconds per item on
+    the strongest node, the submitter's estimate; None = none given."""
 
     @property
     def bytes_per_item(self) -> float:

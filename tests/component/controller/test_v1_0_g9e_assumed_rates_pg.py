@@ -105,10 +105,12 @@ async def _fabric(runtime: ControllerRuntime) -> AsyncIterator[list[FakeLane]]:
                     await asyncio.wait_for(lane.agent.close(), 10)
 
 
-def _tree(runtime: ControllerRuntime, tmp_path: Path) -> str:
+def _tree(
+    runtime: ControllerRuntime, tmp_path: Path, body: bytes = b"print(1)\n"
+) -> str:
     root = tmp_path / "p"
     root.mkdir(exist_ok=True)
-    (root / "main.py").write_bytes(b"print(1)\n")
+    (root / "main.py").write_bytes(body)
     built = build_tree(root)
     assert runtime.blobs is not None
     runtime.blobs.cas.put_bytes(built.manifest, built.tree.tree_id)
@@ -118,7 +120,10 @@ def _tree(runtime: ControllerRuntime, tmp_path: Path) -> str:
 
 
 async def _run(
-    runtime: ControllerRuntime, http: httpx.AsyncClient, tree_id: str
+    runtime: ControllerRuntime,
+    http: httpx.AsyncClient,
+    tree_id: str,
+    **split: Any,
 ) -> tuple[str, dict[str, Any]]:
     """Submit the job, wait for it to succeed; (job id, its latest decision)."""
     got = await http.post(
@@ -128,7 +133,11 @@ async def _run(
                 "name": "hf",
                 "entrypoint": "python main.py {items_file} {out}",
                 "env": {"base": "python-cpu"},
-                "split": {"over": {"range": {"stop": ITEMS}}, "speculative": False},
+                "split": {
+                    "over": {"range": {"stop": ITEMS}},
+                    "speculative": False,
+                    **split,
+                },
             },
             "tree_id": tree_id,
             "placement": {},
@@ -219,3 +228,22 @@ async def test_first_run_whole_then_history_decides(
         assert chosen["mode"] == "split"
         assert chosen["margin_test"]["passed"] is True
         assert chosen["margin_test"].get("blocked") is None
+
+
+async def test_a_declared_rate_splits_on_the_first_run(
+    runtime: ControllerRuntime, tmp_path: Path
+) -> None:
+    """r1 (D438): ``split.item_seconds`` is evidence - a long job splits on
+    run 1 with ``declared`` rates and nothing blocked."""
+    tree_id = _tree(runtime, tmp_path, b"print(2)\n")
+    async with (
+        _fabric(runtime),
+        api_client(runtime, token=token_of(runtime)) as http,
+    ):
+        job_id, decision = await _run(runtime, http, tree_id, item_seconds=1.0)
+        assert len(await _lane_nodes(runtime, job_id)) == 3
+        chosen = next(c for c in decision["candidates"] if c.get("rank") == 1)
+        assert chosen["mode"] == "split"
+        assert chosen["margin_test"]["passed"] is True
+        assert chosen["margin_test"].get("blocked") is None
+        assert {c["rate_source"] for c in _single_rows(decision)} == {"declared"}

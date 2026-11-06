@@ -220,7 +220,8 @@ def _verdict(rows: Sequence[Mapping[str, Any]]) -> str:
             f"not split: the best set {format_seconds(best.get('set_s'))} would "
             f"pass (<= {format_seconds(best.get('threshold_s'))}) only on assumed "
             "per-item rates - no run of this workload is recorded yet, so it "
-            "runs whole and the next run decides on the measured time"
+            "runs whole and the next run decides on the measured time (set "
+            "split.item_seconds in compute.yaml to split on the first run)"
         )
     if isinstance(best, Mapping):
         return (

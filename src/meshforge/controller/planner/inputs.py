@@ -274,6 +274,7 @@ def split_info(
         chunk_items=spec.chunk.items,
         min_nodes=spec.min_nodes,
         max_nodes=spec.max_nodes,
+        item_seconds=spec.item_seconds,  # V1.0 G9-E (D438)
     )
 
 

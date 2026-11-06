@@ -1971,7 +1971,7 @@ Items of one kind in a node's caches (V0.5 D101).
 | `pruned` | array of [PrunedOut](#schema-prunedout) (nullable) | no | - |
 | `rank` | integer (nullable) | no | - |
 | `rate_items_s` | number (nullable) | no | - |
-| `rate_source` | enum: `measured`, `history`, `scaled`, `assumed` (nullable) | no | - |
+| `rate_source` | enum: `measured`, `history`, `scaled`, `declared`, `assumed` (nullable) | no | - |
 | `reject_code` | string (nullable) | no | - |
 | `reject_text` | string (nullable) | no | - |
 | `score` | number (nullable) | no | - |
@@ -4109,7 +4109,7 @@ as :attr:`TermMlOut.rate`.
 | `note` | string (nullable) | no | - |
 | `ratio` | number (nullable) | no | - |
 | `seconds` | number | yes | - |
-| `source` | enum: `measured`, `history`, `scaled`, `assumed` | yes | - |
+| `source` | enum: `measured`, `history`, `scaled`, `declared`, `assumed` | yes | - |
 
 <a id="schema-tokenlist"></a>
 

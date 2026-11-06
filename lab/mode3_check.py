@@ -4,6 +4,7 @@ check a split job's output, and compute criteria 2-3. The procedure is
 ``lab/checklists/V0.10-mode3.md``.
 
     uv run python lab/mode3_check.py build FAMILY DEST [--param K=V ...] [--seed N]
+            [--no-declare]
         The benchmark library's job folder for FAMILY (e.g.
         ``split.image_classify``) with these params - **without** the campaign's
         5 s - 3 min runtime window (a lab job may be longer or shorter; the
@@ -13,6 +14,12 @@ check a split job's output, and compute criteria 2-3. The procedure is
         job's time limit (``limits.timeout``, enforced per chunk - a "don't
         split" run is one chunk with every item) is 10x that hint, at least
         the benchmark's 15 min, so the slowest lab laptop finishes (D437).
+        V1.0 G9-E (D438): the planner never splits a workload on its first run
+        from assumed rates, so ``build`` also writes ``split.item_seconds`` =
+        that hint / the items (rate source ``declared``) and the first run is
+        planned on it - parts B/C split on run 1, a tiny part D job still runs
+        whole. ``--no-declare`` leaves it out (then do a warm-up run first:
+        the first run runs whole and records the history the next one uses).
     uv run python lab/mode3_check.py verify FAMILY OUTDIR [--param K=V ...] --seed N
         The family's whole-output check of a job's output folder (``compute get
         JOB --dest OUTDIR``): every item once, in order, each value recomputed
@@ -93,7 +100,52 @@ def lab_timeout_s(hint_s: float) -> int:
     return int(min(MAX_TIMEOUT_S, max(LAB_TIMEOUT_FLOOR_S, minutes * 60)))
 
 
-def build(family: str, dest: Path, params: dict[str, Any], seed: int) -> int:
+def item_count(dest: Path, split: Mapping[str, Any]) -> int | None:
+    """Items ``split.over`` names in the built folder (the kinds the benchmark
+    library writes: ``glob``, ``range``, ``lines``); None = another kind."""
+    from meshforge.common.split_items import glob_match, glob_parts
+
+    over = split.get("over") or {}
+    if "glob" in over:
+        parts = glob_parts(str(over["glob"]))
+        files = (p.relative_to(dest).as_posix() for p in dest.rglob("*") if p.is_file())
+        return sum(1 for rel in files if glob_match(parts, rel))
+    if "range" in over:
+        spec = over["range"]
+        return len(range(spec.get("start", 0), spec["stop"], spec.get("step", 1)))
+    if "lines" in over:
+        lines = (dest / str(over["lines"])).read_bytes().splitlines()
+        return max(0, len(lines) - (1 if over.get("header") else 0))
+    return None
+
+
+def declare_item_seconds(dest: Path, hint_s: float) -> float | None:
+    """V1.0 G9-E (D438): write ``split.item_seconds`` (the whole-job hint over
+    the items) into DEST's compute.yaml; returns it, None when not written."""
+    import yaml
+
+    path = dest / "compute.yaml"
+    text = path.read_text(encoding="utf-8")
+    document = yaml.safe_load(text)
+    split = document.get("split")
+    items = item_count(dest, split) if isinstance(split, dict) else None
+    if not items or not (math.isfinite(hint_s) and hint_s > 0):
+        return None
+    from meshforge.common.manifest import MAX_SPLIT_ITEM_SECONDS
+
+    seconds = min(MAX_SPLIT_ITEM_SECONDS, max(1e-6, round(hint_s / items, 6)))
+    split["item_seconds"] = seconds
+    comments = "".join(line for line in text.splitlines(True) if line.startswith("#"))
+    path.write_text(
+        comments + yaml.safe_dump(document, sort_keys=False, default_flow_style=False),
+        encoding="utf-8",
+    )
+    return seconds
+
+
+def build(
+    family: str, dest: Path, params: dict[str, Any], seed: int, declare: bool = True
+) -> int:
     from meshforge.bench.workloads import base, build_job, get_family, materialise
 
     try:
@@ -118,12 +170,32 @@ def build(family: str, dest: Path, params: dict[str, Any], seed: int) -> int:
         base.MIN_RUNTIME_S, base.MAX_RUNTIME_S = saved  # type: ignore[misc]
         materialise.JOB_TIMEOUT = saved_timeout  # type: ignore[misc]
     hint = fam.expected_runtime_s(built.params)
+    declared = declare_item_seconds(built.path, hint) if declare else None
+    content = built.content_digest
+    if declared is not None:  # compute.yaml changed: the folder's own digest
+        content = files_digest(
+            {
+                p.relative_to(built.path).as_posix(): p.read_bytes()
+                for p in built.path.rglob("*")
+                if p.is_file()
+            }
+        )
+    split = built.manifest.model_dump(mode="json").get("split") or {}
+    if declared is not None:
+        split = {**split, "item_seconds": declared}
     print(f"job folder: {built.path}")
     print(f"family: {fam.name}  params: {json.dumps(built.params, sort_keys=True)}")
-    print(f"seed: {seed}  content: {built.content_digest}")
-    print(f"split: {json.dumps(built.manifest.model_dump(mode='json').get('split'))}")
+    print(f"seed: {seed}  content: {content}")
+    print(f"split: {json.dumps(split)}")
     print(f"whole job on the reference laptop, one core: ~{hint:.1f} s")
     print(f"time limit (limits.timeout, per chunk): {limit_s} s")
+    if declared is not None:
+        print(f"declared rate (split.item_seconds): {declared:g} s per item")
+    else:
+        print(
+            "no split.item_seconds: the first run runs whole (D438) - do a "
+            "warm-up run before measuring a split"
+        )
     return EXIT_OK
 
 
@@ -212,6 +284,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     b.add_argument("dest", type=Path)
     b.add_argument("--param", action="append", default=[])
     b.add_argument("--seed", type=int, default=1)
+    b.add_argument("--no-declare", dest="declare", action="store_false")
     v = sub.add_parser("verify")
     v.add_argument("family")
     v.add_argument("outdir", type=Path)
@@ -225,7 +298,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     r.add_argument("--out", type=Path)
     args = parser.parse_args(argv)
     if args.command == "build":
-        return build(args.family, args.dest, _params(args.param), args.seed)
+        return build(
+            args.family, args.dest, _params(args.param), args.seed, args.declare
+        )
     if args.command == "verify":
         return verify(args.family, args.outdir, _params(args.param), args.seed)
     return report(args.runs, args.chunks, args.split, args.single, args.out)

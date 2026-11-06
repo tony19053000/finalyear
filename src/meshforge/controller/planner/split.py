@@ -10,6 +10,8 @@ fresh process. Per node ``n``:
   over the job's items (``history``), else another node's rate scaled by the
   hardware-score ratio (``scaled``, the D131 least-work rule), else the
   fastest other node's rate as is (``history``, ``scaled: false``), else
+  (V1.0 G9-E, D438) the manifest's ``split.item_seconds`` for the strongest
+  node, scaled by the hardware-score ratio (``declared``), else
   ``default_compute_s`` for the whole job (``assumed``).
 * ``f_n`` - seconds per item to fetch the item's bytes (D264: a lane fetches
   only its chunks' items): bytes per item over the best source of the items'
@@ -246,6 +248,8 @@ def item_rate(
         if node_id != node.node_id
     )
     mine = hardware_score(node, slot)
+    if not others and split.item_seconds is not None:
+        return _declared(split.item_seconds, mine, node, slot, snapshot)
     if not others:
         assumed = _per_item(snapshot.config.default_compute_s, split.items)
         assumed = assumed or MIN_SECONDS_PER_ITEM
@@ -290,6 +294,34 @@ def item_rate(
         spi,
         TermSource.HISTORY,
         {"from": kind, "from_node_id": other_id, "samples": samples, "scaled": False},
+    )
+
+
+def _declared(
+    item_seconds: float,
+    mine: float | None,
+    node: NodeSnapshot,
+    slot: Slot,
+    snapshot: ClusterSnapshot,
+) -> Rate:
+    """V1.0 G9-E (D438): the submitter's seconds per item on the strongest
+    node; a node with a lower hardware score is proportionally slower."""
+    spi = max(MIN_SECONDS_PER_ITEM, bounded(item_seconds))
+    best = max(
+        (
+            score
+            for other in snapshot.nodes
+            if (score := hardware_score(other, slot)) is not None
+        ),
+        default=None,
+    )
+    detail: dict[str, Any] = {"from": "manifest", "item_seconds": item_seconds}
+    if mine is None or best is None:
+        return Rate(spi, TermSource.DECLARED, detail)
+    return Rate(
+        max(MIN_SECONDS_PER_ITEM, bounded(spi * best / mine)),
+        TermSource.DECLARED,
+        {**detail, "scaled": True, "score_ratio": round(best / mine, 4)},
     )
 
 

@@ -15,6 +15,8 @@ older replay decodes to the old behaviour) and the explain texts say why.
 from __future__ import annotations
 
 import json
+from dataclasses import replace
+from typing import Any
 
 import pytest
 
@@ -27,6 +29,7 @@ from meshforge.controller.planner import (
     PlanRequest,
     SplitConfig,
     SplitInfo,
+    TermSource,
     TreeNeed,
     plan,
 )
@@ -209,3 +212,116 @@ def test_explain_margin_cell_shows_the_block() -> None:
     cell = _margin_cell(row)
     assert cell.startswith("fail: ")
     assert " <= " in cell and cell.endswith(", blocked: rates_assumed")
+
+
+# ------------------------------------------- r1: the manifest's item_seconds
+
+
+def _hinted(item_seconds: float, items: int = 60, **kw: Any) -> PlanRequest:
+    request = _hf(kw.pop("history", None), items=items)
+    return replace(
+        request,
+        split=replace(
+            request.split or SplitInfo(items=items), item_seconds=item_seconds
+        ),
+    )
+
+
+def test_declared_long_job_splits_on_its_first_run() -> None:
+    """Lead r1: a long GPU-style job declares 10 s per item and splits on
+    run 1 - no history, no switch."""
+    decision = plan(_hinted(10.0, items=600), _fabric(), "cost_model")
+    assert decision.chosen is not None and decision.chosen.mode == "split"
+    assert decision.split is not None and decision.split.split
+    test = decision.split.margin
+    assert test.passed and test.blocked is None
+    singles = [r for r in candidates_json(decision) if r["mode"] != "split"]
+    assert {r["rate_source"] for r in singles if r.get("rate_source")} == {"declared"}
+    # the strongest node runs at the declared rate, a weaker one slower
+    by_node = {
+        r["node_id"]: r["rate_items_s"] for r in singles if r.get("rate_items_s")
+    }
+    assert by_node[L1] == pytest.approx(0.1)
+    assert by_node[L3] == pytest.approx(0.1 * 0.57)
+
+
+def test_declared_tiny_job_still_runs_whole() -> None:
+    """A declared rate is evidence, not a licence: hf's real 0.013 s per item
+    stays whole on its own per-chunk overhead."""
+    decision = plan(_hinted(0.8 / 60), _fabric(), "cost_model")
+    assert decision.split is not None and not decision.split.split
+    assert decision.split.margin.blocked is None
+    assert not decision.split.margin.passed
+
+
+def test_recorded_history_wins_over_the_declared_rate() -> None:
+    hinted = _hinted(10.0, items=600, history=_whole_runs(node_l1=0.8))
+    decision = plan(hinted, _fabric(), "cost_model")
+    assert decision.split is not None and not decision.split.split
+    singles = [r for r in candidates_json(decision) if r["mode"] != "split"]
+    assert "declared" not in {r.get("rate_source") for r in singles}
+
+
+def test_declared_is_weaker_than_scaled_and_stronger_than_assumed() -> None:
+    from meshforge.controller.planner.estimator import weakest
+
+    D, A, S = TermSource.DECLARED, TermSource.ASSUMED, TermSource.SCALED
+    assert weakest(D, S) is D and weakest(D, A) is A
+
+
+def test_item_seconds_replay_key_only_when_given() -> None:
+    plain = to_replay(_hf(), _fabric(), None)
+    assert "item_seconds" not in plain["request"]["split"]
+    hinted = to_replay(_hinted(2.5), _fabric(), None)
+    assert hinted["request"]["split"]["item_seconds"] == 2.5
+    request, _, _ = from_replay(json.loads(canonical_json(hinted)))
+    assert request.split is not None and request.split.item_seconds == 2.5
+    request, _, _ = from_replay(json.loads(canonical_json(plain)))
+    assert request.split is not None and request.split.item_seconds is None
+    # an absent estimate leaves the digest of every decision before it
+    assert (
+        plan(_hf(), _fabric(), "cost_model").snapshot_digest
+        == plan(
+            replace(_hf(), split=replace(_hf().split or SplitInfo(items=60))),
+            _fabric(),
+            "cost_model",
+        ).snapshot_digest
+    )
+    assert (
+        plan(_hinted(2.5), _fabric(), "cost_model").snapshot_digest
+        != plan(_hf(), _fabric(), "cost_model").snapshot_digest
+    )
+
+
+def test_manifest_item_seconds_is_validated_and_hash_stable() -> None:
+    from pydantic import ValidationError
+
+    from meshforge.common.manifest import MAX_SPLIT_ITEM_SECONDS, Manifest
+
+    base: dict[str, Any] = {
+        "name": "hf",
+        "entrypoint": "python main.py {items_file} {out}",
+        "split": {"over": {"range": {"stop": 60}}},
+    }
+    plain = Manifest.model_validate(base)
+    assert plain.split is not None and plain.split.item_seconds is None
+    assert "item_seconds" not in plain.canonical_json()
+    for good in (3, 0.25, MAX_SPLIT_ITEM_SECONDS):
+        m = Manifest.model_validate(
+            {**base, "split": {**base["split"], "item_seconds": good}}
+        )
+        assert m.split is not None and m.split.item_seconds == float(good)
+        assert '"item_seconds"' in m.canonical_json()
+    for bad in (
+        0,
+        -1,
+        "2.5",
+        True,
+        float("inf"),
+        float("nan"),
+        MAX_SPLIT_ITEM_SECONDS * 2,
+    ):
+        with pytest.raises(ValidationError):
+            Manifest.model_validate(
+                {**base, "split": {**base["split"], "item_seconds": bad}}
+            )

@@ -135,6 +135,10 @@ def _without_unset_g3(data: dict[str, Any]) -> dict[str, Any]:
     # V1.0 G9-B: no excluded node = the digest of every decision before it
     if not data["request"].get("exclude_nodes"):
         data["request"].pop("exclude_nodes", None)
+    # V1.0 G9-E (D438): no per-item estimate = the digest before it
+    split_info = data["request"].get("split")
+    if isinstance(split_info, dict) and split_info.get("item_seconds") is None:
+        split_info.pop("item_seconds", None)
     snapshot = data["snapshot"]
     for node in snapshot["nodes"]:
         if node.get("reliability") is None:
