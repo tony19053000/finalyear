@@ -50,6 +50,10 @@ log = get_logger(__name__)
 _GONE = frozenset({NodeState.OFFLINE, NodeState.REVOKED})
 """States whose arrival loses the node's live attempts (D66; REVOKED: D138)."""
 
+_HELLO_OWNS = frozenset({"reconnected", "replaced"})
+"""``end_linger`` causes where a Hello (or an abandoned admission's entry) takes
+over the node's state: the ended entry is not the node's newest truth."""
+
 
 class SessionEnds:
     """The end of a session and its liveness arrow (see module docstring)."""
@@ -61,6 +65,7 @@ class SessionEnds:
         clock: Callable[[], float],
         live: dict[str, LiveSession],
         lingering: dict[str, LiveSession],
+        ended: dict[str, LiveSession],
         claims: AdmissionClaims,
         owned: Callable[[LiveSession], bool],
         wake: asyncio.Event,
@@ -70,6 +75,7 @@ class SessionEnds:
         self._clock = clock
         self._live = live
         self._lingering = lingering
+        self._ended = ended
         self._claims = claims
         self._owned = owned
         """``SessionManager.admission_pending``: a pending Hello owns the state."""
@@ -200,6 +206,8 @@ class SessionEnds:
         else:
             # The final write of this session's chain; the chain task ends after it.
             live.writer.enqueue("close_session", WriteKind.END, close)
+            if event is not None:  # no event: the state is a newer session's
+                self._remember_ended(live)
         log.info(
             "session.closed",
             node_id=live.node_id,
@@ -243,6 +251,8 @@ class SessionEnds:
         if self._lingering.get(entry.node_id) is entry:
             del self._lingering[entry.node_id]
         entry.writer.finish()
+        if cause not in _HELLO_OWNS:
+            self._remember_ended(entry)
         log.info(
             "session.linger_ended",
             node_id=entry.node_id,
@@ -251,6 +261,26 @@ class SessionEnds:
             state=entry.state.value,
             pending_writes=entry.writer.pending,
         )
+
+    def _remember_ended(self, entry: LiveSession) -> None:
+        """Keep ``entry`` as its node's newest ended session until its chain is
+        done (CI run 42181066876).
+
+        Its final state writes may still be queued (a slow database, or an
+        abandoned admission's entry waiting for the cancelled task), so the node
+        row can lag behind it - e.g. read ONLINE after a lease already expired.
+        A Hello admitted meanwhile takes its prior state from here, not the row.
+        """
+        task = entry.writer.task
+        if task is None or task.done():
+            return  # nothing queued: the row is the truth
+        self._ended[entry.node_id] = entry
+
+        def forget(_: asyncio.Task[None]) -> None:
+            if self._ended.get(entry.node_id) is entry:
+                del self._ended[entry.node_id]
+
+        task.add_done_callback(forget)
 
     async def _close_session(self, live: LiveSession, reason: SessionEndReason) -> bool:
         """``close_session`` for ``live``; quiet when an abandoned admission's
