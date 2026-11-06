@@ -12,6 +12,9 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 import pytest
+
+pytest.importorskip("sqlalchemy", reason="needs the controller extra")
+
 from sqlalchemy.exc import DBAPIError
 
 from meshforge.controller.jobs.dispatcher import Dispatcher, DispatcherStats

@@ -70,6 +70,8 @@ _PWD = (
 #: (path under src/meshforge, the comparison as ``ast.unparse`` prints it) ->
 #: why it is not a credential check that needs a constant-time compare.
 ALLOWED: dict[tuple[str, str], str] = {
+    # V1.0 G9-D2 (D440): a PostgreSQL SQLSTATE (40P01 / 40001), public data
+    ("controller/store/conflicts.py", "code not in CONFLICT_SQLSTATES"): _HTTP,
     ("agent/migration/safe_source.py", "user.pw_gid != gid"): _PWD,
     ("agent/migration/safe_source.py", "m != user.pw_name"): _PWD,
     ("agent/migration/safe_source.py", "p.pw_gid == gid"): _PWD,

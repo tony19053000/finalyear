@@ -40,7 +40,7 @@ follow that row's update chain can wait for each other; PostgreSQL then aborts
 one with ``40P01`` (rare; reproduced under load in V1.0 G9-D r1 with the server
 log "while locking tuple ... in relation work_queue"). Nothing is half-applied
 (the caller's transaction rolls back); callers re-run the whole transaction
-(the controller's chunk store does, bounded: V1.0 G9-D2, D440).
+(the controller's store does, bounded: V1.0 G9-D2, D440).
 
 Completions of one queue therefore serialise on the queue row for the length of
 the caller's transaction; that is what lets the last commit see

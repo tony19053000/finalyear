@@ -9,8 +9,8 @@ import pytest
 
 from meshforge.workqueue import core
 from meshforge.workqueue.core import (
-    FenceReason,
     Fenced,
+    FenceReason,
     Item,
     ItemFailed,
     ItemState,
