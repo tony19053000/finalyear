@@ -525,3 +525,9 @@ SIGNAL: capture-pushed
 - L1's 11-05 GPU-probe/index_url messages were not acted on in time; superseded by LEAD's v0.17.1 note (use extra_index_urls instead).
 - nvidia-smi now: RTX 2050, 4096 MiB, driver 581.83, CUDA 13.0 - driver OK.
 - Merged origin/main. Next: HUMAN downloads + runs MeshForge-Agent-Setup-0.17.1-1.exe, then config + L2 rows (G9-B a/b, G9-C, G9-F).
+
+## 2026-11-10 — v0.17.1 upgrade + G9-B a
+- Downloaded MeshForge-Agent-Setup-0.17.1-1.exe (57,575,567 B, matches release asset; sha256 dc11aeb2...6f5b64); human ran it. Service Running; `compute --version` 0.17.1; node shows agent version 0.17.1, online.
+- GPU now visible: RTX 2050, 4 GiB, driver 581.83, cc 8.6 (Lead item 5: no longer "-").
+- G9-B a: capabilities include exec-venv, exec-gpu, env-policy:fa8403bc823f, cuda; no exec-torch. PASS.
+- Note: L2 never applied the old index_url workaround, so nothing to remove; extra_index_urls is still to add.
