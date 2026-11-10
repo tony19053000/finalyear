@@ -713,7 +713,11 @@ class SplitService:
         if isinstance(got, FenceCause):
             self._fenced(live, "lease_renew", got.value, lane.attempt_id)
             return
-        await self._note_stalls(live, body)
+        if got[1] == 0:
+            # D451-R1: only a renewal the store fully accepted may mark stalls - a
+            # refused lease is not this lane's, so it must not plant a mark on a
+            # peer's lease (a partly refused renewal waits for the next one).
+            await self._note_stalls(live, body)
         self.stats.renewed += got[0]
         self.stats.renew_refused += got[1]
         if got[1]:

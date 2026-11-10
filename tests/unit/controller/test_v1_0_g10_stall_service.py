@@ -158,11 +158,6 @@ async def test_marks_and_peaks_are_bounded() -> None:
 
 
 @pytest.mark.asyncio
-@pytest.mark.xfail(
-    strict=True,
-    reason="DEFECT D451-R1: _renew marks stalls for leases the store REFUSED "
-    "(not held by this lane); a node can plant marks on a peer's lease",
-)
 async def test_a_refused_lease_is_not_marked_stalled() -> None:
     svc = _service(FakeStore(renew=(0, 1)))
     await svc._renew(_live(), _renew({(7, 1): 40.0}))
