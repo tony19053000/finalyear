@@ -971,3 +971,6 @@ result: job ran OK (chunks compute_ms ~130, check=ok) but the planner SPLIT it o
     Links measured (Wi-Fi 7-25 MB/s, some H3AX7QQY rows stale 32 h = old revoked L3).
 FINDING (Lead): uncalibrated per-item rate makes tiny jobs split; use a measured/benchmark rate (or the job's hint ~0.8 s) before the margin test.
 evidence: lab/reports/raw/2026-11-05-V0.10-mode3/{d-network.txt,d-run.log,d-explain.txt}
+
+### 2026-11-10 - resume after v0.17.1
+read: LEAD-to-ALL 20261106-120000 (re-run list) + 20261110-165039 (resume). Downloaded v0.17.1 .debs (sha256 OK). Cued ALL to upgrade + drop workarounds.
