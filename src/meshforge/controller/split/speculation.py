@@ -23,6 +23,16 @@ elsewhere). Then, inside that request's transaction:
    every rule under the queue + item locks, so a race (the original committed,
    a new chunk became pending, the budget went) is a refusal, not a copy.
 
+**Stalled chunks first (V1.0 G10, D451).** A lane reports a chunk whose
+process makes no progress (no output, ~no CPU past its stall threshold) with
+``stalled_s`` on its lease renewals; the service marks it. While a mark is
+live, the **next** lane that asks - idle at the tail or freed from its own
+chunk while chunks are still pending - gets a copy of the stalled chunk first
+(:func:`speculate_for` with ``stalled``): no time estimate is needed (a chunk
+that makes no progress is predicted never to finish) and pending items do not
+hold the copy back; every other rule stands (another node, one live ordinary
+lease, the job's speculation budget, ``split.speculative``).
+
 The first committed result wins (:func:`meshforge.workqueue.store.complete`);
 the other lease is superseded and its lane gets ``CancelChunk``; a later result
 of it is ``already_done`` and, when its digest differs while
@@ -60,6 +70,7 @@ from meshforge.workqueue.tables import work_item, work_lease
 __all__ = [
     "HISTORY",
     "PLANNER",
+    "STALLED",
     "SiteTime",
     "SiteTimesCache",
     "Speculated",
@@ -74,6 +85,8 @@ HISTORY: Final = "history"
 """A node's chunk time measured from this job's committed chunks."""
 PLANNER: Final = "planner"
 """A node's chunk time from the planner's predicted rate (no chunk yet)."""
+STALLED: Final = "stalled"
+"""D451: a copy issued because the original was reported making no progress."""
 _SINGLE_MODES: Final = frozenset({"local", "offload"})
 """Decision rows that carry one node's ``rate_items_s`` (D265)."""
 
@@ -346,13 +359,27 @@ async def speculate_for(
     avoid: Collection[int] = (),
     cache: SiteTimesCache | None = None,
     done: int | None = None,
+    stalled: Mapping[int, tuple[int, float]] | None = None,
 ) -> Speculated | SpeculationRefusal | None:
     """Issue a speculative copy to the idle lane ``attempt_id`` on ``node_id``
     (module docstring), in the caller's transaction. ``None`` = nothing worth
     duplicating now; a :class:`SpeculationRefusal` = the pick lost a race
-    under the locks (nothing changed)."""
+    under the locks (nothing changed). ``stalled`` (D451): ``item id ->
+    (lease seq, stalled_s)`` of the stalled leases - only those are
+    considered, without time estimates and even with chunks pending."""
     if queue.policy.speculative_max_frac <= 0:
         return None  # split.speculative: false (or the operator's 0)
+    if stalled is not None:
+        return await _speculate_stalled(
+            db,
+            queue=queue,
+            job_id=job_id,
+            attempt_id=attempt_id,
+            node_id=node_id,
+            now=now,
+            avoid=avoid,
+            stalled=stalled,
+        )
     candidates = await wq.speculation_candidates(
         db, queue.id, holder=attempt_id, site=node_id
     )
@@ -430,3 +457,72 @@ async def speculate_for(
         copy_source=out.copy_source,
     )
     return out
+
+
+async def _speculate_stalled(
+    db: AsyncSession,
+    *,
+    queue: wq.QueueInfo,
+    job_id: str,
+    attempt_id: str,
+    node_id: str,
+    now: dt.datetime,
+    avoid: Collection[int],
+    stalled: Mapping[int, tuple[int, float]],
+) -> Speculated | SpeculationRefusal | None:
+    """D451: a copy of the longest-stalled chunk this lane may duplicate."""
+    if not stalled:
+        return None
+    candidates = await wq.speculation_candidates(
+        db, queue.id, holder=attempt_id, site=node_id, only=list(stalled)
+    )
+    best: tuple[float, Item, Lease] | None = None
+    for item in candidates:
+        live = item.live_leases
+        if item.id in avoid or node_id in item.failed_sites or len(live) != 1:
+            continue
+        original = live[0]
+        seq, stalled_s = stalled[item.id]
+        if original.speculative or original.site == node_id or original.seq != seq:
+            continue  # not the stalled lease any more, or this lane's own node
+        if best is None or (stalled_s, -item.idx) > (best[0], -best[1].idx):
+            best = (stalled_s, item, original)
+    if best is None:
+        return None
+    stalled_s, item, original = best
+    got = await wq.speculate(
+        db, item_id=item.id, holder=attempt_id, site=node_id, now=now, stalled=True
+    )
+    if isinstance(got, SpeculationRefusal):
+        log.info(
+            "controller.split.speculation_refused",
+            job_id=job_id,
+            attempt_id=attempt_id,
+            node_id=node_id,
+            chunk=item.idx,
+            refusal=got.value,
+            reason=STALLED,
+        )
+        return got
+    elapsed = max(0.0, (now - original.leased_at).total_seconds())
+    pick = SpeculationPick(item, original, elapsed, 0.0, stalled_s, 0.0)
+    log.info(
+        "controller.split.speculated",
+        job_id=job_id,
+        attempt_id=attempt_id,
+        node_id=node_id,
+        chunk=item.idx,
+        lease_seq=got.seq,
+        holder_attempt_id=original.holder,
+        holder_node_id=original.site,
+        elapsed_s=round(elapsed, 3),
+        stalled_s=round(stalled_s, 1),
+        reason=STALLED,
+    )
+    return Speculated(
+        grant=got,
+        pick=pick,
+        holder_node=original.site,
+        holder_source=STALLED,
+        copy_source=STALLED,
+    )

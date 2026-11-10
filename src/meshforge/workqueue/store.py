@@ -1008,11 +1008,21 @@ async def _pending_left(db: AsyncSession, queue_id: int) -> int:
 
 
 async def speculation_candidates(
-    db: AsyncSession, queue_id: int, *, holder: str, site: str | None = None
+    db: AsyncSession,
+    queue_id: int,
+    *,
+    holder: str,
+    site: str | None = None,
+    only: Collection[int] | None = None,
 ) -> list[Item]:
     """Leased items ``holder`` at ``site`` may duplicate now, oldest lease first
     (:func:`.core.speculation_candidates`); read-only, no locks. ``[]`` while
-    items are pending or the queue is closed."""
+    items are pending or the queue is closed.
+
+    ``only`` (V1.0 G10, D451): just these item ids - **stalled** items the
+    agent reported as making no progress - and then pending items do not
+    hold the copy back (waiting for the tail is what left a hung chunk
+    alone for 17 minutes)."""
     site = holder if site is None else site
     queue = await get_queue(db, queue_id)
     if queue is None or queue.state is not QueueState.OPEN:
@@ -1022,17 +1032,18 @@ async def speculation_candidates(
         speculated_items=queue.speculated_count,
         max_frac=queue.policy.speculative_max_frac,
     )
-    pending = await _pending_left(db, queue_id)
+    pending = 0 if only is not None else await _pending_left(db, queue_id)
     if pending:
         return []
-    rows = (
-        await db.execute(
-            select(*_ITEM_COLUMNS).where(
-                work_item.c.queue_id == queue_id,
-                work_item.c.state == ItemState.LEASED.value,
-            )
-        )
-    ).all()
+    if only is not None and not only:
+        return []
+    where = [
+        work_item.c.queue_id == queue_id,
+        work_item.c.state == ItemState.LEASED.value,
+    ]
+    if only is not None:
+        where.append(work_item.c.id.in_(sorted(only)))
+    rows = (await db.execute(select(*_ITEM_COLUMNS).where(*where))).all()
     lease_rows = (
         await db.execute(
             select(work_lease).where(
@@ -1058,10 +1069,13 @@ async def speculate(
     site: str | None = None,
     now: dt.datetime,
     timeout_s: float | None = None,
+    stalled: bool = False,
 ) -> Grant | SpeculationRefusal:
     """Issue the speculative copy of ``item_id`` to ``holder`` at ``site``,
     re-checking every rule under the locks (D262/D266: no pending item left,
-    budget, one live ordinary lease held elsewhere)."""
+    budget, one live ordinary lease held elsewhere). ``stalled`` (D451): the
+    item's lease was reported making no progress - pending items left do not
+    refuse the copy; every other rule still holds."""
     _aware(now, names=(holder, site or holder), timeout_s=timeout_s)
     site = holder if site is None else site
     queue_id = await _queue_of(db, item_id)
@@ -1072,7 +1086,7 @@ async def speculate(
         return SpeculationRefusal.UNKNOWN_ITEM
     if queue.state != QueueState.OPEN.value:
         return SpeculationRefusal.QUEUE_CLOSED
-    if await _pending_left(db, queue_id):
+    if not stalled and await _pending_left(db, queue_id):
         return SpeculationRefusal.PENDING_LEFT
     policy = _policy(queue)
     _row, item = (await _load_items(db, [item_id]))[item_id]
