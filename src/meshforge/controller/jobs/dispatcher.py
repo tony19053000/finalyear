@@ -118,7 +118,12 @@ from meshforge.controller.jobs.execution_store import (
 from meshforge.controller.jobs.logs import LogHub
 from meshforge.controller.jobs.peers import PeerSources
 from meshforge.controller.jobs.planning import DispatchPlanner, MlServingStats
-from meshforge.controller.jobs.recovery import RecoverySteps, _Offline, _Reconcile
+from meshforge.controller.jobs.recovery import (
+    RecoverySteps,
+    _Offline,
+    _Reconcile,
+    _Revoked,
+)
 from meshforge.controller.jobs.reports import parse_status
 from meshforge.controller.jobs.store import JobRecord, JobStoreError
 from meshforge.controller.jobs.transitions import AttemptEvent
@@ -178,7 +183,7 @@ class _Acked:
     message_id: str = ""
 
 
-type _Item = _Status | _Acked | _Reconcile | _Offline | ChunkWork
+type _Item = _Status | _Acked | _Reconcile | _Offline | _Revoked | ChunkWork
 
 
 class Dispatcher(RecoverySteps):
@@ -452,7 +457,7 @@ class Dispatcher(RecoverySteps):
         self._put(_Reconcile(live, held))
 
     def _on_node_offline(self, live: LiveSession, event: LivenessEvent) -> None:
-        if self._put(_Offline(live.node_id, live.session_id, event)):
+        if self._put(_Offline(live.node_id, live.session_id, event, live.cert_serial)):
             pending = self._offline_pending
             pending[live.node_id] = pending.get(live.node_id, 0) + 1
 
@@ -547,6 +552,8 @@ class Dispatcher(RecoverySteps):
                 await self._store.mark_start_acked(item.attempt_id, item.fencing_token)
         elif isinstance(item, _Reconcile):
             await self._reconcile(item)
+        elif isinstance(item, _Revoked):
+            await self._revoked(item)  # D445 r1
         elif isinstance(item, ChunkWork):
             if self._split is not None:
                 await self._split.handle(item)
@@ -744,6 +751,7 @@ class Dispatcher(RecoverySteps):
         if attempt is None:
             return
         if outcome.ended:
+            self._held.pop(attempt.id, None)  # D445 r1: no longer waiting
             self._end_tokens(attempt.id)
             if self._logs is not None and outcome.kind is StatusKind.APPLIED:
                 self._logs.finalize(attempt.id, None if report is None else report.logs)

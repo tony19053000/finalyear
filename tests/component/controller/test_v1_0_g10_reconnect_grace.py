@@ -215,6 +215,11 @@ async def test_a_reconnect_within_the_grace_keeps_the_attempt(
             await _drop(rt, agent)
             ((_id, state, *_),) = await _attempts(rt, job_id)
             assert state == "running"  # held, not lost
+            async with api_client(rt, token=token_of(rt)) as client:
+                held = (await client.get(f"/v1/jobs/{job_id}")).json()
+            (shown,) = held["attempts"]
+            assert shown["state"] == "running"
+            assert shown["reconnect_grace_until"] is not None  # D445 r1 M1
 
             back = FakeAgent(channel, node_id=node, epoch=2)
             await back.connect(hardware=_hw())
@@ -235,6 +240,7 @@ async def test_a_reconnect_within_the_grace_keeps_the_attempt(
             async with api_client(rt, token=token_of(rt)) as client:
                 body = (await client.get(f"/v1/jobs/{job_id}")).json()
             assert body["state"] == "succeeded", body
+            assert body["attempts"][0]["reconnect_grace_until"] is None
             assert dispatcher.stats.attempts_lost == 0
         finally:
             await agent.close()
@@ -435,3 +441,53 @@ async def test_a_held_lane_keeps_its_chunk_leases(
                 await fake.close()
             if back is not None:
                 await back.close()
+
+
+async def test_a_superseded_certificate_during_the_grace_ends_the_attempt_at_once(
+    rt_long: ControllerRuntime,
+) -> None:
+    """D445 r1 (D1): the node is offline (attempt held) when its certificate is
+    superseded by a re-enrolment - no session exists for ``cert_superseded``
+    to end, yet the held attempt can never come back: lost at once."""
+    import datetime as dt
+
+    from meshforge.controller.revocation import supersede
+    from meshforge.controller.store.engine import create_session_factory
+
+    rt = rt_long
+    node = str(new_node_id())
+    async with session_channel(rt, node) as channel:
+        agent = FakeAgent(channel, node_id=node)
+        try:
+            await agent.connect(hardware=_hw())
+            agent.start_heartbeats(HB_S)
+            job_id, _start = await _running_job(rt, agent)
+            assert rt.manager is not None
+            live = rt.manager.get(node)
+            assert live is not None and live.cert_serial
+            serial = live.cert_serial
+            await _drop(rt, agent)
+            assert rt._engine is not None
+            async with create_session_factory(rt._engine)() as db, db.begin():
+                await supersede(
+                    db,
+                    node_id=node,
+                    serial=serial,
+                    not_after=dt.datetime.now(dt.UTC) + dt.timedelta(days=1),
+                )
+            assert rt.revocations is not None
+            await rt.revocations.sync()
+
+            async def lost() -> bool:
+                return (await _attempts(rt, job_id))[0].state == "lost"
+
+            await _until(lost, timeout_s=GRACE_LONG_S - 3.0)  # well inside it
+            first = (await _attempts(rt, job_id))[0]
+            assert (first.failure_type, first.detail) == (
+                "node_lost",
+                "cert_superseded",
+            )
+            assert rt.dispatcher is not None
+            assert rt.dispatcher._held == {}
+        finally:
+            await agent.close()

@@ -58,7 +58,11 @@ def _dispatcher(queue_size: int = 8) -> Any:
 
 
 def _live(node_id: str) -> Any:
-    return SimpleNamespace(node_id=node_id, session_id=f"ses_{node_id}")
+    return SimpleNamespace(
+        node_id=node_id,
+        session_id=f"ses_{node_id}",
+        cert_serial=None,  # D445 r1
+    )
 
 
 def test_a_node_with_a_queued_offline_item_is_left_to_that_item() -> None:

@@ -237,6 +237,16 @@
             ],
             "title": "Output Digest"
           },
+          "reconnect_grace_until": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Utc"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "role": {
             "$ref": "#/components/schemas/AttemptRole",
             "default": "run"

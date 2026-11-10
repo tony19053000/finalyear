@@ -872,6 +872,8 @@ class ControllerRuntime:
         # accepted; every HelloAck carries it, the interceptor and the HTTPS
         # policy check against it, a periodic sync picks up CLI revocations.
         revocations = Revocations(RevocationStore(engine), manager)
+        if self.dispatcher is not None:  # D445 r1: held attempts of a revoked node
+            revocations.on_revoked = self.dispatcher.on_revoked
         await revocations.sync()
         self.revocations = revocations
         manager.revoked_serials = revocations.sent_serials

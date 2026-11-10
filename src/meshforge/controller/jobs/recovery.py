@@ -11,7 +11,7 @@ D119).
   Attempts the agent holds that the controller does not consider live get
   ``CancelAttempt{release}`` (D75).
 * **OFFLINE** caused by the agent -> its live attempts ``LOST``.
-* **Reconnect grace (V1.0 G10, D445)** - when the OFFLINE is a **lease
+* **Reconnect grace (V1.0 G10, D445; r1)** - when the OFFLINE is a **lease
   expiry** and ``[controller.liveness] attempt_grace_s`` > 0, the node's
   ``RUNNING`` attempts (Mode 1 jobs and split lanes) are not lost at once:
   they are *held* (in memory; the row stays ``RUNNING``, nothing is re-placed;
@@ -25,6 +25,13 @@ D119).
   orphan sweep skips held attempts. A controller restart forgets the holds;
   its own ``reconnect_grace_s`` then applies. Trade-off: a node that really
   died delays the retry of its running attempts by ``attempt_grace_s``.
+  r1: a revocation of the node - or of the certificate its last session used
+  (superseded by a re-enrolment) - that comes while the node is already
+  offline ends its held attempts at once (:meth:`on_revoked`, after every
+  revocation sync); every other end of a held attempt (a report, the
+  backstop, a cancel) drops the hold. A node that flaps gets a fresh grace
+  for each loss after a resume (bounded only by the job's own time limit and
+  the backstop); a second loss before the resume keeps the first deadline.
 * **Orphan sweep** - after ``reconnect_grace_s`` of controller uptime, live
   attempts of nodes with no live or lingering session are ``LOST``.
 * Every ``LOST`` goes through :meth:`~.execution_store.ExecutionStore.
@@ -48,7 +55,7 @@ from __future__ import annotations
 import datetime as dt
 from collections import OrderedDict
 from dataclasses import dataclass
-from typing import Final
+from typing import TYPE_CHECKING, Any, Final
 
 from meshforge.common.errors import FailureType
 from meshforge.common.logging import get_logger
@@ -88,6 +95,19 @@ class _Offline:
     node_id: str
     session_id: str
     event: LivenessEvent
+    cert_serial: str | None = None
+    """D445 r1: the ended session's certificate serial (a later revocation of
+    it ends the held attempts at once)."""
+
+
+@dataclass(frozen=True, slots=True)
+class _Revoked:
+    """D445 r1: the revocation set now lists ``nodes`` / ``serials`` - held
+    attempts of a revoked node, or held under a revoked (superseded)
+    certificate, cannot come back: lose them now, not at the grace's end."""
+
+    nodes: frozenset[str]
+    serials: frozenset[str]
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,6 +117,10 @@ class _Held:
     entry: LiveAttempt
     until: float
     """Dispatcher clock (monotonic) when the grace ends."""
+    serial: str | None = None
+    """The certificate serial of the session that held it (D445 r1)."""
+    wall_until: dt.datetime | None = None
+    """``until`` on the wall clock (shown by the API, D445 r1 M1)."""
 
 
 class RecoverySteps(DispatchSteps):
@@ -113,6 +137,10 @@ class RecoverySteps(DispatchSteps):
     """D445: attempt_id -> a RUNNING attempt in its node's reconnect grace."""
     _attempt_grace_s: float
     """``[controller.liveness] attempt_grace_s`` (0 = no grace)."""
+
+    if TYPE_CHECKING:
+
+        def _put(self, item: Any) -> bool: ...
 
     # ------------------------------------------------------------ D66
 
@@ -229,17 +257,24 @@ class RecoverySteps(DispatchSteps):
         )
         for entry in await self._store.live_attempts(item.node_id):
             if grace > 0 and entry.attempt.state is AttemptState.RUNNING:
-                await self._hold(entry, grace)
+                await self._hold(entry, grace, item.cert_serial)
                 continue
             await self._lose(entry, detail)
 
-    async def _hold(self, entry: LiveAttempt, grace: float) -> None:
+    async def _hold(
+        self, entry: LiveAttempt, grace: float, serial: str | None = None
+    ) -> None:
         """D445: keep a RUNNING attempt of a node whose lease expired for
         ``grace`` seconds (module docstring)."""
         attempt = entry.attempt
         if attempt.id in self._held:
             return  # already waiting: the first lease expiry's grace counts
-        self._held[attempt.id] = _Held(entry, self._clock() + grace)
+        self._held[attempt.id] = _Held(
+            entry,
+            self._clock() + grace,
+            serial,
+            self._wall() + dt.timedelta(seconds=grace),
+        )
         leases = None
         if attempt.role is AttemptRole.LANE and self._split is not None:
             try:
@@ -279,6 +314,41 @@ class RecoverySteps(DispatchSteps):
                 self._attempt_grace_s - max(0.0, held.until - self._clock()), 1
             ),
         )
+
+    def held_until(self, attempt_id: str) -> dt.datetime | None:
+        """D445 r1 (M1): when the reconnect grace of a held attempt ends (wall
+        clock), None = not held. Read by the API (same event loop)."""
+        held = self._held.get(attempt_id)
+        return None if held is None else held.wall_until
+
+    def on_revoked(self, nodes: frozenset[str], serials: frozenset[str]) -> None:
+        """D445 r1 (D1): called after every revocation sync. A node revoked -
+        or a certificate superseded - while its attempts are held has no
+        session for ``REVOKE``/``cert_superseded`` to end: queue their loss."""
+        if any(
+            h.entry.attempt.node_id in nodes
+            or (h.serial is not None and h.serial in serials)
+            for h in self._held.values()
+        ):
+            self._put(_Revoked(nodes, serials))
+
+    async def _revoked(self, item: _Revoked) -> None:
+        for attempt_id, held in list(self._held.items()):
+            node_id = held.entry.attempt.node_id
+            if node_id in item.nodes:
+                detail = "node_revoked"
+            elif held.serial is not None and held.serial in item.serials:
+                detail = "cert_superseded"
+            else:
+                continue
+            log.warning(
+                "controller.jobs.attempt_grace_ended",
+                job_id=held.entry.attempt.job_id,
+                attempt_id=attempt_id,
+                node_id=node_id,
+                cause=detail,
+            )
+            await self._lose(held.entry, detail)
 
     async def _grace_expiry(self) -> None:
         """D445: held attempts whose grace ended - today's node-loss path."""
@@ -353,6 +423,7 @@ class RecoverySteps(DispatchSteps):
     async def _backstop(self) -> None:
         for entry in await self._store.overdue_running(self._settings.backstop_grace_s):
             attempt = entry.attempt
+            self._held.pop(attempt.id, None)  # D445 r1: ended here, not held
             outcome = await self._store.end_attempt(
                 attempt.id,
                 attempt.fencing_token,

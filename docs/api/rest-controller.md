@@ -1700,6 +1700,7 @@ Type: enum: `assigned`, `staging`, `env_ready`, `running`, `uploading`, `done`, 
 | `missing_outputs` | array of string | no | - |
 | `node_id` | string | yes | - |
 | `output_digest` | string (nullable) | no | - |
+| `reconnect_grace_until` | [Utc](#schema-utc) (nullable) | no | - |
 | `role` | [AttemptRole](#schema-attemptrole) | no | default `run` |
 | `started_at` | [Utc](#schema-utc) (nullable) | no | - |
 | `state` | [AttemptState](#schema-attemptstate) | yes | - |
