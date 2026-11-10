@@ -450,3 +450,14 @@ def test_env_image_changes_give_the_job_its_tmp_back() -> None:
     own = dr.env_image_changes({"Env": ["TMPDIR=/scratch", "X"]})
     assert 'ENV TMPDIR="/scratch"' in own
     assert not any(dr.ENV_BUILD_TMP in c for c in plain + own)
+
+
+def test_env_image_changes_tmpdir_edge_cases_g10() -> None:
+    """D442 adversarial: an empty / hostile base TMPDIR never yields a broken
+    or injected ENV instruction; the build folder is never the result."""
+    assert 'ENV TMPDIR="/tmp"' in dr.env_image_changes({"Env": ["TMPDIR="]})
+    assert 'ENV TMPDIR="/tmp"' in dr.env_image_changes({"Env": "garbage"})
+    evil = dr.env_image_changes({"Env": ['TMPDIR=/a"\nUSER root']})
+    assert not any("\n" in c for c in evil)
+    assert sum(c.startswith("ENV TMPDIR") for c in evil) == 1
+    assert not any(dr.ENV_BUILD_TMP in c for c in evil)
