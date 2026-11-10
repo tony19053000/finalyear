@@ -962,3 +962,15 @@ __PYVENV_LAUNCHER__/pyvenv.cfg home; inheritable SetErrorMode; CPU cap during to
 Nothing pushed. Worktrees: .claude/worktrees/agent-* (3, old), ~/Desktop/mf-chat-lead, a prunable chat worktree.
 NEXT: finish D445 tests -> tester+reviewer for D445, D446, D448-D450 -> D451 implement+test -> full gates -> push -> CI -> bump 0.17.2
 + CHANGELOG + regenerate API docs -> tag v0.17.2 -> LEAD-to-ALL chat (re-run steps in docs/briefs/progress/V1.0-G10-lab-fixes.md).
+
+## G10 -> v0.17.2 state (update 2026-11-11, final account switch)
+CLOSED: D442 D443 D444 D446(+r1 7aa351bb) D447 D448 D449 D450; D445 grace done incl. r1 dc0a2a5d (revoke/supersede during grace, UI/CLI "waiting").
+D451: agent side committed (ffca4bb0 direct base python + SetErrorMode; ad69e81d stall watch, LeaseRenew stalled_s), NOT tested by tester.
+Controller half = WIP commit (split/service, speculation, store, records, messages, telemetry model, workqueue/store, migration
+0038_chunk_stalled, test_v1_0_g10_stall_speculation.py): agent was stopped mid test run - state unknown; known: mypy 2 errors in
+split/store.py (`stalled` kw) and test_v10_g8_telemetry_unit chunk-columns test need updating for the stalled_s column.
+NEXT: finish D451 controller (rules: stalled lease -> early speculative copy on an idle lane; single lane keeps renewing + alert;
+no idle lane -> speculate first when one frees), make tests green -> tester+reviewer D451 -> full gates (ruff, format, mypy src,
+lint-imports, full unit ~19 min, component) -> push -> CI (Windows runner runs D451 Windows-only tests) -> bump 0.17.2 + CHANGELOG +
+regen API docs/OpenAPI -> tag v0.17.2 -> LEAD-to-ALL chat with re-run steps from docs/briefs/progress/V1.0-G10-lab-fixes.md.
+Nothing pushed.
