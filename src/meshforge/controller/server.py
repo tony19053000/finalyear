@@ -772,6 +772,7 @@ class ControllerRuntime:
             on_split_change=tracker.touch,
             calibration=self.calibration,
             ml=self.ml_source,  # V0.15 G4 (D336)
+            attempt_grace_s=cfg.liveness.attempt_grace_s,  # V1.0 G10 (D445)
             on_integrity_failure=(
                 functools.partial(
                     self.scrubber.suspect_tree_soon, why="attempt_integrity_error"

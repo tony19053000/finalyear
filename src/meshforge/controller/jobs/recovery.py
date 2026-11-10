@@ -11,6 +11,20 @@ D119).
   Attempts the agent holds that the controller does not consider live get
   ``CancelAttempt{release}`` (D75).
 * **OFFLINE** caused by the agent -> its live attempts ``LOST``.
+* **Reconnect grace (V1.0 G10, D445)** - when the OFFLINE is a **lease
+  expiry** and ``[controller.liveness] attempt_grace_s`` > 0, the node's
+  ``RUNNING`` attempts (Mode 1 jobs and split lanes) are not lost at once:
+  they are *held* (in memory; the row stays ``RUNNING``, nothing is re-placed;
+  a lane's chunk leases are extended through the grace) for
+  ``attempt_grace_s``. The node's next Reconcile that lists one with **its
+  own fencing token** resumes it (``controller.jobs.attempt_resumed``); one it
+  does not list is lost as before (``agent_lost_attempt``); one still held
+  when the grace ends is lost ``node_offline`` (``attempt_grace_expired`` in
+  the log). Any other OFFLINE (a revocation, a Goodbye, a replaced or expired
+  certificate) loses every live attempt at once, held ones included. The
+  orphan sweep skips held attempts. A controller restart forgets the holds;
+  its own ``reconnect_grace_s`` then applies. Trade-off: a node that really
+  died delays the retry of its running attempts by ``attempt_grace_s``.
 * **Orphan sweep** - after ``reconnect_grace_s`` of controller uptime, live
   attempts of nodes with no live or lingering session are ``LOST``.
 * Every ``LOST`` goes through :meth:`~.execution_store.ExecutionStore.
@@ -47,6 +61,7 @@ from meshforge.common.states import (
 )
 from meshforge.controller.jobs.dispatch import DispatchSteps
 from meshforge.controller.jobs.execution_store import LiveAttempt, StatusKind
+from meshforge.controller.jobs.store import JobStoreError
 from meshforge.controller.jobs.transitions import AttemptEvent
 from meshforge.controller.liveness import LivenessEvent
 from meshforge.controller.session.live import LiveSession
@@ -75,6 +90,15 @@ class _Offline:
     event: LivenessEvent
 
 
+@dataclass(frozen=True, slots=True)
+class _Held:
+    """D445: a RUNNING attempt whose node's lease expired, waiting for it."""
+
+    entry: LiveAttempt
+    until: float
+    """Dispatcher clock (monotonic) when the grace ends."""
+
+
 class RecoverySteps(DispatchSteps):
     """See module docstring."""
 
@@ -85,6 +109,10 @@ class RecoverySteps(DispatchSteps):
     _offline_pending: dict[str, int]
     """node_id -> queued, not yet handled ``_Offline`` items (see
     :meth:`_sweep_orphans`)."""
+    _held: dict[str, _Held]
+    """D445: attempt_id -> a RUNNING attempt in its node's reconnect grace."""
+    _attempt_grace_s: float
+    """``[controller.liveness] attempt_grace_s`` (0 = no grace)."""
 
     # ------------------------------------------------------------ D66
 
@@ -98,6 +126,7 @@ class RecoverySteps(DispatchSteps):
             attempt, job = entry.attempt, entry.job
             known.add(attempt.id)
             if item.held.get(attempt.id) == attempt.fencing_token:
+                self._resume(attempt.id, live)
                 if self._logs is not None:  # after a controller restart, too
                     known_log = self._logs.live_state(attempt.id)
                     self._logs.open(
@@ -193,8 +222,79 @@ class RecoverySteps(DispatchSteps):
         detail = (
             "node_revoked" if item.event is LivenessEvent.REVOKE else "node_offline"
         )
+        # D445: only a lease expiry may come back - a revocation, a Goodbye or
+        # a replaced certificate never does (held attempts are lost too)
+        grace = (
+            self._attempt_grace_s
+            if item.event is LivenessEvent.LEASE_EXPIRED
+            else 0.0
+        )
         for entry in await self._store.live_attempts(item.node_id):
+            if grace > 0 and entry.attempt.state is AttemptState.RUNNING:
+                await self._hold(entry, grace)
+                continue
             await self._lose(entry, detail)
+
+    async def _hold(self, entry: LiveAttempt, grace: float) -> None:
+        """D445: keep a RUNNING attempt of a node whose lease expired for
+        ``grace`` seconds (module docstring)."""
+        attempt = entry.attempt
+        if attempt.id in self._held:
+            return  # already waiting: the first lease expiry's grace counts
+        self._held[attempt.id] = _Held(entry, self._clock() + grace)
+        leases = None
+        if attempt.role is AttemptRole.LANE and self._split is not None:
+            try:
+                leases = await self._split.hold_lane(attempt.id, grace)
+            except JobStoreError as exc:  # the visibility timeout still applies
+                log.warning(
+                    "controller.jobs.grace_leases_unheld",
+                    attempt_id=attempt.id,
+                    error=type(exc).__name__,
+                )
+        self.stats.attempts_held += 1
+        log.warning(
+            "controller.jobs.attempt_grace",
+            job_id=attempt.job_id,
+            attempt_id=attempt.id,
+            node_id=attempt.node_id,
+            fencing_token=attempt.fencing_token,
+            role=attempt.role.value,
+            grace_s=grace,
+            leases_held=leases,
+        )
+
+    def _resume(self, attempt_id: str, live: LiveSession) -> None:
+        """D445: the node is back and reports the held attempt with its own
+        fencing token - it goes on (nothing was re-placed)."""
+        held = self._held.pop(attempt_id, None)
+        if held is None:
+            return
+        self.stats.attempts_resumed += 1
+        log.info(
+            "controller.jobs.attempt_resumed",
+            job_id=held.entry.attempt.job_id,
+            attempt_id=attempt_id,
+            node_id=live.node_id,
+            session_id=live.session_id,
+            waited_s=round(
+                self._attempt_grace_s - max(0.0, held.until - self._clock()), 1
+            ),
+        )
+
+    async def _grace_expiry(self) -> None:
+        """D445: held attempts whose grace ended - today's node-loss path."""
+        now = self._clock()
+        for attempt_id, held in list(self._held.items()):
+            if held.until > now:
+                continue
+            log.warning(
+                "controller.jobs.attempt_grace_expired",
+                job_id=held.entry.attempt.job_id,
+                attempt_id=attempt_id,
+                node_id=held.entry.attempt.node_id,
+            )
+            await self._lose(held.entry, "node_offline")
 
     async def _sweep_orphans(self, live: list[LiveAttempt] | None = None) -> None:
         if self._clock() - self._started_at < self._settings.reconnect_grace_s:
@@ -203,6 +303,8 @@ class RecoverySteps(DispatchSteps):
             live = await self._store.live_attempts()
         for entry in live:
             node_id = entry.attempt.node_id
+            if entry.attempt.id in self._held:
+                continue  # D445: in its node's reconnect grace
             if node_id in self._offline_pending:
                 # The node's session just ended (lease expiry, Goodbye,
                 # revocation) and its ``_Offline`` item waits in the queue
@@ -221,6 +323,7 @@ class RecoverySteps(DispatchSteps):
 
     async def _lose(self, entry: LiveAttempt, detail: str) -> None:
         attempt = entry.attempt
+        self._held.pop(attempt.id, None)
         outcome = await self._store.end_attempt(
             attempt.id,
             attempt.fencing_token,

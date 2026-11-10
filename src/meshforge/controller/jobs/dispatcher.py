@@ -215,8 +215,12 @@ class Dispatcher(RecoverySteps):
         on_split_change: Callable[[str | None], None] | None = None,
         calibration: CalibrationSource | None = None,
         ml: MlInputSource | None = None,
+        attempt_grace_s: float = 0.0,
     ) -> None:
         self._store = store
+        self._attempt_grace_s = attempt_grace_s
+        """V1.0 G10 (D445): ``[controller.liveness] attempt_grace_s``."""
+        self._held = {}
         self._calibration = calibration
         """V0.14 G2 (D293): the planner calibration read once per tick."""
         self._ml = ml
@@ -564,6 +568,7 @@ class Dispatcher(RecoverySteps):
         if expired and self._on_split_change is not None:
             self._on_split_change(None)
         await self._backstop()
+        await self._grace_expiry()  # V1.0 G10 (D445)
         # One read of the live attempts for both sweeps. An attempt the first
         # one ends is still listed for the second: ending it again is a no-op
         # (end_attempt answers DUPLICATE).

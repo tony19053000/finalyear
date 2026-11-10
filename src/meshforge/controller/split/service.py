@@ -617,6 +617,15 @@ class SplitService:
         """V0.10 G5: a job's parts index (the combine's input and fetch scope)."""
         return await self._store.parts_index(digest)
 
+    async def hold_lane(self, attempt_id: str, seconds: float) -> int:
+        """V1.0 G10 (D445): keep a lane's leases through its node's grace
+        (``seconds`` from now, plus the normal visibility timeout)."""
+        return await self._store.hold_lane(
+            attempt_id,
+            timeout_s=min(86_400.0, seconds + self._settings.visibility_timeout_s),
+            now=self._wall(),
+        )
+
     async def held_leases(self, attempt_id: str) -> int:
         """Live leases of one lane (its upload grant's refresh quota)."""
         return await self._store.held_leases(attempt_id)

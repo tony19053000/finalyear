@@ -850,6 +850,35 @@ class ChunkStore:
             return (renewed, len(outs) - renewed)
 
     @typed_store_call
+    @retry_conflicts("split.hold_lane")
+    async def hold_lane(
+        self, attempt_id: str, *, timeout_s: float, now: dt.datetime
+    ) -> int:
+        """V1.0 G10 (D445): every live lease of the lane ``attempt_id`` lasts
+        at least until ``now + timeout_s`` (never shortened) - its node lost its
+        lease and the controller waits ``attempt_grace_s`` for it to come back
+        with the lane. The number of leases extended."""
+        async with self._sessions() as db, db.begin():
+            rows = (
+                await db.execute(
+                    select(work_lease.c.item_id, work_lease.c.seq).where(
+                        work_lease.c.holder == attempt_id,
+                        work_lease.c.state == LeaseState.LIVE.value,
+                    )
+                )
+            ).all()
+            if not rows:
+                return 0
+            outs = await wq.renew(
+                db,
+                holder=attempt_id,
+                leases=[(int(r.item_id), int(r.seq)) for r in rows],
+                now=now,
+                timeout_s=timeout_s,
+            )
+            return sum(1 for o in outs if isinstance(o, Renewed))
+
+    @typed_store_call
     @retry_conflicts("split.expire")
     async def expire(self, *, now: dt.datetime, limit: int = 500) -> int:
         """Expire due leases (their chunks go back to pending)."""
