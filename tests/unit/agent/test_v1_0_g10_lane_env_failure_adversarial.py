@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from pathlib import Path
 from typing import Any
 
@@ -81,10 +82,9 @@ async def test_cancel_during_env_phase_is_not_an_env_failure(tmp_path: Path) -> 
     host = _Host(tmp_path, [_grant(0), _grant(1)])
     rt = _Rt("cancelled_in_env")
     attempt = _attempt(tmp_path)
-    try:
+    # a stop/cancel path may raise; the asserts below decide
+    with contextlib.suppress(Exception):
         await asyncio.wait_for(_run(host, rt, attempt), 5)  # type: ignore[arg-type]
-    except Exception:  # noqa: BLE001 - a stop/cancel path may raise; see asserts
-        pass
     assert not any(
         s is AttemptState.FAILED
         and kw.get("failure")
