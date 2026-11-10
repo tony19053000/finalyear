@@ -974,3 +974,5 @@ evidence: lab/reports/raw/2026-11-05-V0.10-mode3/{d-network.txt,d-run.log,d-expl
 
 ### 2026-11-10 - resume after v0.17.1
 read: LEAD-to-ALL 20261106-120000 (re-run list) + 20261110-165039 (resume). Downloaded v0.17.1 .debs (sha256 OK). Cued ALL to upgrade + drop workarounds.
+check: L1 controller+agent 0.17.1-1. compute nodes: JARVISM3, AILESH (L2), LAPTOP-7ORVM30G (L4), Mohit (L3 new node_01M6K0TZ...) all online 0.17.1.
+    L2 GPU column still "-" (L4 shows 0:0%). No chat replies yet (configs/nvidia-smi pending).
