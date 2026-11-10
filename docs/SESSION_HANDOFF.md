@@ -950,3 +950,15 @@ G9-A..F + D437-D441 done, CI green (run 42201726246), tag v0.17.1, release run 4
 Lab message posted: lab/chat/20261106-120000-LEAD-to-ALL.md (upgrade, remove F4/index_url workarounds, re-run table).
 Next: collect lab replies; open follow-ups: D441 r1 notes (ends.py:276 stale older entry; speculation test comment),
 sample_interval_s < 0.25 s, ML an_src_declared flag, lab checklist V0.10 mentions split.item_seconds, Mode 2/4 deferred.
+
+## G10 -> v0.17.2 state (2026-11-11, account switch)
+CLOSED (tested+reviewed): D442, D443 (553a9416, tester a534ec5d), D444 (56220107, c9d86a1c, tester 1e451bf6), D447 (83af0a23).
+IMPLEMENTED, NOT TESTED: D446 lane ends on drain = BUG-3 (f8dcc7f7); D448 old-agent env_error backstop, D449 Docker blip retryable,
+D450 Docker ENOSPC disk_full (e625c7da, renumber d9309609).
+WIP: D445 reconnect grace (0ed7b380): new test passes 5/5; NOT re-run: controller unit tier, ruff, older component tests that kill
+agents (set attempt_grace_s=0 where they expect immediate node_lost; one unidentified F seen).
+NOT STARTED (code): D451 BUG-4 L4 idle chunk; notes in empty commit 2f389d10 (candidates: run base interpreter directly via
+__PYVENV_LAUNCHER__/pyvenv.cfg home; inheritable SetErrorMode; CPU cap during torch import; plus progress watchdog -> early speculation).
+Nothing pushed. Worktrees: .claude/worktrees/agent-* (3, old), ~/Desktop/mf-chat-lead, a prunable chat worktree.
+NEXT: finish D445 tests -> tester+reviewer for D445, D446, D448-D450 -> D451 implement+test -> full gates -> push -> CI -> bump 0.17.2
++ CHANGELOG + regenerate API docs -> tag v0.17.2 -> LEAD-to-ALL chat (re-run steps in docs/briefs/progress/V1.0-G10-lab-fixes.md).
