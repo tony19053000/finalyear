@@ -826,6 +826,7 @@ One lease a lane holds (work item id + its lease sequence number).
 |---|---|---|---|---|
 | `item_id` | 1 | `uint64` | - | - |
 | `lease_seq` | 2 | `uint64` | - | - |
+| `stalled_s` | 3 | `double` | - | V1.0 G10 BUG-4 (D451), LeaseRenew only (0 elsewhere): seconds this lease's chunk process has made no progress (no output, ~no CPU) once that passed the agent's stall threshold ([agent.split] stall_*); 0 = progressing or not judged. The agent only reports; the controller decides (speculate early / reclaim). |
 
 #### message `ChunkRequest`
 

@@ -30,7 +30,13 @@ from meshforge.agent.execution.lane_base import (
 from meshforge.agent.execution.lane_staging import ChunkStagingSteps
 from meshforge.agent.execution.outputs import OutputError
 from meshforge.agent.execution.runtime import RunObserver, RunResult, Stream
+from meshforge.agent.execution.stall_watch import (
+    ChunkProgress,
+    StallPolicy,
+    watch_chunk,
+)
 from meshforge.agent.execution.workdir_cap import WorkdirCap, stop_watch
+from meshforge.agent.settings import SplitSettings
 from meshforge.common.errors import FailureType, is_retryable
 from meshforge.common.hashing import Digest
 from meshforge.common.logging import get_logger
@@ -277,11 +283,49 @@ class ChunkRunSteps(ChunkStagingSteps):
             free_read_timeout_s=self._cfg.free_disk_read_timeout_s,
         )
         out_cap.baseline = max(0, await self._step(attempt, out_cap.measure_once()))
+        # V1.0 G10 BUG-4 (D451): no output and ~no CPU for the stall threshold
+        # is reported with the lease (never killed here, :mod:`.stall_watch`)
+        policy = self._stall_policy()
+        key = lane.current
+        progress = ChunkProgress(
+            policy,
+            started=self._clock(),
+            expected_s=lane.pace.expected_s(int(chunk.item_count)),
+        )
+
+        async def seen(stream: Stream, data: bytes) -> None:
+            progress.output(self._clock())
+            await on_output(stream, data)
+
+        def report(stalled_s: float) -> None:
+            if key is not None and lane.current == key:
+                lane.stalled[key] = stalled_s
+
         run: asyncio.Future[RunResult] = asyncio.ensure_future(
-            runtime.run(spec, on_output, observer=observer)
+            runtime.run(spec, seen, observer=observer)
         )
         lane.run_task = run
         attempt.step = run
+        stall = asyncio.create_task(
+            watch_chunk(
+                progress,
+                policy,
+                clock=self._clock,
+                pid=lambda: _worker_pid(observer),
+                report=report,
+                log_fields={
+                    "node_id": self._node_id,
+                    "job_id": attempt.job_id,
+                    "attempt_id": attempt.attempt_id,
+                    "chunk": int(chunk.chunk_index),
+                    "expected_s": progress_expected(lane, chunk),
+                    "threshold_s": policy.threshold_s(
+                        lane.pace.expected_s(int(chunk.item_count))
+                    ),
+                },
+            ),
+            name=f"lane-stall:{attempt.attempt_id}",
+        )
 
         def over(written: int) -> None:
             lane.capped = written
@@ -305,6 +349,11 @@ class ChunkRunSteps(ChunkStagingSteps):
             attempt.step = None
             await stop_watch(watch)
             await stop_watch(out_watch)
+            await stop_watch(stall)
+            if key is not None:
+                lane.stalled.pop(key, None)
+        if result.ok and not progress.stalled:
+            lane.pace.add(result.run_s, items=int(chunk.item_count))
         lane.env_s += result.env_s
         attempt.env_hash = result.env_hash or attempt.env_hash
         if attempt.stop_reason is not None:
@@ -330,6 +379,13 @@ class ChunkRunSteps(ChunkStagingSteps):
             kind = result.failure_type or FailureType.ENV_ERROR
             raise LaneEnvFailedError(kind, text, is_retryable(kind))
         return result
+
+    def _stall_policy(self) -> StallPolicy:
+        """``[agent.split] stall_*`` (D451); the defaults where the host has
+        no settings (unit-test hosts)."""
+        settings = getattr(self, "_settings", None)
+        split = settings.agent.split if settings is not None else SplitSettings()
+        return StallPolicy.from_settings(split)
 
     def _run_text(self, run: RunResult, lane: LaneState) -> str:
         if lane.capped is not None and lane.capped < 0:
@@ -422,6 +478,21 @@ class ChunkRunSteps(ChunkStagingSteps):
             if not result.HasField("failure")
             else int(result.failure.failure_type),
         )
+
+
+def _worker_pid(observer: RunObserver) -> int | None:
+    """The running workload's pid (D451), None outside the run phase."""
+    if observer.run_started is None or not observer.ident:
+        return None
+    try:
+        return int(observer.ident)
+    except ValueError:
+        return None  # a container id: the Docker runtime is not watched here
+
+
+def progress_expected(lane: LaneState, chunk: agent_pb2.GrantedChunk) -> float | None:
+    expected = lane.pace.expected_s(int(chunk.item_count))
+    return None if expected is None else round(expected, 1)
 
 
 def _draining(lane: LaneState) -> bool:

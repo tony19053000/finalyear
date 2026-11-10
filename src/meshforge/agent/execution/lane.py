@@ -434,7 +434,12 @@ class LaneSteps(ChunkRunSteps):
                 attempt_id=attempt.attempt_id,
                 fencing_token=attempt.token,
                 leases=[
-                    agent_pb2.ChunkLeaseRef(item_id=i, lease_seq=s)
+                    agent_pb2.ChunkLeaseRef(
+                        item_id=i,
+                        lease_seq=s,
+                        # D451: a chunk with no progress says so (0 = fine)
+                        stalled_s=lane.stalled.get((i, s), 0.0),
+                    )
                     for i, s in lane.held
                 ],
             )

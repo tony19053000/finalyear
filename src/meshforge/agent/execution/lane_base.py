@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any, Final
 
 from meshforge.agent.execution.runtime import Stream
 from meshforge.agent.execution.stage_retry import STAGE_RETRYABLE
+from meshforge.agent.execution.stall_watch import PaceHistory
 from meshforge.common.errors import FailureType
 from meshforge.common.hashing import Digest
 from meshforge.common.proto.meshforge.v1 import agent_pb2
@@ -127,6 +128,11 @@ class LaneState:
     tail: Any = None
     """V0.10 G8: the running chunk's stderr tail (``OutputTail``, redacted
     bytes, cleared per chunk) - its end goes with the chunk's result."""
+    stalled: dict[tuple[int, int], float] = field(default_factory=dict)
+    """V1.0 G10 BUG-4 (D451): lease -> ``stalled_s`` of its running chunk (sent
+    with the next ``LeaseRenew``; :mod:`.stall_watch`)."""
+    pace: PaceHistory = field(default_factory=PaceHistory)
+    """D451: this lane's recent per-item run time (the stall threshold)."""
 
 
 class LaneHost:

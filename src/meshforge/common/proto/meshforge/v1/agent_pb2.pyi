@@ -2846,17 +2846,26 @@ class ChunkLeaseRef(_message.Message):
 
     ITEM_ID_FIELD_NUMBER: _builtins.int
     LEASE_SEQ_FIELD_NUMBER: _builtins.int
+    STALLED_S_FIELD_NUMBER: _builtins.int
     item_id: _builtins.int
     lease_seq: _builtins.int
+    stalled_s: _builtins.float
+    """V1.0 G10 BUG-4 (D451), LeaseRenew only (0 elsewhere): seconds this lease's
+    chunk process has made no progress (no output, ~no CPU) once that passed
+    the agent's stall threshold ([agent.split] stall_*); 0 = progressing or
+    not judged. The agent only reports; the controller decides (speculate
+    early / reclaim).
+    """
     def __init__(
         self,
         *,
         item_id: _builtins.int = ...,
         lease_seq: _builtins.int = ...,
+        stalled_s: _builtins.float = ...,
     ) -> None: ...
     _HasFieldArgType: _TypeAlias = _Never  # noqa: Y015
     def HasField(self, field_name: _HasFieldArgType) -> _builtins.bool: ...
-    _ClearFieldArgType: _TypeAlias = _typing.Literal["item_id", b"item_id", "lease_seq", b"lease_seq"]  # noqa: Y015
+    _ClearFieldArgType: _TypeAlias = _typing.Literal["item_id", b"item_id", "lease_seq", b"lease_seq", "stalled_s", b"stalled_s"]  # noqa: Y015
     def ClearField(self, field_name: _ClearFieldArgType) -> None: ...
     def WhichOneof(self, oneof_group: _Never) -> None: ...
 
