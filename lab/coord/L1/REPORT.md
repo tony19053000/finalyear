@@ -1076,3 +1076,4 @@ L2/L4 "no_runtime_for_base - ... no Docker and its agent's Python has no torch (
 controller journal since 00:33: 0 clock alerts (clock_uncertain), max clock_offset_bound_ms 75.6 (< 250), 2 info-level clock_inconsistent flips (L2, bound 61 ms)
 that returned to consistent within seconds - no alert. PASS.
 note: L1 config still has only_binary = false (restore from .bak-g9be pending human).
+### 2026-11-11 05:09 - account switch ON (final). No test running. Next: G9-B f (victim L3). L1 config restore still pending human.

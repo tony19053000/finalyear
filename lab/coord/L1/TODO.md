@@ -626,8 +626,8 @@ DONE: G9-B a/b (L4), G9-B c (L2+L4 PASS; L1 lane WAITS v0.17.2 BUG-1/2), G9-B d 
       G9-E V0.10 B (c2/c3 PASS) + C (c4 PASS). Extra: big mixed GPU+CPU split PASS; BUG-4 (L4 hung chunk) sent to Lead.
 FIRST: HUMAN must restore L1 config: sudo cp /etc/meshforge/config.toml.bak-g9be /etc/meshforge/config.toml && sudo systemctl restart meshforge-agent
        (only_binary=false still set from G9-B e). Then check `systemctl is-active meshforge-agent`.
-LEFT: G9-B h (started 00:33 IST 2026-11-11 = 19:03Z; check controller journal for clock_uncertain alerts after 1 h);
-      G9-B f (revoke a node with a running job - proposed victim L3, human re-join after); G9-B g (--exclude-node L3 on V0.6 G1/G2 with L4 human);
+LEFT: (G9-B h DONE PASS 05:01)
+      NEXT: G9-B f (revoke a node with a running job - proposed victim L3, human re-join after); G9-B g (--exclude-node L3 on V0.6 G1/G2 with L4 human);
       C5.11-e/f/g (5 GB fetch, chunk resume after kill); after v0.17.2: G9-B c with L1 GPU lane. Then V0.9 rest, V0.10 E, V0.14...
 Notes: --node needs node ids (L1 node_01M6BMFVHJVZXC7AET3CFRE3AV, L2 ...GCKN7PYT2J297BT241P436, L3 ...K0TZRNPEGBRN166GP6S61N, L4 ...GGJP3FW5VHBDFKYQ6SF318).
        Job folders in ~/mf-eval (gpu-split, gpu-pref, gpu-big, v010/{mc,hf}, g9be). L2/L3 RAM tight: close big apps before long runs.
