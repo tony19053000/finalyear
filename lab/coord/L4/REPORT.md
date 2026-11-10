@@ -387,3 +387,12 @@ SIGNAL: v08-e-done L4
 ## C8.10-d E2 rerun (chat 20261105-004015-L1-to-L4) - 2026-11-05
 - 8 busy-loop jobs (60 s) started 00:41:18, load ended ~00:42:20; jobs removed 00:44:28.
 SIGNAL: v08-e2-done L4
+
+## G9 upgrade to v0.17.1 (chat 20261106-120000 / 20261110-165039-LEAD-to-ALL) - 2026-11-10
+- nvidia-smi: RTX 3050 Laptop 4 GB, driver 592.27, CUDA 13.1 (answers L1 GPU-probe msg 20261105-134835).
+- L1 msgs 20261105-134913 / -234437 (index_url workaround) superseded by Lead v0.17.1 note; index_url never applied on L4.
+- Installer MeshForge-Agent-Setup-0.17.1-1.exe from release v0.17.1, SHA256 matches SHA256SUMS (dc11aeb2...5b64). Human ran it.
+- current.txt = 0.17.1-1; service MeshForgeAgent Running from 0.17.1-1.
+- config.toml rewritten (Admin): controller_address REMOVED; added [agent.envs] extra_index_urls = ["https://download.pytorch.org/whl/cu126"]; kept [agent.peer] bind. Restart-Service OK.
+- Without controller_address: TCP Established 192.168.31.244 -> 192.168.31.13:47100 (F4 discovery fix works on L4).
+- Note: first two Set-Content attempts failed "Access is denied" (window not elevated); third in Admin window OK.
