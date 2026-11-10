@@ -52,7 +52,8 @@ print("TEMPDIR", tempfile.gettempdir())
 
 @pytest.mark.asyncio
 async def test_job_cannot_use_or_write_the_build_folder(
-    tmp_path: Path, env_tags: list[str]  # noqa: F811
+    tmp_path: Path,
+    env_tags: list[str],  # noqa: F811
 ) -> None:
     from meshforge.agent.execution.docker_runtime import (
         ENV_IMAGE_REPO,
@@ -87,7 +88,8 @@ async def test_job_cannot_use_or_write_the_build_folder(
 
 @pytest.mark.asyncio
 async def test_a_failing_build_is_env_error_and_saves_no_image(
-    tmp_path: Path, env_tags: list[str]  # noqa: F811
+    tmp_path: Path,
+    env_tags: list[str],  # noqa: F811
 ) -> None:
     from meshforge.agent.execution.docker_runtime import DockerConfig, DockerRuntime
     from meshforge.agent.execution.docker_support import open_client
@@ -105,7 +107,10 @@ async def test_a_failing_build_is_env_error_and_saves_no_image(
     log = _Log()
     result = await runtime.run(_spec(tmp_path, pkg, PYTHON_CPU_IMAGE), log)
     assert not result.ok
-    assert result.failure_type is FailureType.ENV_ERROR, (result.reason, log.text()[-800:])
+    assert result.failure_type is FailureType.ENV_ERROR, (
+        result.reason,
+        log.text()[-800:],
+    )
     client = open_client(30)
     try:
         assert not client.containers.list(

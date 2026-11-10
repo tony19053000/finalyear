@@ -28,7 +28,9 @@ class _Rt:
         self.kind = kind
         self.calls = 0
 
-    async def run(self, spec: RunSpec, on_output: Any, *, observer: RunObserver) -> RunResult:
+    async def run(
+        self, spec: RunSpec, on_output: Any, *, observer: RunObserver
+    ) -> RunResult:
         del spec, on_output
         self.calls += 1
         if self.kind == "env_error_after_start":
