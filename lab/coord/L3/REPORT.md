@@ -359,3 +359,19 @@ result: current.txt 0.17.1-1; service Running; SAME node_id node_01M6K0TZRNPEGBR
   Workarounds to remove on L3: none (L3 had no controller_address / index_url lines).
   Re-run table: no L3-only rows; L3 is used by L1's rows (G9-B c no_gpu, G9-B g --exclude-node L3, G9-D mc on L3) - waiting for L1's cues.
 SIGNAL: upgraded L3 version=0.17.1-1 node=node_01M6K0TZRNPEGBRN166GP6S61N
+
+### G9-D L3 - why the agent session drops during long jobs (L1 chat 20261110-200239) - investigated
+when: 2026-11-10 20:14 (local)
+laptop: L3 (MOHIT), v0.17.1-1, node node_01M6K0TZRNPEGBRN166GP6S61N
+commands:
+    Get-CimInstance Win32_OperatingSystem; Get-Process (grouped by name); netsh wlan show interfaces; powercfg (Wi-Fi power save)
+    HUMAN (Administrator): agent.log* lines 13:xx-14:xx UTC (session|lease|state|error|warning|memory|heartbeat|attempt) -> evidence file
+result: **Wi-Fi is NOT the cause**: JARVIS 5 GHz ch 157, signal 93 %, rx/tx 600.5 Mbit/s, Wi-Fi power saving off (AC index 0).
+  **RAM is very tight**: free 0.65 of 7.69 GiB, commit 17.6 / 20.2 GiB. Top users: ChatGPT app x21 1001 MB, claude x12 984 MB, svchost x92 637 MB, msedge x14 468 MB, Memory Compression 304 MB, Defender 281 MB, node x31 231 MB, codex x6 170 MB. Human asked to close ChatGPT/Codex/Edge (not yet done at this check).
+  **Agent log (UTC; IST = +5:30):**
+    13:33:48 attempt_accepted job_01M72TMDAVRB8SEQ50E753TJX9 -> 13:50:57 (17.2 min) `stream_ended` details `lease_expired` (code ABORTED) -> reconnected 13:51:14 (17 s) -> cancel, attempt_released 13:51:21.
+    14:08:41 attempt_accepted job_01M72WM9FA382SMEGZ8Z14KRJZ -> 14:24:01 (15.3 min) `stream_ended` `lease_expired` (ABORTED, lived_s 1967) -> reconnected 14:24:18 -> cancel, released 14:24:28.
+    14:39:53 attempt_accepted job_01M72YDCB1R6V8E3ST71SMVDDW -> 14:40:03 (10 s) `stream_ended` code INTERNAL "Internal error from Core" (lived_s 945) -> reconnected 14:40:12 -> cancel, released.
+  The agent was alive and connected the whole time: `agent.session.command_received` every ~20 s right up to each drop, and it reconnected within 7-17 s. The drop is the CONTROLLER ending the stream with lease_expired while L3 was still receiving its commands.
+BUG? (for Lead): lease expires after ~15-17 min of a 1-core CPU job on L3 although the session stays up; suggests the agent's lease renewals (agent -> controller) are delayed or not sent while the job runs on this 8 GB laptop under heavy memory pressure (1212 ms ping seen by L1), or a renewal bug for long single chunks (G9-D topic). Third drop (gRPC "Internal error from Core") is a different error. Retest after closing the big apps to separate RAM pressure from an agent bug.
+evidence: lab/reports/raw/2026-11-10-G9-D-L3-agent.txt (219 lines, no codes/tokens)
