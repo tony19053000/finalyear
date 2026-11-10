@@ -1,0 +1,9 @@
+compute: uploaded 1 files / 918 bytes, skipped 4
+compute: idempotency key cli-01M73DF9HHNQF8V76MS70196S9 (after a network error, re-run with --idempotency-key cli-01M73DF9HHNQF8V76MS70196S9 to avoid a second job)
+compute:   node_01M6BMFVHJVZXC7AET3CFRE3AV: excluded_by_user - the job's submitter excluded this node (--exclude-node)
+compute:   node_01M6GCKN7PYT2J297BT241P436: no_runtime_for_base - env.base cuda-pytorch needs PyTorch: the node has no Docker and its agent's Python has no torch (install Docker, or PyTorch for the agent; or run it on the venv runtime: env.base python-cpu, resources
+compute:   node_01M6GGJP3FW5VHBDFKYQ6SF318: no_runtime_for_base - env.base cuda-pytorch needs PyTorch: the node has no Docker and its agent's Python has no torch (install Docker, or PyTorch for the agent; or run it on the venv runtime: env.base python-cpu, resources
+compute:   node_01M6GGZ7VNCSRKFAEDH3AX7QQY: revoked - the node was revoked from the fabric
+compute:   node_01M6K0TZRNPEGBRN166GP6S61N: no_gpu - the job requires a GPU and the node has none
+compute:   node_01M6K66M7877NWES0Z93DP3EP8: revoked - the node was revoked from the fabric
+compute: the controller refused the request (409): none of the 6 node(s) of the fabric can ever run this job; see rejections

@@ -1070,3 +1070,4 @@ L2/L4 "no_runtime_for_base - ... no Docker and its agent's Python has no torch (
 1: job_01M73DFYTV45T7KDDGRX4094E2 (docopt==0.6.2 sdist-only, pinned L1): failed env_error "No matching distribution" (wheels-only).
 2: HUMAN appended [agent.envs] only_binary = false to /etc/meshforge/config.toml (backup .bak-g9be) + restart; job_01M73DJD6M58AN2N6CY23AKH8K submitted 00:34:45,
    succeeded 00:34:52 "docopt ok 0.6.2" - no env_known_bad TTL wait. PASS. Config restore pending (human).
+### 2026-11-11 00:40 - account switch (Lead). No test running. L1 config restore (only_binary) pending human. Next steps: TODO "NEXT".

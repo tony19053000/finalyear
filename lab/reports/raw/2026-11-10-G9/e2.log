@@ -1,0 +1,20 @@
+compute: uploaded 0 files / 0 bytes, skipped 3
+compute: idempotency key cli-01M73DJD5Q12TGAKHF4294WRFS (after a network error, re-run with --idempotency-key cli-01M73DJD5Q12TGAKHF4294WRFS to avoid a second job)
+job_01M73DJD6M58AN2N6CY23AKH8K
+Collecting docopt==0.6.2 (from -r /req/requirements.txt (line 1))
+  Downloading docopt-0.6.2.tar.gz (25 kB)
+  Installing build dependencies: started
+  Installing build dependencies: finished with status 'done'
+  Getting requirements to build wheel: started
+  Getting requirements to build wheel: finished with status 'done'
+  Preparing metadata (pyproject.toml): started
+  Preparing metadata (pyproject.toml): finished with status 'done'
+Building wheels for collected packages: docopt
+  Building wheel for docopt (pyproject.toml): started
+  Building wheel for docopt (pyproject.toml): finished with status 'done'
+  Created wheel for docopt: filename=docopt-0.6.2-py2.py3-none-any.whl size=13781 sha256=d751afbaa8f41b3bd37f56c4c5b6443e2643f67a5af8ca75f06eb58ffd2d8318
+  Stored in directory: /tmp/pip-ephem-wheel-cache-yydirl63/wheels/1a/bf/a1/4cee4f7678c68c5875ca89eaccf460593539805c3906722228
+Successfully built docopt
+Installing collected packages: docopt
+Successfully installed docopt-0.6.2
+docopt ok 0.6.2

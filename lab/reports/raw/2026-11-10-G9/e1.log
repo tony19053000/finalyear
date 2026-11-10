@@ -1,0 +1,6 @@
+compute: uploaded 2 files / 556 bytes, skipped 1
+compute: idempotency key cli-01M73DFYS5CCC8F07VJCYN5H7X (after a network error, re-run with --idempotency-key cli-01M73DFYS5CCC8F07VJCYN5H7X to avoid a second job)
+job_01M73DFYTV45T7KDDGRX4094E2
+ERROR: Could not find a version that satisfies the requirement docopt==0.6.2 (from versions: none)
+ERROR: No matching distribution found for docopt==0.6.2
+compute: job_01M73DFYTV45T7KDDGRX4094E2 failed (env_error), workload exit code 1
