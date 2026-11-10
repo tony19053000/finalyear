@@ -539,3 +539,10 @@ SIGNAL: capture-pushed
 - env phase 408.12 s (prepared 4m28s, installed 1m40s) - first ~2.5 GB download; stage 1.73 s.
 - Small note: torch warns "Failed to initialize NumPy" (numpy not in requirements) - harmless.
 - G9-B b: PASS.
+
+## 2026-11-10 — G9-F completion re-run (v0.17.1)
+- PowerShell `compute --install-completion` x2: both "powershell completion installed in ...Microsoft.PowerShell_profile.ps1" (+ ExecutionPolicy hint). Profile contains ONE completion block (Register-ArgumentCompleter count 1) -> installed once.
+- Completes: fresh `powershell` loading the profile, `TabExpansion2 'compute jo'` -> `jobs`. (Human's own window: Enter was pressed instead of Tab, so not a valid try; the TabExpansion2 check is the evidence.) ExecutionPolicy CurrentUser RemoteSigned.
+- cmd.exe: one clear line "tab completion is not available in cmd.exe (Command Prompt) - open PowerShell and run `compute --install-completion` there"; `echo %errorlevel%` = 4.
+- Note: an agent-side `cmd /c` check ran under a PowerShell parent and installed again (exit 0); profile still has one block, so this is not counted.
+- G9-F: PASS.
