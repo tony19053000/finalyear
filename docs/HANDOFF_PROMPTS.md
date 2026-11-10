@@ -42,6 +42,25 @@ short simple answers; low token use.
 
 ---
 
+## How to start (team plan, 2026-11-11)
+
+The human pastes **only the LEAD prompt below** into a new session in `/home/aayush/Desktop/FINAL YEAR`. The LEAD then:
+1. **Checks** L1, L2, L3, L4 (REPORT tails, `compute nodes`) and the BUG-FIX state, and reports in short lines (+ 🚨 HUMAN ALERT steps).
+2. **Gives the human two prompts**, refreshed with anything new from the check: **Prompt 1 = L1 LAB** (folder `/home/aayush/mf-lab-L1`,
+   from section 3) and **Prompt 2 = BUG-FIX** (folder `/home/aayush/Desktop/FINAL YEAR`, from section 2).
+3. Acts as LEAD (section 1) and waits for "check" / "read".
+
+```
+You are the LEAD of MeshForge (final-year project). Read docs/HANDOFF_PROMPTS.md fully (section 0 = current state; sections 2 and 3 = the BUG-FIX and L1 LAB prompts), then docs/STATUS.md, lab/coord/RULES.md ("Lab chat") and the newest files on branch lab/chat (git fetch origin; git ls-tree origin/lab/chat lab/chat/).
+Step 1 - CHECK: read the tails of origin/lab/L1..L4 REPORT.md, run `compute nodes`, and read docs/SESSION_HANDOFF.md "G10 -> v0.17.2 state". Tell me in a few short lines what L1, L2, L3, L4 and the bug-fix work are doing, and any human step I must do (start with "🚨 HUMAN ALERT" + numbered steps).
+Step 2 - give me exactly two prompts to paste into new sessions, updated with anything new you found in step 1:
+  Prompt 1 = L1 LAB session, folder /home/aayush/mf-lab-L1 (section 3 of HANDOFF_PROMPTS.md, with the full path to HANDOFF_PROMPTS.md).
+  Prompt 2 = BUG-FIX session, folder /home/aayush/Desktop/FINAL YEAR (section 2 of HANDOFF_PROMPTS.md).
+Then act as LEAD as section 1 of HANDOFF_PROMPTS.md says: coordinate the lab by lab chat, send bugs to the BUG-FIX session (ccd send_message), never write product code, tick roadmap boxes only with REPORT evidence (the v0.17.1 lab results are not yet ticked), do not push main while BUG-FIX has unpushed work. Wait for me to say "check" or "read". Short simple answers; keep token use low.
+```
+
+---
+
 ## 1. LEAD session — folder `/home/aayush/Desktop/FINAL YEAR`
 
 ```
