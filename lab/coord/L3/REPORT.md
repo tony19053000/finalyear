@@ -375,3 +375,10 @@ result: **Wi-Fi is NOT the cause**: JARVIS 5 GHz ch 157, signal 93 %, rx/tx 600.
   The agent was alive and connected the whole time: `agent.session.command_received` every ~20 s right up to each drop, and it reconnected within 7-17 s. The drop is the CONTROLLER ending the stream with lease_expired while L3 was still receiving its commands.
 BUG? (for Lead): lease expires after ~15-17 min of a 1-core CPU job on L3 although the session stays up; suggests the agent's lease renewals (agent -> controller) are delayed or not sent while the job runs on this 8 GB laptop under heavy memory pressure (1212 ms ping seen by L1), or a renewal bug for long single chunks (G9-D topic). Third drop (gRPC "Internal error from Core") is a different error. Retest after closing the big apps to separate RAM pressure from an agent bug.
 evidence: lab/reports/raw/2026-11-10-G9-D-L3-agent.txt (219 lines, no codes/tokens)
+
+### G9-D L3 - memory freed for the retry - OK
+when: 2026-11-10 20:16 (local)
+commands:
+    Stop-Process ChatGPT, codex, msedge (human asked the agent to end them)
+result: RAM free 0.72 -> 2.14 GiB, commit 17.3 -> 9.96 / 20.2 GiB. L3 ready for the G9-D retry.
+SIGNAL: g9d-retry-ready L3 free=2.14
