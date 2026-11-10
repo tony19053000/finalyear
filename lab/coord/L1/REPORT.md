@@ -1029,3 +1029,6 @@ result: K succeeded 21:02:12. Lanes: L1 done, L3 done, L2 lost (node_lost: node_
     verify (seed 3811327456): OK - every item once, in order, each value recomputed. (first try with seed 41 = my mistake, PROBLEM.)
     U = job_01M731GH4QW7R0SMQY48RWGZ0R (unsplit on L1): output sha256:9d1c3624... = K output. Same digest. C4 PASS.
 evidence: lab/reports/raw/2026-11-10-G9/c4-*
+c4 L2 side (chat 20261110-210811): kills at 20:59:56 (early, before K's lanes) and 21:01:21 (the counted one). Service host stayed up and restarted the
+    child by itself; L2 back online 21:04 (session epoch 65) = AFTER K ended 21:02:12, so L2 did not rejoin K. Result unchanged: C4 PASS.
+    (Note for Lead: Windows service auto-restarts the child, so "do not restart until K ends" cannot be held on Windows; fine here.)
