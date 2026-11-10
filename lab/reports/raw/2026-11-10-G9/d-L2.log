@@ -1,0 +1,18 @@
+compute: uploaded 1 files / 1507 bytes, skipped 6
+compute: idempotency key cli-01M72RXB4B8Z8759H4MGFWPC1V (after a network error, re-run with --idempotency-key cli-01M72RXB4B8Z8759H4MGFWPC1V to avoid a second job)
+job_01M72RXB5XM79SCDC1SZG4SWA5
+
+===== meshforge: chunk 0 (items 0..4999) =====
+Using CPython 3.12.14 interpreter at: C:\Program Files\MeshForge\0.17.1-1\python\python.exe
+Creating virtual environment at: venv\d0d5f19270dca4e5b7e7ebf238dd2eee5028ef9493021662990e436dc6ba1393.building
+Activate with: venv\d0d5f19270dca4e5b7e7ebf238dd2eee5028ef9493021662990e436dc6ba1393.building\Scripts\activate
+Using Python 3.12.14 environment at: venv\d0d5f19270dca4e5b7e7ebf238dd2eee5028ef9493021662990e436dc6ba1393.building
+Resolved 1 package in 237ms
+Downloading numpy (12.0MiB)
+ Downloaded numpy
+Prepared 1 package in 5.21s
+Installed 1 package in 6.92s
+ + numpy==2.5.3
+benchmark chunk 0: split.montecarlo_range {"items":5000,"samples":5000000} compute_ms=1784486.289 check=ok
+compute: the lane finished; following the combine step (attempt 2)
+meshforge combine merge-json: 1 parts -> 1 files, 73892 bytes

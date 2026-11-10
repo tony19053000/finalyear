@@ -994,3 +994,13 @@ run 2 job_01M72RF2RXXF5284Z7K9R0CRB5 (item_seconds 6, --exclude-node JARVISM3): 
   BUG-3 (minor): after the job succeeded, L2's lane att_01M72RF2T052FGBMX4989EPFC2 still shows "running exit=None" (not ended/cancelled).
 verdict: GPU lanes only on GPU nodes PASS (L3 no_gpu); L1 GPU lane FAIL (BUG-1/2); L2 lane did no chunk (env build time) - re-run once L2 env is warm.
 evidence: lab/reports/raw/2026-11-10-G9/c-*.{log,txt}
+
+### G9-D - long single chunk (mc, item_seconds 0.106) on L2/L3/L4 - L2 PASS, L3 node_lost (re-run), L4 running
+note: `--node <hostname>` refused ("NODE_ID is not a canonical node_<ULID>") - known follow-up; used node ids.
+L2 job_01M72RXB5XM79SCDC1SZG4SWA5: succeeded, 1 chunk (0..4999), ~30 min, resumed_chunks=0, "following the combine step". Lease bug FIXED on L2. PASS
+L3 job_01M72TMDAVRB8SEQ50E753TJX9: failed node_lost placed_node_offline - L3 went offline mid-run (asked human: sleep?). Re-run after L4.
+
+### G9-E - hf twice - PASS
+run1 job_01M72WJC4R4EBGR5Y7JE76JYMC: not split (37.47s > 0.9 x 26.13s), rate "(declared)", offload L1, OK.
+run2 job_01M72WJE9XR7V49TN4YH40CTNQ: not split (24.68s > 0.9 x 22.44s). PASS (C5 now OK).
+evidence: lab/reports/raw/2026-11-10-G9/{d-*,e-hf*}

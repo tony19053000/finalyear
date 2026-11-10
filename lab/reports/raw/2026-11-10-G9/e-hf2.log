@@ -1,0 +1,8 @@
+compute: uploaded 0 files / 0 bytes, skipped 66
+compute: idempotency key cli-01M72WJE6JX0YDW7972BGCV585 (after a network error, re-run with --idempotency-key cli-01M72WJE6JX0YDW7972BGCV585 to avoid a second job)
+job_01M72WJE9XR7V49TN4YH40CTNQ
+
+===== meshforge: chunk 0 (items 0..59) =====
+benchmark chunk 0: split.hash_files {"files":60,"rounds":1,"size_kb":1024} compute_ms=582.872 check=ok
+compute: the lane finished; following the combine step (attempt 2)
+meshforge combine concat: 1 parts -> 1 files, 6060 bytes
