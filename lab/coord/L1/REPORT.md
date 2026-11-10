@@ -1004,3 +1004,7 @@ L3 job_01M72TMDAVRB8SEQ50E753TJX9: failed node_lost placed_node_offline - L3 wen
 run1 job_01M72WJC4R4EBGR5Y7JE76JYMC: not split (37.47s > 0.9 x 26.13s), rate "(declared)", offload L1, OK.
 run2 job_01M72WJE9XR7V49TN4YH40CTNQ: not split (24.68s > 0.9 x 22.44s). PASS (C5 now OK).
 evidence: lab/reports/raw/2026-11-10-G9/{d-*,e-hf*}
+G9-D L4 job_01M72VM0B919WJKV4XTF10BHDK: succeeded, 1 chunk, ~38 min (19:21-19:59), resumed_chunks=0, combine OK. PASS
+G9-D L3 re-run job_01M72WM9FA382SMEGZ8Z14KRJZ (sleep=never, plugged in): failed node_lost again at 19:53 (~15 min in). Controller: session.closed
+    end_reason lease_expired, last_rtt_ms 1212, clock_offset -564 ms, commands_unacked 1; L3 RAM 6.9/7.7 GiB. FINDING: L3 (low RAM, weak Wi-Fi?) loses its
+    agent session under a 1-core CPU job; pinned job then fails (no other node). Asked L3 human for RAM/Wi-Fi + agent.log tail.

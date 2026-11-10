@@ -13,3 +13,6 @@ Downloading numpy (12.0MiB)
 Prepared 1 package in 1.76s
 Installed 1 package in 12.68s
  + numpy==2.5.3
+benchmark chunk 0: split.montecarlo_range {"items":5000,"samples":5000000} compute_ms=2259310.236 check=ok
+compute: the lane finished; following the combine step (attempt 2)
+meshforge combine merge-json: 1 parts -> 1 files, 73892 bytes
