@@ -1060,3 +1060,8 @@ L4 answers (chat 20261111-002852): hung pids gone by 00:26 (agent cleaned up, no
     Repro 30/30 torch CUDA starts in the same venv OK (2-3 s), no hang; Event Viewer clean. Unusual: 17 s gap launcher -> worker start (normally ~1 s).
 BUG-4 (medium, Lead): a chunk process that hangs at start (0 CPU, no output) keeps its lease until the queue is empty (~17 min); speculation rescued it.
     Hang not reproducible outside MeshForge (1 in ~120 chunk starts). Q4 (human activity at 00:04) pending.
+
+### G9-B d / C4.15-c - env.base cuda-pytorch with only L2/L3/L4 - PASS
+compute run (pytorch-gpu-venv copy, base cuda-pytorch, gpu required, --exclude-node JARVISM3): 409 "none of the 6 node(s) ... can ever run this job";
+L2/L4 "no_runtime_for_base - ... no Docker and its agent's Python has no torch (install Docker ... or env.base python-cpu ...)", L3 "no_gpu". PASS
+### G9-B h - started 00:33 IST: all agent nodes on Wi-Fi; check clock_uncertain alerts after 1 h.
