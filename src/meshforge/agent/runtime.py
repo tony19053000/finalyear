@@ -104,6 +104,7 @@ from meshforge.agent.identity import (
     NodeIdentity,
     load_or_create,
 )
+from meshforge.agent.loop_watch import LoopWatch
 from meshforge.agent.owner_activity import (
     CpuSampler,
     OwnerActivity,
@@ -514,6 +515,13 @@ async def serve(
     wire_executor(client, executor)
     bench_guard.preempt = executor.preempt_benchmarks
     client.owner_heartbeat = bench_guard.heartbeat_fields
+    # V1.0 G10 (D444): a stall of this process's loop is logged, and its size is
+    # named in every stream end (a lease lost to memory pressure, not the link).
+    loop_watch = LoopWatch(clock=asyncio.get_running_loop().time, node_id=node_id)
+    client.loop_lag = loop_watch.max_lag_s
+    loop_watch_task = asyncio.create_task(
+        loop_watch.run(), name=f"agent-loop-watch:{node_id}"
+    )
     activity_task: asyncio.Task[None] | None = None
     if activity is not None:
         activity.on_change = bench_guard.on_activity
@@ -596,6 +604,7 @@ async def serve(
         await stop_task(renew_task)
         await stop_task(policy_task)
         await stop_task(activity_task)
+        await stop_task(loop_watch_task)
         # Cancelling the scoring task kills its benchmark child tree (runner).
         await stop_task(scores_task)
         if monitor is not None and monitor_task is not None:
