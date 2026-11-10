@@ -1,0 +1,72 @@
+compute: uploaded 1 files / 821 bytes, skipped 2
+compute: idempotency key cli-01M73AP6T93RDMVVNY6JAJ6YZT (after a network error, re-run with --idempotency-key cli-01M73AP6T93RDMVVNY6JAJ6YZT to avoid a second job)
+job_01M73AP6VXPTA6NZEE2X90VNCV
+
+===== meshforge: chunk 2 (items 8..11) =====
+Using CPython 3.12.14 interpreter at: C:\Program Files\MeshForge\0.17.1-1\python\python.exe
+Creating virtual environment at: venv\27b6b2e0996f2f6af058ea56feaa9c909cf77c0e0c459fc390876d208af386a0.building
+Activate with: venv\27b6b2e0996f2f6af058ea56feaa9c909cf77c0e0c459fc390876d208af386a0.building\Scripts\activate
+Using Python 3.12.14 environment at: venv\27b6b2e0996f2f6af058ea56feaa9c909cf77c0e0c459fc390876d208af386a0.building
+Resolved 11 packages in 2.23s
+Downloading sympy (6.0MiB)
+Downloading numpy (12.0MiB)
+Downloading networkx (2.0MiB)
+Downloading torch (118.4MiB)
+ Downloaded networkx
+ Downloaded sympy
+ Downloaded numpy
+ Downloaded torch
+Prepared 11 packages in 1m 20s
+Installed 11 packages in 1m 20s
+ + filelock==4.2.10
+ + fsspec==2026.9.0
+ + jinja2==3.1.6
+ + markupsafe==3.0.4
+ + mpmath==1.3.0
+ + networkx==3.7
+ + numpy==2.5.4
+ + setuptools==84.2.1
+ + sympy==1.14.0
+ + torch==2.14.0
+ + typing-extensions==4.16.0
+Traceback (most recent call last):
+  File "C:\ProgramData\MeshForge\work\att_01M73AP6XATX3J2CY7JX2AV3S4\run_chunk.py", line 20, in <module>
+    torch.cuda.synchronize()
+  File "C:\ProgramData\MeshForge\envs\venv\27b6b2e0996f2f6af058ea56feaa9c909cf77c0e0c459fc390876d208af386a0\Lib\site-packages\torch\cuda\__init__.py", line 1279, in synchronize
+    _lazy_init()
+  File "C:\ProgramData\MeshForge\envs\venv\27b6b2e0996f2f6af058ea56feaa9c909cf77c0e0c459fc390876d208af386a0\Lib\site-packages\torch\cuda\__init__.py", line 584, in _lazy_init
+    raise AssertionError("Torch not compiled with CUDA enabled")
+AssertionError: Torch not compiled with CUDA enabled
+
+===== meshforge: chunk 16 (items 64..67) =====
+Traceback (most recent call last):
+  File "C:\ProgramData\MeshForge\work\att_01M73AP6XATX3J2CY7JX2AV3S4\run_chunk.py", line 20, in <module>
+    torch.cuda.synchronize()
+  File "C:\ProgramData\MeshForge\envs\venv\27b6b2e0996f2f6af058ea56feaa9c909cf77c0e0c459fc390876d208af386a0\Lib\site-packages\torch\cuda\__init__.py", line 1279, in synchronize
+    _lazy_init()
+  File "C:\ProgramData\MeshForge\envs\venv\27b6b2e0996f2f6af058ea56feaa9c909cf77c0e0c459fc390876d208af386a0\Lib\site-packages\torch\cuda\__init__.py", line 584, in _lazy_init
+    raise AssertionError("Torch not compiled with CUDA enabled")
+AssertionError: Torch not compiled with CUDA enabled
+
+===== meshforge: chunk 18 (items 72..75) =====
+Traceback (most recent call last):
+  File "C:\ProgramData\MeshForge\work\att_01M73AP6XATX3J2CY7JX2AV3S4\run_chunk.py", line 20, in <module>
+    torch.cuda.synchronize()
+  File "C:\ProgramData\MeshForge\envs\venv\27b6b2e0996f2f6af058ea56feaa9c909cf77c0e0c459fc390876d208af386a0\Lib\site-packages\torch\cuda\__init__.py", line 1279, in synchronize
+    _lazy_init()
+  File "C:\ProgramData\MeshForge\envs\venv\27b6b2e0996f2f6af058ea56feaa9c909cf77c0e0c459fc390876d208af386a0\Lib\site-packages\torch\cuda\__init__.py", line 584, in _lazy_init
+    raise AssertionError("Torch not compiled with CUDA enabled")
+AssertionError: Torch not compiled with CUDA enabled
+
+===== meshforge: chunk 19 (items 76..79) =====
+Traceback (most recent call last):
+  File "C:\ProgramData\MeshForge\work\att_01M73AP6XATX3J2CY7JX2AV3S4\run_chunk.py", line 20, in <module>
+    torch.cuda.synchronize()
+  File "C:\ProgramData\MeshForge\envs\venv\27b6b2e0996f2f6af058ea56feaa9c909cf77c0e0c459fc390876d208af386a0\Lib\site-packages\torch\cuda\__init__.py", line 1279, in synchronize
+    _lazy_init()
+  File "C:\ProgramData\MeshForge\envs\venv\27b6b2e0996f2f6af058ea56feaa9c909cf77c0e0c459fc390876d208af386a0\Lib\site-packages\torch\cuda\__init__.py", line 584, in _lazy_init
+    raise AssertionError("Torch not compiled with CUDA enabled")
+AssertionError: Torch not compiled with CUDA enabled
+
+===== meshforge: chunk 20 (items 80..83) =====
+compute: job_01M73AP6VXPTA6NZEE2X90VNCV cancelled (cancelled)

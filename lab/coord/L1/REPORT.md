@@ -1048,3 +1048,11 @@ explain: L3 feasible on its CPU slot (rate 0.0244 items/s vs GPU nodes 0.167/s, 
 L3's chunks failed "Torch not compiled with CUDA enabled": my run_chunk.py called torch.cuda.synchronize() unconditionally. Fabric OK: failed_tries 3, chunks
 re-queued, L2/L4 went on. Rates: L2 0.129, L4 0.084 items/s (L4 slower although RTX 3050: tiny MLP is CPU/launch-bound; L4 CPU ~half of L2 also in mc
 runs; power mode already Best performance - open). Fixed script, cancelled at 64/480, re-run.
+
+### Big mixed job run 2 job_01M73B13999W9AWDT89F7KDX2H (480 items, 120 chunks, gpu preferred, L2 GPU + L4 GPU + L3 CPU) - DONE, straggler rescued
+planner: split over 3 nodes, predicted 1575.8 s vs best single 3117.6 s. Chunks: L2 64, L4 30, L3 26 (L3 CPU really used: 0.053 items/s), failed 0.
+Rates: L2 0.13, L4 0.154 (when healthy), L3 0.053 items/s.
+FINDING (L4 hang): chunk 68 on L4 hung from 00:04 IST: launcher 13032 -> python 19640 (431 MB, all 12 threads Wait, CPU 1.6 s), never reached CUDA
+    (nvidia-smi 0 MiB), no output; agent healthy and kept the lease for ~17 min. Speculation copied chunk 68 when the queue emptied (speculated 1),
+    job finished. Lead: (1) a chunk with no progress/output and 0 CPU holds its lease until the end - could speculate earlier;
+    (2) cause of the hang on Windows (torch import/CUDA init deadlock?) unknown - L4 evidence in chat 20261111-002145-L4-to-L1.
