@@ -396,3 +396,11 @@ SIGNAL: v08-e2-done L4
 - config.toml rewritten (Admin): controller_address REMOVED; added [agent.envs] extra_index_urls = ["https://download.pytorch.org/whl/cu126"]; kept [agent.peer] bind. Restart-Service OK.
 - Without controller_address: TCP Established 192.168.31.244 -> 192.168.31.13:47100 (F4 discovery fix works on L4).
 - Note: first two Set-Content attempts failed "Access is denied" (window not elevated); third in Admin window OK.
+
+## G9-C (V0.8 E2 + doctor cpu, v0.17.1) - 2026-11-10 - PASS
+- Admin PowerShell. Load (8 busy jobs, 60 s) started 17:21:13; `meshforge-agent doctor cpu --seconds 60` started right after; ended 17:22:25.
+- doctor header: threads 12, owner max_cpu_percent 50% (live), enforced by Windows Job Object CPU-rate cap.
+- New `cpu` column during load (t=1..49 s): 72-100% (mostly 93-100%); after load ends (t=50..60 s): 34-54%.
+- Old meter `old` column: mostly 0.0% with random 100% spikes (e.g. t=7-9 s 100, t=10-14 s 0) - the old bug, as expected.
+- Result: `cpu` column rises and tracks load; `old` does not. PASS.
+SIGNAL: g9-c-done L4
