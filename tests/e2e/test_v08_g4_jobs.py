@@ -232,7 +232,8 @@ def test_keyboard_only_submit_and_cancel_a_running_job(
     expect(page.get_by_role("region", name="Summary")).to_contain_text(
         "cancelled", timeout=30_000
     )
-    expect(page.get_by_role("button", name="Cancel job")).to_be_disabled()
+    # V1.0 G9: the Cancel button is hidden when the job is finished.
+    expect(page.get_by_role("button", name="Cancel job")).to_have_count(0)
     assert_axe_clean(page, "a cancelled job")
     watch.assert_clean()
 

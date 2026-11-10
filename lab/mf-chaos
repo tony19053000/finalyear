@@ -92,12 +92,14 @@ detach() { # ID BODY ARGS... - run "$SELF BODY ARGS" as the unit mf-chaos-ID
     echo "started mf-chaos-$id: $*"
 }
 
+# A signal trap must end the body: undo runs once from the EXIT trap (G9 CI fix).
+on_signals_exit() { trap 'exit 130' INT; trap 'exit 143' TERM; trap 'exit 129' HUP; }
 nap() { sleep "$1" & wait $! || true; } # a signal interrupts the wait at once
 
 # ------------------------------------------------------------------ bodies
 undo_net() { nmcli networking on 2>/dev/null || true; }
 body_net_down() {
-    trap 'undo_net' EXIT INT TERM HUP
+    trap 'undo_net' EXIT; on_signals_exit
     nmcli networking off
     nap "$1"
 }
@@ -109,7 +111,7 @@ undo_netem() {
 }
 body_netem() {
     NETEM_IFACE=$1
-    trap 'undo_netem' EXIT INT TERM HUP
+    trap 'undo_netem' EXIT; on_signals_exit
     tc qdisc replace dev "$1" root netem delay "${2}ms" loss "${3}%"
     nap "$4"
 }
@@ -121,7 +123,7 @@ body_disk_fill() {
     # O_EXCL: never write into a file (or through a symlink) someone put there;
     # the trap comes after, so a refused create removes nothing.
     (set -C; : > "$1") || die "fill_file: cannot create $1 exclusively"
-    trap 'undo_fill' EXIT INT TERM HUP
+    trap 'undo_fill' EXIT; on_signals_exit
     dir=$(dirname -- "$1")
     avail=$(df --output=avail -B1 -- "$dir" | tail -n 1 | tr -d ' ')
     n=$((avail - $2 * MIB))

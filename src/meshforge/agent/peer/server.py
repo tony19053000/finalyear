@@ -61,6 +61,7 @@ from meshforge.agent.cas.store import AgentCas
 from meshforge.agent.peer.auth import PeerAuthorizer
 from meshforge.agent.settings import PeerSettings
 from meshforge.common import pki
+from meshforge.common.dscp import mark_listener
 from meshforge.common.hashing import Digest
 from meshforge.common.logging import get_logger
 from meshforge.common.netaddr import check_bind_address
@@ -314,7 +315,14 @@ class PeerBlobServer:
             ssl_handshake_timeout=(
                 self._cfg.idle_timeout_s if self._tls is not None else None
             ),
+            # V1.0 G9-A (D430): mark the listeners before the first accept
+            start_serving=False,
         )
+        for sock in self._server.sockets:
+            # Accepted sockets inherit the listener's IP_TOS (Linux): every
+            # blob this server sends is background traffic (CS1).
+            mark_listener(sock, self._cfg.dscp_bulk, where="agent_peer")
+        await self._server.start_serving()
         self.port = int(self._server.sockets[0].getsockname()[1])
         log.info(
             "agent.peer.listening",

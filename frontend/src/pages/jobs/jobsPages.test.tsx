@@ -392,7 +392,7 @@ describe("Job detail (0.8.5, D176)", () => {
     });
     renderDetail(done);
     await screen.findByRole("heading", { level: 1 });
-    expect(screen.getByRole<HTMLButtonElement>("button", { name: "Cancel job" }).disabled).toBe(true);
+    expect(screen.queryByRole("button", { name: "Cancel job" })).toBeNull();
     await userEvent.click(screen.getByRole("tab", { name: "Outputs" }));
     const link = await screen.findByRole("link", { name: "Download outputs" });
     expect(link.getAttribute("href")).toBe(`/v1/blobs/${"ab".repeat(32)}`);

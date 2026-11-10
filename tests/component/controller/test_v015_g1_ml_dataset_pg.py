@@ -293,7 +293,11 @@ async def runtime(pg_settings: DatabaseSettings) -> AsyncIterator[ControllerRunt
     settings = g2_settings(
         pg_settings,
         jobs={"dispatch_interval_s": 0.1},
-        split={"visibility_timeout_s": 5.0, "wait_retry_s": 0.2},
+        split={
+            "visibility_timeout_s": 5.0,
+            "wait_retry_s": 0.2,
+            "require_measured_rates": False,  # Mode 3 rows, not D438: first run
+        },
         planner={"default_env_s": ENV_S},
         liveness=LivenessSettings(
             heartbeat_interval_s=HB_S, miss_allowance_s=0.1, lease_multiplier=3

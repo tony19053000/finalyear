@@ -6,7 +6,7 @@ the policy's score and the predicted total, or the rejection code and reason;
 the predicted terms of each ranked candidate **with their source** (and,
 V0.6 G4, the node(s) or ``controller`` a transfer's bandwidth came from - one
 per missing tree, D131 - with the age of the controller's transfer history)
-(``measured`` / ``history`` / ``scaled`` / ``assumed`` - checklist 18: nothing
+(``measured`` / ``history`` / ``scaled`` / ``declared`` / ``assumed`` - checklist 18: nothing
 assumed reads as measured); and, once the attempt ran, predicted vs actual
 per term with the ratio (V0.14 G5, D320: the API's ``actual_s`` / ``ratio``,
 the calibration's own term -> phase match) and the five measured phases.
@@ -340,7 +340,8 @@ def _rate_cell(candidate: Mapping[str, Any]) -> str:
 
 def _margin_cell(candidate: Mapping[str, Any]) -> str:
     """``pass: 41.00s <= 46.80s = (1 - 0.1) x 52.00s (node_a)`` for a set row
-    (``, forced: <why>`` when no set was compared, D265); the code of a
+    (``, forced: <why>`` when no set was compared, D265; ``, blocked:
+    rates_assumed`` when only assumed rates made it fast enough, D438); the code of a
     rejected one."""
     from meshforge.cli.render import _num
 
@@ -349,8 +350,11 @@ def _margin_cell(candidate: Mapping[str, Any]) -> str:
     test = candidate.get("margin_test")
     if not isinstance(test, Mapping):
         return _DASH
+    blocked = test.get("blocked")
+    blocked = blocked if isinstance(blocked, str) and blocked else None
     verdict = "pass" if test.get("passed") is True else "fail"
-    sign = "<=" if test.get("passed") is True else ">"
+    # V1.0 G9-E (D438): a blocked set was fast enough on time (<=)
+    sign = "<=" if test.get("passed") is True or blocked else ">"
     margin = _num(test.get("margin"))
     forced = test.get("forced")
     return (
@@ -359,6 +363,7 @@ def _margin_cell(candidate: Mapping[str, Any]) -> str:
         f"{_DASH if margin is None else f'{margin:g}'}) x "
         f"{_seconds(test.get('best_single_s'))} ({test.get('best_single_node_id')})"
         + (f", forced: {forced}" if isinstance(forced, str) and forced else "")
+        + (f", blocked: {blocked}" if blocked else "")
     )
 
 

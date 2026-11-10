@@ -62,7 +62,11 @@ async def runtime(pg_settings: DatabaseSettings) -> AsyncIterator[ControllerRunt
         jobs={"dispatch_interval_s": 0.1},
         admission_timeout_s=1.2,
         # leases outlive the slowest chunk (fake lanes never renew)
-        split={"visibility_timeout_s": 60.0, "wait_retry_s": 0.1},
+        split={
+            "visibility_timeout_s": 60.0,
+            "wait_retry_s": 0.1,
+            "require_measured_rates": False,  # lanes, not D438: split on a first run
+        },
         liveness=LivenessSettings(
             heartbeat_interval_s=HB_S, miss_allowance_s=0.1, lease_multiplier=3
         ),
@@ -455,17 +459,35 @@ async def test_original_node_lost_mid_copy_the_copy_finishes(
     def copy_takes_a_while(grant: Any) -> float:
         return 1.5 if grant.speculative else FAST
 
+    # The copy's result is held until the original's lease is back: the copy
+    # (1.5 s) and the lost node's lease (1.5 s from its last heartbeat) used to
+    # race, and a copy landing first rightly ends the original's lease
+    # ``superseded`` instead (CI runs 41713315162, 42181066876).
+    copy_result = asyncio.Event()
+    copy_result.set()
     async with _lanes(
         runtime,
         [
             {"chunk_speed": _slow_from(CHUNKS - 4, 30.0)},
-            {"chunk_speed": copy_takes_a_while},
+            {"chunk_speed": copy_takes_a_while, "gate": copy_result},
         ],
     ) as lanes:
         original, copier = lanes
         job_id = await _submit(runtime, http, tmp_path)
         await _until(lambda: copier.speculative)
+        copy_result.clear()  # the copy is mid-chunk (1.5 s): its result waits
         await original.kill()
+
+        async def original_released() -> bool:
+            return any(
+                r.idx == copier.speculative[0][0]
+                and not r.speculative
+                and r.state == "released"
+                for r in await _leases(runtime, job_id)
+            )
+
+        await _until(original_released)
+        copy_result.set()
         job, _ = await _wait_job(runtime, job_id)
         assert job.state is JobState.SUCCEEDED, (job.failure_type, job.failure_detail)
         await _ledger_check(runtime, job_id, CHUNKS)

@@ -274,6 +274,7 @@ def split_info(
         chunk_items=spec.chunk.items,
         min_nodes=spec.min_nodes,
         max_nodes=spec.max_nodes,
+        item_seconds=spec.item_seconds,  # V1.0 G9-E (D438)
     )
 
 
@@ -293,6 +294,7 @@ def plan_request(
     benchmark: bool = False,
     split: SplitInfo | None = None,
     node_set: Sequence[str] = (),
+    exclude_nodes: Sequence[str] = (),
 ) -> PlanRequest:
     resources = manifest.resources
     return PlanRequest(
@@ -320,4 +322,5 @@ def plan_request(
         benchmark=benchmark,
         split=split,
         node_set=tuple(sorted(set(node_set))),
+        exclude_nodes=tuple(sorted(set(exclude_nodes))),
     )

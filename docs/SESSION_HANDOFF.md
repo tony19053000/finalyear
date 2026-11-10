@@ -11,7 +11,7 @@ Read docs/SESSION_HANDOFF.md §1, then docs/STATUS.md, then lab/coord/ANNOUNCE.m
 LAB NOW (2026-11-04): 4 laptops joined + online on v0.17.0: L1 JARVISM3 Linux 192.168.31.13 (controller + agent, RTX 3050), L2 AILESH Win 192.168.31.155 (RTX 2050), L3 MOHIT Win 192.168.31.71 (NEW laptop, no NVIDIA; old L3 TIWARI_JI retired, backup branch lab/L3-old-TIWARI_JI), L4 LAPTOP-7ORVM30G Win 192.168.31.244 (RTX 3050). Done in lab: V0.2 (S1 matrix all 6 pairs -> 0.2.5 [x], 0.2.1 [x]), V0.17a install+join, V0.3, V0.4; NOW V0.5 (peer transfers: Windows laptops need [agent.peer] bind in config.toml - ANNOUNCE 2026-11-04). L1's lab Claude is a separate local session in ~/mf-lab-L1 (Lead can message it with ccd send_message).
 WORKAROUNDS ACTIVE on v0.17.0 (drop after upgrading to v0.17.1): L4 config.toml controller_address = "192.168.31.13:47100" (F4); restart agent after changing Run jobs (F5).
 FIXED ON MAIN this session (CI GREEN run 41694928760 on 0aaead6b): F4 last-known controller endpoint (dbe00b13, D427), F5 live Run jobs + "look only, act later" consent (9c20b2be, D428, ADR-0014 amended), F6 deep-nesting/mDNS socket leak/Windows CPU via registry (0aaead6b); lab-tool fixes (S1 run files, PowerShell -File, S2 numeric profile, symlink/conftest tests).
-NEXT: cut v0.17.1 (contains F4-F6) -> L1-L4 upgrade (= V0.17b upgrade test) -> remove workarounds -> continue campaign V0.5 -> V1.0. Roadmap/status bar: tick lab tasks only with REPORT evidence.
+G9 IN FLIGHT (2026-11-05 session 13): plan + root causes in docs/briefs/progress/V1.0-G9-lab-fixes.md (5269698d); Lead UI Cancel fix done 5ec8b577; G9-A + G9-B CLOSED (cfb47d52). G9-C implemented (7ddc7bd3..0a479577, root cause: psutil per-thread baseline + new thread per sample on Windows) - needs combined tester+reviewer; then G9-B, G9-C, CI, v0.17.1. LAB FIX GROUP G9 (triage in lab/chat 20261105-170000-LEAD-to-L1.md; build BEFORE v0.17.1): (1+3) 5 GB Wi-Fi fetch: first attempt fails and all Wi-Fi agents node_lost (bulk transfer starves heartbeats) + agent failure_detail must reach controller; (2) investigate chunk resume after agent kill; (5) cuda-pytorch base placed on no-Docker Windows -> must not place / env_error; (6) revoke -> failure_detail node_revoked; (7) env_known_bad not cleared after owner changes only_binary; (8) Windows live CPU% wrong under load; (10) compute run --exclude-node; UI: Cancel button on finished jobs; investigate repeated clock_uncertain alerts. Later: timeout/log-latency bounds on Windows, F7 peer rule UX, F8 slow L3 peer, Plan transfer calibration. Lab chat: branch lab/chat (RULES "Lab chat": humans type send/read). NEXT: G9 -> cut v0.17.1 (contains F4-F6 + G9) -> L1-L4 upgrade (= V0.17b upgrade test) -> remove workarounds -> continue campaign V0.5 -> V1.0. Roadmap/status bar: tick lab tasks only with REPORT evidence.
 Follow-ups: flaky timing tests seen once in CI (tests/unit/controller/test_v08_g1_redaction_off_loop.py on Windows, tests/unit/lab/test_v10_g1_soak_fix1.py disk-fill SIGTERM); V0.3 Wi-Fi reconnect ONLINE 14-18 s in half the reps vs 10 s target (agent backoff or criterion?); no console switch for peer sharing; Docker GC/cache stay off after live enable until restart (F5 debt); D399 agent INTERNAL relabel. Token budget: keep agents few (combine tester+reviewer for small fixes), user prefers short simple answers, no frequent polling.
 ```
 >
@@ -933,3 +933,20 @@ switching, and ideally after every finished step:
 
 If a limit hits mid-task with no warning, the next account recovers from this file plus
 `git status` / `git log`; that is exactly why sections 2 and 4 exist.
+
+## BUG-FIX session 2026-11-06 (cut by usage limit)
+Done on main, NOT pushed: G9-C closed (d57b32d5); G9-F PowerShell completion closed (D439, 000aed3f);
+G9-D long chunk = per-chunk limits.timeout, not lease (D437 r1 retry once elsewhere) + D440 PG 40P01 retry, closed (98f705a1).
+G9-E tiny job split on assumed rates (D438, 62d6d468, cf1c319c): implemented, NOT yet tested/reviewed. Behaviour change:
+first run of a new split workload runs whole (`require_measured_rates`, default true); chunk_record now feeds split history.
+Next: (1) combined tester+reviewer for G9-E (decide the first-run-whole default); (2) lab/mode3_check.py warm-up run step;
+(3) rebuild controller web dist (G9-D UI wording + G9-E); (4) full gates (ruff - fix I001 in tests/unit/workqueue/test_v1_0_g9d_tester_deadline.py;
+full unit had 4 failures from in-flight D440 files: test_optional_imports_guarded, test_v07_g7_constant_time_scan (store/conflicts.py:95),
+test_v010_g2_package (workqueue/store.py:43), test_v10_g3_tester_bandit_gate - re-run and fix); (5) push, CI green; (6) v0.17.1 bump/tag;
+(7) ALL lab message with re-run list (G9-B a-h, G9-C doctor cpu, G9-D pinned mc on L2-L4, G9-E hf twice, G9-F L2 PowerShell).
+
+## 2026-11-06 later: v0.17.1 RELEASED
+G9-A..F + D437-D441 done, CI green (run 42201726246), tag v0.17.1, release run 42211017372 (exe, 2 debs, SHA256SUMS).
+Lab message posted: lab/chat/20261106-120000-LEAD-to-ALL.md (upgrade, remove F4/index_url workarounds, re-run table).
+Next: collect lab replies; open follow-ups: D441 r1 notes (ends.py:276 stale older entry; speculation test comment),
+sample_interval_s < 0.25 s, ML an_src_declared flag, lab checklist V0.10 mentions split.item_seconds, Mode 2/4 deferred.

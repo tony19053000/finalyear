@@ -42,6 +42,11 @@ class FakeManager:
         self.dispatch = SimpleNamespace(register=lambda *_a: None)
         self.commands: list[tuple[str, str, Any]] = []
         self.acked: list[str] = []
+        self.live: dict[str, Any] = {}
+        """V1.0 G9-B: node_id -> a session stand-in (``env_policy``)."""
+
+    def get(self, node_id: str) -> Any:
+        return self.live.get(node_id)
 
     def defer_ack(self, _p: str) -> None:
         return None

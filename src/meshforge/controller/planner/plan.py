@@ -132,6 +132,13 @@ _V10_CONFIG_DEFAULTS: dict[str, Any] = {"disabled_modes": []}
 def _without_unset_g3(data: dict[str, Any]) -> dict[str, Any]:
     if data["request"].get("objective") is None:
         data["request"].pop("objective", None)
+    # V1.0 G9-B: no excluded node = the digest of every decision before it
+    if not data["request"].get("exclude_nodes"):
+        data["request"].pop("exclude_nodes", None)
+    # V1.0 G9-E (D438): no per-item estimate = the digest before it
+    split_info = data["request"].get("split")
+    if isinstance(split_info, dict) and split_info.get("item_seconds") is None:
+        split_info.pop("item_seconds", None)
     snapshot = data["snapshot"]
     for node in snapshot["nodes"]:
         if node.get("reliability") is None:
@@ -140,6 +147,11 @@ def _without_unset_g3(data: dict[str, Any]) -> dict[str, Any]:
     for name, default in (*_G3_CONFIG_DEFAULTS.items(), *_V10_CONFIG_DEFAULTS.items()):
         if config.get(name) == default:
             config.pop(name, None)
+    # V1.0 G9-E (D438): off = the planner before it (and what a replay
+    # without the key decodes to) - the digest of every older decision
+    split = config.get("split")
+    if isinstance(split, dict) and split.get("require_measured_rates") is False:
+        split.pop("require_measured_rates", None)
     return data
 
 

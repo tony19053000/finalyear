@@ -77,6 +77,7 @@ async def runtime(pg_settings: DatabaseSettings) -> AsyncIterator[ControllerRunt
             "chunk_stderr_tail_bytes": FAILED_TAIL_BYTES,
             "chunk_stderr_ok_bytes": OK_TAIL_BYTES,
             "speculation_cache_s": 30.0,
+            "require_measured_rates": False,  # lanes, not D438: split on a first run
         },
         telemetry={"record_interval_s": 0.2},
         liveness=LivenessSettings(

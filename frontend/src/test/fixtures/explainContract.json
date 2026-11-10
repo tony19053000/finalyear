@@ -589,8 +589,9 @@
               "best_single_node_id": "node_aaaaaaaa",
               "margin": 0.1,
               "threshold_s": 46.8,
-              "passed": true,
-              "forced": "node_set"
+              "passed": false,
+              "forced": "node_set",
+              "blocked": "rates_assumed"
             },
             "pruned": [
               {
@@ -1645,7 +1646,7 @@
         "margin_test",
         "passed"
       ],
-      "to": false
+      "to": true
     },
     {
       "field": "decisions.[].candidates.[].margin_test.forced",
@@ -1658,6 +1659,18 @@
         "forced"
       ],
       "to": "Qnode_set"
+    },
+    {
+      "field": "decisions.[].candidates.[].margin_test.blocked",
+      "path": [
+        "decisions",
+        1,
+        "candidates",
+        0,
+        "margin_test",
+        "blocked"
+      ],
+      "to": "Qrates_assumed"
     },
     {
       "field": "decisions.[].candidates.[].estimate.terms.{}.ml.rate.model_version",

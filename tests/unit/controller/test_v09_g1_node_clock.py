@@ -234,7 +234,9 @@ async def test_no_alert_before_min_exchanges() -> None:
 
 
 @pytest.mark.asyncio
-async def test_a_clock_step_on_the_agent_is_inconsistent_and_alerted() -> None:
+async def test_a_clock_step_on_the_agent_is_inconsistent_and_alerted_by_its_bound() -> (
+    None
+):
     registry, clocks = _Registry(), _Clocks()
     rec, live = _recorder(registry, clocks), _live()
     for i in range(MIN_EXCHANGES + 1):
@@ -245,9 +247,9 @@ async def test_a_clock_step_on_the_agent_is_inconsistent_and_alerted() -> None:
     clock = live.clock.latest
     assert clock is not None and not clock.consistent
     assert clock.bound_ms >= 1000.0  # covers both offsets, never tight
-    assert [a["reasons"] for a in registry.alerts] == [
-        ("inconsistent", "bound_over_limit")
-    ]
+    # V1.0 G9-B (D434): the alert is the bound's; "inconsistent" is no reason
+    assert [a["reasons"] for a in registry.alerts] == [("bound_over_limit",)]
+    assert [a["consistent"] for a in registry.alerts] == [False]  # still recorded
 
 
 @pytest.mark.asyncio
@@ -365,3 +367,35 @@ def test_the_bound_uses_the_coarsest_resolution_in_the_window_until_it_leaves() 
     assert len(clock.resolutions) == len(clock.window) == 32
     assert clock.latest.bound_ms < 10.0
     assert not clock.uncertain
+
+
+@pytest.mark.asyncio
+async def test_an_inconsistent_window_under_the_bound_logs_info_and_never_alerts() -> (
+    None
+):
+    """V1.0 G9-B (D434, the lab's alert every ~20 min): an NTP slew between
+    pings makes the intervals disjoint (``consistent=False``) while the bound
+    stays far under 250 ms - logged at info once per flip, no alert row."""
+    import structlog
+
+    from meshforge.controller.session.clocks import ALERT_BOUND_MS, uncertain_reasons
+
+    registry, clocks = _Registry(), _Clocks()
+    rec, live = _recorder(registry, clocks), _live()
+    with structlog.testing.capture_logs() as logs:
+        for i in range(MIN_EXCHANGES + 2):
+            skew = 0.0 if i < 2 else 0.030  # a 30 ms slew
+            await _exchange(rec, live, clocks, skew_s=skew, out_s=0.002, back_s=0.002)
+            clocks.advance(6.0)
+        await _drain(live)
+    clock = live.clock.latest
+    assert clock is not None and not clock.consistent
+    assert clock.bound_ms < ALERT_BOUND_MS
+    assert uncertain_reasons(clock) == ()
+    assert registry.alerts == []
+    assert live.clock.uncertain is False and live.clock.inconsistent is True
+    events = [e["event"] for e in logs]
+    assert events.count("session.clock_inconsistent") == 1  # once per flip
+    assert "session.clock_uncertain" not in events
+    (info,) = [e for e in logs if e["event"] == "session.clock_inconsistent"]
+    assert info["log_level"] == "info"

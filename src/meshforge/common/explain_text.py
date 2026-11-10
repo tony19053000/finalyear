@@ -214,6 +214,15 @@ def _verdict(rows: Sequence[Mapping[str, Any]]) -> str:
             f"not split: the best set {format_seconds(best.get('set_s'))} passed "
             "the margin test, but the job's objective ranked one node first"
         )
+    if isinstance(best, Mapping) and best.get("blocked") == "rates_assumed":
+        # V1.0 G9-E (D438): fast enough on time, but only on assumed rates
+        return (
+            f"not split: the best set {format_seconds(best.get('set_s'))} would "
+            f"pass (<= {format_seconds(best.get('threshold_s'))}) only on assumed "
+            "per-item rates - no run of this workload is recorded yet, so it "
+            "runs whole and the next run decides on the measured time (set "
+            "split.item_seconds in compute.yaml to split on the first run)"
+        )
     if isinstance(best, Mapping):
         return (
             f"not split: the best set {format_seconds(best.get('set_s'))} is above "

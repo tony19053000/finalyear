@@ -93,11 +93,14 @@ export function marginText(c: CandidateOut): string {
   const t = c.margin_test;
   if (t == null) return "—";
   const verdict = t.passed ? "pass" : "fail";
-  const sign = t.passed ? "≤" : ">";
+  // V1.0 G9-E (D438): a blocked set was fast enough on time, on assumed rates only
+  const blocked = t.blocked != null && t.blocked !== "" ? t.blocked : null;
+  const sign = t.passed || blocked != null ? "≤" : ">";
   const forced = t.forced != null && t.forced !== "" ? `, forced: ${t.forced}` : "";
+  const block = blocked != null ? `, blocked: ${blocked}` : "";
   return (
     `${verdict}: ${seconds(t.set_s)} ${sign} ${seconds(t.threshold_s)} = (1 − ${String(t.margin)}) × ` +
-    `${seconds(t.best_single_s)} (${t.best_single_node_id ?? "—"})${forced}`
+    `${seconds(t.best_single_s)} (${t.best_single_node_id ?? "—"})${forced}${block}`
   );
 }
 
