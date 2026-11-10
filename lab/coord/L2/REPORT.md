@@ -531,3 +531,11 @@ SIGNAL: capture-pushed
 - GPU now visible: RTX 2050, 4 GiB, driver 581.83, cc 8.6 (Lead item 5: no longer "-").
 - G9-B a: capabilities include exec-venv, exec-gpu, env-policy:fa8403bc823f, cuda; no exec-torch. PASS.
 - Note: L2 never applied the old index_url workaround, so nothing to remove; extra_index_urls is still to add.
+
+## 2026-11-10 — G9-B b GPU venv job on L2
+- Owner config added (admin): `[agent.envs] extra_index_urls = ["https://download.pytorch.org/whl/cu126"]`, service restarted; config also keeps `[agent.peer] bind`.
+- Job job_01M72MGHNMA70CWS44VV510YF3 (env.base python-cpu, gpu: required, requirements torch) -> succeeded, exit 0.
+- Output: `cuda True`, `torch 2.14.1+cu126`, `gpu NVIDIA GeForce RTX 2050`, `matmul ok True`.
+- env phase 408.12 s (prepared 4m28s, installed 1m40s) - first ~2.5 GB download; stage 1.73 s.
+- Small note: torch warns "Failed to initialize NumPy" (numpy not in requirements) - harmless.
+- G9-B b: PASS.
