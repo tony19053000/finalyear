@@ -1056,3 +1056,7 @@ FINDING (L4 hang): chunk 68 on L4 hung from 00:04 IST: launcher 13032 -> python 
     (nvidia-smi 0 MiB), no output; agent healthy and kept the lease for ~17 min. Speculation copied chunk 68 when the queue emptied (speculated 1),
     job finished. Lead: (1) a chunk with no progress/output and 0 CPU holds its lease until the end - could speculate earlier;
     (2) cause of the hang on Windows (torch import/CUDA init deadlock?) unknown - L4 evidence in chat 20261111-002145-L4-to-L1.
+L4 answers (chat 20261111-002852): hung pids gone by 00:26 (agent cleaned up, no leak). Driver 592.27, torch 2.14.0+cu126, cuda True.
+    Repro 30/30 torch CUDA starts in the same venv OK (2-3 s), no hang; Event Viewer clean. Unusual: 17 s gap launcher -> worker start (normally ~1 s).
+BUG-4 (medium, Lead): a chunk process that hangs at start (0 CPU, no output) keeps its lease until the queue is empty (~17 min); speculation rescued it.
+    Hang not reproducible outside MeshForge (1 in ~120 chunk starts). Q4 (human activity at 00:04) pending.
