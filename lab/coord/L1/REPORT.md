@@ -1071,3 +1071,8 @@ L2/L4 "no_runtime_for_base - ... no Docker and its agent's Python has no torch (
 2: HUMAN appended [agent.envs] only_binary = false to /etc/meshforge/config.toml (backup .bak-g9be) + restart; job_01M73DJD6M58AN2N6CY23AKH8K submitted 00:34:45,
    succeeded 00:34:52 "docopt ok 0.6.2" - no env_known_bad TTL wait. PASS. Config restore pending (human).
 ### 2026-11-11 00:40 - account switch (Lead). No test running. L1 config restore (only_binary) pending human. Next steps: TODO "NEXT".
+
+### G9-B h - nodes on Wi-Fi ~4.5 h (00:33-05:01 IST) - PASS
+controller journal since 00:33: 0 clock alerts (clock_uncertain), max clock_offset_bound_ms 75.6 (< 250), 2 info-level clock_inconsistent flips (L2, bound 61 ms)
+that returned to consistent within seconds - no alert. PASS.
+note: L1 config still has only_binary = false (restore from .bak-g9be pending human).
