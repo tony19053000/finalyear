@@ -225,9 +225,7 @@ class RecoverySteps(DispatchSteps):
         # D445: only a lease expiry may come back - a revocation, a Goodbye or
         # a replaced certificate never does (held attempts are lost too)
         grace = (
-            self._attempt_grace_s
-            if item.event is LivenessEvent.LEASE_EXPIRED
-            else 0.0
+            self._attempt_grace_s if item.event is LivenessEvent.LEASE_EXPIRED else 0.0
         )
         for entry in await self._store.live_attempts(item.node_id):
             if grace > 0 and entry.attempt.state is AttemptState.RUNNING:

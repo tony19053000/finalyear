@@ -73,7 +73,11 @@ def _settings(pg_settings: DatabaseSettings, **split: Any) -> Any:
         jobs={"dispatch_interval_s": 0.1},
         split=knobs,
         liveness=LivenessSettings(
-            heartbeat_interval_s=HB_S, miss_allowance_s=0.1, lease_multiplier=3
+            heartbeat_interval_s=HB_S,
+            miss_allowance_s=0.1,
+            lease_multiplier=3,
+            # these tests prove the node-loss path itself: no D445 grace
+            attempt_grace_s=0.0,
         ),
     )
 

@@ -43,6 +43,7 @@ def _dispatcher(queue_size: int = 8) -> Any:
     d: Any = Dispatcher.__new__(Dispatcher)
     d._queue = asyncio.Queue(queue_size)
     d._offline_pending = {}
+    d._held = {}  # V1.0 G10 (D445): no attempt in a reconnect grace
     d._clock = lambda: 100.0
     d._started_at = 0.0
     d._settings = SimpleNamespace(reconnect_grace_s=1.0)
