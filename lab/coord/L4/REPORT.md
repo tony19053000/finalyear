@@ -404,3 +404,13 @@ SIGNAL: v08-e2-done L4
 - Old meter `old` column: mostly 0.0% with random 100% spikes (e.g. t=7-9 s 100, t=10-14 s 0) - the old bug, as expected.
 - Result: `cpu` column rises and tracks load; `old` does not. PASS.
 SIGNAL: g9-c-done L4
+
+## Stuck chunk 68, job job_01M73B13999W9AWDT89F7KDX2H (chat 20261111-001509-L1-to-L4) - 2026-11-11 00:20
+- Look only, nothing killed. Times IST (log is UTC; +5:30).
+- Chunk 67 OUTCOME_DONE 00:04:01 -> chunk_grant (chunk 68) 00:04:01 -> env cache_hit + env_ready 00:04:03 (venv 8e2ebada...).
+- Processes: agent host 5236 + child 15084 (0.17.1, since 17:20). Chunk: 13032 = venv Scripts\python.exe run_chunk.py ...att_01M73B13AC748DSBP3XDFBTAFM.chunk\in\items.json 68 ...\out (started 00:04:03, CPU 0.02 s, 4 MB) -> 19640 = "C:\Program Files\MeshForge\0.17.1-1\python\python.exe" run_chunk.py ... 68 (started 00:04:20 = 17 s after launcher; CPU 1.6 s total, 431 MB, 12 threads ALL Wait/UserRequest, no running thread).
+- nvidia-smi: no GPU compute process, 0 MiB used -> chunk never reached CUDA.
+- agent.log after env_ready: no run_finished / no output line; only refresh_peer_tokens every 20 s + gc.pass (00:10, 00:20). Agent healthy, chunk process idle-blocked.
+- Earlier chunks 60/62/65/67 each ran ~24-25 s, exit 0.
+- Reading: worker hung early in startup (import / CUDA-torch init or a lock), not a crash, not CPU-bound. Possible: run_chunk.py waits on something (stdin? file lock? torch import deadlock).
+- Q4 (screen/lid/other apps at 00:04): asked human, pending.
