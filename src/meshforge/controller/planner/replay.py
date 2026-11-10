@@ -40,6 +40,10 @@ and decodes to the pre-G3 planner (``min_time``, no risk term, no link
 rejection, no pruning - the :class:`~.types.PlannerConfig` defaults), so it
 still reproduces its stored decision exactly.
 
+**V1.0 G9-B optional key.** ``request.exclude_nodes`` (the submitter's
+``--exclude-node`` list) is always written and read when present; absent = no
+node excluded, so every older replay reproduces unchanged.
+
 **Version 2 (the V0.14 G2 + G3 merge, D307).** Written since both groups'
 optional keys exist: the G2 ``calibration`` block and the G3 keys above. The
 layout is version 1's plus those keys, so the decoder reads 1 and 2 alike -
@@ -52,6 +56,14 @@ byte of what a v1 replay decodes to.
 (the A5/A6 evaluation ablations) is written only when not empty, as a sorted
 list; absent = every mode, so every replay before it (and every replay of a
 controller that disables nothing) is byte-identical and decodes unchanged.
+
+**V1.0 G9-E optional keys (D438).** ``request.split.item_seconds`` (the
+manifest's per-item estimate) is written only when given; absent = none. The
+split configuration's
+``require_measured_rates`` is written only when true; absent = false (the
+planner before G9-E, which let assumed per-item rates pass the margin test),
+so every older replay decodes to the planner that made its decision and
+reproduces unchanged. ``REPLAY_VERSION`` stays 2.
 
 **V0.15 G4 optional key (D364).** A decision planned with an ML model adds
 ``ml: {version}`` (the model set's version) and, when its predictor failed
@@ -170,6 +182,7 @@ REPLAY_FIELDS: Final[Mapping[type, frozenset[str]]] = {
             "split",
             "node_set",
             "objective",  # V0.14 G3 (D307: optional - absent = min_time)
+            "exclude_nodes",  # V1.0 G9-B: optional - absent = none
         }
     ),
     History: frozenset(
@@ -186,7 +199,16 @@ REPLAY_FIELDS: Final[Mapping[type, frozenset[str]]] = {
         }
     ),
     SplitInfo: frozenset(
-        {"items", "item_bytes", "items_tree", "chunk_items", "min_nodes", "max_nodes"}
+        {
+            "items",
+            "item_bytes",
+            "items_tree",
+            "chunk_items",
+            "min_nodes",
+            "max_nodes",
+            # V1.0 G9-E (D438: optional, written only when given)
+            "item_seconds",
+        }
     ),
     TreeNeed: frozenset({"key", "size"}),
     NodeSnapshot: frozenset(
@@ -257,6 +279,8 @@ REPLAY_FIELDS: Final[Mapping[type, frozenset[str]]] = {
             "max_chunks",
             "chunk_overhead_s",
             "tail_frac",
+            # V1.0 G9-E (D438: optional, written only when true)
+            "require_measured_rates",
         }
     ),
     LinkStat: frozenset({"bw_bytes_s", "rtt_ms", "samples", "measured_at"}),
@@ -401,6 +425,12 @@ def _split_info(split: SplitInfo | None) -> dict[str, Any] | None:
         "chunk_items": split.chunk_items,
         "min_nodes": split.min_nodes,
         "max_nodes": split.max_nodes,
+        # V1.0 G9-E (D438): written only when given (older replays: absent)
+        **(
+            {}
+            if split.item_seconds is None
+            else {"item_seconds": _num(split.item_seconds)}
+        ),
     }
 
 
@@ -427,6 +457,7 @@ def _request(request: PlanRequest) -> dict[str, Any]:
         "split": _split_info(request.split),
         "node_set": list(request.node_set),
         "objective": request.objective,  # V0.14 G3
+        "exclude_nodes": list(request.exclude_nodes),  # V1.0 G9-B
     }
 
 
@@ -493,6 +524,11 @@ def _config(config: PlannerConfig) -> dict[str, Any]:
             "max_chunks": split.max_chunks,
             "chunk_overhead_s": _num(split.chunk_overhead_s),
             "tail_frac": _num(split.tail_frac),
+            # V1.0 G9-E (D438): written only when on; absent = off (older
+            # replays decode to the planner that split on assumed rates)
+            **(
+                {"require_measured_rates": True} if split.require_measured_rates else {}
+            ),
         },
         # V0.14 G3 (D294-D296)
         "risk": {
@@ -709,6 +745,7 @@ def _from_split(data: Mapping[str, Any] | None) -> SplitInfo | None:
         chunk_items=_int_or_none(data["chunk_items"]),
         min_nodes=_int(data["min_nodes"]),
         max_nodes=_int_or_none(data["max_nodes"]),
+        item_seconds=_dnum(data.get("item_seconds")),
     )
 
 
@@ -735,6 +772,8 @@ def _from_request(data: Mapping[str, Any]) -> PlanRequest:
         split=_from_split(data["split"]),
         node_set=tuple(str(n) for n in data["node_set"]),
         objective=_objective(data.get("objective")),  # V0.14 G3: optional
+        # V1.0 G9-B: optional - a replay stored before it excluded nobody
+        exclude_nodes=tuple(str(n) for n in data.get("exclude_nodes") or ()),
     )
 
 
@@ -859,6 +898,7 @@ def _from_config(data: Mapping[str, Any]) -> PlannerConfig:
             max_chunks=_int(split["max_chunks"]),
             chunk_overhead_s=_dnum(split["chunk_overhead_s"]),
             tail_frac=_dnum(split["tail_frac"]),
+            require_measured_rates=_bool(split.get("require_measured_rates", False)),
         ),
         **_g3_config(data),
     )

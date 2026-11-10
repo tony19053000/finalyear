@@ -125,6 +125,10 @@ class RejectCode(StrEnum):
     """This job's environment failed to build on this node recently (D116)."""
     DISK_SHORT = "disk_short"
     """The node's latest sample shows less free disk than the job's inputs."""
+    EXCLUDED_BY_USER = "excluded_by_user"
+    """V1.0 G9-B: the submitter excluded this node (``compute run
+    --exclude-node``, ``placement.exclude_nodes``) - static: this job never
+    runs there, on any attempt."""
     RETRY_EXCLUDED = "retry_excluded"
     """V0.6 G3 (D110): an earlier attempt of this job failed here in a way
     another node may avoid (lost, transfer/integrity error, timeout, or a
@@ -172,6 +176,7 @@ STATIC_CODES: frozenset[RejectCode] = frozenset(
         RejectCode.CPUS_SHORT,
         RejectCode.NO_RUNTIME_FOR_BASE,
         RejectCode.REVOKED,
+        RejectCode.EXCLUDED_BY_USER,
         RejectCode.POLICY_NOT_ACCEPTING,
         RejectCode.POLICY_USER_NOT_ALLOWED,
         RejectCode.POLICY_RAM,
@@ -194,6 +199,10 @@ class TermSource(StrEnum):
     """Past runs on another node, scaled by the hardware-score ratio."""
     ASSUMED = "assumed"
     """A configured default: nothing measured supports it."""
+    DECLARED = "declared"
+    """V1.0 G9-E (D438): the submitter's own estimate (``split.item_seconds``),
+    scaled by hardware score - weaker than any recorded run, stronger than an
+    assumption (it counts as evidence for a split)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -261,6 +270,9 @@ class SplitInfo:
     min_nodes: int = 2
     max_nodes: int | None = None
     """None = every suitable node."""
+    item_seconds: float | None = None
+    """V1.0 G9-E (D438): manifest ``split.item_seconds`` - seconds per item on
+    the strongest node, the submitter's estimate; None = none given."""
 
     @property
     def bytes_per_item(self) -> float:
@@ -312,6 +324,10 @@ class PlanRequest:
     candidates are exactly these nodes and the job is split over **all** of
     them (whatever the margin test says; the test is still recorded). Empty =
     not forced. Like a pinned job, never excluded on retry."""
+    exclude_nodes: tuple[str, ...] = ()
+    """V1.0 G9-B: nodes the submitter excluded (sorted, unique; at most
+    ``MAX_EXCLUDE_NODES``): rejected :attr:`RejectCode.EXCLUDED_BY_USER` on
+    every attempt. Never the pinned node (the API refuses that, 422)."""
     # V0.14 G3 (D295)
     objective: Objective | None = None
     """What ``cost_model`` ranks by; None = ``min_time`` (a request from before
@@ -478,6 +494,12 @@ class SplitConfig:
     tail_frac: float = 0.5
     """Expected tail of a set: this fraction of its longest chunk time (the
     lanes do not finish together; pulling keeps it under one chunk)."""
+    require_measured_rates: bool = True
+    """V1.0 G9-E (D438): a set whose every active lane's per-item rate is
+    ``assumed`` (no recorded run of the workload anywhere) never passes the
+    margin test - the job runs whole once, and that run is the evidence the
+    next decision splits on. False = the pre-G9-E planner (a replay stored
+    before it decodes to False)."""
 
 
 # --- V0.14 G3 (D296): reliability inputs and the risk configuration ---------
@@ -664,6 +686,10 @@ class MarginTest:
     ``split_too_few_nodes``; ``node_set`` (V0.10 G8) = a benchmark forced the
     set: the test ran and is shown, the set runs whatever it says; None = the
     test ran and decided."""
+    blocked: str | None = None
+    """V1.0 G9-E (D438): why a set that is fast enough on time still did not
+    pass: ``rates_assumed`` = every rate behind its prediction is assumed
+    (:attr:`SplitConfig.require_measured_rates`). None = not blocked."""
 
 
 @dataclass(frozen=True, slots=True)

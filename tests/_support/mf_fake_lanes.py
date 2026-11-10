@@ -94,6 +94,10 @@ class FakeLane:
     speed_s: float = 0.0
     fail: set[int] = field(default_factory=set)
     """Chunk indices this lane reports failed."""
+    fail_kind: FailureType = FailureType.USER_ERROR
+    """V1.0 G9-D: the failure type reported for a chunk in ``fail``."""
+    fail_retryable: bool = True
+    """V1.0 G9-D: the ``retryable`` flag reported for a chunk in ``fail``."""
     output_of: Callable[[Sequence[str | int]], bytes] = default_output
     ledger: list[tuple[int, int]] = field(default_factory=list)
     results_sent: list[str] = field(default_factory=list)
@@ -474,9 +478,9 @@ class FakeLane:
             result.exit_code = 3
             result.failure.CopyFrom(
                 common_pb2.Failure(
-                    failure_type=failure_type_to_proto(FailureType.USER_ERROR),
+                    failure_type=failure_type_to_proto(self.fail_kind),
                     message=f"exit 3 on chunk {chunk.chunk_index}",
-                    retryable=True,
+                    retryable=self.fail_retryable,
                 )
             )
         else:

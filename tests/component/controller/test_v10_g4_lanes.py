@@ -61,7 +61,11 @@ async def runtime(pg_settings: DatabaseSettings) -> AsyncIterator[ControllerRunt
     settings = g2_settings(
         pg_settings,
         jobs={"dispatch_interval_s": 0.1},
-        split={"visibility_timeout_s": 5.0, "wait_retry_s": 0.2},
+        split={
+            "visibility_timeout_s": 5.0,
+            "wait_retry_s": 0.2,
+            "require_measured_rates": False,  # lanes, not D438: split on a first run
+        },
         liveness=LivenessSettings(
             heartbeat_interval_s=HB_S, miss_allowance_s=0.1, lease_multiplier=3
         ),
@@ -575,3 +579,63 @@ async def test_split_item_list_blob_is_readable_only_by_lanes(
         assert [r.outcome for r in decision] == ["dispatched"]
         assert decision[0].chosen_node_id == lanes[0].agent.node_id
         assert json.loads(json.dumps(job.split.spec))["chunk"] == {"items": 5}
+
+
+async def test_g9d_tester_deadline_chunk_fails_the_job_once_and_stops_siblings(
+    runtime: ControllerRuntime, http: httpx.AsyncClient, tmp_path: Path
+) -> None:
+    """V1.0 G9-D (D437 r1): a chunk that ran past the time limit on every node
+    is tried once more on ANOTHER node, then fails the job - two tries on two
+    distinct nodes, the other lanes cancelled, no parts index, the type kept."""
+    from meshforge.common.errors import FailureType
+
+    async with _lanes(
+        runtime,
+        [0.01, 0.01, 0.01],
+        fail={7},
+        fail_kind=FailureType.DEADLINE_EXCEEDED,
+        fail_retryable=False,
+    ):
+        job_id = await _submit(runtime, http, tmp_path, retry={"max_attempts": 10})
+        job = await _wait_job(runtime, job_id)
+        assert job.state is JobState.FAILED
+        assert job.failure_type is not None
+        assert job.failure_type.value == "deadline_exceeded"
+        assert job.failure_detail is not None
+        assert job.failure_detail.startswith(
+            "chunk_failed: chunk 7 failed on 2 node(s)"
+        )
+        assert job.split is not None and job.split.parts_digest is None
+        rows = await _sql(
+            runtime,
+            "SELECT l.state, l.site, i.attempts FROM work_lease l JOIN work_item i "
+            "ON i.id = l.item_id JOIN work_queue q ON q.id = i.queue_id "
+            "WHERE q.owner_id = :job AND i.idx = 7 ORDER BY l.seq",
+            job=job_id,
+        )
+        assert [r.state for r in rows] == ["failed", "failed"], rows
+        assert rows[0].site != rows[1].site  # never twice on one node
+        assert rows[0].attempts == 2
+        queue = await _sql(
+            runtime, "SELECT state FROM work_queue WHERE owner_id = :job", job=job_id
+        )
+        assert [r.state for r in queue] == ["failed"]
+        for _ in range(200):
+            live = await _sql(
+                runtime,
+                "SELECT count(*) AS n FROM attempt WHERE job_id = :job "
+                "AND state NOT IN ('done', 'failed', 'lost', 'fenced')",
+                job=job_id,
+            )
+            if live[0].n == 0:
+                break
+            await asyncio.sleep(0.05)
+        assert live[0].n == 0
+        liveleases = await _sql(
+            runtime,
+            "SELECT count(*) AS n FROM work_lease l JOIN work_item i ON "
+            "i.id = l.item_id JOIN work_queue q ON q.id = i.queue_id "
+            "WHERE q.owner_id = :job AND l.state = 'live'",
+            job=job_id,
+        )
+        assert liveleases[0].n == 0

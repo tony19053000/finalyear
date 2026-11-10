@@ -759,12 +759,15 @@ class Dispatcher(RecoverySteps):
             or job is None
         ):
             return
+        live = self._manager.get(attempt.node_id)
         self.known_bad_envs.record(
             attempt.node_id,
             env_key(job.manifest, tree_id=job.tree_id, bundle_digest=job.bundle_digest),
             env_hash=report.env_hash,
             job_id=job.id,
             attempt_id=attempt.id,
+            # D433: the owner's env policy the build failed under
+            env_policy=None if live is None else live.env_policy,
         )
 
     async def _suspect_trees(

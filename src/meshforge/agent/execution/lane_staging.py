@@ -6,7 +6,6 @@ the ``lines`` records), and - ``glob`` - the chunk's own item files fetched
 from __future__ import annotations
 
 import asyncio
-import contextlib
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -22,7 +21,7 @@ from meshforge.agent.execution.fetch import (
     stage_entries,
     tree_sources,
 )
-from meshforge.agent.execution.lane_base import STAGE_RETRYABLE, LaneHost
+from meshforge.agent.execution.lane_base import LaneHost
 from meshforge.common.errors import FailureType
 from meshforge.common.hashing import Digest
 from meshforge.common.split_chunks import ChunkSpan
@@ -107,14 +106,14 @@ class ChunkStagingSteps(LaneHost):
         *,
         input_index: int,
     ) -> list[Path]:
-        """:func:`stage_entries` with the staging retry rule (D95): a refused
-        token waits for ``RefreshFetchToken``, an unreachable controller is
-        retried with backoff, both for at most ``staging_retry_s``."""
-        deadline = self._clock() + self._cfg.staging_retry_s
-        delay = 0.25
-        while True:
-            used = attempt.fetch_token
-            attempt.token_changed.clear()
+        """:func:`stage_entries` under the executor's staging retry loop
+        (D95/D429, :mod:`.stage_retry`): a refused token waits for
+        ``RefreshFetchToken``, an unreachable controller is retried with
+        backoff, while the tries make progress or for at most
+        ``staging_retry_s`` without. A refusal that outlives the window is
+        reported ``transfer_error`` (another node may still fetch the chunk)."""
+
+        async def once(_token: str) -> list[Path]:
             spec = self._current_spec(attempt)
             sources = tree_sources(
                 spec,
@@ -122,35 +121,29 @@ class ChunkStagingSteps(LaneHost):
                 sources=None if input_index < 0 else spec.inputs[input_index].sources,
                 scheme=self._scheme,
             )
-            try:
-                got = await self._step(
-                    attempt,
-                    stage_entries(
-                        self.cas,
-                        tree=tree,
-                        paths=rels,
-                        sources=sources,
-                        dest=dest,
-                        timeout_s=self._fetch_cfg.request_timeout_s,
-                        tuning=self._tuning(),
-                        token_for=self._token_lookup(attempt, str(tree.tree_id)),
-                        **self._transport(),
-                    ),
-                )
-            except FetchError as exc:
-                if exc.failure_type not in STAGE_RETRYABLE or self._clock() >= deadline:
-                    if exc.failure_type is FailureType.UNAUTHORIZED:
-                        raise FetchError(
-                            exc.message, failure_type=FailureType.TRANSFER_ERROR
-                        ) from None
-                    raise
-                if attempt.fetch_token == used:
-                    wait = min(delay, max(0.0, deadline - self._clock()))
-                    with contextlib.suppress(TimeoutError):
-                        await self._step(
-                            attempt,
-                            asyncio.wait_for(attempt.token_changed.wait(), wait),
-                        )
-                delay = min(delay * 2, 5.0)
-                continue
+            got = await self._step(
+                attempt,
+                stage_entries(
+                    self.cas,
+                    tree=tree,
+                    paths=rels,
+                    sources=sources,
+                    dest=dest,
+                    timeout_s=self._fetch_cfg.request_timeout_s,
+                    tuning=self._tuning(),
+                    token_for=self._token_lookup(attempt, str(tree.tree_id)),
+                    progress=attempt.stage_progress,
+                    rate=self._fetch_rate,
+                    **self._transport(),
+                ),
+            )
             return list(got.placed)
+
+        try:
+            return await self._retry_staging(attempt, once)
+        except FetchError as exc:
+            if exc.failure_type is FailureType.UNAUTHORIZED:
+                raise FetchError(
+                    exc.message, failure_type=FailureType.TRANSFER_ERROR
+                ) from None
+            raise

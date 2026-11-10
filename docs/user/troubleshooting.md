@@ -177,6 +177,15 @@ Then press **Restart** on the MeshForge page. With an address set the laptop no 
 the controller's IP can change, give it a fixed address (a DHCP reservation in the router). The address only says
 where to connect: the laptop still checks the controller's certificate against the fabric it joined.
 
+### The dashboard's Live CPU looks wrong while a job runs
+Run **`meshforge-agent doctor cpu --seconds 30`** on the laptop while the job runs (Windows: an administrator
+PowerShell). It first prints the CPU cap a job gets on this laptop - the owner's `max_cpu_percent` and how it is
+enforced (on Windows a hard cap on the whole job: with `max_cpu_percent = 50` the job never uses more than half
+of the machine, however many processes it starts) - then one line per second: `cpu` is what the laptop reports
+to the dashboard, `core min/max` the least and most busy core, `old` what versions before v0.17.1 reported.
+`--job-cpus 4` also shows the cap for a job that asks `resources.cpus: 4`. A reading the laptop could not take
+shows `?`, never 0 %. It changes nothing.
+
 ### "needs an elevated prompt" / "only administrators may change" (Windows)
 `meshforge-agent` commands that change the service need an administrator PowerShell (right-click → Run as
 administrator). For everyday things use the MeshForge page from the Start menu instead.

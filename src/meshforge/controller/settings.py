@@ -1614,7 +1614,9 @@ LOOPBACK_PLAIN_HOSTS: Final = frozenset({"127.0.0.1", "::1"})
 
 
 class HttpSettings(SectionModel):
-    """``[controller.http]`` - extra REST listeners (V0.8 G1, brief Q1)."""
+    """``[controller.http]`` - the REST/blob HTTP listeners: an extra loopback
+    listener (V0.8 G1, brief Q1) and the bulk-data marking of the main one
+    (``[controller] http_bind``; V1.0 G9-A, D430)."""
 
     loopback_plain: str | None = Field(
         default=None,
@@ -1624,6 +1626,18 @@ class HttpSettings(SectionModel):
             "browser on the controller host itself, which then needs no CA "
             "import. Only 127.0.0.1 or ::1 are accepted - never a LAN or "
             "wildcard address, never a host name. Off by default."
+        ),
+    )
+
+    dscp_bulk: Literal["cs1", "off"] = Field(
+        default="cs1",
+        description=(
+            "V1.0 D430: mark everything the REST/blob port (http_bind) sends - "
+            "job files above all - as background traffic (DSCP CS1, IP_TOS "
+            "0x20), so a large transfer does not crowd out the agents' "
+            "heartbeats (the gRPC port is never marked) on a shared Wi-Fi. "
+            "Linux only (Windows needs a QoS policy; skipped silently); best "
+            "effort - an unsupported option logs one warning. 'off' = unmarked."
         ),
     )
 
@@ -1856,6 +1870,15 @@ class SplitSettings(SectionModel):
         ge=0.0,
         le=1.0,
         description="Expected tail of a set: this share of its longest chunk.",
+    )
+    require_measured_rates: bool = Field(
+        default=True,
+        description=(
+            "Never split a job on assumed per-item rates: with no recorded run "
+            "of the workload on any node the job runs whole once, and that "
+            "run's time decides the next split (V1.0 G9-E, D438). Benchmark "
+            "campaigns that force a node set still split."
+        ),
     )
     # --- V0.10 G4 (D263/D267): lanes and chunk leases ----------------------
     visibility_timeout_s: float = Field(

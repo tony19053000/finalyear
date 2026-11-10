@@ -55,7 +55,10 @@ from meshforge.agent.execution.cpu_cgroup import (
 from meshforge.agent.execution.docker_runtime import DockerConfig, DockerRuntime
 from meshforge.agent.execution.runtime import Runtime, RuntimeAvailability
 from meshforge.agent.execution.selection import ExecutionOffer, execution_offer
-from meshforge.agent.execution.subprocess_runtime import SubprocessRuntime
+from meshforge.agent.execution.subprocess_runtime import (
+    SubprocessRuntime,
+    interpreter_has_torch,
+)
 from meshforge.agent.execution.venv_runtime import VenvRuntime
 from meshforge.agent.policy import startup_policy
 from meshforge.agent.settings import AgentSettings
@@ -108,10 +111,14 @@ async def build_execution(
     docker_factory: Callable[[DockerConfig], DockerRuntime] | None = None,
     cgroup_probe: Callable[[], CpuCgroupProbe] = probe_cpu_cgroups,
     side_effects: bool | None = None,
+    torch_probe: Callable[[], bool] = interpreter_has_torch,
 ) -> ExecutionSetup:
     """Probe and build the execution setup (see module docstring). Never raises.
     ``side_effects``: build a full setup (True) or a look-only one (False);
-    None = full exactly when the effective policy at start accepts jobs."""
+    None = full exactly when the effective policy at start accepts jobs.
+    ``torch_probe`` (V1.0 G9-B, D432): does the agent's interpreter have
+    PyTorch (``exec-torch``)? Injected by tests, so this machine's own torch
+    never decides a test."""
     cfg = settings.agent.execution
     policy = startup_policy(settings)
     full = policy.accept_jobs if side_effects is None else side_effects
@@ -143,6 +150,7 @@ async def build_execution(
         env_timeout_s=cfg.env_timeout_s,
         envs=envs,
         cpu_cgroups=cgroups,
+        torch_probe=torch_probe,
     )
     subprocess_found = await subprocess_rt.probe()
     venv_rt = VenvRuntime(

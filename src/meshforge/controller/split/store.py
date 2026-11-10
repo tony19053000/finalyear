@@ -6,7 +6,14 @@ attempt exists, is a ``lane``, runs on the node whose session sent the message
 then hands the chunk to :mod:`meshforge.workqueue.store` (holder = the lane's
 attempt id, site = its node). Lock order (ADR-0019 addendum): the attempt row,
 then the job row, then work-queue rows - the order of every other writer of
-these rows, so no deadlock.
+these rows. PostgreSQL can still abort one side of a cycle on the work-queue
+row's update chain (``40P01``, G9-D r1), so ``request``, ``result``, ``renew``
+and ``expire`` re-run their **whole** transaction on ``40P01`` / ``40001``
+(:func:`~meshforge.controller.store.conflicts.retry_conflicts`, V1.0 G9-D2,
+D440): after the rollback nothing of the first try is left, and each one's
+effects outside the database are idempotent (the parts index is a
+content-addressed blob write; item lists, parts and chunk times are read
+caches). The callers' acks and sends come after the call returns, once.
 
 * :meth:`ChunkStore.request` - a lane asks for chunks: leases it holds but did
   not list are granted again (their grant was lost on the way), then new ones
@@ -39,13 +46,14 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import datetime as dt
-from collections import OrderedDict
-from collections.abc import AsyncIterator, Collection, Sequence
+import functools
+from collections import Counter, OrderedDict
+from collections.abc import AsyncIterator, Callable, Collection, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any, Final
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from meshforge.common.errors import FailureType
@@ -89,20 +97,23 @@ from meshforge.controller.split.warnings import (
     NONDETERMINISTIC_CHUNK,
     add_chunk_warning,
 )
+from meshforge.controller.store.conflicts import retry_conflicts
 from meshforge.controller.store.engine import create_session_factory
 from meshforge.controller.store.models.job import Attempt, Job
+from meshforge.controller.store.models.telemetry import ChunkRecord
 from meshforge.workqueue import store as wq
 from meshforge.workqueue.core import (
     MAX_FAILURE_KIND_CHARS,
     AlreadyDone,
     Fenced,
     ItemFailed,
+    ItemState,
     Lease,
     LeaseState,
     QueueState,
     Renewed,
 )
-from meshforge.workqueue.tables import work_item, work_lease
+from meshforge.workqueue.tables import work_item, work_lease, work_queue
 
 __all__ = [
     "ChunkGrantOut",
@@ -117,6 +128,9 @@ __all__ = [
 ]
 
 log = get_logger(__name__)
+
+_Log = Callable[[], object]
+"""A log line held until the transaction committed (V1.0 G9-D2 r1)."""
 
 _ITEM_LIST_CACHE: Final = 8
 """Item lists kept parsed (one per running split job; bounded)."""
@@ -296,6 +310,9 @@ class ChunkStore:
         self._blobs = blobs
         self.items = items or ItemLists(blobs)
         self._parts: OrderedDict[str, PartsIndex] = OrderedDict()
+        self.conflict_retries: Counter[str] = Counter()
+        """V1.0 G9-D2 (D440): transactions re-run after a deadlock or
+        serialization failure, per operation."""
 
     async def _lane(
         self,
@@ -324,6 +341,7 @@ class ChunkStore:
     # ------------------------------------------------------------ request
 
     @typed_store_call
+    @retry_conflicts("split.request")
     async def request(
         self,
         *,
@@ -369,6 +387,9 @@ class ChunkStore:
             ]
             k = max(0, min(want, wq.MAX_LEASES_PER_PULL) - len(lost))
             skip = set(avoid)
+            # D437: a chunk that ran past the time limit here never runs here
+            # again while another node could take it
+            never = await _deadline_elsewhere(db, job.id, queue.id, node_id)
             pulled = (
                 await wq.lease_next(
                     db,
@@ -377,6 +398,7 @@ class ChunkStore:
                     site=node_id,
                     k=min(wq.MAX_LEASES_PER_PULL, k + len(skip)),
                     now=now,
+                    exclude=never,
                 )
                 if k > 0
                 else []
@@ -420,7 +442,7 @@ class ChunkStore:
                     node_id=node_id,
                     now=now,
                     config=self._speculation,
-                    avoid=skip,
+                    avoid=skip | never,
                     cache=self._times,
                     done=counts.done,
                 )
@@ -463,8 +485,47 @@ class ChunkStore:
     # ------------------------------------------------------------ results
 
     @typed_store_call
+    @retry_conflicts("split.result")
     async def result(
         self,
+        *,
+        node_id: str,
+        attempt_id: str,
+        token: int,
+        item_id: int,
+        seq: int,
+        outcome: str,
+        digest: str | None,
+        failure: tuple[FailureType, str, bool] | None,
+        now: dt.datetime,
+        size: int | None = None,
+        report: ChunkReport | None = None,
+    ) -> ResultOutcome:
+        """See :meth:`_result`. Its log lines are emitted only once the
+        transaction committed (V1.0 G9-D2 r1): a try rolled back by a conflict
+        and re-run (D440) never logs a chunk failure or a job's last chunk."""
+        after: list[_Log] = []
+        got = await self._result(
+            after,
+            node_id=node_id,
+            attempt_id=attempt_id,
+            token=token,
+            item_id=item_id,
+            seq=seq,
+            outcome=outcome,
+            digest=digest,
+            failure=failure,
+            now=now,
+            size=size,
+            report=report,
+        )
+        for emit in after:
+            emit()
+        return got
+
+    async def _result(
+        self,
+        after: list[_Log],
         *,
         node_id: str,
         attempt_id: str,
@@ -520,6 +581,7 @@ class ChunkStore:
             if outcome == "failed":
                 return await self._failed(
                     db,
+                    after,
                     lane,
                     item_id,
                     seq,
@@ -538,7 +600,7 @@ class ChunkStore:
             measured = dataclasses.replace(measured, digest=digest, output_bytes=size)
             item_count = int(job.split_item_count or 0)
             if isinstance(got, AlreadyDone):
-                mismatch = await _check_determinism(db, job, got, digest)
+                mismatch = await _check_determinism(db, job, got, digest, after)
                 if not got.own:  # a replay of the winner's report has its row
                     await record_try(
                         db,
@@ -585,7 +647,7 @@ class ChunkStore:
                     late=got.late,
                     copy_won=copy_won,
                 )
-            parts = await self._finish(db, job, queue.id)
+            parts = await self._finish(db, job, queue.id, after)
             return ResultOutcome(
                 ResultKind.COMMITTED,
                 job_id=job.id,
@@ -600,6 +662,7 @@ class ChunkStore:
     async def _failed(
         self,
         db: AsyncSession,
+        after: list[_Log],
         lane: _Lane,
         item_id: int,
         seq: int,
@@ -613,6 +676,10 @@ class ChunkStore:
             False,
         )
         job = lane.job
+        if kind is FailureType.DEADLINE_EXCEEDED:
+            retryable = await _deadline_retryable(
+                db, job.id, item_id, lane.attempt.node_id
+            )
         res = await wq.fail(
             db,
             item_id=item_id,
@@ -653,13 +720,16 @@ class ChunkStore:
             db, job, JobEvent.FAIL, failure_type=kind, detail=detail, soft=True
         )
         await _fresh(db, job)
-        log.warning(
-            "controller.split.chunk_failed",
-            job_id=job.id,
-            chunk=got.idx,
-            nodes=nodes,
-            failure_type=kind.value,
-            released=len(res.released),
+        after.append(
+            functools.partial(
+                log.warning,
+                "controller.split.chunk_failed",
+                job_id=job.id,
+                chunk=got.idx,
+                nodes=nodes,
+                failure_type=kind.value,
+                released=len(res.released),
+            )
         )
         return ResultOutcome(
             ResultKind.CHUNK_FAILED,
@@ -669,7 +739,9 @@ class ChunkStore:
             cancel_lanes=tuple(await live_lanes(db, job.id)),
         )
 
-    async def _finish(self, db: AsyncSession, job: Job, queue_id: int) -> str | None:
+    async def _finish(
+        self, db: AsyncSession, job: Job, queue_id: int, after: list[_Log]
+    ) -> str | None:
         """The last chunk committed: write the parts index (chunk order - the
         combine's ordered input) and move the job ``RUNNING -> COLLECTING``,
         in the committing transaction (V0.10 G5, D283 pin 1). A COLLECTING
@@ -710,12 +782,15 @@ class ChunkStore:
             await _move_job(db, job, JobEvent.STARTED, soft=True)
         await _move_job(db, job, JobEvent.EXITED, soft=True)
         await _fresh(db, job)
-        log.info(
-            "controller.split.chunks_done",
-            job_id=job.id,
-            chunks=len(rows),
-            parts_digest=str(digest),
-            state=job.state,
+        after.append(
+            functools.partial(
+                log.info,
+                "controller.split.chunks_done",
+                job_id=job.id,
+                chunks=len(rows),
+                parts_digest=str(digest),
+                state=job.state,
+            )
         )
         return str(digest)
 
@@ -748,6 +823,7 @@ class ChunkStore:
     # ------------------------------------------------------------ renew/expire
 
     @typed_store_call
+    @retry_conflicts("split.renew")
     async def renew(
         self,
         *,
@@ -774,6 +850,7 @@ class ChunkStore:
             return (renewed, len(outs) - renewed)
 
     @typed_store_call
+    @retry_conflicts("split.expire")
     async def expire(self, *, now: dt.datetime, limit: int = 500) -> int:
         """Expire due leases (their chunks go back to pending)."""
         async with self._sessions() as db, db.begin():
@@ -833,7 +910,7 @@ async def _live_leases_of(db: AsyncSession, queue_id: int, holder: str) -> list[
 
 
 async def _check_determinism(
-    db: AsyncSession, job: Job, done: AlreadyDone, digest: str
+    db: AsyncSession, job: Job, done: AlreadyDone, digest: str, after: list[_Log]
 ) -> bool:
     """D269 hook (V0.10 G5): a second, *verified* result of a committed chunk
     with another digest, while the job asked for deterministic chunks ->
@@ -848,14 +925,109 @@ async def _check_determinism(
     job.warnings, _fresh_chunk = add_chunk_warning(
         job.warnings, NONDETERMINISTIC_CHUNK, max(chunk, 0)
     )
-    log.warning(
-        "controller.split.nondeterministic_chunk",
-        job_id=job.id,
-        chunk=chunk,
-        winner_seq=done.winner_seq,
-        lease_seq=done.seq,
+    after.append(
+        functools.partial(
+            log.warning,
+            "controller.split.nondeterministic_chunk",
+            job_id=job.id,
+            chunk=chunk,
+            winner_seq=done.winner_seq,
+            lease_seq=done.seq,
+        )
     )
     return True
+
+
+_DEADLINE: Final = FailureType.DEADLINE_EXCEEDED.value
+
+
+async def _deadline_retryable(
+    db: AsyncSession, job_id: str, item_id: int, node_id: str
+) -> bool:
+    """V1.0 G9-D (D437): may a chunk that ran past the job's time limit on
+    ``node_id`` run again? Re-running it on the same node starts from zero
+    and meets the same limit, so: yes while a live copy of it runs on another
+    node (the copy is kept, never released); otherwise only for its first
+    time-limit failure and only if a live lane of the job sits on a node it
+    has not failed on. A single-lane (pinned) run therefore fails once.
+
+    Concurrency: the caller holds the job row ``FOR UPDATE`` (``result``,
+    ``lock_job=True``); the queue and item rows are locked here too, in
+    ``wq.fail``'s order (queue, then item), so the original and its copy
+    failing at the same moment are decided one after the other - the second
+    sees the first's lease no longer live and cannot also be retryable."""
+    queue_id = await db.scalar(
+        select(work_item.c.queue_id).where(work_item.c.id == item_id)
+    )
+    await db.execute(
+        select(work_queue.c.id).where(work_queue.c.id == queue_id).with_for_update()
+    )
+    await db.execute(
+        select(work_item.c.id).where(work_item.c.id == item_id).with_for_update()
+    )
+    copy = await db.scalar(
+        select(func.count())
+        .select_from(work_lease)
+        .where(
+            work_lease.c.item_id == item_id,
+            work_lease.c.state == LeaseState.LIVE.value,
+            work_lease.c.site != node_id,
+        )
+    )
+    if copy:
+        return True
+    idx = await db.scalar(select(work_item.c.idx).where(work_item.c.id == item_id))
+    # "First time-limit failure" is read from chunk_record (telemetry, written
+    # in the failing try's own transaction). Nothing prunes chunk_record today
+    # (no retention policy deletes it; job/log retention touches only terminal
+    # jobs' logs). A future retention of it must keep the rows of jobs that
+    # are not terminal, or a chunk could get a second retry here.
+    earlier = await db.scalar(
+        select(func.count())
+        .select_from(ChunkRecord)
+        .where(
+            ChunkRecord.job_id == job_id,
+            ChunkRecord.chunk_index == idx,
+            ChunkRecord.outcome == "failed",
+            ChunkRecord.failure_type == _DEADLINE,
+        )
+    )
+    if earlier:
+        return False
+    failed = {*await _failed_sites(db, item_id), node_id}
+    return any(x.node_id not in failed for x in await live_lanes(db, job_id))
+
+
+async def _deadline_elsewhere(
+    db: AsyncSession, job_id: str, queue_id: int, node_id: str
+) -> frozenset[int]:
+    """Pending chunks that ran past the time limit on ``node_id`` and that a
+    live lane on a node they have not failed on can take (D437): not leased
+    to ``node_id``. With no such lane left (it was lost) the chunk is not
+    excluded - it runs here once more and then fails for good."""
+    rows = (
+        await db.execute(
+            select(work_item.c.id, work_item.c.failed_sites)
+            .join(
+                ChunkRecord,
+                (ChunkRecord.job_id == job_id)
+                & (ChunkRecord.chunk_index == work_item.c.idx),
+            )
+            .where(
+                work_item.c.queue_id == queue_id,
+                work_item.c.state == ItemState.PENDING.value,
+                ChunkRecord.node_id == node_id,
+                ChunkRecord.outcome == "failed",
+                ChunkRecord.failure_type == _DEADLINE,
+            )
+        )
+    ).all()
+    if not rows:
+        return frozenset()
+    nodes = {x.node_id for x in await live_lanes(db, job_id)}
+    return frozenset(
+        int(r.id) for r in rows if nodes - {*(r.failed_sites or ()), node_id}
+    )
 
 
 async def _failed_sites(db: AsyncSession, item_id: int) -> list[str]:

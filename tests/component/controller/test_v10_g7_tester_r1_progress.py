@@ -65,6 +65,7 @@ def _settings(pg_settings: DatabaseSettings, **split: Any) -> Any:
         "wait_retry_s": 0.2,
         "progress_event_hz": HZ,
         "progress_resync_s": 1.0,
+        "require_measured_rates": False,  # lanes, not D438: split on a first run
     }
     knobs.update(split)
     return g2_settings(

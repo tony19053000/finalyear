@@ -84,16 +84,21 @@ from meshforge.controller.planner.types import (
     PlanRequest,
     Pruned,
     Slot,
+    SplitConfig,
     SplitInfo,
     SplitPlan,
+    TermSource,
 )
 
-__all__ = ["FORCED_SET", "MAX_MARGIN", "SplitOutcome", "decide_split"]
+__all__ = ["FORCED_SET", "MAX_MARGIN", "RATES_ASSUMED", "SplitOutcome", "decide_split"]
 
 MAX_MARGIN: Final = 0.95
 """``split_margin`` is read inside ``[0, MAX_MARGIN]`` (settings validate it;
 a hand-built config cannot make splitting impossible by accident)."""
 _ROUND: Final = 6
+RATES_ASSUMED: Final = "rates_assumed"
+"""V1.0 G9-E (D438): :attr:`~.types.MarginTest.blocked` - the set was fast
+enough on time, but only on assumed per-item rates."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -127,23 +132,47 @@ def _single_chunk(
     )
 
 
+def _rates_assumed(candidate: SetEstimate) -> bool:
+    """V1.0 G9-E (D438): every active lane's per-item rate is ``assumed`` -
+    no run of the workload was recorded on any node, so the set's speed-up
+    is the assumption's, not the workload's. (A rate the ML model corrected
+    keeps its source: the model is trained on other workloads.)"""
+    active = [item for item in candidate.lanes if item.node_id in candidate.active]
+    return bool(active) and all(
+        item.rate.source == TermSource.ASSUMED for item in active
+    )
+
+
 def _margin(
     candidate: SetEstimate | None,
     best: SetEstimate | None,
     margin: float,
     forced: str | None = None,
+    *,
+    config: SplitConfig,
 ) -> MarginTest:
     single_s = None if best is None else round(best.total_s, _ROUND)
     threshold = None if single_s is None else round((1.0 - margin) * single_s, _ROUND)
     set_s = None if candidate is None else round(candidate.total_s, _ROUND)
+    on_time = set_s is not None and threshold is not None and set_s <= threshold
+    # V1.0 G9-E (D438): an assumed rate never justifies a split
+    blocked = (
+        RATES_ASSUMED
+        if on_time
+        and candidate is not None
+        and config.require_measured_rates
+        and _rates_assumed(candidate)
+        else None
+    )
     return MarginTest(
         set_s=set_s,
         best_single_s=single_s,
         best_single_node_id=None if best is None else best.node_ids[0],
         margin=margin,
         threshold_s=threshold,
-        passed=set_s is not None and threshold is not None and set_s <= threshold,
+        passed=on_time and blocked is None,
         forced=forced,
+        blocked=blocked,
     )
 
 
@@ -215,17 +244,20 @@ def _objective_set(
     """D295 for a split job's sets: ``(the set to run if any, use it?)``.
     ``sets`` are in time order, ``ranked`` the singles under the objective
     (rank 1 first)."""
+    split_config = snapshot.config.split
     best_single = min(singles, key=lambda s: (s.total_s, s.node_ids), default=None)
     by_time = sets[0] if sets else None
     time_uses_set = by_time is not None and (
-        _margin(by_time, best_single, margin).passed or best_single is None
+        _margin(by_time, best_single, margin, config=split_config).passed
+        or best_single is None
     )  # V1.0 G2: no single at all (Mode 1 disabled) -> the set is the plan
     if objective == "min_network":
         # a set must pass its own margin test, then move fewer bytes
         eligible = [
             s
             for s in sets
-            if best_single is None or _margin(s, best_single, margin).passed
+            if best_single is None
+            or _margin(s, best_single, margin, config=split_config).passed
         ]
 
         def key(item: SetEstimate) -> tuple[float, float]:
@@ -475,7 +507,7 @@ def decide_split(
     best_single = min(singles, key=lambda s: (s.total_s, s.node_ids), default=None)
     sets.sort(key=lambda s: (s.total_s, len(s.lanes), s.node_ids))
     best_set = sets[0] if sets else None
-    overall = _margin(best_set, best_single, margin, forced)
+    overall = _margin(best_set, best_single, margin, forced, config=config)
 
     by_node = {s.node_ids[0]: s for s in singles}
     scored = [
@@ -527,14 +559,14 @@ def decide_split(
         )
         changed = _pick_key(final, use_set) != time_pick
         if chosen_set is not None and use_set:
-            overall = _margin(chosen_set, best_single, margin, forced)
+            overall = _margin(chosen_set, best_single, margin, forced, config=config)
             sets = [chosen_set, *(s for s in sets if s is not chosen_set)]
     set_rows = [
         _row(
             s,
             "split",
             score=round(s.total_s, _ROUND),
-            margin=_margin(s, best_single, margin),
+            margin=_margin(s, best_single, margin, config=config),
         )
         for s in sets
     ]

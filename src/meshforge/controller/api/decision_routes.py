@@ -5,7 +5,8 @@ Fabric token required (like every ``/v1/jobs*`` read). Answer: the job's
 decisions oldest first (at most ``limit``, the newest ones; ``attempt=N`` only
 those for attempt number N), each with **every** candidate - chosen, ranked,
 rejected - its rejection code and text, its predicted terms with their
-``source`` (``measured`` / ``history`` / ``scaled`` / ``assumed``: nothing
+``source`` (``measured`` / ``history`` / ``scaled`` / ``declared`` (V1.0
+G9-E: the manifest's ``split.item_seconds``) / ``assumed``: nothing
 assumed is shown as measured, checklist 18), the policy's score and rank; and,
 for a decision that placed an attempt, what actually happened (node, state,
 failure type, the five phase timings). ``compute explain`` prints this.
@@ -126,7 +127,7 @@ class TermMlOut(TermMlRateOut):
 
 class TermOut(_Stored):
     seconds: float
-    source: Literal["measured", "history", "scaled", "assumed"]
+    source: Literal["measured", "history", "scaled", "declared", "assumed"]
     detail: dict[str, Any] = Field(default_factory=dict)
     calibration: TermCalibrationOut | None = None
     """V0.14 G5: null = not scaled (uncalibrated, ``measured``, or a row from
@@ -159,6 +160,9 @@ class MarginTestOut(_Stored):
     passed: bool
     forced: str | None = None
     """Why no set was compared: pinned, split_too_small, split_too_few_nodes."""
+    blocked: str | None = None
+    """V1.0 G9-E (D438): why a set fast enough on time did not pass:
+    ``rates_assumed`` (no recorded run of the workload; it runs whole first)."""
 
 
 class PrunedOut(_Stored):
@@ -187,7 +191,9 @@ class CandidateOut(_Stored):
     chunks: int | None = None
     rate_items_s: float | None = None
     """Local / offload rows of a split job: the node's predicted items/s."""
-    rate_source: Literal["measured", "history", "scaled", "assumed"] | None = None
+    rate_source: (
+        Literal["measured", "history", "scaled", "declared", "assumed"] | None
+    ) = None
     start_s: float | None = None
     """Predicted stage + env seconds before the node's first chunk."""
     inactive: tuple[str, ...] | None = None

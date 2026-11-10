@@ -70,6 +70,8 @@ _PWD = (
 #: (path under src/meshforge, the comparison as ``ast.unparse`` prints it) ->
 #: why it is not a credential check that needs a constant-time compare.
 ALLOWED: dict[tuple[str, str], str] = {
+    # V1.0 G9-D2 (D440): a PostgreSQL SQLSTATE (40P01 / 40001), public data
+    ("controller/store/conflicts.py", "code not in CONFLICT_SQLSTATES"): _HTTP,
     ("agent/migration/safe_source.py", "user.pw_gid != gid"): _PWD,
     ("agent/migration/safe_source.py", "m != user.pw_name"): _PWD,
     ("agent/migration/safe_source.py", "p.pw_gid == gid"): _PWD,
@@ -135,10 +137,8 @@ ALLOWED: dict[tuple[str, str], str] = {
     ("agent/execution/executor.py", "attempt.fetch_token != used"): (
         "agent bookkeeping (as above)"
     ),
-    # V0.10 G4: a lane's own token bookkeeping and the lane's epoch check
-    ("agent/execution/lane_staging.py", "attempt.fetch_token == used"): (
-        "agent bookkeeping: which of its own fetch tokens a chunk staging used"
-    ),
+    # V0.10 G4: a lane's epoch check (the lane's token bookkeeping moved into
+    # the shared staging retry loop in executor.py, V1.0 G9-A)
     # V0.17 G3: the console's Host/Origin header checks (public values, not
     # credentials), a group-membership test, exit-code compares
     ("agent/console/auth.py", "host.strip().lower() == expected_host(port)"): (

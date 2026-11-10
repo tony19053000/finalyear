@@ -1332,6 +1332,7 @@
                   "measured",
                   "history",
                   "scaled",
+                  "declared",
                   "assumed"
                 ],
                 "type": "string"
@@ -5232,6 +5233,17 @@
             ],
             "title": "Best Single S"
           },
+          "blocked": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Blocked"
+          },
           "forced": {
             "anyOf": [
               {
@@ -7032,7 +7044,7 @@
             "type": "number"
           },
           "consistent": {
-            "description": "False: the window's exchanges contradict each other (a clock stepped).",
+            "description": "False: the window's exchanges contradict each other (a clock stepped or slewed); the bound already covers them, so this alone raises no alert (D434).",
             "title": "Consistent",
             "type": "boolean"
           },
@@ -7046,7 +7058,7 @@
             "type": "boolean"
           },
           "uncertain": {
-            "description": "Bound over 250 ms or inconsistent (an alert is raised).",
+            "description": "Bound over 250 ms (an alert is raised; D434: the bound only).",
             "title": "Uncertain",
             "type": "boolean"
           }
@@ -7856,6 +7868,20 @@
       "Placement": {
         "additionalProperties": false,
         "properties": {
+          "exclude_nodes": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Exclude Nodes"
+          },
           "mode": {
             "enum": [
               "local",
@@ -9900,6 +9926,7 @@
               "measured",
               "history",
               "scaled",
+              "declared",
               "assumed"
             ],
             "title": "Source",
@@ -10460,7 +10487,7 @@
   "info": {
     "summary": "The compute fabric's REST surface. Every call but /healthz and POST /v1/auth/login needs a user's API token (`compute login`).",
     "title": "MeshForge controller",
-    "version": "0.17.0"
+    "version": "0.17.1"
   },
   "openapi": "3.1.0",
   "paths": {
