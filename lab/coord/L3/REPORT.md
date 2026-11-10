@@ -346,3 +346,16 @@ when: 2026-11-10 16:59 (local)
 commands:
     gh release download v0.17.1 --pattern MeshForge-Agent-Setup-* --pattern SHA256SUMS; Get-FileHash
 result: MeshForge-Agent-Setup-0.17.1-1.exe 54.9 MB, SHA256 matches. Upgrade install: HUMAN next.
+
+### G9-up-b - upgrade to v0.17.1 - OK
+when: 2026-11-10 17:17 (local)
+laptop: L3 (MOHIT)
+commands:
+    HUMAN: MeshForge-Agent-Setup-0.17.1-1.exe (launched by the agent 16:59:54; SmartScreen/UAC/wizard by the human), no rejoin
+    type "C:\Program Files\MeshForge\current.txt"; Get-Service MeshForgeAgent
+    HUMAN (Administrator): identity show; type config.toml; agent.log tail (peer|error)
+result: current.txt 0.17.1-1; service Running; SAME node_id node_01M6K0TZRNPEGBRN166GP6S61N (upgrade kept the identity). config.toml kept `[agent.peer] bind = "192.168.31.71"`; log `agent.peer.listening` bind 192.168.31.71 port 47120 tls true at 11:31:20Z; peer rule MeshForge-Agent-Peer still present. `agent.probe.done` ok to 3 nodes (rtt 594 / 266 / 31 ms, 17.9 / 1.6 / 1.3 MB/s). Hardware: 10 cores / 12 threads, 7.7 GiB, gpu_count 0 (no NVIDIA, expected).
+  Note: a non-admin `Get-NetTCPConnection -LocalPort 47120` showed nothing after the upgrade while the log shows it listening (visibility only, not a fault).
+  Workarounds to remove on L3: none (L3 had no controller_address / index_url lines).
+  Re-run table: no L3-only rows; L3 is used by L1's rows (G9-B c no_gpu, G9-B g --exclude-node L3, G9-D mc on L3) - waiting for L1's cues.
+SIGNAL: upgraded L3 version=0.17.1-1 node=node_01M6K0TZRNPEGBRN166GP6S61N
