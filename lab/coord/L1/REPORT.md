@@ -1065,3 +1065,8 @@ BUG-4 (medium, Lead): a chunk process that hangs at start (0 CPU, no output) kee
 compute run (pytorch-gpu-venv copy, base cuda-pytorch, gpu required, --exclude-node JARVISM3): 409 "none of the 6 node(s) ... can ever run this job";
 L2/L4 "no_runtime_for_base - ... no Docker and its agent's Python has no torch (install Docker ... or env.base python-cpu ...)", L3 "no_gpu". PASS
 ### G9-B h - started 00:33 IST: all agent nodes on Wi-Fi; check clock_uncertain alerts after 1 h.
+
+### G9-B e (#7) - env_error then owner only_binary=false -> places at once - PASS
+1: job_01M73DFYTV45T7KDDGRX4094E2 (docopt==0.6.2 sdist-only, pinned L1): failed env_error "No matching distribution" (wheels-only).
+2: HUMAN appended [agent.envs] only_binary = false to /etc/meshforge/config.toml (backup .bak-g9be) + restart; job_01M73DJD6M58AN2N6CY23AKH8K submitted 00:34:45,
+   succeeded 00:34:52 "docopt ok 0.6.2" - no env_known_bad TTL wait. PASS. Config restore pending (human).
