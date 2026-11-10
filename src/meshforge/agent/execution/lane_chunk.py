@@ -403,10 +403,14 @@ class ChunkRunSteps(ChunkStagingSteps):
 def _env_phase_failure(run: RunResult, observer: RunObserver) -> bool:
     """D443: the run failed in its env phase - the runtime entered it (image,
     env build, setup) and the workload never started. Not a chunk's fault: the
-    node cannot provide the job's environment."""
+    node cannot provide the job's environment. A passing condition
+    (``resource_busy``, e.g. the Docker daemon unreachable for a moment, D449)
+    does not end the lane: its chunk fails retryable and the next one tries
+    again."""
     return (
         not run.ok
         and not run.cancelled
+        and run.failure_type is not FailureType.RESOURCE_BUSY
         and observer.env_started is not None
         and observer.run_started is None
     )

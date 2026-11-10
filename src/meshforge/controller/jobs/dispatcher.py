@@ -121,6 +121,7 @@ from meshforge.controller.jobs.planning import DispatchPlanner, MlServingStats
 from meshforge.controller.jobs.recovery import RecoverySteps, _Offline, _Reconcile
 from meshforge.controller.jobs.reports import parse_status
 from meshforge.controller.jobs.store import JobRecord, JobStoreError
+from meshforge.controller.jobs.transitions import AttemptEvent
 from meshforge.controller.liveness import LivenessEvent
 from meshforge.controller.ml.predictor import MlInputSource
 from meshforge.controller.named_inputs import NamedInputStore
@@ -134,6 +135,7 @@ from meshforge.controller.settings import (
     PlannerSettings,
     SplitSettings,
 )
+from meshforge.controller.split.lanes import LiveLane
 from meshforge.controller.split.records import StderrLimits
 from meshforge.controller.split.service import ChunkWork, SplitService
 from meshforge.controller.split.speculation import SpeculationConfig
@@ -315,6 +317,7 @@ class Dispatcher(RecoverySteps):
                 wall_clock=self._wall,
                 put=self._put,
                 wake=self._wake_soon,
+                end_lane=self._end_lane_env,
             )
         )
         """V0.10 G4 (D263): a lane's chunk messages, handled in this task.
@@ -746,6 +749,47 @@ class Dispatcher(RecoverySteps):
             and outcome.kind is StatusKind.APPLIED
         ):
             self._send_cancel(attempt, "cancelled by request")
+
+    async def _end_lane_env(
+        self, lane: LiveLane, job_id: str, failure_type: FailureType, detail: str
+    ) -> None:
+        """D448: an older agent's lane reported a chunk failed ``env_error``:
+        the lane ends here (``FAILED``, not retryable - the job finishes on its
+        other lanes or fails), ``(node, env)`` becomes known-bad (D116/D433)
+        and the agent is told to stop the lane (its own end is then a
+        duplicate). Never one env build per chunk."""
+        text = f"env build failed on this node (reported per chunk): {detail}"
+        try:
+            outcome = await self._store.end_attempt(
+                lane.attempt_id,
+                lane.fencing_token,
+                event=AttemptEvent.FAIL,
+                failure_type=failure_type,
+                detail=text[:1024],
+                retryable=False,
+            )
+        except JobStoreError as exc:
+            log.warning(
+                "controller.split.lane_env_end_failed",
+                job_id=job_id,
+                attempt_id=lane.attempt_id,
+                error=type(exc).__name__,
+            )
+            return
+        self._after(outcome)
+        self._note_retry(outcome)
+        if outcome.ended:
+            self._remember_bad_env(
+                outcome,
+                StatusReport(
+                    attempt_id=lane.attempt_id,
+                    fencing_token=lane.fencing_token,
+                    state=AttemptState.FAILED,
+                    failure_type=failure_type,
+                    detail=text,
+                ),
+            )
+        self._cancel_on(lane.node_id, lane.attempt_id, lane.fencing_token, "env_error")
 
     def _remember_bad_env(self, outcome: StatusOutcome, report: StatusReport) -> None:
         """D116: an attempt that ended env_error makes (node, env) known-bad."""

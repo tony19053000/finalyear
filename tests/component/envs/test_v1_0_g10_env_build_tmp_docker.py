@@ -195,3 +195,43 @@ async def test_a_wheel_larger_than_the_tmpfs_builds_on_the_docker_disk(
         client.close()
     env = dict(item.partition("=")[::2] for item in config.get("Env") or [])
     assert env.get("TMPDIR", "/tmp") == "/tmp"
+
+
+@pytest.mark.asyncio
+async def test_a_setup_step_that_runs_out_of_disk_is_disk_full(tmp_path: Path) -> None:
+    """D447: a real ENOSPC inside a Docker setup step (its 16 MB ``/tmp``) is
+    ``disk_full`` - a condition of the node - never ``env_error``."""
+    from meshforge.agent.execution.docker_runtime import DockerConfig, DockerRuntime
+    from meshforge.agent.settings import PYTHON_CPU_IMAGE
+    from meshforge.common.errors import FailureType
+
+    if not _image_local(PYTHON_CPU_IMAGE):
+        pytest.skip(f"{PYTHON_CPU_IMAGE} is not local: docker pull it first")
+    runtime = DockerRuntime(
+        DockerConfig(agent_label=f"g10-{secrets.token_hex(4)}", tmp_size_mb=TMPFS_MB)
+    )
+    attempt_id = new_attempt_id()
+    workdir = tmp_path / "work" / attempt_id
+    workdir.mkdir(parents=True)
+    workdir.chmod(0o700)
+    fill = "open('/tmp/fill', 'wb').write(b'0' * (40 << 20))"  # > the 16 MB tmpfs
+    spec = RunSpec(
+        attempt_id=attempt_id,
+        argv=("python", "-c", "print('never')"),
+        workdir=workdir,
+        env=workload_env(
+            runtime="docker",
+            workdir=workdir,
+            job_id=str(new_job_id()),
+            attempt_id=attempt_id,
+        ),
+        limits=RunLimits(memory_bytes=512 << 20, pids=256, timeout_s=60),
+        image=PYTHON_CPU_IMAGE,
+        setup_argv=("python", "-c", fill),
+    )
+    log = _Log()
+    result = await runtime.run(spec, log)
+    assert "No space left on device" in log.text(), log.text()[-2000:]
+    assert result.failure_type is FailureType.DISK_FULL, (result.reason, result.detail)
+    assert result.reason == "disk_full"
+    assert "never" not in log.text()  # the workload never ran

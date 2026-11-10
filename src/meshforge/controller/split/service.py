@@ -19,6 +19,15 @@ then talks back to the lane:
   failed (a chunk failed for good) gets ``CancelAttempt`` for every live lane;
 * ``LeaseRenew`` -> the lane's leases extended.
 
+**Env failures from an older agent (V1.0 G10, D448).** Since D443 an agent
+whose env cannot be built ends its lane ``FAILED(env_error)`` itself. An older
+agent reports it as a *chunk* failure and pulls the next chunk - building the
+env again for every chunk. The controller now treats a chunk result failed
+``env_error`` as the end of that lane: the lease is **released** uncounted (the
+chunk did nothing wrong), then ``end_lane`` (the dispatcher) ends the lane
+``FAILED(env_error)``, records ``(node, env)`` known-bad and cancels the lane on
+the agent.
+
 Every message that fails its lane / lease checks is counted
 (:attr:`SplitStats.fenced`) and logged ``controller.split.fenced`` with its
 cause, and never applied (checklist 34). The periodic step :meth:`expire`
@@ -30,7 +39,7 @@ from __future__ import annotations
 import datetime as dt
 import time
 from collections import OrderedDict
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any, Final
 
@@ -116,6 +125,11 @@ class SplitStats:
     """Commits where the original beat its live speculative copy."""
 
 
+EndLane = Callable[[LiveLane, str, FailureType, str], Awaitable[None]]
+"""D448: ``(lane, job_id, failure_type, detail)`` - the dispatcher ends the
+lane ``FAILED`` (not retryable), records known-bad envs, cancels it."""
+
+
 @dataclass(frozen=True, slots=True)
 class ChunkWork:
     """One chunk message on the dispatcher's queue."""
@@ -139,9 +153,12 @@ class SplitService:
         put: Callable[[ChunkWork], bool],
         clock: Callable[[], float] | None = None,
         wake: Callable[[], None] | None = None,
+        end_lane: EndLane | None = None,
     ) -> None:
         self._store = store
         self._wake = wake
+        self._end_lane = end_lane
+        """D448: end a lane controller-side (old agent's chunk env_error)."""
         """V0.10 G5: run a dispatch pass soon (a job now owes its combine)."""
         self._manager = manager
         self._grants = grants
@@ -325,6 +342,14 @@ class SplitService:
         failure = body.failure
         key = (lane.attempt_id, body.item_id)
         unverified = False
+        env_failed = (
+            outcome == "failed"
+            and failure is not None
+            and failure[0] is FailureType.ENV_ERROR
+            and self._end_lane is not None
+        )
+        if env_failed:
+            outcome = "released"  # D448: the node's env, not the chunk's fault
         if outcome == "done" and digest is not None:
             size = (
                 None
@@ -386,6 +411,22 @@ class SplitService:
         )
         if unverified and got.kind is ResultKind.RELEASED:
             self._note_unverified(key)
+        if env_failed and got.kind is ResultKind.RELEASED:
+            assert failure is not None  # noqa: S101 - env_failed checked it
+            assert self._end_lane is not None  # noqa: S101
+            log.warning(
+                "controller.split.lane_env_failed",
+                job_id=lane.job_id,
+                attempt_id=lane.attempt_id,
+                node_id=live.node_id,
+                chunk=body.chunk_index,
+            )
+            await self._end_lane(
+                LiveLane(lane.attempt_id, live.node_id, lane.fencing_token),
+                lane.job_id,
+                FailureType.ENV_ERROR,
+                failure[1],
+            )
         self._manager.ack_message(live, message_id)  # stored (or never will be)
         if (
             unverified

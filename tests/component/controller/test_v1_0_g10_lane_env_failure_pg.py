@@ -12,6 +12,10 @@ the agent side is ``tests/unit/agent/test_v1_0_g10_lane_env_failure.py``).
 * one GPU node that cannot build the env: the job ends ``FAILED(env_error)``
   promptly (no re-plan for a non-retryable failure; never "runs on until
   cancelled" - lab job_01M72QTRYT43884YFENTMYY7N9).
+* D448 backstop: an **older** agent that reports every chunk failed
+  ``env_error`` (retryable) runs one chunk only - the controller ends its lane
+  ``FAILED(env_error)``, releases the chunk uncounted, marks known-bad, and
+  the job succeeds elsewhere (or fails ``env_error`` with no other lane).
 """
 
 from __future__ import annotations
@@ -86,13 +90,15 @@ async def _sql(runtime: ControllerRuntime, query: str, **params: Any) -> list[An
 
 @contextlib.asynccontextmanager
 async def _fabric(
-    runtime: ControllerRuntime, nodes: dict[str, tuple[float, bool]]
+    runtime: ControllerRuntime, nodes: dict[str, tuple[float, str]]
 ) -> AsyncIterator[dict[str, FakeLane]]:
-    """``nodes``: name -> (seconds per chunk, env build fails)."""
+    """``nodes``: name -> (seconds per chunk, mode): ``ok``; ``env_fail`` (a
+    D443 agent: the lane ends FAILED(env_error)); ``old_env_fail`` (an agent
+    before D443: every chunk reported failed env_error, retryable - D448)."""
     async with NodeChannels(f"127.0.0.1:{runtime.grpc_port}") as channel:
         lanes: dict[str, FakeLane] = {}
         try:
-            for name, (speed, broken) in nodes.items():
+            for name, (speed, mode) in nodes.items():
                 fake = FakeAgent(channel)
                 await fake.connect(
                     hardware=agent_pb2.HardwareSummary(
@@ -112,8 +118,15 @@ async def _fabric(
                 )
                 fake.start_heartbeats(HB_S / 2)
                 lane = FakeLane(
-                    fake, runtime, speed_s=speed, env_fail=ENV_FAIL if broken else None
+                    fake,
+                    runtime,
+                    speed_s=speed,
+                    env_fail=ENV_FAIL if mode == "env_fail" else None,
                 )
+                if mode == "old_env_fail":
+                    lane.fail = set(range(CHUNKS))
+                    lane.fail_kind = FailureType.ENV_ERROR
+                    lane.fail_retryable = True
                 lane.start()
                 lanes[name] = lane
             yield lanes
@@ -188,7 +201,7 @@ def _lane_starts(lane: FakeLane) -> list[agent_pb2.StartAttempt]:
 async def test_a_lane_whose_env_fails_ends_once_and_the_job_finishes_elsewhere(
     runtime: ControllerRuntime, tmp_path: Path
 ) -> None:
-    nodes = {"broken": (0.001, True), "good": (0.02, False)}
+    nodes = {"broken": (0.001, "env_fail"), "good": (0.02, "ok")}
     async with (
         _fabric(runtime, nodes) as lanes,
         api_client(runtime, token=token_of(runtime)) as http,
@@ -231,7 +244,7 @@ async def test_the_only_lane_failing_its_env_fails_the_job_cleanly(
     runtime: ControllerRuntime, tmp_path: Path
 ) -> None:
     async with (
-        _fabric(runtime, {"broken": (0.001, True)}) as lanes,
+        _fabric(runtime, {"broken": (0.001, "env_fail")}) as lanes,
         api_client(runtime, token=token_of(runtime)) as http,
     ):
         job_id, key = await _submit(runtime, tmp_path, http, min_nodes=1)
@@ -244,3 +257,58 @@ async def test_the_only_lane_failing_its_env_fails_the_job_cleanly(
         assert len(broken.env_failed) == 1
         assert runtime.known_bad_envs is not None
         assert runtime.known_bad_envs.is_bad(broken.agent.node_id, key)
+
+
+async def test_an_old_agents_chunk_env_error_ends_its_lane(
+    runtime: ControllerRuntime, tmp_path: Path
+) -> None:
+    nodes = {"old": (0.001, "old_env_fail"), "good": (0.02, "ok")}
+    async with (
+        _fabric(runtime, nodes) as lanes,
+        api_client(runtime, token=token_of(runtime)) as http,
+    ):
+        job_id, key = await _submit(runtime, tmp_path, http, min_nodes=2)
+        job = await _wait_end(runtime, job_id)
+        assert job.state is JobState.SUCCEEDED, (job.failure_type, job.failure_detail)
+        old, good = lanes["old"], lanes["good"]
+        assert len(_lane_starts(old)) == 1
+        assert len(old.ledger) == 1  # one chunk (= one env build), never more
+        assert len(good.ledger) == CHUNKS  # every chunk ran on "good"
+        rows = await _sql(
+            runtime,
+            "SELECT node_id, state, failure_type FROM attempt "
+            "WHERE job_id = :job AND role = 'lane'",
+            job=job_id,
+        )
+        by_node = {r.node_id: (r.state, r.failure_type) for r in rows}
+        assert by_node[old.agent.node_id] == ("failed", "env_error")
+        failed_tries = await _sql(
+            runtime,
+            "SELECT chunk_index FROM chunk_record "
+            "WHERE job_id = :job AND outcome = 'failed'",
+            job=job_id,
+        )
+        assert failed_tries == []  # released, not counted against the chunk
+        assert runtime.known_bad_envs is not None
+        assert runtime.known_bad_envs.is_bad(old.agent.node_id, key)
+        cancels = [
+            m.cancel_attempt
+            for m in old.agent.messages("cancel_attempt")
+            if m.cancel_attempt.reason == "env_error"
+        ]
+        assert len(cancels) == 1  # the agent is told to stop that lane
+
+
+async def test_an_old_agent_alone_fails_the_job_env_error_after_one_chunk(
+    runtime: ControllerRuntime, tmp_path: Path
+) -> None:
+    async with (
+        _fabric(runtime, {"old": (0.001, "old_env_fail")}) as lanes,
+        api_client(runtime, token=token_of(runtime)) as http,
+    ):
+        job_id, _key = await _submit(runtime, tmp_path, http, min_nodes=1)
+        job = await _wait_end(runtime, job_id)
+        assert job.state is JobState.FAILED
+        assert job.failure_type is FailureType.ENV_ERROR, job.failure_detail
+        assert "reported per chunk" in (job.failure_detail or "")
+        assert len(lanes["old"].ledger) == 1

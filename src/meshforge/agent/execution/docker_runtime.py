@@ -112,6 +112,10 @@ from meshforge.agent.execution.docker_support import (
     probe_docker,
     sweep_orphans,
 )
+from meshforge.agent.execution.failure_evidence import (
+    DISK_FULL_MARKER,
+    STDERR_TAIL_BYTES,
+)
 from meshforge.agent.execution.runtime import (
     DEPS_SUBDIR,
     OutputCallback,
@@ -168,6 +172,11 @@ _CONTAINER_REQ: Final = "/req"
 _CONTAINER_WHEELS: Final = "/wheels"
 NOBODY: Final = "65534:65534"
 _CONTAINER_TMP: Final = "/tmp"  # noqa: S108 - a private tmpfs inside the container
+DOCKER_BLIP: Final = FailureType.RESOURCE_BUSY
+"""V1.0 G10 (D449): the Docker daemon could not be reached (``docker_unavailable``)
+- a passing condition of the node (daemon restarting, Docker Desktop starting),
+not of the job's environment: retryable ``resource_busy``, never ``env_error``
+(which would mark ``(node, env)`` known-bad, D116, and end a split lane, D443)."""
 ENV_BUILD_TMP: Final = "/meshforge-build-tmp"
 """V1.0 G10 (D442): the env build's ``TMPDIR`` - a folder on the build
 container's **layer** (the Docker disk), never the ``/tmp`` tmpfs: pip unpacks
@@ -603,7 +612,7 @@ class DockerRuntime:
                 client = opened
             except Exception as exc:
                 raise _FaultError(
-                    FailureType.ENV_ERROR,
+                    DOCKER_BLIP,
                     "docker_unavailable",
                     f"cannot reach the Docker daemon: {type(exc).__name__}",
                 ) from exc
@@ -674,7 +683,7 @@ class DockerRuntime:
                 client = opened
             except Exception as exc:
                 raise _FaultError(
-                    FailureType.ENV_ERROR,
+                    DOCKER_BLIP,
                     "docker_unavailable",
                     f"cannot reach the Docker daemon: {type(exc).__name__}",
                 ) from exc
@@ -715,6 +724,7 @@ class DockerRuntime:
         if cached:
             image = await self._ensure_env_image(client, spec, image, pump, obs, fields)
         elif spec.setup_argv is not None:
+            pump.keep_tail(STDERR_TAIL_BYTES)  # D447: ENOSPC -> disk_full
             setup = await self._container(
                 client, spec, image, pump, obs, role="setup", deadline=env_deadline
             )
@@ -725,6 +735,7 @@ class DockerRuntime:
                     f"requirements install exceeded {self.config.env_timeout_s:g} s",
                 )
             if setup.oom_killed or setup.exit_code != 0:
+                _raise_if_disk_full(pump, setup.exit_code)
                 raise _FaultError(
                     FailureType.ENV_ERROR,
                     "setup_failed",
@@ -782,7 +793,7 @@ class DockerRuntime:
         except errors as exc:
             if docker is None or not isinstance(exc, docker.errors.ImageNotFound):
                 raise _FaultError(
-                    FailureType.ENV_ERROR, "docker_unavailable", type(exc).__name__
+                    DOCKER_BLIP, "docker_unavailable", type(exc).__name__
                 ) from exc
         else:
             return
@@ -888,7 +899,7 @@ class DockerRuntime:
             found = await asyncio.to_thread(client.images.get, image)
         except docker_errors() as exc:
             raise _FaultError(
-                FailureType.ENV_ERROR, "docker_unavailable", type(exc).__name__
+                DOCKER_BLIP, "docker_unavailable", type(exc).__name__
             ) from exc
         attrs = found.attrs if isinstance(found.attrs, dict) else {}
         parts = [str(attrs.get("Os") or "linux"), str(attrs.get("Architecture") or "")]
@@ -907,7 +918,7 @@ class DockerRuntime:
             if docker is not None and isinstance(exc, docker.errors.ImageNotFound):
                 return False
             raise _FaultError(
-                FailureType.ENV_ERROR, "docker_unavailable", type(exc).__name__
+                DOCKER_BLIP, "docker_unavailable", type(exc).__name__
             ) from exc
         labels = found.labels if isinstance(found.labels, dict) else {}
         return labels.get(LABEL_ENV_HASH) == digest
@@ -1063,6 +1074,7 @@ class DockerRuntime:
                 return
             await self._commit_env(container, tag, deadline, base)
 
+        pump.keep_tail(STDERR_TAIL_BYTES)  # D447: ENOSPC -> disk_full
         try:
             outcome = await self._container(
                 client,
@@ -1087,6 +1099,7 @@ class DockerRuntime:
                 f"requirements install exceeded {self.config.env_timeout_s:g} s",
             )
         if outcome.oom_killed or outcome.exit_code != 0:
+            _raise_if_disk_full(pump, outcome.exit_code)
             raise _FaultError(
                 FailureType.ENV_ERROR,
                 "setup_failed",
@@ -1583,6 +1596,19 @@ def env_image_changes(base_config: Mapping[str, Any]) -> list[str]:
     if isinstance(cmd, list) and cmd:
         changes.append("CMD " + json.dumps([str(part) for part in cmd]))
     return changes
+
+
+def _raise_if_disk_full(pump: OutputPump, exit_code: int | None) -> None:
+    """D447: an env build / setup step that failed with the installer's own
+    ENOSPC message is ``disk_full`` (a condition of the node; the planner
+    avoids it, D126), as for the venv runtime (D116) - not ``env_error``
+    (which would mark the env known-bad on this node)."""
+    if DISK_FULL_MARKER.search(pump.tail()):
+        raise _FaultError(
+            FailureType.DISK_FULL,
+            "disk_full",
+            f"the disk filled up during the requirements install (exit {exit_code})",
+        )
 
 
 def _base_env(base_config: Mapping[str, Any]) -> dict[str, str]:

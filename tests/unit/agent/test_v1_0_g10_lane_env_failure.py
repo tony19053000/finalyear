@@ -85,6 +85,14 @@ class _Runtime:
         del spec, on_output
         self.calls += 1
         observer.enter_env()
+        if self.mode == "blip":  # D449: Docker daemon unreachable for a moment
+            observer.finish()
+            return RunResult(
+                exit_code=None,
+                failure_type=FailureType.RESOURCE_BUSY,
+                reason="docker_unavailable",
+                detail="cannot reach the Docker daemon: ConnectionError",
+            )
         if self.mode == "env":
             observer.finish()
             return RunResult(
@@ -257,3 +265,21 @@ def test_the_error_carries_a_typed_failure() -> None:
         "setup_failed: boom",
         False,
     )
+
+
+@pytest.mark.asyncio
+async def test_a_docker_daemon_blip_does_not_end_the_lane(tmp_path: Path) -> None:
+    """D449: ``docker_unavailable`` (raised in the env phase, before any build)
+    is retryable ``resource_busy``: the chunk fails retryable and the lane goes
+    on - no lane end, so no known-bad env on the controller."""
+    host = _Host(tmp_path, [_grant(0), _grant(1)])
+    runtime = _Runtime("blip")
+    attempt = _attempt(tmp_path)
+    await _run(host, runtime, attempt)
+    assert runtime.calls == 2  # every chunk tried
+    assert len(host.chunk_results) == 2
+    for result in host.chunk_results:
+        assert result.outcome == agent_pb2.ChunkResult.OUTCOME_FAILED
+        assert result.failure.retryable is True
+    ((state, _kw),) = host.sent
+    assert state is AttemptState.DONE
