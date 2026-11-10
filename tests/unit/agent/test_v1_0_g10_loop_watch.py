@@ -226,3 +226,14 @@ async def test_status_of_keeps_a_bounded_core_error(
     end = await client._status_of(_FailedCall("x" * 5000))
     assert end.code is grpc.StatusCode.UNAVAILABLE
     assert len(end.core_error) == CORE_ERROR_MAX_CHARS
+
+
+def test_an_in_flight_stall_counts_before_its_wake_up_ran() -> None:
+    """D444 r1: a stream end handled before the watch's late wake-up still
+    sees the stall; an on-time pending wake-up adds nothing."""
+    watch = _watch(threshold_s=1.0)
+    watch._expected = 10.0  # the running watch's pending wake-up
+    assert watch.max_lag_s(30.0, now=10.5) == 0.0
+    assert watch.max_lag_s(30.0, now=17.0) == pytest.approx(7.0)
+    watch.observe(0.0, 12.0)  # a recorded, bigger stall still wins
+    assert watch.max_lag_s(30.0, now=17.0) == pytest.approx(12.0)

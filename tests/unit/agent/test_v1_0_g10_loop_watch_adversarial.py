@@ -49,7 +49,9 @@ async def test_repeated_real_stalls_are_rate_limited_and_counted() -> None:
 
 
 def test_suppressed_counts_roll_into_next_line() -> None:
-    w = LoopWatch(clock=lambda: 0.0, threshold_s=1.0, log_every_s=10.0, memory_mb=lambda: None)
+    w = LoopWatch(
+        clock=lambda: 0.0, threshold_s=1.0, log_every_s=10.0, memory_mb=lambda: None
+    )
     with structlog.testing.capture_logs() as logs:
         w.observe(0, 2)  # logged
         for t in (3, 4, 5):
@@ -66,15 +68,17 @@ def test_suppressed_counts_roll_into_next_line() -> None:
 @pytest.mark.asyncio
 async def test_cancel_is_clean_and_nothing_logs_after_stop() -> None:
     loop = asyncio.get_running_loop()
-    before = {t for t in asyncio.all_tasks()}
-    watch = LoopWatch(clock=loop.time, interval_s=0.01, threshold_s=0.05, memory_mb=lambda: None)
+    before = set(asyncio.all_tasks())
+    watch = LoopWatch(
+        clock=loop.time, interval_s=0.01, threshold_s=0.05, memory_mb=lambda: None
+    )
     task = asyncio.create_task(watch.run())
     await asyncio.sleep(0.05)
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
     assert task.done()
-    assert {t for t in asyncio.all_tasks()} == before
+    assert set(asyncio.all_tasks()) == before
     with structlog.testing.capture_logs() as logs:
         time.sleep(0.2)  # noqa: ASYNC251 - would be a stall if still running
         await asyncio.sleep(0.1)
@@ -85,7 +89,9 @@ async def test_cancel_is_clean_and_nothing_logs_after_stop() -> None:
 @pytest.mark.asyncio
 async def test_cancel_during_a_stall_does_not_log_or_raise_garbage() -> None:
     loop = asyncio.get_running_loop()
-    watch = LoopWatch(clock=loop.time, interval_s=0.01, threshold_s=0.05, memory_mb=lambda: None)
+    watch = LoopWatch(
+        clock=loop.time, interval_s=0.01, threshold_s=0.05, memory_mb=lambda: None
+    )
     task = asyncio.create_task(watch.run())
     await asyncio.sleep(0.03)
     time.sleep(0.2)  # noqa: ASYNC251
@@ -111,7 +117,9 @@ def test_no_leaked_thread_or_task_objects() -> None:
     assert threading.active_count() == n  # the watch uses no thread
 
 
-def test_available_memory_is_none_when_psutil_is_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_available_memory_is_none_when_psutil_is_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     real_import = builtins.__import__
 
     def fake(name: str, *a: object, **k: object) -> object:
@@ -124,7 +132,9 @@ def test_available_memory_is_none_when_psutil_is_missing(monkeypatch: pytest.Mon
     assert available_memory_mb() is None
 
 
-def test_available_memory_is_none_when_psutil_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_available_memory_is_none_when_psutil_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     import psutil
 
     def boom() -> None:
@@ -148,15 +158,25 @@ def test_log_line_has_no_paths_or_secrets() -> None:
         w.observe(0, 5)
     (line,) = _events(logs)
     blob = repr(line)
-    assert "/" not in blob.replace("(low free memory / paging, a blocked event loop)", "")
+    assert "/" not in blob.replace(
+        "(low free memory / paging, a blocked event loop)", ""
+    )
     assert set(line) <= {
-        "event", "log_level", "node_id", "lag_s", "available_mb",
-        "suppressed", "worst_suppressed_s", "hint",
+        "event",
+        "log_level",
+        "node_id",
+        "lag_s",
+        "available_mb",
+        "suppressed",
+        "worst_suppressed_s",
+        "hint",
     }
 
 
 def test_max_lag_is_bounded_memory_and_correct_after_overflow() -> None:
-    w = LoopWatch(clock=lambda: 0.0, threshold_s=0.1, log_every_s=1e9, memory_mb=lambda: None)
+    w = LoopWatch(
+        clock=lambda: 0.0, threshold_s=0.1, log_every_s=1e9, memory_mb=lambda: None
+    )
     for i in range(5000):
         w.observe(i, i + 0.5)
     assert len(w._stalls) == lw._KEEP
@@ -190,10 +210,6 @@ async def test_running_watch_adds_no_measurable_loop_latency() -> None:
         await asyncio.gather(task, return_exceptions=True)
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason="D444 tester finding: max_lag_s excludes a stall whose watch wake-up has not run yet; a stream end processed first logs loop_lag_max_s=0.0 (race, ~20% here)",
-)
 @pytest.mark.asyncio
 async def test_stall_is_visible_to_a_callback_that_runs_right_after_the_stall() -> None:
     """The session client reads max_lag_s when the stream end is processed. After
@@ -201,13 +217,17 @@ async def test_stall_is_visible_to_a_callback_that_runs_right_after_the_stall() 
     the loop) queued *during* the stall runs in the first iteration after it.
     Does it already see the stall?"""
     loop = asyncio.get_running_loop()
-    watch = LoopWatch(clock=loop.time, interval_s=0.02, threshold_s=0.1, memory_mb=lambda: None)
+    watch = LoopWatch(
+        clock=loop.time, interval_s=0.02, threshold_s=0.1, memory_mb=lambda: None
+    )
     task = asyncio.create_task(watch.run())
     seen: list[float] = []
     done = asyncio.Event()
 
     def poke() -> None:
-        loop.call_soon_threadsafe(lambda: (seen.append(watch.max_lag_s(30.0)), done.set()))
+        loop.call_soon_threadsafe(
+            lambda: (seen.append(watch.max_lag_s(30.0)), done.set())
+        )
 
     try:
         await asyncio.sleep(0.1)
@@ -221,7 +241,9 @@ async def test_stall_is_visible_to_a_callback_that_runs_right_after_the_stall() 
     assert watch.max_lag_s(30.0) >= 0.2
     # Informational: report what the first post-stall callback saw.
     assert seen, "callback never ran"
-    assert seen[0] >= 0.2, f"stream-end-like callback saw lag {seen[0]} right after a 0.4 s stall"
+    assert seen[0] >= 0.2, (
+        f"stream-end-like callback saw lag {seen[0]} right after a 0.4 s stall"
+    )
 
 
 # ------------------------------------------------------------ core_error / write_failed
@@ -254,6 +276,10 @@ def test_write_failed_ignores_other_internal_details_and_codes() -> None:
     from meshforge.agent.session.policy import StreamEndAction
 
     a = StreamEndAction.RECONNECT
-    assert not write_failed(StreamEnd(grpc.StatusCode.INTERNAL, "Internal error from Core ", a))
-    assert not write_failed(StreamEnd(grpc.StatusCode.UNKNOWN, "Internal error from Core", a))
+    assert not write_failed(
+        StreamEnd(grpc.StatusCode.INTERNAL, "Internal error from Core ", a)
+    )
+    assert not write_failed(
+        StreamEnd(grpc.StatusCode.UNKNOWN, "Internal error from Core", a)
+    )
     assert not write_failed(StreamEnd(grpc.StatusCode.INTERNAL, "", a))

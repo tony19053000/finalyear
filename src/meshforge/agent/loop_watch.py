@@ -106,6 +106,8 @@ class LoopWatch:
         """Stalls seen since start (tests, status)."""
         self.worst_s = 0.0
         """The worst lag seen since start."""
+        self._expected: float | None = None
+        """When the running watch's pending wake-up is due (None: not running)."""
 
     def observe(self, expected: float, now: float) -> float | None:
         """One wake-up meant for ``expected`` happened at ``now``.
@@ -140,9 +142,19 @@ class LoopWatch:
         return lag
 
     def max_lag_s(self, window_s: float, now: float | None = None) -> float:
-        """The worst stall that ended within the last ``window_s`` (0.0: none)."""
+        """The worst stall that ended within the last ``window_s`` (0.0: none).
+
+        Also the **in-flight** stall (D444 r1): right after the loop resumes, a
+        callback queued during the stall (a stream end) may run before the
+        watch's own late wake-up has recorded it; the pending wake-up's lateness
+        counts then too, once it is past ``threshold_s``.
+        """
         at = self._clock() if now is None else now
         worst = 0.0
+        if self._expected is not None:
+            pending = at - self._expected
+            if pending > self.threshold_s:
+                worst = pending
         for when, lag in reversed(self._stalls):  # newest first
             if at - when > window_s:
                 break  # this one and every older one ended before the window
@@ -153,5 +165,9 @@ class LoopWatch:
         """Until cancelled."""
         while True:
             expected = self._clock() + self.interval_s
-            await asyncio.sleep(self.interval_s)
+            self._expected = expected
+            try:
+                await asyncio.sleep(self.interval_s)
+            finally:
+                self._expected = None
             self.observe(expected, self._clock())
