@@ -128,6 +128,7 @@ from meshforge.agent.session.renewal import CertRenewer
 from meshforge.agent.session.state import AgentState
 from meshforge.agent.session.tls import JOIN_HINT, SessionTlsError
 from meshforge.agent.settings import AgentSettings, parse_controller_address
+from meshforge.agent.win_error_mode import quiet_error_mode
 from meshforge.common import owner_policy
 from meshforge.common.bench_conditions import capability_tag
 from meshforge.common.capabilities import (
@@ -388,6 +389,9 @@ async def serve(
     client as soon as it exists (``on_client``) to stop it, read its state and
     its peer endpoint.
     """
+    # V1.0 G10 BUG-4 (D451): no invisible error dialog may block a workload
+    # (inherited by every child; a no-op off Windows).
+    quiet_error_mode()
     if settings.security.insecure:
         # D139: every start, loud - this mode must never go unnoticed.
         log.warning(
