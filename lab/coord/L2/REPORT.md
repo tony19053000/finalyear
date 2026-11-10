@@ -546,3 +546,10 @@ SIGNAL: capture-pushed
 - cmd.exe: one clear line "tab completion is not available in cmd.exe (Command Prompt) - open PowerShell and run `compute --install-completion` there"; `echo %errorlevel%` = 4.
 - Note: an agent-side `cmd /c` check ran under a PowerShell parent and installed again (exit 0); profile still has one block, so this is not counted.
 - G9-F: PASS.
+
+## 2026-11-10 — G9-C Windows CPU meter (`meshforge-agent doctor cpu --seconds 60`, Administrator)
+- Run 1 idle: cpu 9.0-27.9 %, old 0.0 % in all 60 samples.
+- Run 2 (meant as loaded): the agent's burner command exited at once (PowerShell quoting error on my side); the run was effectively idle again: cpu 3.1-25.7 %, old 0.0 %. Not counted as a load run.
+- Run 3 loaded (8 python busy-loops from a script file, verified alive; Windows counter 85 %): cpu 71.6-93.2 % (mostly 75-87), old 0.0 % in 57 of 60 samples (100.0 % in 3).
+- Owner cap shown: max_cpu_percent 50 % of 12 threads -> 6.00 cores, Windows Job Object hard cap.
+- Result: new `cpu` rises under load and tracks real load; old meter stuck at 0 (the bug). G9-C doctor part: PASS. V0.8 E2 web sparkline part: not re-run in this step.
