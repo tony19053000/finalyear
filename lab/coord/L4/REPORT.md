@@ -414,3 +414,11 @@ SIGNAL: g9-c-done L4
 - Earlier chunks 60/62/65/67 each ran ~24-25 s, exit 0.
 - Reading: worker hung early in startup (import / CUDA-torch init or a lock), not a crash, not CPU-bound. Possible: run_chunk.py waits on something (stdin? file lock? torch import deadlock).
 - Q4 (screen/lid/other apps at 00:04): asked human, pending.
+
+## Chunk-68 hang follow-up / BUG-4 (chat 20261111-002353 + -002541) - 2026-11-11 00:28
+1. pids 19640/13032: already GONE at 00:26:21 (before any kill) -> not leaked; nothing killed.
+2. Q4 (screen/lid/power/apps at 00:04): asked human, answer pending.
+3. nvidia-smi 592.27, CUDA 13.1. venv: Python 3.12.14, torch 2.14.0+cu126, cuda 12.6, is_available True.
+4. Repro: 30/30 runs of `import torch; torch.zeros(1,device='cuda')` in the same venv (Admin) -> all ok, 2-3 s each, no hang. Did NOT reproduce outside MeshForge.
+5. Event Viewer System 00:00-00:12 IST: no events at all (no nvlddmkm/Display/TDR, no WU).
+Note: in the hang, the 17 s gap between launcher (00:04:03) and worker (00:04:20) is unusual vs ~1 s normally.
