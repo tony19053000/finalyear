@@ -81,6 +81,44 @@ for Linux and Windows.
 - ADRs still marked *Proposed* need the team's acceptance before the tag
   ([adr/README.md](adr/README.md#needs-team-acceptance-before-v100)).
 
+## [0.17.1] - 2026-11-06
+
+Lab fix release from the real-laptop campaign (lab fix group G9, `docs/briefs/progress/V1.0-G9-lab-fixes.md`).
+
+### Added
+
+- `compute run --exclude-node <id|name>` (repeatable): placement and retries never use the named nodes (G9-B).
+- `[agent.envs] extra_index_urls` (up to 4): extra package indexes for venv and Docker builds, e.g. CUDA PyTorch
+  wheels on Windows GPU laptops without Docker (G9-B, D436).
+- `meshforge-agent doctor cpu --seconds N [--job-cpus C] [--json]`: live CPU samples and the owner's CPU cap (G9-C).
+- Manifest hint `split.item_seconds`: a declared per-item time lets a long split job split on its first run
+  (G9-E, D438).
+
+### Changed
+
+- A split is no longer chosen on assumed per-item rates only (`[controller.split] require_measured_rates`,
+  default true): a new workload's first run runs whole unless it declares `split.item_seconds`; recorded chunk
+  times now feed the split planner (G9-E, D438).
+- A split chunk that hits `limits.timeout` is retried once on another node, never on the same one; with no other
+  node it fails once with a clear message (G9-D, D437).
+
+### Fixed
+
+- Big input fetches on Wi-Fi: staging retries inside the attempt and bulk traffic is marked low priority, so
+  heartbeats are not starved (G9-A, D429-D431).
+- `cuda-pytorch` is only placed where Docker or an agent PyTorch exists (typed `no_runtime_for_base`) (G9-B, D432).
+- A failed attempt's type and detail (e.g. `node_revoked`) are shown in `compute jobs` and `compute run -f` (G9-B).
+- An `env_known_bad` mark is cleared when the owner changes the env policy (G9-B, D433); fewer repeated
+  `clock_uncertain` alerts (D434).
+- Windows live CPU % under load was 0 or noise (psutil per-thread baseline); a failed read is unknown, never 0 %
+  (G9-C, D435).
+- A long single chunk was restarted from zero at each per-chunk time limit and never finished (G9-D, D437).
+- The controller retries a PostgreSQL deadlock/serialization conflict in the split store (G9-D2, D440).
+- `compute --install-completion` works in PowerShell through the Windows `.cmd` launcher; cmd.exe gets a clear
+  message (G9-F, D439).
+- The "Cancel job" button is hidden for finished jobs; the log view says "following the combine step", not
+  "retried" (G9).
+
 ## [0.17.0] - 2026-10-27
 
 The first published release. Before it the project carried the development

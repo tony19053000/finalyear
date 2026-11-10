@@ -20,7 +20,8 @@ by ``node_id``), the estimate has the extra terms ``items_fetch``,
      "rate_items_s", "rate_source", "start_s",
      # split rows:
      "inactive": [...], "margin_test": {"set_s", "best_single_s",
-     "best_single_node_id", "margin", "threshold_s", "passed", "forced"}}
+     "best_single_node_id", "margin", "threshold_s", "passed", "forced",
+     ["blocked" (V1.0 G9-E, only when set)]}}
 
 A rejected ``split`` row (``split_too_small`` / ``split_too_few_nodes``) has
 ``node_set`` and no estimate. Rows of a job that runs whole are unchanged.
@@ -102,7 +103,7 @@ def _estimate(estimate: Estimate) -> dict[str, Any]:
 
 
 def _margin(test: MarginTest) -> dict[str, Any]:
-    return {
+    out: dict[str, Any] = {
         "set_s": test.set_s,
         "best_single_s": test.best_single_s,
         "best_single_node_id": test.best_single_node_id,
@@ -111,6 +112,10 @@ def _margin(test: MarginTest) -> dict[str, Any]:
         "passed": test.passed,
         "forced": test.forced,
     }
+    # V1.0 G9-E (D438): only when set, so every older decision is unchanged
+    if test.blocked is not None:
+        out["blocked"] = test.blocked
+    return out
 
 
 def _split_fields(item: CandidateEval) -> dict[str, Any]:

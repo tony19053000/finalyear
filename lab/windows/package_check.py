@@ -310,6 +310,14 @@ def cmd_installed(state: Path, version_dir: str) -> None:
     expect("bundle" in version, f"meshforge-agent --version: {version.strip()}")
     run([str(PROGRAM / "bin" / "meshforge-agent.cmd"), "hardware", "show"])
     ok("hardware show (elevated, system mode) exit 0")
+    # V1.0 G9-F (D439): run from PowerShell through the .cmd launcher, the
+    # completion lookup must see PowerShell, not the launcher's cmd.exe /c.
+    compute = PROGRAM / "bin" / "compute.cmd"
+    script = ps(f"& '{compute}' --show-completion")
+    expect(
+        "Register-ArgumentCompleter -Native -CommandName compute" in script,
+        "compute --show-completion from PowerShell prints the PowerShell script",
+    )
     shown = json.loads(shim("identity", "show", "--json"))
     expect(
         shown["node_id"] == expected, "identity show (system mode) = the service's node"

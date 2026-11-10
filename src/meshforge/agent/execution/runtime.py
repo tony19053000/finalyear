@@ -430,6 +430,11 @@ class RuntimeAvailability:
     gpu_reason: str = ""
     version: str = ""
     sandboxed: bool = False
+    torch: bool = False
+    """V1.0 G9-B (D432): the interpreter this runtime runs a job with has
+    PyTorch (the subprocess runtime's probe; ``exec-torch``). Docker's
+    ``cuda-pytorch`` image always has it, so only the subprocess runtime sets
+    this."""
 
 
 @runtime_checkable

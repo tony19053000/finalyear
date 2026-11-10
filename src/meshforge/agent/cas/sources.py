@@ -20,6 +20,7 @@ from typing import Any, Final
 
 import httpx
 
+from meshforge.agent.cas.rate import FetchRateLimiter
 from meshforge.agent.http_refusal import CONTROLLER_LABEL, transport_failure
 from meshforge.common.errors import FailureType, MeshForgeError
 from meshforge.common.fabric_tls import peer_server_name
@@ -194,9 +195,11 @@ async def get_range(
     start: int,
     length: int,
     count: Callable[[Source, int], None],
+    rate: FetchRateLimiter | None = None,
 ) -> bytes:
     """``Range: bytes=start-(start+length-1)`` of ``digest``; exactly ``length``
-    bytes or a typed :class:`FetchError` (``count`` sees every received piece)."""
+    bytes or a typed :class:`FetchError` (``count`` sees every received piece;
+    ``rate`` (D431) is charged for it before the next read)."""
     headers = source.headers({"range": f"bytes={start}-{start + length - 1}"})
     try:
         async with client.stream(
@@ -213,6 +216,8 @@ async def get_range(
                         "a range answer is longer than asked for",
                         details={"source": source.name},
                     )
+                if rate is not None:
+                    await rate.take(len(piece))
     except httpx.TimeoutException:
         raise FetchError(
             f"timed out fetching blob {digest}",

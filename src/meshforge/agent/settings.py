@@ -28,7 +28,7 @@ from __future__ import annotations
 import re
 import sys
 from pathlib import Path
-from typing import Final
+from typing import Final, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -640,12 +640,15 @@ class ExecutionSettings(SectionModel):
         ge=0.0,
         le=3600.0,
         description=(
-            "How long staging keeps retrying a fetch the controller refused (old "
-            "token) or could not answer (connection refused/reset, timeout) - "
-            "e.g. across a controller restart, after which the controller sends "
-            "a fresh fetch token (V0.5 D95). A tree job resumes the chunks it "
-            "already verified. Past it the attempt fails transfer_error; 0 = no "
-            "retry."
+            "How long staging may keep failing WITHOUT PROGRESS before the "
+            "attempt fails transfer_error (V1.0 D429). Failures retried: a fetch "
+            "the controller refused (old token; a restarted controller sends a "
+            "fresh one, V0.5 D95) or that broke (connection refused/reset, a "
+            "body cut off, timeout). A failed try that verified a chunk or "
+            "installed a blob restarts this window and the backoff, and the "
+            "next try resumes from the verified chunks - so a long fetch over a "
+            "flaky link keeps going as long as it gets somewhere. 0 = no retry "
+            "(the first error is reported as is)."
         ),
     )
     upload_retry_s: float = Field(
@@ -867,7 +870,17 @@ class PolicySettings(SectionModel):
 
 ENVS_DIR_NAME: Final = "envs"
 """Sub-directory of ``data_dir`` holding cached environments (V0.5 D86)."""
-_INDEX_URL = re.compile(r"https?://[^\s@/]+(:\d{1,5})?(/[^\s]*)?")
+_INDEX_URL = re.compile(r"https?://[^\s@/?#%]+(:\d{1,5})?(/[^\s?#]*)?")
+"""http(s), no userinfo, no ?query / #fragment (a token there would reach process
+listings like userinfo would; G9B-T1). No ``%`` in the host part (reviewer r1): a
+percent-encoded ``@`` or ``:`` there (``https://tok%3Asecret%40host/``) is no
+userinfo to the installers - just a host that does not resolve - but it is a
+credential in disguise on the command line, so it is refused; ``%`` in the path
+stays allowed."""
+
+
+MAX_EXTRA_INDEX_URLS: Final = 4
+"""``[agent.envs] extra_index_urls`` entries at most (D436)."""
 
 
 class EnvsSettings(SectionModel):
@@ -884,7 +897,9 @@ class EnvsSettings(SectionModel):
 
     ``find_links`` / ``no_index`` / ``index_url`` let a lab install from a local
     wheelhouse (offline) or a mirror; ``index_url`` must not carry credentials
-    (it would end up in process listings).
+    (it would end up in process listings). ``extra_index_urls`` (V1.0 G9-B,
+    D436) adds indexes next to the main one - the PyTorch CUDA wheel index for
+    GPU jobs on the venv runtime - under the same rules.
     """
 
     dir: Path | None = Field(
@@ -935,6 +950,17 @@ class EnvsSettings(SectionModel):
             "still use it) and deleted by a later build once older than this."
         ),
     )
+    extra_index_urls: list[str] = Field(
+        default_factory=list,
+        max_length=MAX_EXTRA_INDEX_URLS,
+        description=(
+            "V1.0 G9-B (D436): more package indexes next to PyPI (or index_url), "
+            "e.g. https://download.pytorch.org/whl/cu126 for CUDA torch in a "
+            "venv GPU job (http(s), no credentials, at most 4). uv tries them "
+            "before the main index (the first index that has a package wins); "
+            "wheels-only rules are unchanged. Part of the env hash."
+        ),
+    )
     only_binary: bool = Field(
         default=True,
         description=(
@@ -962,14 +988,32 @@ class EnvsSettings(SectionModel):
         value = value.strip()
         if len(value) > 300 or not _INDEX_URL.fullmatch(value):
             raise ValueError(
-                "index_url must be an http(s) URL without credentials (no user@)"
+                "index_url must be an http(s) URL without credentials "
+                "(no user@, no ?query or #fragment)"
             )
         return value
+
+    @field_validator("extra_index_urls")
+    @classmethod
+    def _extra_index_urls_shape(cls, value: list[str]) -> list[str]:
+        out: list[str] = []
+        for raw in value:
+            url = raw.strip()
+            if len(url) > 300 or not _INDEX_URL.fullmatch(url):
+                raise ValueError(
+                    "extra_index_urls must be http(s) URLs without credentials "
+                    "(no user@, no ?query or #fragment)"
+                )
+            if url not in out:
+                out.append(url)
+        return out
 
     @model_validator(mode="after")
     def _no_index_needs_links(self) -> EnvsSettings:
         if self.no_index and self.find_links is None:
             raise ValueError("envs.no_index needs envs.find_links (a wheelhouse)")
+        if self.no_index and self.extra_index_urls:
+            raise ValueError("envs.no_index cannot be used with envs.extra_index_urls")
         return self
 
 
@@ -1077,6 +1121,17 @@ class PeerSettings(SectionModel):
         ),
     )
 
+    dscp_bulk: Literal["cs1", "off"] = Field(
+        default="cs1",
+        description=(
+            "V1.0 D430: mark the blobs this peer server sends as background "
+            "traffic (DSCP CS1, IP_TOS 0x20) so Wi-Fi/QoS sends heartbeats and "
+            "other traffic first. Linux only (Windows needs a QoS policy; "
+            "skipped silently); best effort - an unsupported option logs one "
+            "warning. 'off' = unmarked."
+        ),
+    )
+
     @field_validator("bind", "advertise_host")
     @classmethod
     def _ip_shape(cls, value: str | None) -> str | None:
@@ -1145,6 +1200,39 @@ class FetchSettings(SectionModel):
         le=3600.0,
         description="Connect/read timeout of one blob request.",
     )
+    dscp_bulk: Literal["cs1", "off"] = Field(
+        default="cs1",
+        description=(
+            "V1.0 D430: mark this agent's blob downloads and uploads (HTTPS to "
+            "the controller and to peers) as background traffic (DSCP CS1, "
+            "IP_TOS 0x20), so the bulk data does not crowd out heartbeats on a "
+            "shared Wi-Fi. Linux only (Windows needs a QoS policy; skipped "
+            "silently); best effort - an unsupported option logs one warning. "
+            "Never applied to the gRPC session. 'off' = unmarked."
+        ),
+    )
+    max_rate_mbit: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=100_000.0,
+        description=(
+            "V1.0 D431: cap on how fast this agent receives job files, in "
+            "megabits per second, over all its downloads together (controller "
+            "and peers, every staging at once); TCP flow control slows the "
+            "sender, so the link really carries less. A knob for a shared Wi-Fi "
+            "where one big fetch starves the other laptops. 0 = no cap (the "
+            "default); else at least 1. Keep it above ~0.6 Mbit/s per request "
+            "in flight (sources x per_source): a peer disconnects a reader "
+            "slower than its min_send_rate_bytes_s."
+        ),
+    )
+
+    @field_validator("max_rate_mbit")
+    @classmethod
+    def _rate_off_or_sane(cls, value: float) -> float:
+        if 0 < value < 1.0:
+            raise ValueError("must be 0 (no cap) or at least 1 Mbit/s")
+        return value
 
 
 PROBE_DEADLINE_FACTOR: Final = 2.0

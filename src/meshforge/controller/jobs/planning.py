@@ -56,7 +56,7 @@ from typing import Final
 
 from pydantic import ValidationError
 
-from meshforge.common.capabilities import EXEC_SPLIT_CAPABILITY
+from meshforge.common.capabilities import EXEC_SPLIT_CAPABILITY, env_policy_of
 from meshforge.common.errors import FailureType, InvalidIdError
 from meshforge.common.ids import new_attempt_id
 from meshforge.common.logging import get_logger
@@ -186,6 +186,31 @@ def forced_set(job: JobRecord) -> tuple[str, ...]:
     if not all(isinstance(n, str) and n for n in raw):
         return ()
     return tuple(sorted(set(raw)))
+
+
+MAX_EXCLUDE_NODES: Final = 16
+"""Most nodes ``placement.exclude_nodes`` may name (``POST /v1/jobs`` caps it)."""
+
+
+def excluded_nodes(job: JobRecord) -> tuple[str, ...]:
+    """V1.0 G9-B: the nodes the submitter excluded (``placement.exclude_nodes``,
+    stored with the job, so every retry and a restarted controller keep it) -
+    sorted, unique; () = none. A malformed stored value is a stored-data fault
+    that must not *widen* placement silently, so it is kept as far as it is
+    readable (strings only, capped)."""
+    raw = job.placement.get("exclude_nodes")
+    if not isinstance(raw, list):
+        return ()
+    found = sorted({n for n in raw if isinstance(n, str) and n})
+    if len(found) > MAX_EXCLUDE_NODES:
+        # the API caps it at 16: a longer stored list is a stored-data fault
+        log.warning(
+            "controller.jobs.exclude_nodes_truncated",
+            job_id=job.id,
+            stored=len(found),
+            kept=MAX_EXCLUDE_NODES,
+        )
+    return tuple(found[:MAX_EXCLUDE_NODES])
 
 
 def _idle(snapshot: ClusterSnapshot) -> ClusterSnapshot:
@@ -349,6 +374,7 @@ class DispatchPlanner:
                 max_chunks=self._split.max_chunks,
                 chunk_overhead_s=self._split.chunk_overhead_s,
                 tail_frac=self._split.tail_frac,
+                require_measured_rates=self._split.require_measured_rates,
             ),
             # V0.14 G3 (D294-D296)
             risk=RiskConfig(
@@ -450,7 +476,12 @@ class DispatchPlanner:
         if self._known_bad is None:
             return snapshot
         bad = {
-            n.node_id for n in snapshot.nodes if self._known_bad.is_bad(n.node_id, key)
+            n.node_id
+            for n in snapshot.nodes
+            # D433: the node's current env policy (a changed one clears it)
+            if self._known_bad.is_bad(
+                n.node_id, key, env_policy=env_policy_of(n.capabilities)
+            )
         }
         if not bad:
             return snapshot
@@ -656,6 +687,8 @@ class DispatchPlanner:
             ),
             # V0.10 G8 (D271): a campaign's forced mode3 run
             node_set=forced_set(job),
+            # V1.0 G9-B: compute run --exclude-node
+            exclude_nodes=excluded_nodes(job),
         )
         # V0.14 G3 (D295): the objective the job ranks by
         plan_job = dataclasses.replace(

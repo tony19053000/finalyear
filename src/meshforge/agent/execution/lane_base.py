@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final
 
 from meshforge.agent.execution.runtime import Stream
+from meshforge.agent.execution.stage_retry import STAGE_RETRYABLE
 from meshforge.common.errors import FailureType
 from meshforge.common.hashing import Digest
 from meshforge.common.proto.meshforge.v1 import agent_pb2
@@ -36,15 +37,19 @@ ASK_TIMEOUT_S: Final = 15.0
 """No answer to a ChunkRequest this long: ask again (the request is unbuffered)."""
 RESULT_ACK_WAIT_S: Final = 30.0
 """How long a drained lane waits for its last results' Acks before it ends."""
-STAGE_RETRYABLE: Final = frozenset(
-    {FailureType.TRANSFER_ERROR, FailureType.TIMEOUT, FailureType.UNAUTHORIZED}
-)
 CHUNK_FAILURE_NOT_RETRYABLE: Final = frozenset(
     {
         FailureType.INVALID_INPUT,
         FailureType.UNAUTHORIZED,
         FailureType.CONFIG_ERROR,
         FailureType.NO_FEASIBLE_PLAN,
+        # V1.0 G9-D (D437): the chunk ran past the job's own time limit
+        # (``limits.timeout``, enforced per chunk). Re-running it starts from
+        # zero and meets the same limit - a "don't split" run is one chunk with
+        # every item, so it looped until retry.max_attempts ran out. Reported
+        # non-retryable; the controller decides (D437 r1): retried once on
+        # another node's live lane, never here, else final.
+        FailureType.DEADLINE_EXCEEDED,
     }
 )
 """D267c: every other chunk failure may succeed on another node - the
@@ -105,6 +110,7 @@ class LaneHost:
     _cfg: Any
     _settings: Any
     _fetch_cfg: Any
+    _fetch_rate: Any
     _node_id: str
     _scheme: str
     _attempts: dict[str, _Attempt]
@@ -144,6 +150,10 @@ class LaneHost:
             best_effort: bool = False,
         ) -> None: ...
         def _transport(self) -> dict[str, Any]: ...
+        def _fetch_kw(self) -> dict[str, Any]: ...
+        async def _retry_staging[T](
+            self, attempt: _Attempt, try_once: Callable[[str], Awaitable[T]]
+        ) -> T: ...
         def _tuning(self) -> Any: ...
         def _token_lookup(self, attempt: _Attempt, tree_id: str) -> Any: ...
         def _stopped_error(self) -> Exception: ...

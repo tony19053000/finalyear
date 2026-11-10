@@ -111,6 +111,7 @@ async def test_unsandboxed_runtimes_are_built_without_the_opt_in(
             node_id="node_x",
             host_has_nvidia_gpu=True,
             docker_factory=_factory(missing),
+            torch_probe=lambda: False,  # D432: never this machine's torch
         )
         # V0.5 G2: the venv runtime (uv wheel, agent extra) is unsandboxed too
         assert setup.offer.capabilities == (

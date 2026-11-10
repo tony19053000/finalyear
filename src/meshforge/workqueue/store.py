@@ -12,8 +12,8 @@ rebuilds :class:`~.core.Item` values, applies the core transition and writes
 back what changed. Times (``now``) come from the caller - one controller clock -
 and must be timezone-aware.
 
-Locking (deadlock freedom)
---------------------------
+Locking (lock order)
+--------------------
 Order is always **queue row, then item rows in ascending id**:
 
 * ``lease_next`` takes ``FOR KEY SHARE`` on the queue and picks items with
@@ -32,6 +32,16 @@ Order is always **queue row, then item rows in ascending id**:
   that overlaps the close, so a closed queue never gains a live lease.
   (``complete`` closes a queue only as ``done``, when nothing is pending.)
 
+This fixed order prevents lock-order cycles between our own statements, but
+it is **not** deadlock freedom: the queue row is updated by completions
+(``done_count``), and a ``FOR UPDATE`` (``fail``, ``expire_due``, ``cancel``)
+and a ``FOR KEY SHARE`` (``lease_next``, ``release``, ``renew``) that both
+follow that row's update chain can wait for each other; PostgreSQL then aborts
+one with ``40P01`` (rare; reproduced under load in V1.0 G9-D r1 with the server
+log "while locking tuple ... in relation work_queue"). Nothing is half-applied
+(the caller's transaction rolls back); callers re-run the whole transaction
+(the controller's store does, bounded: V1.0 G9-D2, D440).
+
 Completions of one queue therefore serialise on the queue row for the length of
 the caller's transaction; that is what lets the last commit see
 ``done_count = item_count`` in its own transaction (so a caller can start its
@@ -42,7 +52,7 @@ from __future__ import annotations
 
 import datetime as dt
 import math
-from collections.abc import Iterable, Sequence
+from collections.abc import Collection, Iterable, Sequence
 from dataclasses import dataclass
 from typing import Any, Final
 
@@ -634,10 +644,12 @@ async def lease_next(
     k: int = 1,
     now: dt.datetime,
     timeout_s: float | None = None,
+    exclude: Collection[int] = (),
 ) -> list[Grant]:
     """Lease up to ``k`` pending items in ``idx`` order (items that have not
     failed at ``site`` first). ``[]`` when nothing is pending or the queue is
-    closed. ``site`` defaults to ``holder``."""
+    closed. ``site`` defaults to ``holder``. ``exclude``: item ids this caller
+    must not get (left pending for others; V1.0 G9-D)."""
     _aware(now, names=(holder, site or holder), timeout_s=timeout_s)
     site = holder if site is None else site
     if not 1 <= k <= MAX_LEASES_PER_PULL:
@@ -652,6 +664,8 @@ async def lease_next(
         work_item.c.queue_id == queue_id,
         work_item.c.state == ItemState.PENDING.value,
     )
+    if exclude:
+        pending = and_(pending, work_item.c.id.not_in(sorted(set(exclude))))
     picked: list[Row[Any]] = []
     for failed_here in (False, True):
         want = k - len(picked)

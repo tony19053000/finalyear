@@ -946,6 +946,8 @@ class DockerRuntime:
         ]
         if cfg.index_url:
             command += ["--index-url", cfg.index_url]
+        for url in cfg.extra_index_urls:  # D436
+            command += ["--extra-index-url", url]
         if cfg.find_links is not None:
             command += ["--find-links", _CONTAINER_WHEELS]
             mounts.append(

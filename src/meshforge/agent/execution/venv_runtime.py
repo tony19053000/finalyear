@@ -17,7 +17,10 @@ What it adds over the plain subprocess runtime:
 
 Selection order (:func:`~meshforge.agent.execution.selection.choose_runtime`):
 docker > venv > subprocess - and only for the ``python-cpu`` base: a fresh venv has
-no PyTorch, so ``cuda-pytorch`` jobs go to Docker or the subprocess runtime. The
+no PyTorch, so ``cuda-pytorch`` jobs go to Docker or the subprocess runtime (the
+latter only with torch in the agent's Python, D432). A GPU job on a laptop without
+Docker uses this runtime with ``env.base: python-cpu``, ``resources.gpu:
+required`` and CUDA torch in its requirements (V1.0 G9-B). The
 probe says ``available`` only when the pinned ``uv`` binary (the ``uv`` wheel, agent
 extra) runs.
 """

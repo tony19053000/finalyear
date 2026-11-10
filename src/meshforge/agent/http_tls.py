@@ -18,6 +18,7 @@ cannot leave a socket open.
 from __future__ import annotations
 
 import ssl
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -38,8 +39,13 @@ class AgentHttpTls:
 
     context: ssl.SSLContext = field(repr=False)
 
-    def transport(self) -> httpx.AsyncHTTPTransport:
-        return cancel_safe_transport(self.context)
+    def transport(
+        self, *, socket_options: Sequence[tuple[int, int, int]] = ()
+    ) -> httpx.AsyncHTTPTransport:
+        """``socket_options``: e.g. the bulk-data DSCP mark (V1.0 D430)."""
+        return cancel_safe_transport(
+            self.context, socket_options=list(socket_options) or None
+        )
 
     def reload(self, identity: NodeIdentity) -> None:
         """V0.7 G4 (D140): present the renewed certificate (or rotated key)

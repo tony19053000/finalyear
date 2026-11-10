@@ -8,6 +8,10 @@ report enters the replay ring (G3 contract).
 
 Clipping, not rejecting: an over-long mount path or a 17th GPU costs that entry,
 never the report. The controller applies the same rule for the same reason (D12).
+
+A sample with unknown CPU (``cpu_percent is None``, D435) has no wire form - the
+proto's ``cpu_percent`` has no "unknown" - so it is refused (``ValueError``)
+rather than sent as 0 %; the monitor never passes one.
 """
 
 from __future__ import annotations
@@ -35,7 +39,10 @@ def _percent(value: float) -> float:
 def to_resource_update(
     sample: ResourceSample, *, max_gpus: int = MAX_GPUS, max_disks: int = MAX_DISKS
 ) -> agent_pb2.ResourceUpdate:
-    """The wire message for ``sample``; ``sequence`` is left at 0 for the client."""
+    """The wire message for ``sample``; ``sequence`` is left at 0 for the client.
+    Raises ``ValueError`` for a sample whose CPU is unknown (module docstring)."""
+    if sample.cpu_percent is None:
+        raise ValueError("cpu_percent is unknown: this sample is not reported")
     update = agent_pb2.ResourceUpdate(
         cpu_percent=_percent(sample.cpu_percent),
         ram_used_bytes=max(sample.ram_used_bytes, 0),

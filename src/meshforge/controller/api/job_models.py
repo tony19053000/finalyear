@@ -8,7 +8,7 @@ the CLI and the agent use) and the placement by
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -55,12 +55,19 @@ class PlacementRequest(_Request):
     * ``objective`` (V0.14 G3, D295) overrides the manifest's ``objective``
       and ``[controller.planner] default_objective``; an unknown name is
       ``400 invalid_input``, like an unknown policy.
+    * ``exclude_nodes`` (V1.0 G9-B, ``compute run --exclude-node``): canonical
+      node ids the job must never run on (at most 16), stored with the job -
+      every retry and a restarted controller keep it; the planner rejects them
+      ``excluded_by_user``. Naming the pinned node is ``422 invalid_input``.
     """
 
     node_id: str | None = Field(default=None, min_length=1, max_length=40)
     local: bool = False
     policy: PolicyName | None = None
     objective: ObjectiveName | None = None
+    exclude_nodes: list[Annotated[str, Field(min_length=1, max_length=40)]] = Field(
+        default_factory=list, max_length=16
+    )
 
     @model_validator(mode="after")
     def _local_needs_node(self) -> PlacementRequest:
@@ -115,6 +122,11 @@ class Placement(ApiModel):
     """V0.14 G3 (D295): the objective asked for at submit; left out when none
     was (the manifest's or the controller's default applies) - an older job's
     placement and request hash are unchanged."""
+    exclude_nodes: list[str] | None = Field(
+        default=None, exclude_if=lambda v: v is None
+    )
+    """V1.0 G9-B: the nodes the submitter excluded (sorted); left out when
+    none were - an older job's placement and request hash are unchanged."""
 
 
 class JobCreated(ApiModel):

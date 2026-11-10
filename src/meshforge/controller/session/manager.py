@@ -101,6 +101,7 @@ import grpc
 from google.protobuf.json_format import MessageToDict
 
 from meshforge import __version__
+from meshforge.common.capabilities import env_policy_of
 from meshforge.common.ids import new_session_id
 from meshforge.common.logging import get_logger
 from meshforge.common.proto.meshforge.v1 import agent_pb2
@@ -244,6 +245,9 @@ class SessionManager:
         self._live: dict[str, LiveSession] = {}
         self._lingering: dict[str, LiveSession] = {}
         """Abruptly ended sessions whose lease still runs, by node (D19)."""
+        self._ended: dict[str, LiveSession] = {}
+        """A node's newest ended session while its chain still has writes to do:
+        its in-memory state is ahead of the node row (:mod:`.ends`)."""
         self._claims = AdmissionClaims()
         """Pending Hellos and the session ends they defer (D28, :mod:`.claims`)."""
         self.reports = ReportHandlers(registry, clock=clock, resources=resources)
@@ -289,6 +293,7 @@ class SessionManager:
             clock=clock,
             live=self._live,
             lingering=self._lingering,
+            ended=self._ended,
             claims=self._claims,
             owned=self.admission_pending,
             wake=self.wake,
@@ -493,8 +498,9 @@ class SessionManager:
         old = self._live.get(node_id)
         deferred = self._claims.deferred_for(node_id)
         lingering = self._lingering.get(node_id)
+        ended = self._ended.get(node_id)
         highest = -1 if record is None else record.session_epoch
-        for entry in (old, deferred, lingering):
+        for entry in (old, deferred, lingering, ended):
             if entry is not None:
                 highest = max(highest, entry.session_epoch)
         if hello.session_epoch <= highest:
@@ -525,6 +531,12 @@ class SessionManager:
             # The in-memory state is ahead of the row (its writes are queued):
             # SUSPECT here, so this Hello is SUSPECT -> RECONNECTED -> ONLINE.
             prior = lingering.state
+        elif ended is not None:
+            # Likewise: the session ended (OFFLINE, a lease that expired after an
+            # abandoned admission wrote the row ONLINE, ...) but its final writes
+            # are still queued. Read from the row, that would be a silent ONLINE
+            # self-loop for a node that just went OFFLINE (CI run 42181066876).
+            prior = ended.state
         else:
             prior = NodeState.ENROLLING if record is None else record.state
 
@@ -639,6 +651,8 @@ class SessionManager:
             # failed above, the old lease would still be running. Nothing is
             # written for it - its fenced writes still queued are stale by now.
             self._ends.end_linger(lingering, cause="reconnected")
+        if ended is not None and self._ended.get(node_id) is ended:
+            del self._ended[node_id]  # this session owns the node's state now
         live = self._new_session(hello, peer_address, session_id, state)
         self.policies.on_hello(live, hello)
         live.hardware_scores_received = int(scores is not None)
@@ -721,6 +735,7 @@ class SessionManager:
             writer=writer,
             declared_gpus=declared_gpus(hello.hardware),
             agent_version=hello.agent_version,
+            env_policy=env_policy_of(hello.hardware.capabilities),
         )
         endpoint, refusal = peer_endpoint_of(
             hello, peer, trust=self._trust_peer_endpoints

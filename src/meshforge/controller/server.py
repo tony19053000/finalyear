@@ -51,6 +51,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from meshforge import __version__
 from meshforge.common.buildinfo import bundle_root
 from meshforge.common.config import INSECURE_DEV_BANNER
+from meshforge.common.dscp import mark_listener
 from meshforge.common.errors import ConfigError, ExitCode, MeshForgeError
 from meshforge.common.gc_index import GcIndexBusyError
 from meshforge.common.logging import get_logger
@@ -933,6 +934,10 @@ class ControllerRuntime:
         self._grpc_server = grpc_server
 
         self._http_sock = _bind_socket(self._http_bind)
+        # V1.0 G9-A (D430): blobs are served here - background traffic (CS1),
+        # set before listen() so every accepted socket inherits it (Linux).
+        # Never on the gRPC session port: heartbeats are what it protects.
+        mark_listener(self._http_sock, cfg.http.dscp_bulk, where="controller_http")
         # Listening now, not when uvicorn's task first runs: connections made as
         # soon as ``controller.listening`` is logged wait in the backlog instead
         # of being refused. (asyncio's create_server calls listen() again; that

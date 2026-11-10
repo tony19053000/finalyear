@@ -9,9 +9,13 @@ that outlives ``agent.resources.sample_timeout_s`` is abandoned and counted.
 
 Two things are deliberately stateful:
 
-* ``psutil.cpu_percent(interval=None)`` reports utilisation *since the previous
-  call*, so the first call after start-up is meaningless. :meth:`prime` makes that
-  first call and throws the answer away.
+* CPU % is the delta of ``psutil.cpu_times()`` since the previous sample, kept by
+  our own :class:`~meshforge.agent.resources.cpu.CpuMeter` (V1.0 G9-C, D435) - not
+  ``psutil.cpu_percent``, whose baseline is per *thread* and every sample runs on a
+  new one. :meth:`prime` takes the first baseline. A CPU read that fails (or has
+  no measurable window) reuses the last good value for at most ``max_stale_s``,
+  flagged in ``degraded``; with no such value ``cpu_percent`` is ``None``
+  (unknown) - **never 0 %**. The monitor does not send a sample with unknown CPU.
 * The NVML session keeps its device handles open for the process lifetime (opening
   them per sample costs a driver round trip). If a device call fails, the session
   invalidates itself and the next sample re-acquires - a driver that was reloaded
@@ -23,19 +27,25 @@ only per-mount usage is re-read each sample.
 
 from __future__ import annotations
 
-import contextlib
 import datetime as dt
+import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Final
+from typing import Any, Final
 
 from meshforge.agent.hardware.disks import DiskFacts, disk_usage, list_mounts
 from meshforge.agent.hardware.gpu import GpuUsage, NvmlSession
 from meshforge.agent.hardware.limits import MAX_DISKS, MAX_GPUS
 from meshforge.agent.hardware.optional import psutil_module
+from meshforge.agent.resources.cpu import CpuMeter, CpuReading
 
 __all__ = ["ResourceSample", "ResourceSampler"]
 
 _PERCENT_MAX: Final = 100.0
+DEFAULT_MAX_STALE_S: Final = 30.0
+"""How long a failed CPU read may reuse the last good value (D435)."""
+DEFAULT_MIN_CPU_WINDOW_S: Final = 0.25
+"""A CPU window shorter than this is noise (a few 15.6 ms Windows ticks)."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,7 +54,8 @@ class ResourceSample:
 
     observed_at: dt.datetime
     """Wall clock, for display and for the controller's history buckets only."""
-    cpu_percent: float = 0.0
+    cpu_percent: float | None = 0.0
+    """Whole-machine CPU %; None = unknown (no good read within ``max_stale_s``)."""
     ram_used_bytes: int = 0
     ram_total_bytes: int = 0
     gpus: tuple[GpuUsage, ...] = ()
@@ -62,7 +73,17 @@ def _clamp_percent(value: float) -> float:
 class ResourceSampler:
     """Blocking sampler; construct once per agent process and :meth:`close` at exit."""
 
-    __slots__ = ("_max_disks", "_max_gpus", "_mounts", "_nvml", "_primed")
+    __slots__ = (
+        "_clock",
+        "_cpu",
+        "_last_cpu",
+        "_max_disks",
+        "_max_gpus",
+        "_max_stale_s",
+        "_mounts",
+        "_nvml",
+        "_primed",
+    )
 
     def __init__(
         self,
@@ -71,23 +92,36 @@ class ResourceSampler:
         nvml: NvmlSession | None = None,
         max_gpus: int = MAX_GPUS,
         max_disks: int = MAX_DISKS,
+        cpu_times: Callable[[], Any] | None = None,
+        clock: Callable[[], float] = time.monotonic,
+        max_stale_s: float = DEFAULT_MAX_STALE_S,
+        min_cpu_window_s: float = DEFAULT_MIN_CPU_WINDOW_S,
     ) -> None:
+        """``cpu_times`` (tests): the ``psutil.cpu_times`` stand-in; ``clock``:
+        monotonic seconds, for the age of the last good CPU value."""
         self._mounts = mounts if mounts is not None else list_mounts()
         self._nvml = nvml if nvml is not None else NvmlSession()
         self._max_gpus = max(1, min(max_gpus, MAX_GPUS))
         self._max_disks = max(1, min(max_disks, MAX_DISKS))
         self._primed = False
+        self._cpu = CpuMeter(
+            cpu_times if cpu_times is not None else _psutil_cpu_times,
+            clock=clock,
+            min_window_s=min_cpu_window_s,
+        )
+        self._clock = clock
+        self._max_stale_s = max_stale_s
+        self._last_cpu: tuple[float, float] | None = None
+        """(percent, monotonic time) of the last good CPU reading. No lock: the
+        monitor's one-slot guard runs one sample at a time; add one if that changes."""
 
     @property
     def mounts(self) -> tuple[str, ...]:
         return tuple(self._mounts)
 
     def prime(self) -> None:
-        """Take and discard the first CPU reading (see the module docstring)."""
-        psutil = psutil_module()
-        if psutil is not None:
-            with contextlib.suppress(OSError, RuntimeError, ValueError):
-                psutil.cpu_percent(interval=None)
+        """Take the first CPU baseline (see the module docstring)."""
+        self._cpu.read()
         self._primed = True
 
     def close(self) -> None:
@@ -99,16 +133,12 @@ class ResourceSampler:
         if not self._primed:
             self.prime()
         degraded: list[str] = []
-        cpu_percent = 0.0
+        cpu_percent = self._cpu_percent(self._cpu.read(), degraded)
         ram_used = ram_total = 0
         psutil = psutil_module()
         if psutil is None:
-            degraded.append("cpu/ram: psutil is not installed")
+            degraded.append("ram: psutil is not installed")
         else:
-            try:
-                cpu_percent = _clamp_percent(float(psutil.cpu_percent(interval=None)))
-            except (OSError, RuntimeError, ValueError) as exc:
-                degraded.append(f"cpu: {type(exc).__name__}")
             try:
                 memory = psutil.virtual_memory()
                 ram_used, ram_total = int(memory.used), int(memory.total)
@@ -137,3 +167,26 @@ class ResourceSampler:
             disks=disks,
             degraded=tuple(degraded),
         )
+
+    def _cpu_percent(self, reading: CpuReading, degraded: list[str]) -> float | None:
+        now = self._clock()
+        if reading.percent is not None:
+            percent = _clamp_percent(reading.percent)
+            self._last_cpu = (percent, now)
+            return percent
+        why = reading.reason.value if reading.reason is not None else "unknown"
+        if reading.detail:
+            why = f"{why} {reading.detail}"
+        last = self._last_cpu
+        if last is not None and now - last[1] <= self._max_stale_s:
+            degraded.append(f"cpu: stale ({why})")
+            return last[0]
+        degraded.append(f"cpu: unknown ({why})")
+        return None
+
+
+def _psutil_cpu_times() -> Any:
+    psutil = psutil_module()
+    if psutil is None:
+        raise RuntimeError("psutil is not installed")
+    return psutil.cpu_times()

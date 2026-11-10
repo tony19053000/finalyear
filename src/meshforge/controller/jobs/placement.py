@@ -109,6 +109,7 @@ def check_auto(
     policies: Mapping[str, OwnerPolicy | None] | None = None,
     owner_name: str | None = None,
     slots: Mapping[str, Slots | None] | None = None,
+    exclude_nodes: Sequence[str] = (),
 ) -> None:
     """D104: an auto-placed job must be runnable on at least one enrolled node
     **some day** - the static rules only (capabilities, hardware, owner slot
@@ -122,6 +123,7 @@ def check_auto(
         attempt_no=1,
         env_key=env_key(manifest.canonical_dict(), tree_id=None, bundle_digest=None),
         owner_name=owner_name,
+        exclude_nodes=exclude_nodes,  # V1.0 G9-B: excluded_by_user
     )
     policies = policies or {}
     live_slots = slots or {}

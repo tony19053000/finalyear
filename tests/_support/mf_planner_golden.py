@@ -76,7 +76,20 @@ def fields_text(decision: Decision) -> str:
     for name, unset in (("objective", None), ("pruned", ()), ("ml", None)):
         if fields.get(name) == unset:
             fields.pop(name, None)
-    return canonical(typed(_walk(fields)))
+    return canonical(typed(_walk(_without_unset_blocked(fields))))
+
+
+def _without_unset_blocked(value: Any) -> Any:
+    """V1.0 G9-E (D438): a margin test's ``blocked`` counts only when set."""
+    if isinstance(value, dict):
+        return {
+            k: _without_unset_blocked(v)
+            for k, v in value.items()
+            if not (k == "blocked" and v is None and "threshold_s" in value)
+        }
+    if isinstance(value, list | tuple):
+        return [_without_unset_blocked(v) for v in value]
+    return value
 
 
 def decision_view(decision: Decision) -> dict[str, Any]:

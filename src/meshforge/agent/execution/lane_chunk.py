@@ -298,7 +298,15 @@ class ChunkRunSteps(ChunkStagingSteps):
                 f"{self._cfg.max_written_bytes} bytes to the lane's workdir, or "
                 "its disk ran low ([agent.execution] max_written_bytes); stopped"
             )
-        return f"{run.reason}: {run.detail}" if run.reason else run.detail or "failed"
+        text = f"{run.reason}: {run.detail}" if run.reason else run.detail or "failed"
+        if run.failure_type is FailureType.DEADLINE_EXCEEDED:
+            # V1.0 G9-D (D437): say which limit - a split job's time limit
+            # bounds each chunk (a "don't split" run is one chunk, every item)
+            text += (
+                " (the job's limits.timeout bounds each chunk; never re-run on "
+                "this node - raise limits.timeout in compute.yaml)"
+            )
+        return text
 
     async def _pack_upload(
         self, attempt: _Attempt, plan: AttemptPlan, folder: ChunkFolder, bundle: Path

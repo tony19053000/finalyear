@@ -11,6 +11,11 @@ sample is worth a ``ResourceUpdate``:
   reported at once;
 * otherwise a report goes out at least every ``max_report_interval_s`` (the
   heartbeat-piggyback rule of the brief §2 D5);
+* **a sample whose CPU is unknown is not sent** (D435: the sampler reuses the last
+  good value for a bounded time; past that, ``cpu_percent`` is None and the wire
+  has no "unknown", so the controller keeps showing its last report's age instead
+  of a false 0 %). Counted in ``MonitorStats.cpu_unknown``; the forced report
+  waits for the next known sample;
 * **while the session is not ONLINE nothing is sent at all** (D9). ``send_report``
   buffers into the replay ring, and a ten-minute outage at 2 s would push 300 stale
   samples through it and evict real reports. Sampling continues, so the first sample
@@ -82,6 +87,8 @@ class MonitorStats:
     sampler_stalled: int = 0
     """Ticks skipped because an abandoned sample was still running."""
     send_errors: int = 0
+    cpu_unknown: int = 0
+    """Samples not sent because their CPU % was unknown (D435)."""
 
 
 def _moved(previous: float, current: float, threshold: float) -> bool:
@@ -129,7 +136,10 @@ class ReportPolicy:
 
     def _changed(self, previous: ResourceSample, current: ResourceSample) -> bool:
         threshold = self._threshold
-        if abs(current.cpu_percent - previous.cpu_percent) > threshold:
+        if previous.cpu_percent is None or current.cpu_percent is None:
+            if previous.cpu_percent != current.cpu_percent:
+                return True
+        elif abs(current.cpu_percent - previous.cpu_percent) > threshold:
             return True
         if _moved(previous.ram_used_bytes, current.ram_used_bytes, threshold):
             return True
@@ -216,6 +226,7 @@ class ResourceMonitor:
                 sampler_errors=self.stats.sampler_errors,
                 sampler_timeouts=self.stats.sampler_timeouts,
                 sampler_stalled=self.stats.sampler_stalled,
+                cpu_unknown=self.stats.cpu_unknown,
             )
 
     async def _tick(self, now: float) -> None:
@@ -228,6 +239,17 @@ class ResourceMonitor:
             # D9: keep sampling, send nothing, and force the next ONLINE sample.
             self.stats.offline_samples += 1
             self._policy.mark_not_online()
+            return
+        if sample.cpu_percent is None:
+            self.stats.cpu_unknown += 1
+            if self.stats.cpu_unknown == 1 or self.stats.cpu_unknown % 100 == 0:
+                log.warning(
+                    "agent.resources.cpu_unknown",
+                    node_id=self._client.node_id,
+                    failure_type="cpu_unknown",
+                    reasons=list(sample.degraded),
+                    not_sent=self.stats.cpu_unknown,
+                )
             return
         if not self._policy.should_report(sample, now):
             self.stats.suppressed += 1

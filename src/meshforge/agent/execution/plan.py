@@ -75,6 +75,7 @@ from meshforge.agent.execution.selection import (
     GpuNeed,
     choose_runtime,
     runtime_fits_base,
+    torch_missing,
 )
 from meshforge.agent.settings import ExecutionSettings
 from meshforge.common import owner_policy
@@ -95,6 +96,7 @@ __all__ = [
     "AttemptPlan",
     "PlanError",
     "PlannedInput",
+    "job_cpus",
     "plan_attempt",
     "runtime_argv",
     "workload_env",
@@ -113,6 +115,23 @@ _GIB: Final = 1024**3
 
 class PlanError(MeshForgeError):
     default_failure_type = FailureType.INVALID_INPUT
+
+
+def job_cpus(
+    asked: float | None,
+    default: float | None,
+    policy: owner_policy.OwnerPolicy | None,
+    cpu_threads: int | None,
+) -> float | None:
+    """The CPUs (cores) a run is limited to: ``min(asked or default, the owner's
+    max_cpu_percent of the threads)``; None = no CPU limit at all. One rule for
+    :func:`plan_attempt` and ``meshforge-agent doctor cpu`` (V1.0 G9-C)."""
+    cpus = asked or default
+    if policy is not None:
+        cap = owner_policy.allowed_cpus(policy, cpu_threads)
+        if cap is not None:
+            cpus = cap if cpus is None else min(cpus, cap)
+    return cpus
 
 
 @dataclass(frozen=True, slots=True)
@@ -324,7 +343,7 @@ def plan_attempt(
         }
     )
     memory = spec.memory_bytes or settings.default_memory_mb * _MIB
-    cpus = spec.cpus or settings.default_cpus
+    cpus = job_cpus(spec.cpus or None, settings.default_cpus, policy, cpu_threads)
     network = manifest.limits.wants_network
     enforce_memory = False
     if policy is not None:
@@ -334,9 +353,6 @@ def plan_attempt(
             # (rlimit / job object) - not for a GPU run: CUDA reserves far more
             # address space than it uses (advertised as not enforced).
             enforce_memory = not gpus
-        cap = owner_policy.allowed_cpus(policy, cpu_threads)
-        if cap is not None:
-            cpus = cap if cpus is None else min(cpus, cap)
         network = network and policy.allow_network
     run_spec = RunSpec(
         attempt_id=attempt_id,
@@ -482,6 +498,23 @@ def _check_policy(
         raise _policy_denied(refused)
 
 
+TORCH_MISSING_REASON: Final = "torch_missing"
+"""V1.0 G9-B (D432): the ``env_error`` reason of a torch-base job on a node whose
+only fitting runtime is the subprocess runtime without PyTorch."""
+
+
+def _torch_missing(base: str) -> PlanError:
+    return PlanError(
+        f"{TORCH_MISSING_REASON}: env.base {base} promises PyTorch, but this "
+        "node has no Docker and its agent's Python has no torch (install "
+        "Docker, or PyTorch for the agent; or use env.base python-cpu with "
+        "resources.gpu: required and CUDA torch in requirements.txt - the "
+        "venv runtime)",
+        failure_type=FailureType.ENV_ERROR,
+        details={"reason": TORCH_MISSING_REASON},
+    )
+
+
 def _runtime(
     requested: str, offer: ExecutionOffer, gpu: GpuNeed, base: str
 ) -> RuntimeAvailability:
@@ -495,6 +528,8 @@ def _runtime(
                 failure_type=FailureType.NO_FEASIBLE_PLAN,
             )
         if not runtime_fits_base(found, base):
+            if found is offer.subprocess and torch_missing(offer, gpu, base):
+                raise _torch_missing(base)
             raise PlanError(
                 f"the {requested!r} runtime cannot provide the {base!r} base",
                 failure_type=FailureType.NO_FEASIBLE_PLAN,
@@ -502,6 +537,8 @@ def _runtime(
         return found
     chosen = choose_runtime(offer, gpu, base)
     if chosen is None:
+        if torch_missing(offer, gpu, base):
+            raise _torch_missing(base)
         raise PlanError(
             "no runtime on this node fits the job"
             + (" (it requires a GPU)" if gpu is GpuNeed.REQUIRED else ""),

@@ -232,8 +232,11 @@ def _split() -> DecisionRecordOut:
         "best_single_node_id": "node_aaaaaaaa",
         "margin": 0.1,
         "threshold_s": 46.8,
-        "passed": True,
+        # V1.0 G9-E (D438): a forced set runs even when only assumed rates
+        # made it fast enough - the block is still recorded and shown
+        "passed": False,
         "forced": "node_set",
+        "blocked": "rates_assumed",
     }
     set_terms = {
         "queue": _term(0.0, "measured"),
