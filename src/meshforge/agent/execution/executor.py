@@ -1407,8 +1407,18 @@ class Executor(CombineSteps):
         await self._send(attempt, AttemptState.STAGING)
         stage_started = self._clock()
         if attempt.lane is not None:
-            # V0.10 G4 (D264): the item list first - it decides what to stage
-            await self._lane_prepare(attempt, plan, msg.spec)
+            # V0.10 G4 (D264): the item list first - it decides what to stage.
+            # V1.0 G10-C (D447): under the staging retry like every staging
+            # fetch - a refused token waits for RefreshFetchToken, a cut link
+            # is retried; never a final ``unauthorized`` (lab L3 2026-11-10).
+            await asyncio.to_thread(self._prepare_work_root_only)  # the list's file
+            if not attempt.fetch_token:
+                attempt.fetch_token = plan.fetch_token
+
+            async def items(_token: str) -> None:
+                await self._lane_prepare(attempt, plan, msg.spec)
+
+            await self._retry_staging(attempt, items)
         if attempt.combine is not None:
             # V0.10 G5 (D268): the parts (and, for a script, the project)
             await self._combine_stage(attempt, plan, workdir, msg.spec)
