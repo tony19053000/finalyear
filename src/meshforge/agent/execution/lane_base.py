@@ -26,6 +26,7 @@ if TYPE_CHECKING:
 __all__ = [
     "ASK_TIMEOUT_S",
     "CHUNK_FAILURE_NOT_RETRYABLE",
+    "LANE_DRAINED",
     "RESULT_ACK_WAIT_S",
     "STAGE_RETRYABLE",
     "LaneEnvFailedError",
@@ -57,6 +58,10 @@ CHUNK_FAILURE_NOT_RETRYABLE: Final = frozenset(
 controller's queue bounds the tries (``retry.max_attempts``, two nodes)."""
 
 
+LANE_DRAINED: Final = "lane_drained"
+"""V1.0 G10 (D446): the stop reason of a lane told ``NoWork(drained)`` before it
+pulled its first chunk (still staging): it ends ``DONE`` at once - every chunk
+of the job is committed, there is nothing left for it to do."""
 MAX_EARLY_CANCELS: Final = 64
 """Most not-yet-started cancelled leases a lane remembers (a lane holds at
 most a few leases; older entries can only be stale)."""
@@ -113,6 +118,9 @@ class LaneState:
     env_s: float = 0.0
     capped: int | None = None
     """Bytes written when the per-chunk output cap stopped the chunk."""
+    pulling: bool = False
+    """V1.0 G10 (D446): the lane is in its pull loop (staging is over); a
+    ``NoWork`` that arrives unasked then stops only the current chunk."""
     tail: Any = None
     """V0.10 G8: the running chunk's stderr tail (``OutputTail``, redacted
     bytes, cleared per chunk) - its end goes with the chunk's result."""
@@ -173,4 +181,5 @@ class LaneHost:
         def _tuning(self) -> Any: ...
         def _token_lookup(self, attempt: _Attempt, tree_id: str) -> Any: ...
         def _stopped_error(self) -> Exception: ...
+        def _stop(self, attempt: _Attempt, reason: str) -> None: ...
         def _current_spec(self, attempt: _Attempt) -> agent_pb2.ExecutionSpec: ...

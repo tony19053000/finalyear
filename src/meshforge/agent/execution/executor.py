@@ -151,6 +151,7 @@ from meshforge.agent.execution.fetch import (
     tree_sources,
 )
 from meshforge.agent.execution.lane import LaneState
+from meshforge.agent.execution.lane_base import LANE_DRAINED
 from meshforge.agent.execution.live_redaction import LiveRedaction
 from meshforge.agent.execution.logs import AttemptLogs, Chunk, file_sha256
 from meshforge.agent.execution.offer import ExecutionSetup
@@ -2186,6 +2187,11 @@ class Executor(CombineSteps):
     async def _stopped(
         self, attempt: _Attempt, *, exit_code: int | None, signal: int | None
     ) -> None:
+        if attempt.stop_reason == LANE_DRAINED:
+            # V1.0 G10 (D446): every chunk of the job was committed while this
+            # lane still staged - it ends DONE now, not at its first request
+            await self._send(attempt, AttemptState.DONE, exit_code=0)
+            return
         if attempt.stop_reason == "agent_shutdown":
             failure = (FailureType.NODE_LOST, "agent_shutdown", True)
         elif attempt.stop_reason == OUTPUT_LIMIT:

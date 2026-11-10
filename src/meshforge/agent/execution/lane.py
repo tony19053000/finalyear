@@ -24,7 +24,10 @@ controller's dispatcher steps) adds what differs:
    read-only (``glob``), **one fresh process** of the entrypoint with the
    placeholders / ``MESHFORGE_CHUNK_*`` filled in, in the lane's prepared
    runtime and env (the env is cached by hash: the first chunk builds it, the
-   rest reuse it). A run that fails **in its env phase** (the workload never
+   rest reuse it). A ``NoWork(drained | stop)`` acts when it arrives, also
+   unasked (V1.0 G10, D446): it kills the running chunk (no result) and the
+   lane ends; one that comes while the lane still stages stops the staging
+   (``drained`` -> ``DONE``). A run that fails **in its env phase** (the workload never
    started) ends the lane ``FAILED`` with that typed failure - no chunk
    result, no further request: the next chunk would only build the same env
    again (V1.0 G10, D443). Its output streams go to the lane's logs between chunk
@@ -67,6 +70,7 @@ from meshforge.agent.execution.fetch import (
 )
 from meshforge.agent.execution.lane_base import (
     ASK_TIMEOUT_S,
+    LANE_DRAINED,
     MAX_EARLY_CANCELS,
     RESULT_ACK_WAIT_S,
     LaneEnvFailedError,
@@ -145,6 +149,43 @@ class LaneSteps(ChunkRunSteps):
             )
             return
         lane.inbox.put_nowait(msg)
+        if which == "no_work":
+            self._lane_no_work(attempt, lane, inner)
+
+    def _lane_no_work(
+        self, attempt: _Attempt, lane: LaneState, inner: agent_pb2.NoWork
+    ) -> None:
+        """V1.0 G10 (D446): ``NoWork(drained | stop)`` acts when it arrives, not
+        at the lane's next ``ChunkRequest`` - the controller sends one unasked
+        when another lane committed the job's last chunk (``_drained``). A lane
+        still staging stops its staging (``drained`` -> ``DONE``, ``stop`` ->
+        ``cancelled``); a lane in its pull loop kills the chunk it runs (a lost
+        speculative copy, or its env build) without a result, and its pull
+        loop then reads this ``NoWork`` from the inbox and ends as usual."""
+        reason = inner.reason
+        if reason not in (
+            agent_pb2.NoWork.REASON_DRAINED,
+            agent_pb2.NoWork.REASON_STOP,
+        ):
+            return
+        drained = reason == agent_pb2.NoWork.REASON_DRAINED
+        running = lane.current
+        if lane.pulling:
+            if running is not None:
+                lane.cancelled_chunk = running
+                if lane.run_task is not None and not lane.run_task.done():
+                    lane.run_task.cancel()
+        else:
+            self._stop(attempt, LANE_DRAINED if drained else "cancelled")
+        log.info(
+            "agent.lane.no_work_now",
+            node_id=self._node_id,
+            job_id=attempt.job_id,
+            attempt_id=attempt.attempt_id,
+            reason="drained" if drained else "stop",
+            pulling=lane.pulling,
+            stopped_chunk=None if running is None else running[0],
+        )
 
     def _lane_result_acked(self, message_id: str) -> bool:
         for attempt in self._attempts.values():
@@ -260,6 +301,7 @@ class LaneSteps(ChunkRunSteps):
         assert lane is not None  # noqa: S101
         assert lane.items is not None  # noqa: S101
         del observer  # one fresh observer per chunk
+        lane.pulling = True  # D446: an unasked NoWork now stops a chunk only
         await self._announce_run(attempt)
         started = self._clock()
         renewer = asyncio.create_task(
@@ -356,6 +398,10 @@ class LaneSteps(ChunkRunSteps):
                 agent_pb2.ChunkLeaseRef(item_id=i, lease_seq=s) for i, s in lane.held
             ],
         )
+        if not lane.inbox.empty():
+            # D446: an answer that came unasked (NoWork drained/stop) - no
+            # ChunkRequest needed to read it
+            return lane.inbox.get_nowait()
         while True:
             if self._send_now is not None:
                 await self._send_now("chunk_request", request)
