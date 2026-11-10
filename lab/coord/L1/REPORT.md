@@ -1032,3 +1032,7 @@ evidence: lab/reports/raw/2026-11-10-G9/c4-*
 c4 L2 side (chat 20261110-210811): kills at 20:59:56 (early, before K's lanes) and 21:01:21 (the counted one). Service host stayed up and restarted the
     child by itself; L2 back online 21:04 (session epoch 65) = AFTER K ended 21:02:12, so L2 did not rejoin K. Result unchanged: C4 PASS.
     (Note for Lead: Windows service auto-restarts the child, so "do not restart until K ends" cannot be held on Windows; fine here.)
+
+### G9-B c re-run - GPU split over L2 + L4 (L1 excluded for BUG-1, L3 no GPU) - PASS
+job_01M73A285PW7B5MEV24MPWHVM2 (--exclude-node JARVISM3): succeeded; lanes L2 done exit=0, L4 done exit=0, combine on L4.
+results.json 24 items: RTX 3050 (L4) 18, RTX 2050 (L2) 6 - both GPUs did real CUDA work in one split job. PASS.
