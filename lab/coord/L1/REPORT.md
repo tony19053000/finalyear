@@ -1042,3 +1042,9 @@ job_01M73ADNM4FX44KRNNGSVHBV9T (~/mf-eval/gpu-pref: same job, gpu: preferred, CP
 explain: L3 feasible on its CPU slot (rate 0.0244 items/s vs GPU nodes 0.167/s, ~7x slower). Sets: {L2,L4} 155.69 s (chosen) vs {L2,L4,L3} 186.88 s -
     adding L3 predicted SLOWER (a 2-item chunk on L3 takes ~82 s, it would finish last). So L3's CPU is used only when it helps. Behaviour OK.
     Idea for Lead: mixed CPU+GPU sets could use per-node chunk sizes (small chunks for slow nodes) so slow CPUs still add work.
+
+### Big mixed job (human demo) run 1 job_01M73AP6VXPTA6NZEE2X90VNCV - cancelled (MY script bug)
+480 items / 120 chunks, gpu preferred, --exclude-node JARVISM3: planner chose 3 nodes (L2 GPU, L4 GPU, L3 CPU), predicted 1575.8 s vs 3117.6 s single.
+L3's chunks failed "Torch not compiled with CUDA enabled": my run_chunk.py called torch.cuda.synchronize() unconditionally. Fabric OK: failed_tries 3, chunks
+re-queued, L2/L4 went on. Rates: L2 0.129, L4 0.084 items/s (L4 slower although RTX 3050: tiny MLP is CPU/launch-bound; L4 CPU ~half of L2 also in mc
+runs; power mode already Best performance - open). Fixed script, cancelled at 64/480, re-run.
