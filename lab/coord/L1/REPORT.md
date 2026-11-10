@@ -1020,3 +1020,12 @@ G9-D L3 3rd run job_01M72YVARE8WHZ0AY8GY4ZEEXR (after L3 freed RAM 0.72 -> 2.14 
     "stream_ended INTERNAL Internal error from Core" at 14:40:03Z during split job ...VDDW (L3 REPORT).
 G9-D verdict: L2, L3, L4 PASS (long single chunk no longer loses its lease).
 V0.10 part B with all 4 singles (b-report2): sum_rate 20.0, rate_ratio 1.679, ideal bound 250.8 s, makespan 306.4 s (ratio 1.222), speedup 1.371 vs L1 -> c2 PASS, c3 PASS.
+
+### V0.10 part C (c4) - kill L2's agent at ~31 % - C4 PASS
+campaign camp_01M730MT81CN230A1YJTQ20ZM9 (c4.yaml: image_classify 20000, mode3, 4 nodes, seed 41 -> run seed 3811327456). K = job_01M7319V0YV99ZQRVJAN4M9GNH.
+kill: 21:01:05 at 6250/20000 items, L2 human Stop-Process -Force on the winservice child (Admin PowerShell, armed beforehand).
+result: K succeeded 21:02:12. Lanes: L1 done, L3 done, L2 lost (node_lost: node_offline), L4 "running exit=None" after success (= BUG-3 again).
+    chunks 16, max won per chunk 1, items 20000; L1 won 15, L3 1, L2 1 not won, L4 1 not won.
+    verify (seed 3811327456): OK - every item once, in order, each value recomputed. (first try with seed 41 = my mistake, PROBLEM.)
+    U = job_01M731GH4QW7R0SMQY48RWGZ0R (unsplit on L1): output sha256:9d1c3624... = K output. Same digest. C4 PASS.
+evidence: lab/reports/raw/2026-11-10-G9/c4-*

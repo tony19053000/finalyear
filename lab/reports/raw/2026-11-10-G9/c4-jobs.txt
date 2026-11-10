@@ -1,0 +1,41 @@
+                                      Job                                       
++------------------------------------------------------------------------------+
+|FIELD             | VALUE                                                     |
+|------------------+-----------------------------------------------------------|
+|job_id            | job_01M7319V0YV99ZQRVJAN4M9GNH                            |
+|name              | bench-split.image_classify-47df0cd0f0                     |
+|state             | succeeded                                                 |
+|failure_type      | -                                                         |
+|failure_detail    | -                                                         |
+|output            | sha256:9d1c362431e80d787bfed7ef52ae0686ab8f586176a9d50af22|
+|                  | 11078a307ba07                                             |
+|attempt (lane)    | att_01M7319V2FF8EF2CQKZHPG2J0D on                         |
+|                  | node_01M6BMFVHJVZXC7AET3CFRE3AV: done exit=0 outputs=-    |
+|                  | missing=-                                                 |
+|transfer          | sha256:6b6c6e57bbfd cache hits=5 (0.0 MiB) staged in 0.30 |
+|                  | s resumed_chunks=0 refetched=0                            |
+|transfer          | sha256:6b6c6e57bbfd from controller: 2.5 MiB in 0.07 s,   |
+|                  | units=2                                                   |
+|attempt (lane)    | att_01M7319V2FF8EF2CQKZHPG2J0E on                         |
+|                  | node_01M6GGJP3FW5VHBDFKYQ6SF318: done exit=0 outputs=-    |
+|                  | missing=-                                                 |
+|transfer          | sha256:6b6c6e57bbfd cache hits=5 (0.0 MiB) staged in 1.62 |
+|                  | s resumed_chunks=0 refetched=0                            |
+|transfer          | sha256:6b6c6e57bbfd from controller: 2.5 MiB in 0.36 s,   |
+|                  | units=2                                                   |
+|attempt (lane)    | att_01M7319V2FF8EF2CQKZHPG2J0F on                         |
+|                  | node_01M6GCKN7PYT2J297BT241P436: lost exit=None outputs=- |
+|                  | missing=-                                                 |
+|failed            | node_lost: node_offline                                   |
+|attempt (lane)    | att_01M7319V2FF8EF2CQKZHPG2J0G on                         |
+|                  | node_01M6K0TZRNPEGBRN166GP6S61N: done exit=0 outputs=-    |
+|                  | missing=-                                                 |
+|transfer          | sha256:6b6c6e57bbfd cache hits=5 (0.0 MiB) staged in 3.72 |
+|                  | s resumed_chunks=0 refetched=0                            |
+|transfer          | sha256:6b6c6e57bbfd from controller: 2.5 MiB in 0.30 s,   |
+|                  | units=2                                                   |
+|attempt (combine) | att_01M731D3PWZ9750JC1T0K6YHPF on                         |
+|                  | node_01M6BMFVHJVZXC7AET3CFRE3AV: done exit=0              |
+|                  | outputs=sha256:9d1c362431e80d787bfed7ef52ae0686ab8f586176a|
+|                  | 9d50af2211078a307ba07 missing=-                           |
++------------------------------------------------------------------------------+

@@ -1,0 +1,6 @@
+compute: uploaded 1 files / 2621474 bytes, skipped 20006
+compute: idempotency key cli-01M731GFQA2K3753RDFA2KHXZR (after a network error, re-run with --idempotency-key cli-01M731GFQA2K3753RDFA2KHXZR to avoid a second job)
+job_01M731GH4QW7R0SMQY48RWGZ0R
+
+===== meshforge: chunk 0 (items 0..19999) =====
+benchmark chunk 0: split.image_classify {"images":20000,"size":32,"width":32} compute_ms=41267.746 check=ok

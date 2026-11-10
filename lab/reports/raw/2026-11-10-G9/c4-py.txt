@@ -1,0 +1,2 @@
+chunks 16 max won per chunk 1 items 20000
+Counter({('FRE3AV', True, None): 15, ('6SF318', False, None): 1, ('P6S61N', True, None): 1, ('41P436', False, None): 1})
