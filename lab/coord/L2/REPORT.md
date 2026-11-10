@@ -553,3 +553,10 @@ SIGNAL: capture-pushed
 - Run 3 loaded (8 python busy-loops from a script file, verified alive; Windows counter 85 %): cpu 71.6-93.2 % (mostly 75-87), old 0.0 % in 57 of 60 samples (100.0 % in 3).
 - Owner cap shown: max_cpu_percent 50 % of 12 threads -> 6.00 cores, Windows Job Object hard cap.
 - Result: new `cpu` rises under load and tracks real load; old meter stuck at 0 (the bug). G9-C doctor part: PASS. V0.8 E2 web sparkline part: not re-run in this step.
+
+## 2026-11-10 — V0.10 C (c4) hard-kill of L2 agent on L1's "KILL NOW"
+- HUMAN, Administrator: Stop-Process -Force on the `meshforge.agent.winservice ... child` process.
+- Kill 1 at 20:59:56 (command was interrupted before its 60 s wait). Kill 2 at 21:01:21.
+- 60 s after kill 2 (21:02:21): service MeshForgeAgent = Running (the service host stays up; the child is not the service). `Start-Service` afterwards: no output.
+- 21:04:23: node online, connected, session epoch 65 (was 61 at 17:33) -> agent reconnected by itself after the kills, i.e. L2 likely came back before "job ended".
+- Job id / outcome: from L1.
