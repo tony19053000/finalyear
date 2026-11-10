@@ -125,7 +125,13 @@ def test_soak_dry_run(
         timing=TIMING,
         agent_execution=EXEC,
         controller_jobs={"dispatch_interval_s": 0.1, "reconnect_grace_s": 8.0},
-        controller_extra={"split": {"visibility_timeout_s": 20.0, "wait_retry_s": 0.3}},
+        controller_extra={
+            "split": {
+                "visibility_timeout_s": 20.0,
+                "wait_retry_s": 0.3,
+                "require_measured_rates": False,  # first-run splits (D438 off)
+            }
+        },
         agent_extra={"gc": {"cas_bytes": CAS_QUOTA, "interval_s": 30.0, "min_age_s": 30.0}},
         agent_env={
             "DOCKER_HOST": "unix:///nonexistent/meshforge-test.sock",

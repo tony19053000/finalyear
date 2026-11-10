@@ -16,6 +16,9 @@ live policy decides that, on both sides). The rules:
 * ``exec-venv`` (V0.5 D86) likewise: the venv runtime is unsandboxed too (it
   differs from ``subprocess`` in *which* Python and packages a job sees, not in
   isolation).
+* ``exec-torch`` (V1.0 G9-B, D432) when the subprocess runtime is offered and its
+  interpreter (the agent's own) has PyTorch (:func:`~.subprocess_runtime.
+  interpreter_has_torch`, ``find_spec`` only).
 * ``exec`` when at least one runtime is offered.
 * ``exec-gpu`` when an offered runtime can give a job an NVIDIA GPU: Docker whose
   probe verified (or, without a local probe image, assumed) GPU pass-through, or the
@@ -38,7 +41,10 @@ A ``cuda-pytorch`` job is promised PyTorch by its base, which a fresh venv canno
 give (installing torch per env would mean a multi-GB download and a CUDA build
 choice the agent cannot make), so it never goes to the venv runtime: Docker runs
 it in the ``cuda-pytorch`` image, the subprocess runtime on the agent's own
-interpreter (``uv sync --extra gpu``), as in V0.4.
+interpreter (``uv sync --extra gpu``), as in V0.4 - **only when that interpreter
+has torch** (V1.0 G9-B, D432: the Windows bundle has none). A torch base reaching
+a node whose only fitting runtime is a torch-less subprocess runtime fails
+``env_error`` ``torch_missing`` (:func:`torch_missing`), never ``user_error``.
 """
 
 from __future__ import annotations
@@ -53,6 +59,8 @@ from meshforge.common.capabilities import (
     EXEC_DOCKER_CAPABILITY,
     EXEC_GPU_CAPABILITY,
     EXEC_SUBPROCESS_CAPABILITY,
+    EXEC_TORCH_CAPABILITY,
+    TORCH_BASES,
 )
 
 __all__ = [
@@ -60,12 +68,14 @@ __all__ = [
     "EXEC_DOCKER_CAPABILITY",
     "EXEC_GPU_CAPABILITY",
     "EXEC_SUBPROCESS_CAPABILITY",
+    "EXEC_TORCH_CAPABILITY",
     "EXEC_VENV_CAPABILITY",
     "ExecutionOffer",
     "GpuNeed",
     "choose_runtime",
     "execution_offer",
     "runtime_fits_base",
+    "torch_missing",
 ]
 
 
@@ -120,6 +130,8 @@ class ExecutionOffer:
                 tags.add(EXEC_VENV_CAPABILITY)
             else:
                 tags.add(EXEC_SUBPROCESS_CAPABILITY)
+                if runtime.torch:
+                    tags.add(EXEC_TORCH_CAPABILITY)
             if runtime.gpu_capable:
                 tags.add(EXEC_GPU_CAPABILITY)
         return tuple(sorted(tags))
@@ -144,7 +156,26 @@ def execution_offer(
 
 def runtime_fits_base(runtime: RuntimeAvailability, base: str) -> bool:
     """Can ``runtime`` provide the manifest base (module docstring)?"""
-    return runtime.name != "venv" or base in VENV_BASES
+    if runtime.name == "venv":
+        return base in VENV_BASES
+    if runtime.name == "subprocess" and base in TORCH_BASES:
+        return runtime.torch  # D432: the agent's interpreter must have torch
+    return True
+
+
+def torch_missing(offer: ExecutionOffer, gpu: GpuNeed, base: str) -> bool:
+    """V1.0 G9-B (D432): would a torch-less subprocess runtime have run this
+    torch-base job? Then "no runtime fits" is really "PyTorch is missing" -
+    ``env_error`` ``torch_missing``, which names the fix."""
+    if base not in TORCH_BASES:
+        return False
+    found = offer.subprocess
+    return (
+        found is not None
+        and found in offer.offered()
+        and not found.torch
+        and (gpu is not GpuNeed.REQUIRED or found.gpu_capable)
+    )
 
 
 def choose_runtime(

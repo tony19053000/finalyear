@@ -55,6 +55,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import dataclasses
+import importlib.util
 import signal
 import sys
 import time
@@ -89,6 +90,7 @@ __all__ = [
     "SUBPROCESS_RUNTIME_NAME",
     "EnvUse",
     "SubprocessRuntime",
+    "interpreter_has_torch",
     "pump_sink",
     "run_limits",
 ]
@@ -122,6 +124,18 @@ class EnvUse:
     """Replacement for a leading ``python``/``python3`` (the env's interpreter)."""
 
 
+def interpreter_has_torch() -> bool:
+    """V1.0 G9-B (D432): does this interpreter (the agent's own, which the
+    subprocess runtime runs jobs with) have PyTorch? ``find_spec`` only - torch
+    is never imported (seconds and hundreds of MB). A namespace-only ``torch``
+    directory (a half-removed install: no ``origin``) is not torch."""
+    try:
+        spec = importlib.util.find_spec("torch")
+    except (ImportError, ValueError):
+        return False
+    return spec is not None and spec.origin is not None
+
+
 def _merge_env(env: dict[str, str], extra: Mapping[str, str]) -> None:
     for key, value in extra.items():
         if key in ("PATH", "PYTHONPATH") and env.get(key):
@@ -144,8 +158,10 @@ class SubprocessRuntime:
         clock: Callable[[], float] = time.monotonic,
         envs: EnvBuilder | None = None,
         cpu_cgroups: CpuCgroups | None = None,
+        torch_probe: Callable[[], bool] = interpreter_has_torch,
     ) -> None:
         self._gpu = host_has_nvidia_gpu
+        self._torch_probe = torch_probe
         self._env_timeout_s = env_timeout_s
         self._lower_priority = lower_priority
         self._clock = clock
@@ -252,7 +268,17 @@ class SubprocessRuntime:
             gpu_reason="host NVIDIA GPU" if self._gpu else "no_nvidia_gpu",
             version=f"python{sys.version_info[0]}.{sys.version_info[1]}",
             sandboxed=False,
+            torch=await asyncio.to_thread(self._has_torch),
         )
+
+    def _has_torch(self) -> bool:
+        """The torch probe; a probe that fails says "no torch" (D432: a job is
+        then never placed here on a promise this node may not keep)."""
+        try:
+            return bool(self._torch_probe())
+        except Exception as exc:  # noqa: BLE001 - a probe never stops the agent
+            log.warning("agent.execution.torch_probe_failed", cause=type(exc).__name__)
+            return False
 
     async def run(
         self,

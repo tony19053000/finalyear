@@ -240,11 +240,12 @@ class NodeClock(ApiModel):
     bound_ms: float = Field(description="Rounded up: never tighter than measured.")
     consistent: bool = Field(
         description="False: the window's exchanges contradict each other "
-        "(a clock stepped)."
+        "(a clock stepped or slewed); the bound already covers them, so this "
+        "alone raises no alert (D434)."
     )
     exchanges: int
     uncertain: bool = Field(
-        description="Bound over 250 ms or inconsistent (an alert is raised)."
+        description="Bound over 250 ms (an alert is raised; D434: the bound only)."
     )
     live: bool = Field(
         description="From the live session, or the last session's stored value."

@@ -126,6 +126,12 @@ jobs:
         run: >-
           uv run mypy --platform win32 --follow-imports=silent
           src/meshforge/agent/winupgrade.py src/meshforge/common/upgrade_state.py
+      # V1.0 G9-F (D439): the Windows shell detection behind `compute
+      # --install-completion` (ctypes Toolhelp + NtQueryInformationProcess).
+      - name: mypy --platform win32 (G9-F completion shell detection)
+        run: >-
+          uv run mypy --platform win32 --follow-imports=silent
+          src/meshforge/cli/shell_detect.py src/meshforge/cli/completion.py
       # Each lab workload is a standalone container entrypoint named main.py, so
       # they cannot share one mypy run (duplicate module `main`); one run each.
       - name: mypy lab workloads (one run per entrypoint)

@@ -42,6 +42,7 @@ V0.4 subset::
       speculative: true                  # tail copies of slow chunks (D266)
       deterministic: true                # copies of one chunk must give equal bytes (D269)
       max_chunk_output_bytes: 268435456  # V0.10 G4: one chunk's packed {out} (default 256 MiB)
+      item_seconds: 2.5                  # V1.0 G9-E (D438): your estimate per item (optional)
 
 Rules:
 
@@ -60,6 +61,12 @@ Rules:
   ``entrypoint`` may use the placeholders ``{items_file}``, ``{chunk_index}`` and
   ``{out}``; ``combine.script`` may use ``{parts}`` and ``{out}``. ``split`` is
   left out of the canonical form when absent (older jobs keep their hash).
+  ``split.item_seconds`` (V1.0 G9-E, D438; optional, ``> 0`` and at most
+  :data:`MAX_SPLIT_ITEM_SECONDS`): the submitter's estimate of seconds per item
+  on the fabric's strongest node. With no recorded run of the workload the
+  planner uses it (rate source ``declared``, scaled by hardware score per node)
+  instead of an assumption, so a long job can split on its first run; recorded
+  history wins over it. Left out of the canonical form when absent.
 * ``inputs`` (V0.5 G5, D92): each ``ref`` names a registered dataset/model
   (``compute data push``) by ``name@<version>`` or ``name@sha256:<tree id>``;
   ``mount`` is a plain relative folder (no ``..``, no glob, not under
@@ -143,6 +150,7 @@ __all__ = [
     "MAX_SPLIT_CHUNKS",
     "MAX_SPLIT_ITEMS",
     "MAX_SPLIT_ITEM_CHARS",
+    "MAX_SPLIT_ITEM_SECONDS",
     "MAX_SPLIT_LIST",
     "MAX_SPLIT_NODES",
     "MAX_TIMEOUT_S",
@@ -267,6 +275,8 @@ DEFAULT_CHUNK_OUTPUT_BYTES: Final = 256 * 1024 * 1024
 MAX_CHUNK_OUTPUT_BYTES: Final = 64 * 1024**3
 """Largest ``split.max_chunk_output_bytes`` (the controller's own per-attempt
 ``max_output_bytes`` ceiling)."""
+MAX_SPLIT_ITEM_SECONDS: Final = 7 * 86_400.0
+"""V1.0 G9-E (D438): ``split.item_seconds`` at most a week per item."""
 MAX_SAFE_INT: Final = 2**53 - 1
 """``range`` bounds: integers a JSON reader in any language reads exactly."""
 SPLIT_ENTRYPOINT_PLACEHOLDERS: Final = ("{items_file}", "{chunk_index}", "{out}")
@@ -834,6 +844,21 @@ class SplitSpec(_Spec):
     have; more fails that chunk ``output_error`` (not retried: it would be as
     large elsewhere). The lane's upload grant grows by this much per chunk it
     is granted."""
+    item_seconds: float | None = Field(
+        default=None, gt=0.0, le=MAX_SPLIT_ITEM_SECONDS, allow_inf_nan=False
+    )
+    """V1.0 G9-E (D438): the submitter's estimate of seconds per item on the
+    fabric's strongest node (rate source ``declared``); None = no estimate."""
+
+    @field_validator("item_seconds", mode="before")
+    @classmethod
+    def _item_seconds_is_a_number(cls, value: object) -> object:
+        # a YAML number only: never "2.5" or true coerced into seconds
+        if value is not None and (
+            isinstance(value, bool) or not isinstance(value, int | float)
+        ):
+            raise ValueError("item_seconds must be a number of seconds")
+        return value
 
     @model_validator(mode="after")
     def _node_bounds(self) -> Self:
@@ -973,7 +998,11 @@ class Manifest(_Spec):
             exclude.add("secrets")
         if self.split is None:
             exclude.add("split")
-        return self.model_dump(mode="json", exclude=exclude or None)
+        dumped = self.model_dump(mode="json", exclude=exclude or None)
+        # V1.0 G9-E (D438): no estimate = the split job's hash before it
+        if self.split is not None and self.split.item_seconds is None:
+            dumped["split"].pop("item_seconds", None)
+        return dumped
 
     def canonical_json(self) -> str:
         """Stable text form: sorted keys, no whitespace (request hashing, D50)."""

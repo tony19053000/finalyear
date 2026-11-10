@@ -179,6 +179,19 @@ class HeartbeatRecorder:
         live.writer.enqueue("record_rtt", WriteKind.RTT, record)
         if change is not None:
             self._clock_changed(live, change)
+        if live.clock.consistency_flipped and live.clock.latest is not None:
+            # D434: an inconsistent window alone is information, not an alert
+            latest = live.clock.latest
+            log.info(
+                "session.clock_inconsistent"
+                if live.clock.inconsistent
+                else "session.clock_consistent",
+                node_id=live.node_id,
+                session_id=live.session_id,
+                clock_offset_ms=round(latest.offset_ms, 3),
+                clock_offset_bound_ms=round(latest.bound_ms, 3),
+                exchanges=latest.exchanges,
+            )
 
     def _clock_changed(self, live: LiveSession, change: ClockChange) -> None:
         """Log the flip; on entering the uncertain state also queue the audit

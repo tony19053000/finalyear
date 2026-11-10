@@ -184,16 +184,18 @@ export function JobDetailPage({ logSocketFactory }: JobDetailPageProps) {
         title={data.name}
         description={data.job_id}
         actions={
-          <Button
-            variant="danger"
-            disabled={terminal}
-            title={terminal ? `The job is ${data.state}; there is nothing to cancel.` : undefined}
-            onClick={() => {
-              setConfirming(true);
-            }}
-          >
-            Cancel job
-          </Button>
+          // V1.0 G9 (lab L1 V0.8): a finished job has nothing to cancel, so the
+          // red button is not shown at all (it was shown disabled).
+          terminal ? undefined : (
+            <Button
+              variant="danger"
+              onClick={() => {
+                setConfirming(true);
+              }}
+            >
+              Cancel job
+            </Button>
+          )
         }
       />
       {job.isRefetchError && (

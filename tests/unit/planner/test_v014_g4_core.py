@@ -199,7 +199,10 @@ def test_unsupported_configuration_is_never_a_pick() -> None:
 
 
 def test_mode3_set_and_dont_split_groups() -> None:
-    request, snapshot = fabric({}, split_items=4000)
+    # V1.0 G9-E (D438): measured runs, so the planner may split at all (an
+    # assumed rate never justifies a split)
+    even = dict.fromkeys(("node_a", "node_b", "node_c", "node_d"), 100.0)
+    request, snapshot = fabric(even, split_items=4000)
     full = ("node_a", "node_b", "node_c", "node_d")
     good = group("s1", {"node_a": 900, "node_b": 800}, sets={full: 300})
     worse = group("s2", {"node_a": 900, "node_b": 200}, sets={full: 300})

@@ -76,7 +76,9 @@ Rules:
   (``transfer_error``/``timeout``) is retried with backoff; one whose token was
   refused (``unauthorized``) waits for a ``RefreshFetchToken`` (a restarted
   controller sends one after Reconcile) and retries with it - a tree resumes
-  the chunks it already verified. Past ``staging_retry_s`` the attempt fails
+  the chunks it already verified. ``staging_retry_s`` is how long staging may
+  keep failing **without progress** (D429: a try that verified a chunk or
+  installed a blob restarts it, :mod:`.stage_retry`); past it the attempt fails
   ``transfer_error``; ``staging_retry_s = 0`` fails at the first error, typed.
 * **Release (D75).** ``CancelAttempt{release}`` means the controller already ended
   (or never knew) the attempt: it is stopped if it runs, then forgotten and its
@@ -120,6 +122,8 @@ from typing import TYPE_CHECKING, Any, Final, Protocol
 
 from meshforge.agent.cas import AgentCas
 from meshforge.agent.cas.fetcher import BlobSource, FetchTuning
+from meshforge.agent.cas.progress import StagingProgress
+from meshforge.agent.cas.rate import FetchRateLimiter
 from meshforge.agent.cas.sources import TokenLookup
 from meshforge.agent.conditions.base import ConditionFailedError
 from meshforge.agent.conditions.runner import ActiveCondition, ConditionRunner
@@ -169,6 +173,13 @@ from meshforge.agent.execution.secret_files import (
     default_root,
     secret_env,
 )
+from meshforge.agent.execution.stage_retry import (
+    STAGE_RETRY_BASE_S,
+    STAGE_RETRY_CAP_S,
+    STAGE_RETRYABLE,
+    StageRetryWindow,
+    controller_refused,
+)
 from meshforge.agent.execution.subprocess_runtime import SubprocessRuntime
 from meshforge.agent.execution.uploader import UploadProgress, upload_parts
 from meshforge.agent.execution.workdir_cap import UNMEASURABLE, WorkdirCap, stop_watch
@@ -181,6 +192,7 @@ from meshforge.agent.http_tls import AgentHttpTls
 from meshforge.agent.policy import LivePolicy
 from meshforge.agent.settings import AgentSettings
 from meshforge.common.bundle import BundleError, BundleLimits, unpack
+from meshforge.common.dscp import bulk_socket_options
 from meshforge.common.errors import FailureType, InvalidIdError
 from meshforge.common.hashing import Digest
 from meshforge.common.ids import (
@@ -226,17 +238,15 @@ agent reports it **only for an attempt whose StartAttempt had
 controller every attempt is a user attempt, never refused or stopped by the
 guard. The controller never sends a FailureType to an agent at all."""
 _NOFOLLOW: Final = getattr(os, "O_NOFOLLOW", 0)
-_STAGE_RETRYABLE: Final = frozenset(
-    {FailureType.TRANSFER_ERROR, FailureType.TIMEOUT, FailureType.UNAUTHORIZED}
-)
-"""Staging failures that a controller restart causes (connection refused/reset,
-a timeout, the old fetch token refused): retried until ``staging_retry_s`` (D95)."""
-_STAGE_RETRY_BASE_S: Final = 0.25
+_STAGE_RETRYABLE: Final = STAGE_RETRYABLE
+"""Staging failures a lost link or a controller restart causes: retried while
+staging makes progress, else until ``staging_retry_s`` (D95, D429)."""
+_STAGE_RETRY_BASE_S: Final = STAGE_RETRY_BASE_S
 MAX_PEER_TOKENS: Final = 256
 """Most (tree, holder) peer tokens one attempt keeps (D147; a tree lists at most
 ``MAX_SOURCES`` peers, an attempt a bounded number of input trees)."""
 _TREE_HEX: Final = re.compile(r"[0-9a-f]{64}")
-_STAGE_RETRY_CAP_S: Final = 5.0
+_STAGE_RETRY_CAP_S: Final = STAGE_RETRY_CAP_S
 _RETRYABLE: Final = frozenset(
     {
         FailureType.NODE_LOST,
@@ -308,6 +318,9 @@ class _Attempt:
     the controller with the new token plus re-minted peers. Secrets inside."""
     token_changed: asyncio.Event = field(default_factory=asyncio.Event)
     stage_retries: int = 0
+    stage_progress: StagingProgress = field(default_factory=StagingProgress)
+    """D429: durable staging progress of every try; the staging retry window
+    restarts on it (:mod:`.stage_retry`)."""
     leases: AttemptLeases | None = None
     """What this attempt holds against GC (V0.5 G5, D91): its trees and env."""
     inputs: list[agent_pb2.InputTree] | None = None
@@ -443,6 +456,17 @@ class Executor(CombineSteps):
         self._settings = settings
         self._cfg = settings.agent.execution
         self._fetch_cfg = settings.agent.fetch
+        self._bulk_opts = bulk_socket_options(
+            self._fetch_cfg.dscp_bulk, where="agent_fetch"
+        )
+        """D430: the CS1 mark for blob client sockets (``()`` = none)."""
+        self._fetch_rate = (
+            FetchRateLimiter.from_mbit(self._fetch_cfg.max_rate_mbit)
+            if self._fetch_cfg.max_rate_mbit > 0
+            else None
+        )
+        """D431: the one receive cap of this agent process (None = off),
+        charged by every blob byte any staging receives."""
         self._setup = setup
         self._node_id = node_id
         self._report = report
@@ -941,10 +965,24 @@ class Executor(CombineSteps):
 
     def _transport(self) -> dict[str, Any]:
         """``transport=`` for one HTTP client (a fresh one each: a client
-        closes its transport), or nothing (plain HTTP / injected fakes)."""
+        closes its transport), or nothing (plain HTTP / injected fakes).
+
+        Every blob fetch and upload of an attempt goes through it, so its
+        sockets carry the bulk-data DSCP mark (V1.0 G9-A, D430: ``[agent.fetch]
+        dscp_bulk``, Linux). Plain HTTP (``insecure-dev``, loopback) is not
+        marked."""
         if self._http_tls is None:
             return {}
-        return {"transport": self._http_tls.transport()}
+        return {"transport": self._http_tls.transport(socket_options=self._bulk_opts)}
+
+    def _fetch_kw(self) -> dict[str, Any]:
+        """Keyword arguments of a whole-blob fetch (``self._fetch``): the
+        transport, and the receive cap when one is set (D431; an injected test
+        fetch that takes neither still works with the cap off)."""
+        kw = self._transport()
+        if self._fetch_rate is not None:
+            kw["rate"] = self._fetch_rate
+        return kw
 
     async def _upload_parts(
         self, base: str, digest: Digest, token: str, path: Path, *, attempt: _Attempt
@@ -1489,53 +1527,57 @@ class Executor(CombineSteps):
         *,
         once: Callable[[str], Awaitable[None]] | None = None,
     ) -> None:
-        """Stage with the D95 retry rules; ``once(token)`` (V0.10 G5: a
+        """Stage with the D95/D429 retry rules; ``once(token)`` (V0.10 G5: a
         combine's parts) replaces the project staging try."""
         await asyncio.to_thread(self._prepare_work_root_only)
         if not attempt.fetch_token:
             attempt.fetch_token = plan.fetch_token
-        deadline = self._clock() + self._cfg.staging_retry_s
-        delay = _STAGE_RETRY_BASE_S
+
+        async def project(token: str) -> None:
+            await self._stage_once(attempt, plan, workdir, spec, token)
+
+        await self._retry_staging(attempt, once if once is not None else project)
+
+    async def _retry_staging[T](
+        self, attempt: _Attempt, try_once: Callable[[str], Awaitable[T]]
+    ) -> T:
+        """``try_once(fetch token)`` until it succeeds, under the staging retry
+        window (:mod:`.stage_retry`: ``staging_retry_s`` of failing **without
+        progress**, D429). The one retry loop of every staging: the project
+        tree or bundle, named inputs, a lane's item files, a combine's parts."""
+        window = StageRetryWindow(
+            self._cfg.staging_retry_s, self._clock, attempt.stage_progress
+        )
         while True:
             used = attempt.fetch_token
             attempt.token_changed.clear()
             try:
-                if once is not None:
-                    await once(used)
-                else:
-                    await self._stage_once(attempt, plan, workdir, spec, used)
+                return await try_once(used)
             except FetchError as exc:
-                if (
-                    exc.failure_type not in _STAGE_RETRYABLE
-                    or self._cfg.staging_retry_s <= 0
-                ):
+                if exc.failure_type not in _STAGE_RETRYABLE or not window.retries:
                     raise
                 last = exc
-            else:
-                return
-            self._check_stage_deadline(deadline, last)
+            progressed = window.failed()
+            window.check(last)
             # D95: a controller restart refuses the old token (401) or is not
             # reachable for a while; the controller re-mints after Reconcile.
             # Only the CONTROLLER's refusal waits for that refresh: a peer's
             # 401/403 never reaches here (the fetcher drops the peer, V0.5 G4).
-            if attempt.fetch_token == used and _controller_refused(last):
+            if attempt.fetch_token == used and controller_refused(last):
                 # Until a refresh or the deadline: a loop, because an event-loop
                 # timer may fire up to one clock tick early (15.6 ms on Windows)
                 # and the refused token must not be retried just before it.
                 while (
                     attempt.fetch_token == used and not attempt.token_changed.is_set()
                 ):
-                    remaining = deadline - self._clock()
+                    remaining = window.remaining()
                     if remaining <= 0:
                         break
                     await self._step(attempt, self._token_wait(attempt, remaining))
             elif attempt.fetch_token == used:
-                remaining = deadline - self._clock()
-                wait = min(delay, remaining)
-                delay = min(delay * 2, _STAGE_RETRY_CAP_S)
-                await self._step(attempt, self._token_wait(attempt, wait))
+                await self._step(attempt, self._token_wait(attempt, window.backoff()))
             # Checked before EVERY retry, a refreshed token included.
-            self._check_stage_deadline(deadline, last)
+            window.check(last)
             attempt.stage_retries += 1
             log.info(
                 "agent.execution.stage_retry",
@@ -1545,15 +1587,8 @@ class Executor(CombineSteps):
                 cause=last.failure_type.value,
                 source=last.source or None,
                 refreshed=attempt.fetch_token != used,
+                progressed=progressed,
                 retries=attempt.stage_retries,
-            )
-
-    def _check_stage_deadline(self, deadline: float, last: FetchError) -> None:
-        if self._clock() >= deadline:
-            raise FetchError(
-                f"staging did not succeed within {self._cfg.staging_retry_s:g} s "
-                f"of retries (last: {last.message})",
-                failure_type=FailureType.TRANSFER_ERROR,
             )
 
     @staticmethod
@@ -1585,7 +1620,7 @@ class Executor(CombineSteps):
         try:
             await self._step(
                 attempt,
-                self._fetch(base, plan.digest, token, bundle, **self._transport()),
+                self._fetch(base, plan.digest, token, bundle, **self._fetch_kw()),
             )
             # Unpacking is not interruptible: it runs to completion in its thread
             # (its caps bound how long) and a stop asked meanwhile is honoured
@@ -1635,6 +1670,8 @@ class Executor(CombineSteps):
                 on_tree=leases.tree if leases is not None else None,
                 token_for=self._token_lookup(attempt, spec.tree_id),
                 skip=self._lane_skip(attempt, None),
+                progress=attempt.stage_progress,
+                rate=self._fetch_rate,
                 **self._transport(),
             ),
         )
@@ -1706,6 +1743,8 @@ class Executor(CombineSteps):
                     on_tree=leases.tree if leases is not None else None,
                     token_for=self._token_lookup(attempt, item.tree_id),
                     skip=self._lane_skip(attempt, mount),
+                    progress=attempt.stage_progress,
+                    rate=self._fetch_rate,
                     **self._transport(),
                 ),
             )
@@ -1724,6 +1763,9 @@ class Executor(CombineSteps):
                 blobs_hit=report.blobs_hit,
                 blobs_fetched=report.blobs_fetched,
                 bytes_fetched=report.bytes_fetched,
+                # V1.0 G9-A: verified chunks an earlier try kept (like
+                # agent.cas.staged); the transfer telemetry carries it too
+                chunks_resumed=report.chunks_resumed,
             )
             if attempt.stop_reason is not None:
                 raise _StoppedError
@@ -2310,15 +2352,6 @@ def _peer_token_key(tree_id: str, node_id: str) -> tuple[str, str] | None:
     except InvalidIdError:
         return None
     return tree_hex, node_id
-
-
-def _controller_refused(error: FetchError) -> bool:
-    """A 401/403 from the controller (a bundle fetch names no source: it is
-    always the controller). Only this waits for RefreshFetchToken (D95)."""
-    return error.failure_type is FailureType.UNAUTHORIZED and error.source in (
-        "",
-        "controller",
-    )
 
 
 def _refreshed(

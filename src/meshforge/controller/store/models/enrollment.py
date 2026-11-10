@@ -86,8 +86,9 @@ class AuditAction(StrEnum):
     reported. The dashboard's ``alert`` events are fed from the same refusal."""
     # --- V0.9 G1 (migration 0021) ------------------------------------------
     CLOCK_UNCERTAIN = "clock_uncertain"
-    """D213: a node's clock offset became untrustworthy (bound over 250 ms or
-    inconsistent exchanges) - one row per episode per session. ``details`` =
+    """D213: a node's clock offset became untrustworthy (bound over 250 ms;
+    since V1.0 G9-B, D434, inconsistent exchanges alone no longer count) - one
+    row per episode per session. ``details`` =
     session id, offset, bound, consistent, reasons (numbers and words only)."""
     TELEMETRY_RECORD_SKIPPED = "telemetry_record_skipped"
     """D212 (fix r1, T-5): the run-record sweep skipped an attempt - its record

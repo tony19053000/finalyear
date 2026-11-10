@@ -99,9 +99,16 @@ ref = "V0.7 secret files; THREAT_MODEL; V1.0 G3 security report"
 test_id = "B604"
 file = "src/meshforge/cli/completion.py"
 line = "prog_name=prog_name, complete_var=complete_var, shell=shell"
-count = 2
-reason = "False positive: `shell` is Typer's get_completion_script() keyword naming the shell (bash/zsh/pwsh); no subprocess is started. Two calls: install_powershell() and install_bash()."
-ref = "V0.8 G3 shell completion; V1.0 G3 security report"
+count = 3
+reason = "False positive: `shell` is Typer's get_completion_script() keyword naming the shell (bash/zsh/pwsh); no subprocess is started. Three calls: install_powershell(), install_bash() and the explicit-shell --show-completion path (D439)."
+ref = "V0.8 G3 shell completion; D439 (V1.0 G9-F); V1.0 G3 security report"
+
+[[finding]]
+test_id = "B604"
+file = "src/meshforge/cli/completion.py"
+line = "return _typer_install(shell=shell, prog_name=prog_name, complete_var=complete_var)"
+reason = "False positive: `shell` is the shell name (powershell/pwsh/bash/zsh) handed to Typer's completion installer for an explicitly named or detected shell; no subprocess is started."
+ref = "D439 (V1.0 G9-F)"
 
 # --- B506: yaml.load -------------------------------------------------------
 

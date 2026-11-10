@@ -26,6 +26,10 @@ PostgreSQL into a :class:`FabricRows`:
 * the run-time history of the batch's workload fingerprints (D108), and (V0.6
   G4) their median uploaded bytes and the env hash their latest attempt on
   each node reported, with which of those environments each node still holds;
+* (V1.0 G9-E, D438) their **chunk history** from ``chunk_record``: per node
+  the median items/s of the latest committed chunks (a "don't split" run is
+  one chunk, so it counts too) and the median per-chunk overhead - the
+  measured rates a Mode 3 decision needs before it may split;
 * the environment build-time history of the batch's ``env.base`` values (env
   phases of at least :data:`ENV_BUILD_MIN_MS` - shorter ones were cache hits);
 * the network matrix (``network_link``) and the controller -> node bandwidth
@@ -71,6 +75,7 @@ from meshforge.controller.store.models.data import JobInput, NamedInput
 from meshforge.controller.store.models.job import Attempt, AttemptPhaseRow, Job
 from meshforge.controller.store.models.node import Node
 from meshforge.controller.store.models.plan import PlanDecision
+from meshforge.controller.store.models.telemetry import ChunkRecord
 from meshforge.workqueue.tables import work_item, work_queue
 
 __all__ = [
@@ -331,17 +336,82 @@ async def _history(
         )
     outputs = await _output_history(db, fingerprints, runs)
     envs = await _env_hashes(db, fingerprints)
+    chunks = await _chunk_history(db, fingerprints, runs)
     out: dict[str, History] = {}
-    for fp in sorted(set(grouped) | set(outputs) | set(envs)):
+    for fp in sorted(set(grouped) | set(outputs) | set(envs) | set(chunks)):
         per_node = grouped.get(fp, {})
         sizes = outputs.get(fp, [])
+        rates, overheads = chunks.get(fp, ({}, []))
         out[fp] = History(
             by_node_s={n: _median(v) for n, v in sorted(per_node.items())},
             samples_by_node={n: len(v) for n, v in sorted(per_node.items())},
             output_bytes=_median(sizes) if sizes else None,
             output_samples=len(sizes),
             env_hash_by_node=dict(sorted(envs.get(fp, {}).items())),
+            item_rate_by_node={n: _median(v) for n, v in sorted(rates.items())},
+            item_rate_samples_by_node={n: len(v) for n, v in sorted(rates.items())},
+            chunk_overhead_s=_median(overheads) if overheads else None,
+            chunk_overhead_samples=len(overheads),
         )
+    return out
+
+
+async def _chunk_history(
+    db: AsyncSession, fingerprints: Sequence[str], runs: int
+) -> dict[str, tuple[dict[str, list[float]], list[float]]]:
+    """V1.0 G9-E (D438): fingerprint -> (node -> items/s of its latest
+    ``runs`` committed chunks there, per-chunk overheads of those chunks).
+
+    A chunk's rate is ``items / run seconds`` (the chunk process, agent
+    clock, D213); its overhead the chunk's stage + upload seconds. A chunk
+    with no run time (a late or partial report) is skipped, never read as
+    infinitely fast."""
+    ranked = (
+        select(
+            Job.fingerprint.label("fp"),
+            ChunkRecord.node_id.label("node_id"),
+            ChunkRecord.items.label("chunk_items"),
+            ChunkRecord.run_ms.label("run_ms"),
+            ChunkRecord.stage_ms.label("stage_ms"),
+            ChunkRecord.upload_ms.label("upload_ms"),
+            func.row_number()
+            .over(
+                partition_by=(Job.fingerprint, ChunkRecord.node_id),
+                order_by=(
+                    ChunkRecord.ended_at.desc().nulls_last(),
+                    ChunkRecord.job_id,
+                    ChunkRecord.chunk_index,
+                    ChunkRecord.lease_seq,
+                ),
+            )
+            .label("n"),
+        )
+        .join(Job, Job.id == ChunkRecord.job_id)
+        .where(
+            Job.fingerprint.in_(fingerprints[:MAX_HISTORY_FINGERPRINTS]),
+            ChunkRecord.outcome == "committed",
+            ChunkRecord.run_ms.is_not(None),
+            ChunkRecord.run_ms > 0,
+        )
+        .subquery()
+    )
+    rows = await db.execute(
+        select(
+            ranked.c.fp,
+            ranked.c.node_id,
+            ranked.c.chunk_items,
+            ranked.c.run_ms,
+            ranked.c.stage_ms,
+            ranked.c.upload_ms,
+        )
+        .where(ranked.c.n <= runs)
+        .limit(MAX_HISTORY_FINGERPRINTS * MAX_NODES * max(1, runs))
+    )
+    out: dict[str, tuple[dict[str, list[float]], list[float]]] = {}
+    for fp, node_id, items, run_ms, stage_ms, upload_ms in rows.all():
+        rates, overheads = out.setdefault(str(fp), ({}, []))
+        rates.setdefault(str(node_id), []).append(int(items) / (int(run_ms) / 1000.0))
+        overheads.append((int(stage_ms or 0) + int(upload_ms or 0)) / 1000.0)
     return out
 
 

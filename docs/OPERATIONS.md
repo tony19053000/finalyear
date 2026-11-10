@@ -846,6 +846,20 @@ environment (subprocess runtime; install torch there with `uv sync --extra gpu`)
   `no_index = true` installs only from a local wheelhouse (the Docker build then
   has no network at all); `index_url = "https://mirror/simple"` uses a mirror
   (no credentials in the URL).
+- **Extra package indexes (V1.0 G9-B, D436).** `[agent.envs] extra_index_urls =
+  ["https://download.pytorch.org/whl/cu126"]` keeps PyPI (or your `index_url`) and
+  adds up to 4 more indexes (http(s), no credentials, no `?query`/`#fragment`, no `%` in the host part; not with `no_index` - the same shape rules as `index_url`). uv
+  tries them **before** the main index - the first index that has a package
+  wins - so list only indexes you trust. Wheels-only rules are unchanged, and
+  the list is part of the env hash (changing it builds new environments).
+  **GPU jobs on a laptop without Docker (Windows):** the job uses `env.base:
+  python-cpu`, `resources.gpu: required` and `torch` in its `requirements.txt`;
+  the venv runtime installs CUDA torch from this index and gets the GPU
+  (`CUDA_VISIBLE_DEVICES`). The job's own file still cannot add an index
+  (`--extra-index-url` in it is refused while `only_binary = true`).
+  `env.base: cuda-pytorch` there is placed only where Docker runs, or where
+  the agent's own Python has torch (`exec-torch`, D432); elsewhere it is
+  refused `no_runtime_for_base` with the fix named.
 - **Wheels only by default (V0.7 G6, WS-I4).** Every environment build installs
   with `--only-binary :all:` (`[agent.envs] only_binary = true`), so no
   package's own build code (an sdist's `setup.py` / build backend) runs while
@@ -867,7 +881,7 @@ environment (subprocess runtime; install torch there with `uv sync --extra gpu`)
   refused before anything is installed: `env_error` / `requirements_rejected`,
   naming the line. A job that needs another package index (for example the
   PyTorch wheel index) gets it from the laptop owner's `[agent.envs] index_url`
-  or a `find_links` wheelhouse, not from its own file.
+  / `extra_index_urls` (D436) or a `find_links` wheelhouse, not from its own file.
   **A wheel URL must be pinned** (V0.7 G6 fix round 3): while
   `only_binary = true`, a line with the `https://` URL of a wheel is accepted
   only with its digest -
@@ -907,7 +921,7 @@ environment (subprocess runtime; install torch there with `uv sync --extra gpu`)
   (names and sizes); one whose files no longer match (deleted, added, resized) is
   logged as `agent.envs.cache_damaged`, set aside as `<hash>.evicted-…` (deleted by a
   later build after `[agent.envs] evicted_keep_s`, 1 day) and rebuilt before any job
-  uses it. Changing `find_links` (or its wheels), `index_url` or `no_index` gives new
+  uses it. Changing `find_links` (or its wheels), `index_url`, `extra_index_urls` or `no_index` gives new
   environments (the package sources are part of the env hash).
 - **Python version (venv runtime).** `env.python: "3.11"` uses a Python 3.11
   already on this laptop (`uv python list --only-installed`); none = `python_not_found`.
@@ -1628,7 +1642,8 @@ compute get <JOB_ID>               # outputs -> ./outputs/<JOB_ID>/ (--dest, --f
   controller process (a restart resets them; the job stays bounded).
   Planner knobs: `split_margin` (0.10), `target_chunk_s` (20),
   `max_overhead_frac` (0.05), `min_chunks_per_node` (4), `chunk_overhead_s`
-  (1.5), `tail_frac` (0.5); `wait_retry_s` (2) is how long an idle lane waits
+  (1.5), `tail_frac` (0.5), `require_measured_rates` (true, see "First run of
+  a split workload" below); `wait_retry_s` (2) is how long an idle lane waits
   while the rest is leased elsewhere. Caps (`[controller.split]`): `max_items` (100 000) items and
   `max_chunks` (10 000) chunks per job; `list_file` up to 64 MiB, `lines` files
   up to 256 MiB with lines up to 16 MiB (the file is scanned while blob GC
@@ -1669,6 +1684,24 @@ compute get <JOB_ID>               # outputs -> ./outputs/<JOB_ID>/ (--dest, --f
   reuses a job's per-node chunk times while none of its chunks committed, at
   most `[controller.split] speculation_cache_s` (5 s; 0 = off), for at most
   `speculation_cache_jobs` (256) jobs.
+- **First run of a split workload (V1.0 G9-E, D438).** The planner splits only
+  on evidence. With no recorded run of the workload (same project, entrypoint
+  and env) on any node, every per-item rate would be an assumption
+  (`[controller.planner] default_compute_s` for the whole job), so the job runs
+  **whole on one node** and `compute explain` shows the set rows as `fail: ...
+  <= ..., blocked: rates_assumed`. That run's chunk record is the history: the
+  next submission is planned on measured per-node rates (a tiny job stays
+  whole on its own per-chunk overhead, a long one splits). Three ways to split
+  on the **first** run:
+  1. **Declare the rate** in `compute.yaml`: `split.item_seconds: 12.5`
+     (seconds per item on your strongest node; `> 0`, at most a week). Rates
+     are shown as `(declared)`, scaled per node by hardware score; recorded
+     history replaces it as soon as it exists. Best for long GPU jobs.
+  2. **Turn the rule off** fabric-wide: `[controller.split]
+     require_measured_rates = false` (the planner before V1.0 G9-E: assumed
+     rates may split - a tiny job can then be split for nothing).
+  3. **A benchmark campaign** that forces the node set (`mode3` config) always
+     splits; the block is still recorded in its decision.
 
 ---
 
@@ -1732,6 +1765,45 @@ Tuning (`[agent.fetch]`): `per_source` requests in flight per source (2; each
 holds up to one chunk in memory), `slow_source_factor` (4), `endgame_after_s`
 (0.5), `request_timeout_s` (60). `[controller.jobs] max_peer_sources` (4) caps how
 many peers one attempt is given.
+
+**A broken transfer is retried inside the attempt (V1.0 G9-A, D429).** When a
+fetch breaks (Wi-Fi drops a connection, a body is cut off, the controller
+restarts), the agent tries again with backoff, resuming from the chunks it
+already verified. `[agent.execution] staging_retry_s` (60) is how long staging
+may keep failing **without progress**: every try that verified at least one
+chunk (or installed a blob) restarts that window, so a 5 GB fetch over a flaky
+link keeps going as long as it gets somewhere. The agent log shows each retry
+as `agent.execution.stage_retry` with `cause`, `retries` and `progressed`; past
+the window the attempt fails `transfer_error` ("staging did not succeed within
+60 s without progress (last: ...)") and the controller's retry rules decide.
+
+**Bulk data is background traffic (V1.0 G9-A, D430).** On Linux, job files are
+sent marked DSCP **CS1** ("lower effort", `IP_TOS 0x20`): everything the
+controller's REST/blob port sends, everything an agent's peer blob server sends,
+and every blob download/upload connection an agent opens. Wi-Fi (WMM) and
+QoS-aware routers then send heartbeats, DNS and everything else first, so a
+5 GB transfer is less likely to starve the gRPC session (which is **never**
+marked). Best effort: a network that ignores DSCP behaves as before; a kernel
+that refuses the option logs `common.dscp.unsupported` once and sends unmarked.
+Windows ignores the mark from programs (it needs a Group Policy QoS rule) and
+is skipped silently. Turn it off with `dscp_bulk = "off"` in
+`[controller.http]` (the REST/blob port), `[agent.peer]` (the peer server) or
+`[agent.fetch]` (the agent's own downloads/uploads). Check it on Linux with
+`ss -tni state established '( sport = :47110 )'` - marked sockets show
+`tos:0x20` (with `-i`, recent iproute2) - or capture with
+`tcpdump -v -i <wifi> port 47110` (`tos 0x20`).
+
+**Optional download cap for a shared Wi-Fi (V1.0 G9-A, D431).** `[agent.fetch]
+max_rate_mbit` (0 = no cap, the default; otherwise at least 1) limits how fast
+**this agent** receives job files - all its downloads together, from the
+controller and from peers, every staging at once. The agent simply reads more
+slowly and TCP slows the sender, so the Wi-Fi really carries less and the other
+laptops (and the heartbeats) keep air time. Example: `max_rate_mbit = 40` on
+each laptop of a busy lab Wi-Fi. A 5 GB dataset at 40 Mbit/s takes about 17
+minutes - pair a cap with a large enough job `timeout_s`. Keep the cap above
+about 0.6 Mbit/s per request in flight (sources x `per_source`): a peer server
+disconnects a reader slower than its `min_send_rate_bytes_s` (64 KiB/s). Uploads
+and tree manifests are not capped.
 
 **Network probes (V0.6 G4, D111).** With peer serving on, the controller also
 measures how fast each laptop downloads from each other laptop: now and then it
@@ -2466,7 +2538,7 @@ volume**).
 | Agent log `agent.fs.cleanup_failed` / `agent.envs.cleanup_failed` | a job folder or build leftover could not be deleted (files owned by another user, a read-only mount) | it is removed before the next build / at the next agent start; if it repeats, check who owns `path` under the data dir |
 | A job fails `env_error` `requirements_rejected`: "a wheel URL must pin its file with `--hash=...`" | wheels-only laptop, a `pkg @ https://...whl` line without a strong digest | add `--hash=sha256:<sha256sum of the wheel>` to that line (§0b2) |
 | A job fails `invalid_input` `secret_not_text:NAME` | an `as_env` secret is not UTF-8 text | read it from its file instead (drop `as_env`) |
-| A job stays `queued` | no node can take it **now** (V0.6): every capable node is busy (`slots_full`, `node_cap`), offline / suspect, or its environment failed there recently (`env_known_bad`) | `compute explain <JOB_ID>` lists each node's reason; free a slot, start an agent, raise `[agent.execution] max_cpu_jobs` / `max_gpu_jobs`, or cancel it |
+| A job stays `queued` | no node can take it **now** (V0.6): every capable node is busy (`slots_full`, `node_cap`), offline / suspect, or its environment failed there recently (`env_known_bad`) | `compute explain <JOB_ID>` lists each node's reason; free a slot, start an agent, raise `[agent.execution] max_cpu_jobs` / `max_gpu_jobs`, or cancel it. `env_known_bad` clears when the laptop's owner changes `[agent.envs]` (e.g. `only_binary = false`) and restarts the agent (V1.0 G9-B, D433), else after `[controller.jobs] env_bad_ttl_s` |
 | `compute run` exits with `no_feasible_plan` and a list of nodes | **no** enrolled node could ever run it (V0.6 D104): no `exec`, no GPU / too little VRAM / RAM / CPUs, no runtime for `env.base`, the owner allows no jobs of that kind | each line names the node and the reason; change the manifest's `resources:` or enable execution / a runtime on a node |
 | `compute run` prints `local agent cache not seeded (...)` | the CLI could not copy the project into this laptop's agent cache: `no_cache` (the agent never ran with this data dir), `other_user` (the agent's cache belongs to another OS user - e.g. the agent runs as a service account or you ran `compute run` as root; V0.7 G5 never writes into it), `not_writable`, `over_quota` (project > `[cli] seed_max_bytes`), `disk_full`, `changed` (a file changed while copied) | nothing breaks: a job placed here downloads the project; fix the reason to save that download |
 | Controller exits **4** at startup, log `controller.start_failed` names `controller/ca` or `controller/tls` | the fabric CA or its folder cannot be trusted (V0.7 G1): loose permissions, a missing half, a garbled file, a key that does not match | follow the message: `chmod 600` / `chmod 700`, restore `ca/` from backup, or `meshforge-controller fabric create --force` (every laptop re-joins) — §0a2 |

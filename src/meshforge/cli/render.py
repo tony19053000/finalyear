@@ -700,6 +700,11 @@ def job_detail_table(payload: Mapping[str, Any]) -> Table:
                 f"missing={missing_text}"
             ),
         )
+        failed = attempt_failure_text(attempt)
+        if failed:
+            # its own row: the attempt row is long already and a cell is
+            # capped (MAX_CELL_LENGTH) - the detail must not be cut off
+            table.add_row(_cell("  failed"), _cell(failed))
         transfers = attempt.get("transfers")
         for row in transfers if isinstance(transfers, list) else []:
             if isinstance(row, Mapping):
@@ -714,6 +719,23 @@ def job_detail_table(payload: Mapping[str, Any]) -> Table:
                 ),
             )
     return table
+
+
+def attempt_failure_text(attempt: Mapping[str, Any]) -> str:
+    """V1.0 G9-B: ``<failure_type>: <detail>`` of an attempt that ended with a
+    failure (the detail is the agent's text or the controller's reason, e.g.
+    ``node_revoked``; scrubbed like any server text), else "" - shown as the
+    attempt's ``failed`` row.
+    A job that succeeded on retry has no job-level ``failure_detail``, so this
+    is the only place its first attempt's failure is visible."""
+    failure = attempt.get("failure_type")
+    if not isinstance(failure, str) or not failure:
+        return ""
+    detail = attempt.get("detail")
+    text = scrub(failure)
+    if isinstance(detail, str) and detail.strip():
+        text += f": {scrub(detail.strip())}"
+    return text
 
 
 def warning_lines(payload: Mapping[str, Any]) -> list[str]:

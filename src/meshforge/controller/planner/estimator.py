@@ -108,9 +108,10 @@ negative or NaN floor is read as this, so nothing ever divides by zero."""
 
 _STRENGTH: Final = {
     TermSource.ASSUMED: 0,
-    TermSource.SCALED: 1,
-    TermSource.HISTORY: 2,
-    TermSource.MEASURED: 3,
+    TermSource.DECLARED: 1,  # V1.0 G9-E (D438): the submitter's estimate
+    TermSource.SCALED: 2,
+    TermSource.HISTORY: 3,
+    TermSource.MEASURED: 4,
 }
 
 

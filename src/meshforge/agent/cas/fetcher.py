@@ -59,6 +59,8 @@ from typing import Final
 import httpx
 
 from meshforge.agent.cas.manifest import get_manifest, load_tree
+from meshforge.agent.cas.progress import StagingProgress
+from meshforge.agent.cas.rate import FetchRateLimiter
 from meshforge.agent.cas.scheduler import TransferScheduler
 from meshforge.agent.cas.sources import (
     BlobSource,
@@ -107,10 +109,16 @@ class BlobFetcher:
         tuning: FetchTuning | None = None,
         clock: Callable[[], float] = time.monotonic,
         token_for: TokenLookup | None = None,
+        progress: StagingProgress | None = None,
+        rate: FetchRateLimiter | None = None,
     ) -> None:
         """``token_for`` (V0.7 G3, D147): asked before every request to a peer
         for the newest token the attempt holds for it (peer tokens live
-        <= 60 s and are re-minted while the attempt stages)."""
+        <= 60 s and are re-minted while the attempt stages). ``progress``
+        (D429): the attempt's durable-progress counter
+        (:mod:`~meshforge.agent.cas.progress`). ``rate`` (D431): the agent's
+        process-wide receive cap (:mod:`~meshforge.agent.cas.rate`), charged
+        by every blob byte received."""
         listed = list(sources)
         if not listed:
             raise ValueError("at least one blob source is needed")
@@ -123,6 +131,7 @@ class BlobFetcher:
         if tuning.per_source < 1:
             raise ValueError("per_source >= 1")
         self._clock = clock
+        self._rate = rate
         self.stats = FetchStats()
         known: list[Source] = []
         seen: set[str] = set()
@@ -144,6 +153,8 @@ class BlobFetcher:
             clock=clock,
             # Late-bound: resolved per call so ``_range`` stays one seam.
             get_range=lambda *args: self._range(*args),
+            progress=progress,
+            rate=rate,
         )
 
     @property
@@ -199,6 +210,7 @@ class BlobFetcher:
                     raise FetchError(
                         exc.message, failure_type=exc.failure_type
                     ) from None
+                self._sched.advance()
                 return tree
             raise self._sched.final(errors)
 
@@ -227,5 +239,11 @@ class BlobFetcher:
         self, source: Source, digest: Digest, start: int, length: int
     ) -> bytes:
         return await get_range(
-            self._client, source, digest, start, length, self._sched.count
+            self._client,
+            source,
+            digest,
+            start,
+            length,
+            self._sched.count,
+            rate=self._rate,
         )

@@ -16,6 +16,15 @@ not used as the key. The key is deliberately narrow - a new commit of the
 project is a new key - so a stale entry can never wrongly reject a job that
 might now build; it exactly covers the retry of the same job (V0.6 G3).
 
+**The owner's env policy (V1.0 G9-B, D433).** An entry also keeps the node's
+``env-policy:<12 hex>`` fingerprint at the failure (its live session's Hello;
+:func:`meshforge.common.capabilities.env_policy_of`). :meth:`KnownBadEnvs.is_bad`
+is asked with the node's *current* fingerprint: when both are known and differ,
+the owner changed ``[agent.envs]`` (``only_binary``, an index, ...), so the
+entry is dropped (logged ``controller.jobs.env_known_bad_cleared``) and the job
+may try that node again. Unknown on either side (an older agent) = the rule
+above: the entry lives its TTL.
+
 Not persisted (no migration in G1): a controller restart forgets every entry,
 which at worst costs one more failing attempt per (node, env). Bounded by
 ``known_bad_envs_max`` (oldest dropped). Monotonic clock only.
@@ -63,6 +72,8 @@ class KnownBadEnv:
     """Controller monotonic time when the entry expires."""
     job_id: str
     attempt_id: str
+    env_policy: str | None = None
+    """D433: the node's env-policy fingerprint at the failure (None = unknown)."""
 
 
 class KnownBadEnvs:
@@ -79,6 +90,8 @@ class KnownBadEnvs:
         self._max = max_entries
         self._entries: OrderedDict[tuple[str, str], KnownBadEnv] = OrderedDict()
         self.recorded = 0
+        self.cleared = 0
+        """D433: entries dropped because the node's env policy changed."""
 
     def record(
         self,
@@ -88,8 +101,10 @@ class KnownBadEnvs:
         env_hash: str | None,
         job_id: str,
         attempt_id: str,
+        env_policy: str | None = None,
     ) -> KnownBadEnv | None:
-        """Remember ``(node_id, key)`` as known-bad for ``ttl_s`` (None = off)."""
+        """Remember ``(node_id, key)`` as known-bad for ``ttl_s`` (None = off);
+        ``env_policy`` = the node's fingerprint now (D433)."""
         if self._ttl_s <= 0:
             return None
         entry = KnownBadEnv(
@@ -99,6 +114,7 @@ class KnownBadEnvs:
             until=self._clock() + self._ttl_s,
             job_id=job_id,
             attempt_id=attempt_id,
+            env_policy=env_policy,
         )
         self._entries.pop((node_id, key), None)
         self._entries[(node_id, key)] = entry
@@ -112,17 +128,38 @@ class KnownBadEnvs:
             attempt_id=attempt_id,
             env_key=key,
             env_hash=env_hash,
+            env_policy=env_policy,
             ttl_s=self._ttl_s,
         )
         return entry
 
-    def is_bad(self, node_id: str, key: str) -> bool:
-        """Is ``key`` known not to build on ``node_id`` right now?"""
+    def is_bad(self, node_id: str, key: str, env_policy: str | None = None) -> bool:
+        """Is ``key`` known not to build on ``node_id`` right now?
+        ``env_policy`` = the node's current fingerprint (D433, module
+        docstring): a different known one drops the entry."""
         entry = self._entries.get((node_id, key))
         if entry is None:
             return False
         if self._clock() >= entry.until:
             del self._entries[(node_id, key)]
+            return False
+        if (
+            env_policy is not None
+            and entry.env_policy is not None
+            and env_policy != entry.env_policy
+        ):
+            del self._entries[(node_id, key)]
+            self.cleared += 1
+            log.info(
+                "controller.jobs.env_known_bad_cleared",
+                node_id=node_id,
+                job_id=entry.job_id,
+                attempt_id=entry.attempt_id,
+                env_key=key,
+                reason="env_policy_changed",
+                env_policy_then=entry.env_policy,
+                env_policy_now=env_policy,
+            )
             return False
         return True
 
