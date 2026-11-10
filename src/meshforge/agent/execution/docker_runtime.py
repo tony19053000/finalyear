@@ -724,7 +724,7 @@ class DockerRuntime:
         if cached:
             image = await self._ensure_env_image(client, spec, image, pump, obs, fields)
         elif spec.setup_argv is not None:
-            pump.keep_tail(STDERR_TAIL_BYTES)  # D447: ENOSPC -> disk_full
+            pump.keep_tail(STDERR_TAIL_BYTES)  # D450: ENOSPC -> disk_full
             setup = await self._container(
                 client, spec, image, pump, obs, role="setup", deadline=env_deadline
             )
@@ -1074,7 +1074,7 @@ class DockerRuntime:
                 return
             await self._commit_env(container, tag, deadline, base)
 
-        pump.keep_tail(STDERR_TAIL_BYTES)  # D447: ENOSPC -> disk_full
+        pump.keep_tail(STDERR_TAIL_BYTES)  # D450: ENOSPC -> disk_full
         try:
             outcome = await self._container(
                 client,
@@ -1599,7 +1599,7 @@ def env_image_changes(base_config: Mapping[str, Any]) -> list[str]:
 
 
 def _raise_if_disk_full(pump: OutputPump, exit_code: int | None) -> None:
-    """D447: an env build / setup step that failed with the installer's own
+    """D450: an env build / setup step that failed with the installer's own
     ENOSPC message is ``disk_full`` (a condition of the node; the planner
     avoids it, D126), as for the venv runtime (D116) - not ``env_error``
     (which would mark the env known-bad on this node)."""

@@ -199,7 +199,7 @@ async def test_a_wheel_larger_than_the_tmpfs_builds_on_the_docker_disk(
 
 @pytest.mark.asyncio
 async def test_a_setup_step_that_runs_out_of_disk_is_disk_full(tmp_path: Path) -> None:
-    """D447: a real ENOSPC inside a Docker setup step (its 16 MB ``/tmp``) is
+    """D450: a real ENOSPC inside a Docker setup step (its 16 MB ``/tmp``) is
     ``disk_full`` - a condition of the node - never ``env_error``."""
     from meshforge.agent.execution.docker_runtime import DockerConfig, DockerRuntime
     from meshforge.agent.settings import PYTHON_CPU_IMAGE

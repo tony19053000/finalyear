@@ -11,7 +11,7 @@ If ``on_output`` raises, :attr:`OutputPump.failed` is set, the event fires (the
 runtime stops the workload and reports ``internal_error``) and everything after is
 discarded so producers never block on a dead consumer.
 
-V1.0 G10 (D447): :meth:`OutputPump.keep_tail` keeps the last bytes put (every
+V1.0 G10 (D450): :meth:`OutputPump.keep_tail` keeps the last bytes put (every
 stream, in put order, from any producer thread) so a runtime can classify a
 failed step from its own output - e.g. a Docker env build that ran out of disk
 (``disk_full``, not ``env_error``).
