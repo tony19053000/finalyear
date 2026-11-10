@@ -520,3 +520,8 @@ SIGNAL: capture-pushed
 - Admin `meshforge-agent policy show`: accept_jobs True (live), pause_benchmarks False (live); accept_gpu_sessions False, max_cpu_percent 50, max_cpu_jobs 1, allow_network False.
 - Power: BatteryStatus 2 (on AC), 100%. Sleep on AC: 0 (never). Windows Update paused until 2026-11-07. Human: nobody uses L2 tonight.
 - SIGNAL: policy-ok L2
+
+## 2026-11-10 — chat read: GPU probe (11-05) + v0.17.1 upgrade (LEAD 11-06, 11-10)
+- L1's 11-05 GPU-probe/index_url messages were not acted on in time; superseded by LEAD's v0.17.1 note (use extra_index_urls instead).
+- nvidia-smi now: RTX 2050, 4096 MiB, driver 581.83, CUDA 13.0 - driver OK.
+- Merged origin/main. Next: HUMAN downloads + runs MeshForge-Agent-Setup-0.17.1-1.exe, then config + L2 rows (G9-B a/b, G9-C, G9-F).
