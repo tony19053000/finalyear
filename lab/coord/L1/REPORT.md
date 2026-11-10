@@ -982,3 +982,15 @@ a: compute nodes L4: exec-venv, exec-gpu, cuda, env-policy:e73b630eff86, no exec
 b: run 1 job_01M72PSP48GKN46STG1AHWGEMS failed user_error "Numpy is not available" - MY job folder lacked numpy in requirements (not a fabric bug; torch cu126 wheel does not pull numpy). Install 10 pkgs 2m33s.
    run 2 (+numpy) job_01M72QFCTBN7XM7Z2QGSX12NMB: "done on cuda: final loss 0.018201" (same as L1), env install 11 pkgs 2m28s. PASS
 evidence: lab/reports/raw/2026-11-10-G9/b-L4*.log
+
+### G9-B c - Mode 3 GPU split (L1/L2/L4, L3 no GPU) - PARTIAL + 2 BUGs
+job folder ~/mf-eval/gpu-split (range 0..24, chunk 2 items, gpu required, python-cpu + torch==2.14.0 + numpy, CUDA MLP per item, merge-json).
+run 1 job_01M72QTRYT43884YFENTMYY7N9 (no item_seconds): planner chose offload L1 - "not split: ... only on assumed per-item" (G9-E working). L3 row "no_gpu" PASS.
+  BUG-1 (L1, serious): L1 builds the env in Docker (python-cpu base) and EVERY chunk fails "OSError [Errno 28] No space left on device" right after
+  downloading torch 554.6 MB, although / has 21 GB free (Docker root /var/lib/docker, 16.8 GB images). Small build tmp/limit?
+  BUG-2: the lane re-builds the env per chunk: 8 chunks = 8 builds = ~4.4 GB downloaded, no typed env_error; job ran on until I cancelled it.
+run 2 job_01M72RF2RXXF5284Z7K9R0CRB5 (item_seconds 6, --exclude-node JARVISM3): "split over 2 nodes: 160.24s <= 0.9 x 220.74s" (L2+L4), succeeded,
+  combine 12 parts on L4; results.json 24 items, all "NVIDIA GeForce RTX 3050 Laptop GPU" (L4 did every chunk while L2 was still building its new env).
+  BUG-3 (minor): after the job succeeded, L2's lane att_01M72RF2T052FGBMX4989EPFC2 still shows "running exit=None" (not ended/cancelled).
+verdict: GPU lanes only on GPU nodes PASS (L3 no_gpu); L1 GPU lane FAIL (BUG-1/2); L2 lane did no chunk (env build time) - re-run once L2 env is warm.
+evidence: lab/reports/raw/2026-11-10-G9/c-*.{log,txt}

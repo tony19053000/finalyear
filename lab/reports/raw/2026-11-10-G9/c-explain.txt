@@ -1,0 +1,250 @@
+decision 1595 - attempt 1: dispatched (policy cost_model), objective min_time - 
+ chosen node_01M6BMFVHJVZXC7AET3CFRE3AV, calibration v21, replay v2, decided in 
+      2.16 ms, at 2026-11-10T12:44:51.560850+00:00, snapshot 0a1945a30e37       
++------------------------------------------------------------------------------+
+|RANK | NODE      | MODE    | SLOT | FEASIBLE | SCORE   | PREDICTED | REASON   |
+|-----+-----------+---------+------+----------+---------+-----------+----------|
+|1    | node_01M6 | offload | gpu  | yes      | 100.642 | 100.64s   | chosen   |
+|     | BMFVHJVZX |         |      |          |         |           |          |
+|     | C7AET3CFR |         |      |          |         |           |          |
+|     | E3AV      |         |      |          |         |           |          |
+|2    | node_01M6 | offload | gpu  | yes      | 136.065 | 136.06s   | feasible |
+|     | GCKN7PYT2 |         |      |          |         |           |          |
+|     | J297BT241 |         |      |          |         |           |          |
+|     | P436      |         |      |          |         |           |          |
+|3    | node_01M6 | offload | gpu  | yes      | 155.349 | 155.35s   | feasible |
+|     | GGJP3FW5V |         |      |          |         |           |          |
+|     | HBDFKYQ6S |         |      |          |         |           |          |
+|     | F318      |         |      |          |         |           |          |
+|4    | node_01M6 | split   | gpu  | yes      | 86.1215 | 86.12s    | feasible |
+|     | BMFVHJVZX |         |      |          |         |           |          |
+|     | C7AET3CFR |         |      |          |         |           |          |
+|     | E3AV +1   |         |      |          |         |           |          |
+|5    | node_01M6 | split   | gpu  | yes      | 90.8849 | 90.88s    | feasible |
+|     | BMFVHJVZX |         |      |          |         |           |          |
+|     | C7AET3CFR |         |      |          |         |           |          |
+|     | E3AV +2   |         |      |          |         |           |          |
+|-    | node_01M6 | offload | -    | no       | -       | -         | revoked: |
+|     | GGZ7VNCSR |         |      |          |         |           | the node |
+|     | KFAEDH3AX |         |      |          |         |           | was      |
+|     | 7QQY      |         |      |          |         |           | revoked  |
+|     |           |         |      |          |         |           | from the |
+|     |           |         |      |          |         |           | fabric   |
+|-    | node_01M6 | offload | -    | no       | -       | -         | no_gpu:  |
+|     | K0TZRNPEG |         |      |          |         |           | the job  |
+|     | BRN166GP6 |         |      |          |         |           | requires |
+|     | S61N      |         |      |          |         |           | a GPU and|
+|     |           |         |      |          |         |           | the node |
+|     |           |         |      |          |         |           | has none |
+|-    | node_01M6 | offload | -    | no       | -       | -         | revoked: |
+|     | K66M7877N |         |      |          |         |           | the node |
+|     | WES0Z93DP |         |      |          |         |           | was      |
+|     | 3EP8      |         |      |          |         |           | revoked  |
+|     |           |         |      |          |         |           | from the |
+|     |           |         |      |          |         |           | fabric   |
++------------------------------------------------------------------------------+
+ not split: the best set 86.12s would pass (<= 90.58s) only on assumed per-item 
+ rates - no run of this workload is recorded yet, so it runs whole and the next 
+  run decides on the measured time (set split.item_seconds in compute.yaml to   
+                           split on the first run...                            
++------------------------------------------------------------------------------+
+|     |         |            |            |            |           | MARGIN    |
+|RANK | MODE    | NODES      | CHUNKS     | RATE       | PREDICTED | TEST      |
+|-----+---------+------------+------------+------------+-----------+-----------|
+|1    | offload | node_01M6B | 12 x 2     | 0.4/s      | 100.64s   | -         |
+|     |         | MFVHJVZXC7 | items      | (assumed), |           |           |
+|     |         | AET3CFRE3A |            | first      |           |           |
+|     |         | V          |            | chunk at   |           |           |
+|     |         |            |            | 20.50s     |           |           |
+|2    | offload | node_01M6G | 12 x 2     | 0.4/s      | 136.06s   | -         |
+|     |         | CKN7PYT2J2 | items      | (assumed), |           |           |
+|     |         | 97BT241P43 |            | first      |           |           |
+|     |         | 6          |            | chunk at   |           |           |
+|     |         |            |            | 50.17s     |           |           |
+|3    | offload | node_01M6G | 12 x 2     | 0.4/s      | 155.35s   | -         |
+|     |         | GJP3FW5VHB | items      | (assumed), |           |           |
+|     |         | DFKYQ6SF31 |            | first      |           |           |
+|     |         | 8          |            | chunk at   |           |           |
+|     |         |            |            | 74.33s     |           |           |
+|4    | split   | node_01M6B | 12 x 2     | -          | 86.12s    | fail:     |
+|     |         | MFVHJVZXC7 | items      |            |           | 86.12s <= |
+|     |         | AET3CFRE3A |            |            |           | 90.58s =  |
+|     |         | V,         |            |            |           | (1 - 0.1) |
+|     |         | node_01M6G |            |            |           | x 100.64s |
+|     |         | CKN7PYT2J2 |            |            |           | (node_01M6|
+|     |         | 97BT241P43 |            |            |           | BMFVHJVZXC|
+|     |         | 6          |            |            |           | 7AET3CFRE3|
+|     |         |            |            |            |           | AV),      |
+|     |         |            |            |            |           | blocked:  |
+|     |         |            |            |            |           | rates_assu|
+|     |         |            |            |            |           | med       |
+|5    | split   | node_01M6B | 12 x 2     | -          | 90.88s    | fail:     |
+|     |         | MFVHJVZXC7 | items      |            |           | 90.88s >  |
+|     |         | AET3CFRE3A |            |            |           | 90.58s =  |
+|     |         | V,         |            |            |           | (1 - 0.1) |
+|     |         | node_01M6G |            |            |           | x 100.64s |
+|     |         | CKN7PYT2J2 |            |            |           | (node_01M6|
+|     |         | 97BT241P43 |            |            |           | BMFVHJVZXC|
+|     |         | 6,         |            |            |           | 7AET3CFRE3|
+|     |         | node_01M6G |            |            |           | AV)       |
+|     |         | GJP3FW5VHB |            |            |           |           |
+|     |         | DFKYQ6SF31 |            |            |           |           |
+|     |         | 8          |            |            |           |           |
++------------------------------------------------------------------------------+
+                                   predicted                                    
++------------------------------------------------------------------------------+
+|     |     |     |     |     |     |     |     | CHU |     |     |      |     |
+|     |     |     |     |     |     |     | ITE | NK_ |     |     |      |     |
+|     |     |     | TRA |     | COM |     | MS_ | OVE |     | COM |      |     |
+|     | MOD | QUE | NSF |     | PUT | OUT | FET | RHE | TAI | BIN |      | TOTA|
+|NODE | E   | UE  | ER  | ENV | E   | PUT | CH  | AD  | L   | E   | RISK | L   |
+|-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+------+-----|
+|node | off | 0.0 | 0.0 | 20. | 60. | 0.0 | 0.0 | 18. | 0.0 | 1.5 | 0.64 | 100.|
+|_01M | loa | 0s  | 0s  | 50s | 00s | 0s  | 0s  | 00s | 0s  | 0s  | s    | 64s |
+|6BMF | d   | (me | (as |     |     | (as | (me |     | (me | (as | (his |     |
+|VHJV |     | asu | sum | (hi | (as | sum | asu | (as | asu | sum | tory |     |
+|ZXC7 |     | red | ed, | sto | sum | ed) | red | sum | red | ed) | ,    |     |
+|AET3 |     | )   |     | ry, | ed) |     | )   | ed) | )   |     | p_fa |     |
+|CFRE |     |     | x1. |     |     |     |     |     |     |     | il   |     |
+|3AV  |     |     | 04  | x0. |     |     |     |     |     |     | 3CFR |     |
+|     |     |     | cal | 20  |     |     |     |     |     |     | E3AV |     |
+|     |     |     | ibr | cal |     |     |     |     |     |     |      |     |
+|     |     |     | ate | ibr |     |     |     |     |     |     | 1.0% |     |
+|     |     |     | d   | ate |     |     |     |     |     |     | )    |     |
+|     |     |     | (n= | d   |     |     |     |     |     |     |      |     |
+|     |     |     | 1,  | (n= |     |     |     |     |     |     |      |     |
+|     |     |     | glo | 198 |     |     |     |     |     |     |      |     |
+|     |     |     | bal | ,   |     |     |     |     |     |     |      |     |
+|     |     |     | ))  | nod |     |     |     |     |     |     |      |     |
+|     |     |     |     | e)) |     |     |     |     |     |     |      |     |
+|node | off | 0.0 | 0.0 | 50. | 60. | 0.0 | 0.0 | 18. | 0.0 | 1.5 | 6.39 | 136.|
+|_01M | loa | 0s  | 0s  | 17s | 00s | 0s  | 0s  | 00s | 0s  | 0s  | s    | 06s |
+|6GCK | d   | (me | (hi |     |     | (as | (me |     | (me | (as | (his |     |
+|N7PY |     | asu | sto | (hi | (as | sum | asu | (as | asu | sum | tory |     |
+|T2J2 |     | red | ry, | sto | sum | ed) | red | sum | red | ed) | ,    |     |
+|97BT |     | )   |     | ry, | ed) |     | )   | ed) | )   |     | p_fa |     |
+|241P |     |     | fro |     |     |     |     |     |     |     | il   |     |
+|436  |     |     | m   | x0. |     |     |     |     |     |     | T241 |     |
+|     |     |     | con | 49  |     |     |     |     |     |     | P436 |     |
+|     |     |     | tro | cal |     |     |     |     |     |     |      |     |
+|     |     |     | lle | ibr |     |     |     |     |     |     | 9.6% |     |
+|     |     |     | r   | ate |     |     |     |     |     |     | )    |     |
+|     |     |     | (la | d   |     |     |     |     |     |     |      |     |
+|     |     |     | st  | (n= |     |     |     |     |     |     |      |     |
+|     |     |     | tra | 6,  |     |     |     |     |     |     |      |     |
+|     |     |     | nsf | nod |     |     |     |     |     |     |      |     |
+|     |     |     | er  | e)) |     |     |     |     |     |     |      |     |
+|     |     |     | 137 |     |     |     |     |     |     |     |      |     |
+|     |     |     | h   |     |     |     |     |     |     |     |      |     |
+|     |     |     | ago |     |     |     |     |     |     |     |      |     |
+|     |     |     | ),  |     |     |     |     |     |     |     |      |     |
+|     |     |     | x1. |     |     |     |     |     |     |     |      |     |
+|     |     |     | 04  |     |     |     |     |     |     |     |      |     |
+|     |     |     | cal |     |     |     |     |     |     |     |      |     |
+|     |     |     | ibr |     |     |     |     |     |     |     |      |     |
+|     |     |     | ate |     |     |     |     |     |     |     |      |     |
+|     |     |     | d   |     |     |     |     |     |     |     |      |     |
+|     |     |     | (n= |     |     |     |     |     |     |     |      |     |
+|     |     |     | 1,  |     |     |     |     |     |     |     |      |     |
+|     |     |     | nod |     |     |     |     |     |     |     |      |     |
+|     |     |     | e)) |     |     |     |     |     |     |     |      |     |
+|node | off | 0.0 | 0.0 | 74. | 60. | 0.0 | 0.0 | 18. | 0.0 | 1.5 | 1.52 | 155.|
+|_01M | loa | 0s  | 0s  | 33s | 00s | 0s  | 0s  | 00s | 0s  | 0s  | s    | 35s |
+|6GGJ | d   | (me | (hi |     |     | (as | (me |     | (me | (as | (his |     |
+|P3FW |     | asu | sto | (hi | (as | sum | asu | (as | asu | sum | tory |     |
+|5VHB |     | red | ry, | sto | sum | ed) | red | sum | red | ed) | ,    |     |
+|DFKY |     | )   |     | ry, | ed) |     | )   | ed) | )   |     | p_fa |     |
+|Q6SF |     |     | fro |     |     |     |     |     |     |     | il   |     |
+|318  |     |     | m   | x0. |     |     |     |     |     |     | YQ6S |     |
+|     |     |     | con | 73  |     |     |     |     |     |     | F318 |     |
+|     |     |     | tro | cal |     |     |     |     |     |     |      |     |
+|     |     |     | lle | ibr |     |     |     |     |     |     | 2.3% |     |
+|     |     |     | r   | ate |     |     |     |     |     |     | )    |     |
+|     |     |     | (la | d   |     |     |     |     |     |     |      |     |
+|     |     |     | st  | (n= |     |     |     |     |     |     |      |     |
+|     |     |     | tra | 3,  |     |     |     |     |     |     |      |     |
+|     |     |     | nsf | nod |     |     |     |     |     |     |      |     |
+|     |     |     | er  | e)) |     |     |     |     |     |     |      |     |
+|     |     |     | 160 |     |     |     |     |     |     |     |      |     |
+|     |     |     | h   |     |     |     |     |     |     |     |      |     |
+|     |     |     | ago |     |     |     |     |     |     |     |      |     |
+|     |     |     | ),  |     |     |     |     |     |     |     |      |     |
+|     |     |     | x1. |     |     |     |     |     |     |     |      |     |
+|     |     |     | 04  |     |     |     |     |     |     |     |      |     |
+|     |     |     | cal |     |     |     |     |     |     |     |      |     |
+|     |     |     | ibr |     |     |     |     |     |     |     |      |     |
+|     |     |     | ate |     |     |     |     |     |     |     |      |     |
+|     |     |     | d   |     |     |     |     |     |     |     |      |     |
+|     |     |     | (n= |     |     |     |     |     |     |     |      |     |
+|     |     |     | 1,  |     |     |     |     |     |     |     |      |     |
+|     |     |     | glo |     |     |     |     |     |     |     |      |     |
+|     |     |     | bal |     |     |     |     |     |     |     |      |     |
+|     |     |     | ))  |     |     |     |     |     |     |     |      |     |
+|node | spl | 0.0 | 0.0 | 35. | 30. | 0.0 | 0.0 | 9.0 | 3.2 | 1.5 | 7.04 | 86.1|
+|_01M | it  | 0s  | 0s  | 34s | 00s | 0s  | 0s  | 0s  | 5s  | 0s  | s    | 2s  |
+|6BMF |     | (me | (as |     |     | (as | (me | (as | (as | (as | (his |     |
+|VHJV |     | asu | sum | (hi | (as | sum | asu | sum | sum | sum | tory |     |
+|ZXC7 |     | red | ed) | sto | sum | ed) | red | ed) | ed) | ed) | ,    |     |
+|AET3 |     | )   |     | ry) | ed) |     | )   |     |     |     | p_fa |     |
+|CFRE |     |     |     |     |     |     |     |     |     |     | il   |     |
+|3AV  |     |     |     |     |     |     |     |     |     |     | 3CFR |     |
+|+1   |     |     |     |     |     |     |     |     |     |     | E3AV |     |
+|     |     |     |     |     |     |     |     |     |     |     |      |     |
+|     |     |     |     |     |     |     |     |     |     |     | 1.0% |     |
+|     |     |     |     |     |     |     |     |     |     |     | ,    |     |
+|     |     |     |     |     |     |     |     |     |     |     | T241 |     |
+|     |     |     |     |     |     |     |     |     |     |     | P436 |     |
+|     |     |     |     |     |     |     |     |     |     |     |      |     |
+|     |     |     |     |     |     |     |     |     |     |     | 9.6% |     |
+|     |     |     |     |     |     |     |     |     |     |     | )    |     |
+|node | spl | 0.0 | 0.0 | 48. | 20. | 0.0 | 0.0 | 6.0 | 6.5 | 1.5 | 8.55 | 90.8|
+|_01M | it  | 0s  | 0s  | 33s | 00s | 0s  | 0s  | 0s  | 0s  | 0s  | s    | 8s  |
+|6BMF |     | (me | (as |     |     | (as | (me | (as | (as | (as | (his |     |
+|VHJV |     | asu | sum | (hi | (as | sum | asu | sum | sum | sum | tory |     |
+|ZXC7 |     | red | ed) | sto | sum | ed) | red | ed) | ed) | ed) | ,    |     |
+|AET3 |     | )   |     | ry) | ed) |     | )   |     |     |     | p_fa |     |
+|CFRE |     |     |     |     |     |     |     |     |     |     | il   |     |
+|3AV  |     |     |     |     |     |     |     |     |     |     | 3CFR |     |
+|+2   |     |     |     |     |     |     |     |     |     |     | E3AV |     |
+|     |     |     |     |     |     |     |     |     |     |     |      |     |
+|     |     |     |     |     |     |     |     |     |     |     | 1.0% |     |
+|     |     |     |     |     |     |     |     |     |     |     | ,    |     |
+|     |     |     |     |     |     |     |     |     |     |     | T241 |     |
+|     |     |     |     |     |     |     |     |     |     |     | P436 |     |
+|     |     |     |     |     |     |     |     |     |     |     |      |     |
+|     |     |     |     |     |     |     |     |     |     |     | 9.6% |     |
+|     |     |     |     |     |     |     |     |     |     |     | ,    |     |
+|     |     |     |     |     |     |     |     |     |     |     | YQ6S |     |
+|     |     |     |     |     |     |     |     |     |     |     | F318 |     |
+|     |     |     |     |     |     |     |     |     |     |     |      |     |
+|     |     |     |     |     |     |     |     |     |     |     | 2.3% |     |
+|     |     |     |     |     |     |     |     |     |     |     | )    |     |
++------------------------------------------------------------------------------+
+               actual: attempt att_01M72QTS04C3F7CYNEVY265NMC on                
+              node_01M6BMFVHJVZXC7AET3CFRE3AV - failed (cancelled)              
++------------------------------------------------------------------------------+
+|TERM           | PREDICTED                                    | ACTUAL | RATIO|
+|---------------+----------------------------------------------+--------+------|
+|env            | 20.50s (history, x0.20 calibrated (n=198,    | -      | -    |
+|               | node))                                       |        |      |
+|risk           | 0.64s (history, p_fail 3CFRE3AV 1.0%)        | -      | -    |
+|tail           | 0.00s (measured)                             | -      | -    |
+|queue          | 0.00s (measured)                             | -      | -    |
+|output         | 0.00s (assumed)                              | -      | -    |
+|combine        | 1.50s (assumed)                              | -      | -    |
+|compute        | 60.00s (assumed)                             | -      | -    |
+|transfer       | 0.00s (assumed, x1.04 calibrated (n=1,       | -      | -    |
+|               | global))                                     |        |      |
+|items_fetch    | 0.00s (measured)                             | -      | -    |
+|chunk_overhead | 18.00s (assumed)                             | -      | -    |
++------------------------------------------------------------------------------+
+  measured phases  
++-----------------+
+|PHASE   | ACTUAL |
+|--------+--------|
+|queue   | 0.05s  |
+|stage   | 0.03s  |
+|env     | skipped|
+|run     | skipped|
+|collect | skipped|
++-----------------+
