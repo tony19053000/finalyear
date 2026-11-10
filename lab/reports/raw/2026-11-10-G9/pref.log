@@ -1,0 +1,25 @@
+compute: uploaded 2 files / 1978 bytes, skipped 1
+compute: idempotency key cli-01M73ADNFGWDEEQR4SF14TWKRB (after a network error, re-run with --idempotency-key cli-01M73ADNFGWDEEQR4SF14TWKRB to avoid a second job)
+job_01M73ADNM4FX44KRNNGSVHBV9T
+
+===== meshforge: chunk 0 (items 0..1) =====
+chunk 0 item 0 loss 0.002476 on NVIDIA GeForce RTX 3050 Laptop GPU
+chunk 0 item 1 loss 0.002722 on NVIDIA GeForce RTX 3050 Laptop GPU
+
+===== meshforge: chunk 3 (items 6..7) =====
+chunk 3 item 6 loss 0.002171 on NVIDIA GeForce RTX 3050 Laptop GPU
+chunk 3 item 7 loss 0.002357 on NVIDIA GeForce RTX 3050 Laptop GPU
+
+===== meshforge: chunk 5 (items 10..11) =====
+chunk 5 item 10 loss 0.002413 on NVIDIA GeForce RTX 3050 Laptop GPU
+chunk 5 item 11 loss 0.002475 on NVIDIA GeForce RTX 3050 Laptop GPU
+
+===== meshforge: chunk 8 (items 16..17) =====
+chunk 8 item 16 loss 0.002423 on NVIDIA GeForce RTX 3050 Laptop GPU
+chunk 8 item 17 loss 0.002282 on NVIDIA GeForce RTX 3050 Laptop GPU
+
+===== meshforge: chunk 10 (items 20..21) =====
+chunk 10 item 20 loss 0.002138 on NVIDIA GeForce RTX 3050 Laptop GPU
+chunk 10 item 21 loss 0.002448 on NVIDIA GeForce RTX 3050 Laptop GPU
+compute: the lane finished; following the combine step (attempt 3)
+meshforge combine merge-json: 12 parts -> 1 files, 1636 bytes

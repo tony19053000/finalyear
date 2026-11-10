@@ -1036,3 +1036,9 @@ c4 L2 side (chat 20261110-210811): kills at 20:59:56 (early, before K's lanes) a
 ### G9-B c re-run - GPU split over L2 + L4 (L1 excluded for BUG-1, L3 no GPU) - PASS
 job_01M73A285PW7B5MEV24MPWHVM2 (--exclude-node JARVISM3): succeeded; lanes L2 done exit=0, L4 done exit=0, combine on L4.
 results.json 24 items: RTX 3050 (L4) 18, RTX 2050 (L2) 6 - both GPUs did real CUDA work in one split job. PASS.
+
+### Extra (human request): gpu: preferred split, L2/L4 GPU + L3 CPU - planner chose L2+L4 only (correct by its model)
+job_01M73ADNM4FX44KRNNGSVHBV9T (~/mf-eval/gpu-pref: same job, gpu: preferred, CPU fallback; --exclude-node JARVISM3): succeeded, lanes L2 + L4.
+explain: L3 feasible on its CPU slot (rate 0.0244 items/s vs GPU nodes 0.167/s, ~7x slower). Sets: {L2,L4} 155.69 s (chosen) vs {L2,L4,L3} 186.88 s -
+    adding L3 predicted SLOWER (a 2-item chunk on L3 takes ~82 s, it would finish last). So L3's CPU is used only when it helps. Behaviour OK.
+    Idea for Lead: mixed CPU+GPU sets could use per-node chunk sizes (small chunks for slow nodes) so slow CPUs still add work.
