@@ -120,9 +120,9 @@ def test_chunk_columns_are_frozen_for_v3() -> None:
     assert max(CHUNK_FINGERPRINTS) == SCHEMA_VERSION
 
 
-def test_chunk_model_is_the_declared_columns_plus_the_stderr_tail() -> None:
+def test_chunk_model_is_the_declared_columns_plus_operational_columns() -> None:
     names = [c.name for c in ChunkRecord.__table__.columns]
-    assert names == [*(c.name for c in CHUNK_COLUMNS), "stderr_tail"]
+    assert names == [*(c.name for c in CHUNK_COLUMNS), "stderr_tail", "stalled_s"]
     nullable = {c.name: bool(c.nullable) for c in ChunkRecord.__table__.columns}
     for column in CHUNK_COLUMNS:
         if column.name not in ("job_id", "chunk_index", "lease_seq"):  # the PK
