@@ -976,3 +976,9 @@ evidence: lab/reports/raw/2026-11-05-V0.10-mode3/{d-network.txt,d-run.log,d-expl
 read: LEAD-to-ALL 20261106-120000 (re-run list) + 20261110-165039 (resume). Downloaded v0.17.1 .debs (sha256 OK). Cued ALL to upgrade + drop workarounds.
 check: L1 controller+agent 0.17.1-1. compute nodes: JARVISM3, AILESH (L2), LAPTOP-7ORVM30G (L4), Mohit (L3 new node_01M6K0TZ...) all online 0.17.1.
     L2 GPU column still "-" (L4 shows 0:0%). No chat replies yet (configs/nvidia-smi pending).
+
+### G9-B a/b (L4) on v0.17.1 - PASS
+a: compute nodes L4: exec-venv, exec-gpu, cuda, env-policy:e73b630eff86, no exec-torch; GPU RTX 3050 Laptop 4 GiB. PASS
+b: run 1 job_01M72PSP48GKN46STG1AHWGEMS failed user_error "Numpy is not available" - MY job folder lacked numpy in requirements (not a fabric bug; torch cu126 wheel does not pull numpy). Install 10 pkgs 2m33s.
+   run 2 (+numpy) job_01M72QFCTBN7XM7Z2QGSX12NMB: "done on cuda: final loss 0.018201" (same as L1), env install 11 pkgs 2m28s. PASS
+evidence: lab/reports/raw/2026-11-10-G9/b-L4*.log
