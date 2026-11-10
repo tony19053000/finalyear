@@ -14,7 +14,8 @@
     "node_01M6K0TZRNPEGBRN166GP6S61N"
   ],
   "problems": [
-    "no single-node run measured for ['node_01M6K0TZRNPEGBRN166GP6S61N']"
+    "no single-node run measured for ['node_01M6K0TZRNPEGBRN166GP6S61N']",
+    "single-node job job_01M72YVARE8WHZ0AY8GY4ZEEXR has no ok job row"
   ],
   "rate_ratio": null,
   "rates": {

@@ -1015,3 +1015,8 @@ split job_01M72YDCB1R6V8E3ST71SMVDDW (planner's own choice): 4 nodes, 22 chunks,
     rates items/s: L1 11.9, L2 2.8, L4 2.2 (L3 rate not listed). report: c2/c3 INCONCLUSIVE only because "no single-node run measured for L3".
     Planner split on run 1 (G9-E: item_seconds declared) - PASS for that part. Need L3 single after the L3 drop fix.
 evidence: lab/reports/raw/2026-11-10-G9/b-*
+G9-D L3 3rd run job_01M72YVARE8WHZ0AY8GY4ZEEXR (after L3 freed RAM 0.72 -> 2.14 GiB): succeeded, 1 chunk, ~27 min, resumed_chunks=0. PASS.
+    => L3 drops were memory pressure (lease renewals late under ~0.7 GiB free), not a link fault. Still worth a Lead look: lease expiry under RAM pressure; L3 log also had
+    "stream_ended INTERNAL Internal error from Core" at 14:40:03Z during split job ...VDDW (L3 REPORT).
+G9-D verdict: L2, L3, L4 PASS (long single chunk no longer loses its lease).
+V0.10 part B with all 4 singles (b-report2): sum_rate 20.0, rate_ratio 1.679, ideal bound 250.8 s, makespan 306.4 s (ratio 1.222), speedup 1.371 vs L1 -> c2 PASS, c3 PASS.
