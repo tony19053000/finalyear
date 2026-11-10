@@ -331,3 +331,12 @@ result: agent log `agent.session.stream_ended` code PERMISSION_DENIED details "n
 PAUSED 2026-11-04 15:53 (human: pause) - at C7.12-d part R: L3 revoked + identity reset, NOT rejoined yet (needs a new code from L1's human; script ready).
 
 STOPPED 2026-11-04 16:05 (human: stop) - at C7.12-d (V0.7 part R). L3 revoked, identity reset, NOT rejoined. Next: rejoin with a new L1 code, then EMIT SIGNAL: rejoined L3 node=<new id>.
+
+### C7.12-d - part R rejoin as NEW node - OK (step a SKIPPED earlier)
+when: 2026-11-04 17:13 (local), recorded 2026-11-10 16:59
+laptop: L3 (MOHIT)
+commands:
+    HUMAN (Administrator): rejoin.ps1 = meshforge-agent join <code 2 typed by the human>; identity show; console Settings (Run jobs ON, GPU off, Allow jobs without a container ON, name L3, Save); Restart-Service MeshForgeAgent (F5); firewall-sync; policy show
+result: `joined fabric fab_01M6BMCGQBHTN059R0R5MY3WYW via 192.168.31.13:47101`, **NEW node_id node_01M6K0TZRNPEGBRN166GP6S61N** (old node_01M6GGZ7VNCSRKFAEDH3AX7QQY), enrolled True, cert valid until 2026-12-04. Service Running after restart. Peer rule MeshForge-Agent-Peer present (Private + Domain). policy: accept_jobs True, accept_gpu_sessions False, allow_unsandboxed True.
+  Note: the human pasted code 2 into the agent chat once before using it (single-use, consumed by this join).
+SIGNAL: rejoined L3 node=node_01M6K0TZRNPEGBRN166GP6S61N
