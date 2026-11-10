@@ -340,3 +340,9 @@ commands:
 result: `joined fabric fab_01M6BMCGQBHTN059R0R5MY3WYW via 192.168.31.13:47101`, **NEW node_id node_01M6K0TZRNPEGBRN166GP6S61N** (old node_01M6GGZ7VNCSRKFAEDH3AX7QQY), enrolled True, cert valid until 2026-12-04. Service Running after restart. Peer rule MeshForge-Agent-Peer present (Private + Domain). policy: accept_jobs True, accept_gpu_sessions False, allow_unsandboxed True.
   Note: the human pasted code 2 into the agent chat once before using it (single-use, consumed by this join).
 SIGNAL: rejoined L3 node=node_01M6K0TZRNPEGBRN166GP6S61N
+
+### G9-up-a - download v0.17.1 - OK
+when: 2026-11-10 16:59 (local)
+commands:
+    gh release download v0.17.1 --pattern MeshForge-Agent-Setup-* --pattern SHA256SUMS; Get-FileHash
+result: MeshForge-Agent-Setup-0.17.1-1.exe 54.9 MB, SHA256 matches. Upgrade install: HUMAN next.
