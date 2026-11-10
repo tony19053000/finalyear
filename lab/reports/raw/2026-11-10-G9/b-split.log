@@ -1,0 +1,5 @@
+compute: uploaded 0 files / 0 bytes, skipped 7
+compute: idempotency key cli-01M72YDCA9XYX534NB3MKA5ZEJ (after a network error, re-run with --idempotency-key cli-01M72YDCA9XYX534NB3MKA5ZEJ to avoid a second job)
+job_01M72YDCB1R6V8E3ST71SMVDDW
+compute: the attempt ended (node_lost: node_offline); the job was retried - following attempt 5
+meshforge combine merge-json: 22 parts -> 1 files, 73892 bytes

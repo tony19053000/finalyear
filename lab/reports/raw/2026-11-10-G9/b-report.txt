@@ -1,0 +1,17 @@
+split_job_id: job_01M72YDCB1R6V8E3ST71SMVDDW
+node_set: ['node_01M6BMFVHJVZXC7AET3CFRE3AV', 'node_01M6GCKN7PYT2J297BT241P436', 'node_01M6GGJP3FW5VHBDFKYQ6SF318', 'node_01M6K0TZRNPEGBRN166GP6S61N']
+items: 5000
+rates: {'node_01M6BMFVHJVZXC7AET3CFRE3AV': 11.914208169810827, 'node_01M6GCKN7PYT2J297BT241P436': 2.8007768234597545, 'node_01M6GGJP3FW5VHBDFKYQ6SF318': 2.2121906749084044}
+sum_rate: None
+rate_ratio: None
+ideal_bound_s: None
+recorded_bound_s: 292.923
+makespan_s: 306.433
+makespan_ratio: None
+split_job_s: 306.482
+best_single_s: 420.078
+best_single_node: node_01M6BMFVHJVZXC7AET3CFRE3AV
+speedup: 1.371
+c2: INCONCLUSIVE
+c3: INCONCLUSIVE
+problems: ["no single-node run measured for ['node_01M6K0TZRNPEGBRN166GP6S61N']"]

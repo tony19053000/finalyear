@@ -1008,3 +1008,10 @@ G9-D L4 job_01M72VM0B919WJKV4XTF10BHDK: succeeded, 1 chunk, ~38 min (19:21-19:59
 G9-D L3 re-run job_01M72WM9FA382SMEGZ8Z14KRJZ (sleep=never, plugged in): failed node_lost again at 19:53 (~15 min in). Controller: session.closed
     end_reason lease_expired, last_rtt_ms 1212, clock_offset -564 ms, commands_unacked 1; L3 RAM 6.9/7.7 GiB. FINDING: L3 (low RAM, weak Wi-Fi?) loses its
     agent session under a 1-core CPU job; pinned job then fails (no other node). Asked L3 human for RAM/Wi-Fi + agent.log tail.
+
+### G9-E V0.10 part B again (c2, c3) - split OK, speedup 1.371; c2/c3 still INCONCLUSIVE (no L3 single)
+singles: L1 job_01M72Y0HQV6NEF0BHY5KC3FCBT 420.1 s; L2 job_01M72RXB5XM79SCDC1SZG4SWA5 (~30 min); L4 job_01M72VM0B919WJKV4XTF10BHDK (~38 min); L3 lost twice (G9-D).
+split job_01M72YDCB1R6V8E3ST71SMVDDW (planner's own choice): 4 nodes, 22 chunks, makespan 306.4 s (recorded bound 292.9 s), speedup 1.371 vs L1.
+    rates items/s: L1 11.9, L2 2.8, L4 2.2 (L3 rate not listed). report: c2/c3 INCONCLUSIVE only because "no single-node run measured for L3".
+    Planner split on run 1 (G9-E: item_seconds declared) - PASS for that part. Need L3 single after the L3 drop fix.
+evidence: lab/reports/raw/2026-11-10-G9/b-*

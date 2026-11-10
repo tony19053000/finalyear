@@ -1,0 +1,8 @@
+compute: uploaded 0 files / 0 bytes, skipped 7
+compute: idempotency key cli-01M72Y0HPN3DNDDT3C76Z96MXR (after a network error, re-run with --idempotency-key cli-01M72Y0HPN3DNDDT3C76Z96MXR to avoid a second job)
+job_01M72Y0HQV6NEF0BHY5KC3FCBT
+
+===== meshforge: chunk 0 (items 0..4999) =====
+benchmark chunk 0: split.montecarlo_range {"items":5000,"samples":5000000} compute_ms=419408.562 check=ok
+compute: the lane finished; following the combine step (attempt 2)
+meshforge combine merge-json: 1 parts -> 1 files, 73892 bytes
