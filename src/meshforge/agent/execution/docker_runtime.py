@@ -35,8 +35,10 @@ the local base image, ``env.python`` and the normalised requirements. A build:
    every container (non-root ``run_as`` user, no capabilities, no-new-privileges,
    pids/memory limits, ``/tmp`` tmpfs) except a **writable root filesystem** (the
    packages land in the container layer) and the network on (off with
-   ``[agent.envs] no_index``); before it starts, an empty ``/env`` owned by that
-   user is put into it; it runs ``python -m pip install --target /env -r
+   ``[agent.envs] no_index``); before it starts, an empty ``/env`` and an empty
+   build temp folder (:data:`ENV_BUILD_TMP`, its ``TMPDIR``: pip unpacks wheels
+   there, on the Docker disk - the job-sized ``/tmp`` tmpfs held no torch wheel,
+   D442) owned by that user are put into it; it runs ``python -m pip install --target /env -r
    /req/requirements.txt`` (the base image's own pip: the agent's ``uv`` binary is
    built for the host OS, which is not the container's on Windows);
 3. on exit 0 checks the layer size against ``max_env_bytes`` and **commits** the
@@ -166,6 +168,11 @@ _CONTAINER_REQ: Final = "/req"
 _CONTAINER_WHEELS: Final = "/wheels"
 NOBODY: Final = "65534:65534"
 _CONTAINER_TMP: Final = "/tmp"  # noqa: S108 - a private tmpfs inside the container
+ENV_BUILD_TMP: Final = "/meshforge-build-tmp"
+"""V1.0 G10 (D442): the env build's ``TMPDIR`` - a folder on the build
+container's **layer** (the Docker disk), never the ``/tmp`` tmpfs: pip unpacks
+every wheel there before it moves it into ``/env`` (a 554 MB torch wheel did
+not fit the job-sized 512 MB tmpfs)."""
 _READ_CHUNK: Final = 65536
 _STOP_SLACK_S: Final = 2.0
 """After the SIGKILL, how long to wait for the exit before giving up (D51: the run
@@ -970,7 +977,12 @@ class DockerRuntime:
             "user": self._user,
             "working_dir": _CONTAINER_TMP,
             # minimal on purpose: the committed image keeps this environment
-            "environment": {"HOME": _CONTAINER_TMP, "PYTHONDONTWRITEBYTECODE": "1"},
+            # (TMPDIR is set back to the base's at commit, env_image_changes)
+            "environment": {
+                "HOME": _CONTAINER_TMP,
+                "PYTHONDONTWRITEBYTECODE": "1",
+                "TMPDIR": ENV_BUILD_TMP,  # D442: on the layer, not the tmpfs
+            },
             "labels": {
                 LABEL_MANAGED: "1",
                 LABEL_AGENT: self.config.agent_label,
@@ -996,15 +1008,18 @@ class DockerRuntime:
         }
 
     def _env_dir_archive(self) -> bytes:
-        """A tar holding one empty directory ``env`` owned by the container user."""
+        """A tar holding the empty directories ``env`` (``0o755``: the packages)
+        and :data:`ENV_BUILD_TMP` (``0o700``: the build's temp files, D442), both
+        owned by the container user."""
         uid, _, gid = self._user.partition(":")
-        info = tarfile.TarInfo("env")
-        info.type = tarfile.DIRTYPE
-        info.mode = 0o755
-        info.uid, info.gid = int(uid), int(gid)
         buffer = io.BytesIO()
         with tarfile.open(fileobj=buffer, mode="w") as tar:
-            tar.addfile(info)
+            for name, mode in (("env", 0o755), (ENV_BUILD_TMP.lstrip("/"), 0o700)):
+                info = tarfile.TarInfo(name)
+                info.type = tarfile.DIRTYPE
+                info.mode = mode
+                info.uid, info.gid = int(uid), int(gid)
+                tar.addfile(info)
         return buffer.getvalue()
 
     async def _build_env_image(
@@ -1040,7 +1055,7 @@ class DockerRuntime:
                 raise _FaultError(
                     FailureType.ENV_ERROR,
                     "env_build_failed",
-                    "could not create /env in the build container",
+                    f"could not create /env and {ENV_BUILD_TMP} in the build container",
                 )
 
         async def commit(container: Container, outcome: _Exit) -> None:
@@ -1549,18 +1564,34 @@ def env_image_changes(base_config: Mapping[str, Any]) -> list[str]:
     cleanup labels (agent, attempt, role, managed) **blanked** - Docker merges a
     container's labels into the committed image and cannot delete one, so they are
     set to ``""`` (no label filter matches an empty value). The image keeps
-    ``meshforge.env_hash`` and ``meshforge.base`` (and the base's own labels)."""
+    ``meshforge.env_hash`` and ``meshforge.base`` (and the base's own labels).
+
+    D442: the build's ``TMPDIR`` (:data:`ENV_BUILD_TMP`, on a root filesystem
+    that is read-only to the job) is set back to the base's own ``TMPDIR`` or
+    ``/tmp`` - the job's temp files go to its sized ``/tmp`` tmpfs, as without
+    an env image. (An ``ENV`` cannot be deleted at commit, only set.)"""
     cmd = base_config.get("Cmd")
     user = str(base_config.get("User") or "") or "root"
     workdir = str(base_config.get("WorkingDir") or "") or "/"
+    tmpdir = _base_env(base_config).get("TMPDIR") or _CONTAINER_TMP
     changes = [
         "LABEL " + " ".join(f'{label}=""' for label in _BUILD_ONLY_LABELS),
         f"WORKDIR {workdir}",
         f"USER {user}",
+        f"ENV TMPDIR={json.dumps(tmpdir)}",
     ]
     if isinstance(cmd, list) and cmd:
         changes.append("CMD " + json.dumps([str(part) for part in cmd]))
     return changes
+
+
+def _base_env(base_config: Mapping[str, Any]) -> dict[str, str]:
+    """The base image's ``Config.Env`` as a mapping (``NAME=value`` items)."""
+    env = base_config.get("Env")
+    if not isinstance(env, list):
+        return {}
+    pairs = (str(item).partition("=") for item in env)
+    return {name: value for name, sep, value in pairs if sep and name}
 
 
 _PINNED_DIGEST: Final = re.compile(r"sha256:[0-9a-f]{64}")

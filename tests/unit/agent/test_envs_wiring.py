@@ -231,7 +231,12 @@ def test_envbuild_container_keeps_the_sandbox_hardening(tmp_path: Path) -> None:
     assert "--no-index" in kwargs["command"]
     assert kwargs["command"][kwargs["command"].index("--target") + 1] == CONTAINER_ENV
     # the committed image inherits this environment: nothing GPU- or job-specific
-    assert set(kwargs["environment"]) == {"HOME", "PYTHONDONTWRITEBYTECODE"}
+    # (TMPDIR is set back at commit: env_image_changes)
+    assert set(kwargs["environment"]) == {"HOME", "PYTHONDONTWRITEBYTECODE", "TMPDIR"}
+    # D442: pip unpacks into TMPDIR - on the build layer, never the /tmp tmpfs
+    assert kwargs["environment"]["TMPDIR"] == dr.ENV_BUILD_TMP
+    assert not dr.ENV_BUILD_TMP.startswith("/tmp")
+    assert set(kwargs["tmpfs"]) == {"/tmp"}  # the job-sized tmpfs is unchanged
 
 
 def test_envbuild_uses_the_network_with_an_index(tmp_path: Path) -> None:
@@ -243,12 +248,17 @@ def test_envbuild_uses_the_network_with_an_index(tmp_path: Path) -> None:
     assert "https://mirror.example/simple" in kwargs["command"]
 
 
-def test_env_dir_archive_is_one_dir_owned_by_the_container_user(tmp_path: Path) -> None:
+def test_env_dir_archive_holds_env_and_build_tmp_owned_by_the_user(
+    tmp_path: Path,
+) -> None:
     data = _runtime(tmp_path)._env_dir_archive()
     with tarfile.open(fileobj=io.BytesIO(data)) as tar:
-        (member,) = tar.getmembers()
-    assert member.name == "env" and member.isdir()
-    assert (member.uid, member.gid, member.mode) == (1000, 1000, 0o755)
+        env, build_tmp = tar.getmembers()
+    assert env.name == "env" and env.isdir()
+    assert (env.uid, env.gid, env.mode) == (1000, 1000, 0o755)
+    # D442: the build's TMPDIR, private to the build user
+    assert "/" + build_tmp.name == dr.ENV_BUILD_TMP and build_tmp.isdir()
+    assert (build_tmp.uid, build_tmp.gid, build_tmp.mode) == (1000, 1000, 0o700)
 
 
 class _Client:
@@ -429,3 +439,14 @@ def test_env_image_changes_restore_the_base_and_blank_build_labels() -> None:
     torch = dr.env_image_changes({"Cmd": None, "WorkingDir": "/workspace", "User": "1"})
     assert "WORKDIR /workspace" in torch and "USER 1" in torch
     assert not any(c.startswith("CMD") for c in torch)
+
+
+def test_env_image_changes_give_the_job_its_tmp_back() -> None:
+    """D442: the build's TMPDIR (read-only to the job) never reaches the job:
+    the base's own TMPDIR, else /tmp (the job's sized tmpfs)."""
+    plain = dr.env_image_changes({"Env": ["PATH=/usr/bin", "LANG=C.UTF-8"]})
+    assert 'ENV TMPDIR="/tmp"' in plain
+    assert 'ENV TMPDIR="/tmp"' in dr.env_image_changes({})
+    own = dr.env_image_changes({"Env": ["TMPDIR=/scratch", "X"]})
+    assert 'ENV TMPDIR="/scratch"' in own
+    assert not any(dr.ENV_BUILD_TMP in c for c in plain + own)

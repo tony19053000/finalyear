@@ -1,7 +1,11 @@
 """One chunk of a lane (V0.10 G4, D259/D261; split out of :mod:`.lane` in fix
 round 2): its control folder, one fresh process with the placeholders filled
 in, the per-chunk write caps, then ``out/`` packed (refusing a swapped
-folder), uploaded under the lane's grant and reported as a ``ChunkResult``."""
+folder), uploaded under the lane's grant and reported as a ``ChunkResult``.
+
+A run that failed in its env phase (the workload never started: image, env
+build, setup) is not a chunk result: :class:`LaneEnvFailedError` ends the lane
+(V1.0 G10, D443 - the lab's lane built a failing torch env once per chunk)."""
 
 from __future__ import annotations
 
@@ -20,13 +24,14 @@ from meshforge.agent.execution.failure_evidence import OutputTail, refine_result
 from meshforge.agent.execution.fetch import FetchError, UploadError
 from meshforge.agent.execution.lane_base import (
     CHUNK_FAILURE_NOT_RETRYABLE,
+    LaneEnvFailedError,
     LaneState,
 )
 from meshforge.agent.execution.lane_staging import ChunkStagingSteps
 from meshforge.agent.execution.outputs import OutputError
-from meshforge.agent.execution.runtime import RunResult, Stream
+from meshforge.agent.execution.runtime import RunObserver, RunResult, Stream
 from meshforge.agent.execution.workdir_cap import WorkdirCap, stop_watch
-from meshforge.common.errors import FailureType
+from meshforge.common.errors import FailureType, is_retryable
 from meshforge.common.hashing import Digest
 from meshforge.common.logging import get_logger
 from meshforge.common.proto.meshforge.v1 import agent_pb2, common_pb2
@@ -284,6 +289,22 @@ class ChunkRunSteps(ChunkStagingSteps):
             return None
         if stderr_tail is not None:
             result = refine_result(result, stderr_tail.data)  # D116
+        if _env_phase_failure(result, observer):
+            # D443: every later chunk would build this env again and fail alike
+            text = f"env build failed on this node: {self._run_text(result, lane)}"
+            log.warning(
+                "agent.lane.env_failed",
+                node_id=self._node_id,
+                job_id=attempt.job_id,
+                attempt_id=attempt.attempt_id,
+                chunk=int(chunk.chunk_index),
+                failure_type=(result.failure_type or FailureType.ENV_ERROR).value,
+                reason=result.reason,
+                env_hash=result.env_hash,
+                chunks_run=lane.chunks_run,
+            )
+            kind = result.failure_type or FailureType.ENV_ERROR
+            raise LaneEnvFailedError(kind, text, is_retryable(kind))
         return result
 
     def _run_text(self, run: RunResult, lane: LaneState) -> str:
@@ -377,6 +398,18 @@ class ChunkRunSteps(ChunkStagingSteps):
             if not result.HasField("failure")
             else int(result.failure.failure_type),
         )
+
+
+def _env_phase_failure(run: RunResult, observer: RunObserver) -> bool:
+    """D443: the run failed in its env phase - the runtime entered it (image,
+    env build, setup) and the workload never started. Not a chunk's fault: the
+    node cannot provide the job's environment."""
+    return (
+        not run.ok
+        and not run.cancelled
+        and observer.env_started is not None
+        and observer.run_started is None
+    )
 
 
 def _run_failure(run: RunResult, capped: int | None) -> tuple[FailureType, bool]:

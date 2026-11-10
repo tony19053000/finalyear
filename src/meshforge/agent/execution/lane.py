@@ -24,7 +24,10 @@ controller's dispatcher steps) adds what differs:
    read-only (``glob``), **one fresh process** of the entrypoint with the
    placeholders / ``MESHFORGE_CHUNK_*`` filled in, in the lane's prepared
    runtime and env (the env is cached by hash: the first chunk builds it, the
-   rest reuse it). Its output streams go to the lane's logs between chunk
+   rest reuse it). A run that fails **in its env phase** (the workload never
+   started) ends the lane ``FAILED`` with that typed failure - no chunk
+   result, no further request: the next chunk would only build the same env
+   again (V1.0 G10, D443). Its output streams go to the lane's logs between chunk
    marker lines. A clean exit -> ``out/`` packed (the deterministic bundle of
    the V0.4 outputs; at most ``max_chunk_output_bytes``), uploaded under the
    lane's grant, ``ChunkResult(done, digest)``; any other end ->
@@ -66,6 +69,7 @@ from meshforge.agent.execution.lane_base import (
     ASK_TIMEOUT_S,
     MAX_EARLY_CANCELS,
     RESULT_ACK_WAIT_S,
+    LaneEnvFailedError,
     LaneState,
     LaneStopError,
 )
@@ -262,10 +266,13 @@ class LaneSteps(ChunkRunSteps):
             self._renew_loop(attempt), name=f"lane-renew:{attempt.attempt_id}"
         )
         stopped = False
+        env_failed: LaneEnvFailedError | None = None
         try:
             await self._pull(attempt, plan, logs, runtime, on_output, stderr_tail)
         except LaneStopError:
             stopped = True
+        except LaneEnvFailedError as exc:
+            env_failed = exc  # D443: the lane ends here, typed, after one build
         finally:
             renewer.cancel()
             await asyncio.gather(renewer, return_exceptions=True)
@@ -280,6 +287,18 @@ class LaneSteps(ChunkRunSteps):
         await self._await_results(attempt)
         final = await self._final_logs(attempt, plan, logs)
         attempt.phases["collect_s"] = 0.0
+        if env_failed is not None:
+            await self._send(
+                attempt,
+                AttemptState.FAILED,
+                failure=(
+                    env_failed.failure_type,
+                    env_failed.message,
+                    env_failed.retryable,
+                ),
+                logs=final,
+            )
+            return
         await self._send(attempt, AttemptState.DONE, exit_code=0, logs=final)
 
     async def _pull(

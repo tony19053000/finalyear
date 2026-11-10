@@ -28,6 +28,7 @@ __all__ = [
     "CHUNK_FAILURE_NOT_RETRYABLE",
     "RESULT_ACK_WAIT_S",
     "STAGE_RETRYABLE",
+    "LaneEnvFailedError",
     "LaneHost",
     "LaneState",
     "LaneStopError",
@@ -63,6 +64,21 @@ most a few leases; older entries can only be stale)."""
 
 class LaneStopError(Exception):
     """The controller said ``NoWork(stop)``: the lane ends ``cancelled``."""
+
+
+class LaneEnvFailedError(Exception):
+    """V1.0 G10 (D443): a chunk's run failed before its workload started - in
+    the env phase (image, env build, setup). Every later chunk of the lane
+    would build the same env again and fail the same way, so the lane ends
+    ``FAILED`` with this typed failure instead of reporting a chunk failure
+    and pulling the next chunk. The chunk's lease goes back to the queue
+    uncounted when the controller records the lane's end (D267a)."""
+
+    def __init__(self, failure_type: FailureType, message: str, retryable: bool):
+        super().__init__(message)
+        self.failure_type = failure_type
+        self.message = message
+        self.retryable = retryable
 
 
 @dataclass(slots=True)
