@@ -171,10 +171,15 @@ class LaneSteps(ChunkRunSteps):
         drained = reason == agent_pb2.NoWork.REASON_DRAINED
         running = lane.current
         if lane.pulling:
+            # r1: a grant queued before this NoWork (same controller batch) is
+            # not started either - the flag skips it in _chunk / _chunk_run
+            lane.drain_pending = True
             if running is not None:
                 lane.cancelled_chunk = running
                 if lane.run_task is not None and not lane.run_task.done():
                     lane.run_task.cancel()
+                elif attempt.step is not None and not attempt.step.done():
+                    attempt.step.cancel()  # r1: its input staging (a big fetch)
         else:
             self._stop(attempt, LANE_DRAINED if drained else "cancelled")
         log.info(

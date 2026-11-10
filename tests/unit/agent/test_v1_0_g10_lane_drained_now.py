@@ -277,3 +277,43 @@ async def test_a_lane_drained_while_staging_reports_done() -> None:
     attempt = SimpleNamespace(stop_reason=LANE_DRAINED)
     await Executor._stopped(fake, attempt, exit_code=None, signal=None)  # type: ignore[arg-type]
     assert sent == [(AttemptState.DONE, {"exit_code": 0})]
+
+
+@pytest.mark.asyncio
+async def test_a_drain_cancels_a_long_input_fetch_of_the_current_chunk(
+    tmp_path: Path,
+) -> None:
+    """D446 r1: a NoWork(drained) while the chunk's item files are fetched
+    cancels that fetch (``attempt.step``) - a big fetch never delays the end."""
+    attempt = _attempt(tmp_path)
+    host = _Host(tmp_path, attempt)
+    runtime = _HangingRuntime()
+    fetching = asyncio.Event()
+    fetch_cancelled = False
+
+    async def long_fetch(*_a: Any, **_k: Any) -> Any:
+        nonlocal fetch_cancelled
+        step = asyncio.ensure_future(asyncio.Event().wait())
+        attempt.step = step
+        fetching.set()
+        try:
+            await step
+        except asyncio.CancelledError:
+            fetch_cancelled = True
+            raise
+        finally:
+            attempt.step = None
+        return []
+
+    host._chunk_inputs = long_fetch  # type: ignore[method-assign]
+    task = asyncio.ensure_future(
+        host._run_lane(attempt, _plan(attempt.workdir), None, runtime, None, _output)  # type: ignore[arg-type]
+    )
+    await asyncio.wait_for(fetching.wait(), 5)
+    host._lane_command(_no_work(agent_pb2.NoWork.REASON_DRAINED))
+    await asyncio.wait_for(task, 3)
+    assert fetch_cancelled
+    assert not runtime.started.is_set()
+    assert host.chunk_results == []
+    ((state, _kw),) = host.sent
+    assert state is AttemptState.DONE

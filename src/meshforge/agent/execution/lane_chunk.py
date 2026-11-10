@@ -67,6 +67,19 @@ class ChunkRunSteps(ChunkStagingSteps):
         assert lane.items is not None  # noqa: S101
         assert workdir is not None  # noqa: S101
         key = (int(chunk.item_id), int(chunk.lease_seq))
+        if lane.drain_pending:
+            # D446 r1: NoWork(drained | stop) came unasked after this grant
+            # was queued - the job needs nothing more from this lane
+            log.info(
+                "agent.lane.chunk_skipped",
+                node_id=self._node_id,
+                job_id=attempt.job_id,
+                attempt_id=attempt.attempt_id,
+                chunk=int(chunk.chunk_index),
+                lease_seq=key[1],
+                reason="drained",
+            )
+            return
         if key in lane.cancelled_early:
             # V0.10 G6: it lost (CancelChunk) before its turn here - the
             # controller already superseded the lease; nothing to run or send
@@ -124,6 +137,15 @@ class ChunkRunSteps(ChunkStagingSteps):
         try:
             try:
                 placed = await self._chunk_inputs(attempt, plan, folder, span, mine)
+            except asyncio.CancelledError:
+                task = asyncio.current_task()
+                if (
+                    _draining(lane)  # set by the NoWork while we awaited
+                    and attempt.stop_reason is None
+                    and (task is None or not task.cancelling())
+                ):
+                    return  # D446 r1: staging stopped by the NoWork, no result
+                raise
             except (FetchError, OSError, ValueError) as exc:
                 if attempt.stop_reason is not None:
                     raise
@@ -209,7 +231,9 @@ class ChunkRunSteps(ChunkStagingSteps):
         workdir = attempt.workdir
         assert lane is not None  # noqa: S101
         assert workdir is not None  # noqa: S101
-        if lane.cancelled_chunk is not None and lane.cancelled_chunk == lane.current:
+        if lane.drain_pending or (
+            lane.cancelled_chunk is not None and lane.cancelled_chunk == lane.current
+        ):
             return None  # cancelled while its inputs were staged: never started
         values = {
             "items_file": folder.seen_items,
@@ -398,6 +422,11 @@ class ChunkRunSteps(ChunkStagingSteps):
             if not result.HasField("failure")
             else int(result.failure.failure_type),
         )
+
+
+def _draining(lane: LaneState) -> bool:
+    """``lane.drain_pending`` read afresh (it changes across an await)."""
+    return lane.drain_pending
 
 
 def _env_phase_failure(run: RunResult, observer: RunObserver) -> bool:

@@ -118,6 +118,9 @@ class LaneState:
     env_s: float = 0.0
     capped: int | None = None
     """Bytes written when the per-chunk output cap stopped the chunk."""
+    drain_pending: bool = False
+    """D446 r1: a ``NoWork(drained | stop)`` arrived unasked; every chunk not
+    started yet (a grant still in the inbox) is skipped with no result."""
     pulling: bool = False
     """V1.0 G10 (D446): the lane is in its pull loop (staging is over); a
     ``NoWork`` that arrives unasked then stops only the current chunk."""
