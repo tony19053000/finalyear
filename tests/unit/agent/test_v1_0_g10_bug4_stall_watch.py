@@ -15,6 +15,7 @@ like any other).
 from __future__ import annotations
 
 import asyncio
+import importlib.util
 import os
 import subprocess
 import sys
@@ -137,6 +138,12 @@ def test_pace_history_is_bounded() -> None:
     assert pace.expected_s(1) == 97.0  # median of the last 5 (95..99)
 
 
+_NEEDS_PSUTIL = pytest.mark.skipif(
+    importlib.util.find_spec("psutil") is None, reason="needs the agent extra (psutil)"
+)
+
+
+@_NEEDS_PSUTIL
 def test_tree_cpu_seconds_reads_a_real_process_tree() -> None:
     proc = subprocess.Popen(
         [
@@ -153,6 +160,7 @@ def test_tree_cpu_seconds_reads_a_real_process_tree() -> None:
     assert (tree_cpu_seconds(os.getpid()) or 0.0) > 0.0
 
 
+@_NEEDS_PSUTIL
 @pytest.mark.asyncio
 async def test_the_watch_reports_a_real_idle_process_and_logs_once() -> None:
     """A real child that sleeps (no output, no CPU) - what L4's worker did."""
