@@ -1130,3 +1130,6 @@ job_01M7520YAPJM4CC49DRNCPJ337 (mc, --node L3) running; 15:52:24 `compute node r
 BUT job failure_detail = "placed_node_offline" and the CLI table (`compute jobs <id>`) shows only "node_lost / placed_node_offline" -
     "node_revoked" is visible only in --json attempts[].detail. Minor (Lead: show attempt detail in CLI job view or set job failure_detail node_revoked).
 L3 re-join: invite inv_01M7523RFJ9HHKF3AZD56R5602 (code handed human-to-human, not in git); L3 agent-side observations pending.
+G9-B f L3 side (chat 20261111-160224/160422): 15:52:24.4 stream_ended PERMISSION_DENIED node_revoked -> session stopped; 15:52:27.5 run_cancelled
+    (job python gone), service host stayed Running. Re-joined 16:00:48 as NEW node node_01M752J3FZ912G0ZJ9W4ANRPE1, online 16:04. Also: grpc GOAWAY
+    too_many_pings at 15:53:23 (after revoke; Lead note). Verdict G9-B f: PASS (revoke cuts session + kills job + fails it as node_revoked); CLI shows detail only in --json.
