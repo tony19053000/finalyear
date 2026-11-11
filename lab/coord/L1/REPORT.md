@@ -1123,3 +1123,10 @@ job_01M75155RE5YFXJ6FW46DV8HRP (~/mf-eval/gpu-big: 480 items, 120 chunks, gpu pr
     predicted 941 s vs best single 2903 s (offload L4). Actual: succeeded in 8m31s (511 s), all 4 lanes done exit=0, combine on L1, failed 0.
 chunks committed: L1 81, L4 18, L2 15, L3 6 (CPU). items by device: RTX 3050 (L1+L4) 396, RTX 2050 (L2) 60, CPU Mohit (L3) 24.
     => ~5.7x faster than the predicted best single laptop; every laptop (3 GPUs + 1 CPU) did real work in one job.
+
+### 2026-11-11 15:52 - G9-B f / C7.12-d: revoke L3 with a running job - PASS on data, CLI detail PARTIAL
+job_01M7520YAPJM4CC49DRNCPJ337 (mc, --node L3) running; 15:52:24 `compute node revoke node_01M6K0TZRNPEGBRN166GP6S61N` -> "revoked ... (session cut)".
+15 s later: job failed, failure_type node_lost; attempt state lost, attempt detail **node_revoked** (jobs --json) = G9 fix works.
+BUT job failure_detail = "placed_node_offline" and the CLI table (`compute jobs <id>`) shows only "node_lost / placed_node_offline" -
+    "node_revoked" is visible only in --json attempts[].detail. Minor (Lead: show attempt detail in CLI job view or set job failure_detail node_revoked).
+L3 re-join: invite inv_01M7523RFJ9HHKF3AZD56R5602 (code handed human-to-human, not in git); L3 agent-side observations pending.
