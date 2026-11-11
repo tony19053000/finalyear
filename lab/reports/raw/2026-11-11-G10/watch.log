@@ -1,0 +1,8 @@
+[------------------------] 0/12 items (0%)  0/6 chunks  running  3 running, ETA -, elapsed 3s / predicted 48s
+[####--------------------] 2/12 items (16%)  1/6 chunks  running  3 running, ETA 51s, elapsed 10s / predicted 48s
+[########----------------] 4/12 items (33%)  2/6 chunks  running  3 running, ETA 24s, elapsed 15s / predicted 48s
+[############------------] 6/12 items (50%)  3/6 chunks  running  3 running, ETA 18s, elapsed 21s / predicted 48s
+[################--------] 8/12 items (66%)  4/6 chunks  running  2 running, ETA 12s, elapsed 30s / predicted 48s
+[####################----] 10/12 items (83%)  5/6 chunks  running  1 running, ETA 6s, elapsed 32s / predicted 48s
+[####################----] 10/12 items (83%)  5/6 chunks  running  1 running, 1 speculative, ETA 6s, elapsed 34s / predicted 48s
+[########################] 12/12 items (100%)  6/6 chunks  succeeded  elapsed 43s / predicted 48s

@@ -1,0 +1,31 @@
+[------------------------] 0/60 items (0%)  0/30 chunks  running  3 running, ETA -, elapsed 7s / predicted 2m42s
+[------------------------] 2/60 items (3%)  1/30 chunks  running  3 running, ETA 5m04s, elapsed 11s / predicted 2m42s
+[#-----------------------] 4/60 items (6%)  2/30 chunks  running  3 running, ETA 2m36s, elapsed 12s / predicted 2m42s
+[##----------------------] 6/60 items (10%)  3/30 chunks  running  3 running, ETA 2m28s, elapsed 22s / predicted 2m42s
+[###---------------------] 8/60 items (13%)  4/30 chunks  running  3 running, ETA 2m24s, elapsed 25s / predicted 2m42s
+[####--------------------] 10/60 items (16%)  5/30 chunks  running  3 running, ETA 2m19s, elapsed 32s / predicted 2m42s
+[####--------------------] 12/60 items (20%)  6/30 chunks  running  3 running, ETA 2m09s, elapsed 35s / predicted 2m42s
+[#####-------------------] 14/60 items (23%)  7/30 chunks  running  3 running, ETA 2m03s, elapsed 42s / predicted 2m42s
+[######------------------] 16/60 items (26%)  8/30 chunks  running  3 running, ETA 1m57s, elapsed 46s / predicted 2m42s
+[#######-----------------] 18/60 items (30%)  9/30 chunks  running  3 running, ETA 1m51s, elapsed 52s / predicted 2m42s
+[########----------------] 20/60 items (33%)  10/30 chunks  running  3 running, ETA 1m48s, elapsed 58s / predicted 2m42s
+[########----------------] 22/60 items (36%)  11/30 chunks  running  3 running, ETA 1m42s, elapsed 1m02s / predicted 2m42s
+[#########---------------] 24/60 items (40%)  12/30 chunks  running  3 running, ETA 1m37s, elapsed 1m10s / predicted 2m42s
+[##########--------------] 26/60 items (43%)  13/30 chunks  running  3 running, ETA 1m32s, elapsed 1m12s / predicted 2m42s
+[###########-------------] 28/60 items (46%)  14/30 chunks  running  2 running, 1 speculative, ETA 1m26s, elapsed 1m21s / predicted 2m42s
+[############------------] 30/60 items (50%)  15/30 chunks  running  2 running, 1 speculative, ETA 1m21s, elapsed 1m23s / predicted 2m42s
+[#############-----------] 34/60 items (56%)  17/30 chunks  running  2 running, ETA 1m11s, elapsed 1m33s / predicted 2m42s
+[#############-----------] 34/60 items (56%)  17/30 chunks  running  3 running, ETA 1m11s, elapsed 1m36s / predicted 2m42s
+[##############----------] 36/60 items (60%)  18/30 chunks  running  3 running, ETA 1m05s, elapsed 1m44s / predicted 2m42s
+[###############---------] 38/60 items (63%)  19/30 chunks  running  3 running, ETA 1m00s, elapsed 1m46s / predicted 2m42s
+[################--------] 40/60 items (66%)  20/30 chunks  running  3 running, ETA 54s, elapsed 1m54s / predicted 2m42s
+[################--------] 42/60 items (70%)  21/30 chunks  running  3 running, ETA 49s, elapsed 1m56s / predicted 2m42s
+[#################-------] 44/60 items (73%)  22/30 chunks  running  3 running, ETA 43s, elapsed 2m04s / predicted 2m42s
+[##################------] 46/60 items (76%)  23/30 chunks  running  3 running, ETA 38s, elapsed 2m07s / predicted 2m42s
+[###################-----] 48/60 items (80%)  24/30 chunks  running  3 running, ETA 33s, elapsed 2m14s / predicted 2m42s
+[####################----] 50/60 items (83%)  25/30 chunks  running  3 running, ETA 27s, elapsed 2m17s / predicted 2m42s
+[####################----] 52/60 items (86%)  26/30 chunks  running  3 running, ETA 22s, elapsed 2m24s / predicted 2m42s
+[#####################---] 54/60 items (90%)  27/30 chunks  running  3 running, ETA 16s, elapsed 2m27s / predicted 2m42s
+[######################--] 56/60 items (93%)  28/30 chunks  running  2 running, 1 speculative, ETA 11s, elapsed 2m34s / predicted 2m42s
+[#######################-] 58/60 items (96%)  29/30 chunks  running  1 running, 1 speculative, ETA 5s, elapsed 2m38s / predicted 2m42s
+[########################] 60/60 items (100%)  30/30 chunks  succeeded  elapsed 2m45s / predicted 2m42s

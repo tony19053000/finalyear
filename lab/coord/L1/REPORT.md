@@ -1111,3 +1111,9 @@ try 2 job_01M74Z7T6JD6KVJ85B7CAQ9CVB (60 items, 30 chunks, L1+L2+L4): succeeded 
     L4 got chunk 19 at 09:34:21Z (also sleeps); copied to L1 at 09:35:14Z by end-of-queue speculation (53 s, under the floor). Job done 09:35:32Z.
 verdict: stall detected ~1 min after start and copied at once -> BUG-4 fix works. (Before: 17 min.) L4 agent.log chunk_stalled + Get-Process pending from L4.
 note: L4 receives new chunks after a stalled one (it stalled again); fine for a real rare hang, could matter if a node hangs every chunk.
+
+### 2026-11-11 15:30 - G10 L3 row: G9-D on L3 (v0.17.2) - PASS (normal RAM; low-RAM case still pending)
+job_01M74ZGH35HWKBP8EQ1CR3W2MC (~/mf-eval/v010/mc, --node L3): succeeded, 5000/5000 items, 1 chunk, 25m09s (predicted 27m23s), combine on L3,
+    output sha256:02af067fd6cd... No grace/resume/node_lost/lease events in the controller log for this job.
+L3 free RAM ~2.0 GiB (human cleared RAM before, chat 20261111-141102) -> this is NOT the low-RAM case the Lead row asks for; that part stays open.
+evidence: lab/reports/raw/2026-11-11-G10/
