@@ -1162,3 +1162,5 @@ C5.11-f r2 job_01M759S1XCAM7R913TESW2R1ND (same, after L3 back online; L3 free R
     ONE attempt, succeeded 18:10:54, staged by 18:10:43 (~4 min - faster: part of ds5g@3 was likely already in L3's cache from the failed run = reuse/resume).
     L3 sha256 146bceb9...98c4 = L1 -> intact. Brief suspect<->online flicks (<1 s) at 12:37:22, :25, :55, 12:39:53, 12:40:00Z, no drop.
 verdict C5.11-f: r2 PASS; r1 FAIL stays as BUG-5 candidate = a 5 GB fetch on L3 with < ~1 GiB free RAM starves heartbeats -> offline -> job lost.
+CORRECTION C5.11-f r1 (human, 18:15): L3's Wi-Fi actually DISCONNECTED during r1. So r1 = real network loss; the pinned job failing node_lost is
+    correct behaviour. BUG-5 candidate WITHDRAWN (the earlier suspect flaps fit a weak/dropping Wi-Fi link, not heartbeat starvation). C5.11-f = PASS (r2).
