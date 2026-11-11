@@ -1178,3 +1178,9 @@ J2 job_01M75BT6Y5AQER3AF64GS76WW4 (same, submitted 18:42:33): succeeded 18:45:41
     dataset tree 8aa131ed: **cache hits=3 (2048.0 MiB) resumed_chunks=10 refetched=0**; from controller 2992.0 MiB (374 units).
     L4 sha256 3a1032de...7a78 = L1 -> intact.
 verdict c3: resumed_chunks = 10 > 0 and 2 GiB reused (not fetched again) -> PASS. (v0.17.0 result was FAIL: no resumed_chunks field.)
+
+### 2026-11-11 18:49 - G10 BUG-2 fail path (torch==0.0.0) on L1 lane - PASS
+job_01M75C6EE8DBF1V5TWTSY0FTE1 (~/mf-eval/bug2f = gpu-split with requirements torch==0.0.0, L1 only): submitted 18:49:14, failed 18:49:19 (5 s).
+    agent log: ONE agent.execution.run_failed setup_failed at 18:49:17 -> agent.lane.env_failed -> lane ended; no second install attempt.
+    job: failed env_error "no lane left with 12 of 12 chunks to run: env build failed on this node: setup_failed: requirements install failed (exit 1)".
+verdict: exactly one install attempt, failed env_error right after it (before v0.17.2: retried per chunk). PASS.
