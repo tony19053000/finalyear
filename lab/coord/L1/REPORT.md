@@ -1091,3 +1091,13 @@ run job_01M74WGWAECTYVR15MR0WDKPEC: succeeded, 24/24 items, 12 chunks, 57 s (pre
     results.json: all 24 items gpu = "NVIDIA GeForce RTX 3050 Laptop GPU". L1 GPU lane works on v0.17.2 -> PASS (BUG-1 path OK; env cache hit OK).
 small CLI finding: `--exclude-node Mohit` refused "matches 2 nodes" because the old REVOKED Mohit node still matches by name; revoked nodes could be skipped.
 evidence: ~/mf-eval/g10/
+
+### 2026-11-11 14:16 - G9-B c run 2: GPU split L1 + L2 + L4 (item_seconds 6, L3 excluded) - job PASS, lane-end timing PARTIAL
+job_01M74WKXPN8V7XM1N9HEBYNZ6N: succeeded 51 s (predicted 28 s), 24/24 items, output sha256:7c6bf30f..., combine on L1, all 3 lanes done exit=0.
+chunks won: L1 11 (one every ~4.6 s), L4 1 (chunk 2: granted 08:47:00Z, committed 08:47:45Z = 45 s for 2 items), L2 0 (granted 08:46:59Z, still running
+    when the job ended 08:47:50Z). Speculation copied the last chunk at 08:47:45Z.
+lane end vs last commit (08:47:47.5Z): L2 lane ended 08:47:50.1 (+2.6 s, with job end), L4 lane ended 08:47:51.7 (+4.2 s; ~1.5 s after job end).
+    Not inside "~1 s of the last commit" -> PARTIAL; no lane is left "running" (BUG-3 gone).
+FINDING (perf, for Lead): a 2-item GPU chunk takes ~45-50+ s on the Windows nodes (L4, L2) vs ~4.6 s on L1 (Docker, warm env). The planner predicted 28 s
+    total, so it expects Windows chunks far faster; per-chunk start cost on Windows venv (new python.exe + torch/CUDA init each chunk, D451) looks ~40 s.
+    Result: L2 GPU does no work in a short job. Worth a check: L4 agent.log chunk start->first output for this job.
