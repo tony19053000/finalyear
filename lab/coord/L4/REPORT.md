@@ -427,3 +427,19 @@ Note: in the hang, the 17 s gap between launcher (00:04:03) and worker (00:04:20
 - MeshForge-Agent-Setup-0.17.2-1.exe from release v0.17.2, SHA256 f5332d55...93c7 matches SHA256SUMS. Human installed; current.txt = 0.17.2-1.
 - BUG-4 b: added [agent.split] stall_floor_s = 60 to config.toml (Admin), Restart-Service 14:58:42, service Running. (Must be removed after the test.)
 SIGNAL: upgraded L4 0.17.2
+
+## BUG-4 b result + cleanup (chat 20261111-150144/150245/150558 L1) - 2026-11-11
+- BUG-4 b job_01M74Z7T6JD6KVJ85B7CAQ9CVB: agent.log `agent.lane.chunk_stalled` warning at 09:33:58Z (15:03:58 IST): chunk 1, threshold_s 60.0, stalled_s 60.2, pid 17960, "reported to the controller with the lease". (job_01M74Z5VRP... first run: no chunk_stalled - copied at queue-empty 29 s, as L1 said.)
+- Get-Process python not taken during the job (missed). After: only 15324/18248 = agent host+child started 18:22:18/19 (restart) -> no sleeping python.exe left.
+- stall_floor_s + [agent.split] REMOVED, Restart-Service 18:22:19. config now: [agent.peer] bind, [agent.envs] extra_index_urls.
+
+## G11 perf (1) Windows chunk start (chat 20261111-163146-LEAD-to-L4) - 2026-11-11 18:22
+- Log, job_01M74WKXPN8V7XM1N9HEBYNZ6N on L4: only one lane line found: chunk 2 OUTCOME_DONE at 08:47:47Z (no chunk_started/run_finished lines with that job id in agent.log*; may have rotated).
+- Same venv (8e2ebada..., torch 2.14.0+cu126), Admin shell, agent idle:
+  - `import torch; torch.cuda.init()` run 1: 13.18 s (cold), run 2: 3.42 s
+  - `import torch` only: 2.16 s
+- Defender RealTimeProtectionEnabled: True (read only, not changed).
+- Reading: warm start ~3.4 s, cold first start ~13 s (likely Defender scanning torch DLLs on first load). Neither explains 45-50 s per chunk alone -> rest is probably env check / staging / per-chunk process start; need chunk_* timings from a fresh run.
+
+## C5.11-g (chat 20261111-181402/181758/181944 L1)
+- J1 job_01M75A5YJKS51FZ5W0JWW54SGA ended 18:19:26 before the stop; no restart done for it. Human ready at Admin PowerShell for the redo.
