@@ -1133,3 +1133,11 @@ L3 re-join: invite inv_01M7523RFJ9HHKF3AZD56R5602 (code handed human-to-human, n
 G9-B f L3 side (chat 20261111-160224/160422): 15:52:24.4 stream_ended PERMISSION_DENIED node_revoked -> session stopped; 15:52:27.5 run_cancelled
     (job python gone), service host stayed Running. Re-joined 16:00:48 as NEW node node_01M752J3FZ912G0ZJ9W4ANRPE1, online 16:04. Also: grpc GOAWAY
     too_many_pings at 15:53:23 (after revoke; Lead note). Verdict G9-B f: PASS (revoke cuts session + kills job + fails it as node_revoked); CLI shows detail only in --json.
+
+### 2026-11-11 17:10 - G9-B g / V0.6 G1 with --exclude-node L1 + L3 (Wi-Fi drop on L2) - PASS
+(earlier tries job_01M752WVWE56HXK06R1HCX8RHG: no drop, L2 agent session account ended -> succeeded on L2, not counted; job_01M753V6CJ1DQ9KM7FAR3AJS9R cancelled.)
+job_01M756GF94HNCF0CWRVWERYFWM (main.py 900, --exclude-node JARVISM3 --exclude-node node_01M752J3FZ912G0ZJ9W4ANRPE1): placed on L2 17:09:51.
+L2 human Wi-Fi off ~17:17 -> 17:18:08 attempt_lost (node_offline) + retry_scheduled -> 17:18:13 dispatched attempt 2 to L4 (LAPTOP-7ORVM30G).
+    L3 and L1 never used. controller.jobs.execution_overlap logged at 17:18:13 (L2's old process may still run while offline - known, by design warning).
+result: succeeded, attempt 2 on L4 done exit=0, output sha256:1f3acec3.... "attempt 2 elsewhere" (open since V0.6 G1, 2026-11-05) now shown. PASS.
+L2 off/on times + orphan check pending from L2.
