@@ -1141,3 +1141,9 @@ L2 human Wi-Fi off ~17:17 -> 17:18:08 attempt_lost (node_offline) + retry_schedu
     L3 and L1 never used. controller.jobs.execution_overlap logged at 17:18:13 (L2's old process may still run while offline - known, by design warning).
 result: succeeded, attempt 2 on L4 done exit=0, output sha256:1f3acec3.... "attempt 2 elsewhere" (open since V0.6 G1, 2026-11-05) now shown. PASS.
 L2 off/on times + orphan check pending from L2.
+
+### 2026-11-11 17:36 - C5.11-e (re-run on v0.17.2): 5 GB fetch to L2 over Wi-Fi - PASS
+new dataset ds5g@3 (5 x 1 GiB fresh /dev/urandom + labels.csv, so no node has it cached), local sha256 146bceb9f67fa114...98c4.
+job_01M7581NM5N8R0B6ZREN56YFW4 (~/mf-lab/reader, input ds5g@3, --node L2): ONE attempt, staging 17:36:43 -> running 17:42:59 (~376 s, ~114 Mbit/s for 5 GiB),
+    succeeded 17:43:13. L2 printed dataset sha256 146bceb9...98c4 = L1 -> data intact. No node_lost, no transfer_error retry.
+verdict: the v0.17.0 pattern "first attempt of every 5 GB Wi-Fi fetch fails" is gone (G9-A fix). PASS. (L2 agent.cas lines requested.)
