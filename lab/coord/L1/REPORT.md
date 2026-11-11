@@ -1077,3 +1077,17 @@ controller journal since 00:33: 0 clock alerts (clock_uncertain), max clock_offs
 that returned to consistent within seconds - no alert. PASS.
 note: L1 config still has only_binary = false (restore from .bak-g9be pending human).
 ### 2026-11-11 05:09 - account switch ON (final). No test running. Next: G9-B f (victim L3). L1 config restore still pending human.
+
+### 2026-11-11 ~14:20 - upgrade to v0.17.2 + G10 BUG-1/2 row (G9-B c on L1 GPU lane) - PASS
+upgrade: L1 controller+agent 0.17.2-1 (sha256 OK, human apt install); config restored from .bak-g9be (only_binary gone, no tmp_size_mb).
+    `compute nodes --json`: JARVISM3, AILESH, LAPTOP-7ORVM30G, Mohit all online 0.17.2.
+try 1 job_01M74VBKT76RNKB8GEVNF8NRHD (--exclude-node AILESH, LAPTOP-7ORVM30G, node_01M6K0TZ...): chunk 0 failed FAILURE_TYPE_DISK_FULL at 14:07:36
+    after ~10 min Docker env build (torch 2.14 cu wheels ~3 GB). CAUSE = L1 root disk really full (188G, 2.4G free, 99%), not BUG-1 (tmp is now on disk).
+    Controller retried the chunk (applied=retried) - correct. Cancelled by me. Human OK'd cleanup: dangling pytorch/pytorch 11.5 GB, docker build cache 2.9 GB,
+    uv cache prune 1.7 GB -> 19 GB free.
+prepare: `compute node prepare node_01M6BMFV... --envs envs.yaml` (python-cpu + gpu-split requirements, runtime docker): image hit, env 0 hit eddf96c3960c1e91988
+    (try 1's second build had finished before the cancel).
+run job_01M74WGWAECTYVR15MR0WDKPEC: succeeded, 24/24 items, 12 chunks, 57 s (predicted 2m45s); agent log env_cache "hit" on every chunk;
+    results.json: all 24 items gpu = "NVIDIA GeForce RTX 3050 Laptop GPU". L1 GPU lane works on v0.17.2 -> PASS (BUG-1 path OK; env cache hit OK).
+small CLI finding: `--exclude-node Mohit` refused "matches 2 nodes" because the old REVOKED Mohit node still matches by name; revoked nodes could be skipped.
+evidence: ~/mf-eval/g10/
