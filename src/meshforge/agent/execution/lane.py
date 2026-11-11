@@ -410,10 +410,14 @@ class LaneSteps(ChunkRunSteps):
         while True:
             if self._send_now is not None:
                 await self._send_now("chunk_request", request)
+
+            async def answer() -> agent_pb2.ControllerMessage:
+                # the inbox read is made only when the step runs: a step refused
+                # for a stop closes this coroutine, never an un-awaited get()
+                return await asyncio.wait_for(lane.inbox.get(), ASK_TIMEOUT_S)
+
             try:
-                return await self._step(
-                    attempt, asyncio.wait_for(lane.inbox.get(), ASK_TIMEOUT_S)
-                )
+                return await self._step(attempt, answer())
             except TimeoutError:
                 log.info(
                     "agent.lane.ask_again",
