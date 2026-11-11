@@ -560,3 +560,8 @@ SIGNAL: capture-pushed
 - 60 s after kill 2 (21:02:21): service MeshForgeAgent = Running (the service host stays up; the child is not the service). `Start-Service` afterwards: no output.
 - 21:04:23: node online, connected, session epoch 65 (was 61 at 17:33) -> agent reconnected by itself after the kills, i.e. L2 likely came back before "job ended".
 - Job id / outcome: from L1.
+
+## 2026-11-11 — v0.17.2 upgrade
+- Downloaded MeshForge-Agent-Setup-0.17.2-1.exe (57,611,213 B); sha256 f5332d55...6193c7 matches release SHA256SUMS. Human ran it as admin.
+- Service Running; `compute --version` 0.17.2; node: agent version 0.17.2, online, connected; exec-gpu + RTX 2050 still listed.
+- No other L2 rows in the G10 re-run list.
