@@ -17,7 +17,23 @@ then talks back to the lane:
   stored**. A lease that lost to the commit (the original or the speculative
   copy of a straggling chunk, V0.10 G6) gets ``CancelChunk``; a job that
   failed (a chunk failed for good) gets ``CancelAttempt`` for every live lane;
-* ``LeaseRenew`` -> the lane's leases extended.
+* ``LeaseRenew`` -> the lane's leases extended. A lease renewed with
+  ``stalled_s`` > 0 (V1.0 G10, D451: the agent saw its chunk make no progress)
+  is **marked**: the next lane on another node that asks gets a copy of it
+  first (an idle lane at once, a busy one when its chunk ends; first result
+  wins, D266). With no lane on another node it keeps being renewed - a reclaim
+  would only run it again on the same node - and the controller says so
+  (``controller.split.chunk_stalled`` with ``action=alone``). The longest
+  ``stalled_s`` of each lease goes into its chunk record.
+
+**Env failures from an older agent (V1.0 G10, D448).** Since D443 an agent
+whose env cannot be built ends its lane ``FAILED(env_error)`` itself. An older
+agent reports it as a *chunk* failure and pulls the next chunk - building the
+env again for every chunk. The controller now treats a chunk result failed
+``env_error`` as the end of that lane: the lease is **released** uncounted (the
+chunk did nothing wrong), then ``end_lane`` (the dispatcher) ends the lane
+``FAILED(env_error)``, records ``(node, env)`` known-bad and cancels the lane on
+the agent.
 
 Every message that fails its lane / lease checks is counted
 (:attr:`SplitStats.fenced`) and logged ``controller.split.fenced`` with its
@@ -30,7 +46,7 @@ from __future__ import annotations
 import datetime as dt
 import time
 from collections import OrderedDict
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any, Final
 
@@ -69,6 +85,8 @@ log = get_logger(__name__)
 _MAX_TRACKED: Final = 100_000
 """Bound on the (lane, chunk) unverified counters kept (live lanes only; a
 new pair with no room is counted as a failure - fail safe, never a reset)."""
+_MAX_STALLS: Final = 10_000
+"""D451: stalled marks / peaks kept (bounded; oldest dropped)."""
 _NO_WORK: Final = {
     "drained": agent_pb2.NoWork.REASON_DRAINED,
     "wait": agent_pb2.NoWork.REASON_WAIT,
@@ -114,6 +132,26 @@ class SplitStats:
     """Commits where the speculative copy beat the original lease."""
     originals_won: int = 0
     """Commits where the original beat its live speculative copy."""
+    stalls: int = 0
+    """V1.0 G10 (D451): leases newly reported stalled."""
+    stalls_alone: int = 0
+    """Of those, with no lane on another node to copy them."""
+
+
+EndLane = Callable[[LiveLane, str, FailureType, str], Awaitable[None]]
+"""D448: ``(lane, job_id, failure_type, detail)`` - the dispatcher ends the
+lane ``FAILED`` (not retryable), records known-bad envs, cancels it."""
+
+
+@dataclass(slots=True)
+class _Stall:
+    """D451: one lease its lane reported stalled."""
+
+    job_id: str
+    attempt_id: str
+    node_id: str
+    seq: int
+    stalled_s: float
 
 
 @dataclass(frozen=True, slots=True)
@@ -139,9 +177,12 @@ class SplitService:
         put: Callable[[ChunkWork], bool],
         clock: Callable[[], float] | None = None,
         wake: Callable[[], None] | None = None,
+        end_lane: EndLane | None = None,
     ) -> None:
         self._store = store
         self._wake = wake
+        self._end_lane = end_lane
+        """D448: end a lane controller-side (old agent's chunk env_error)."""
         """V0.10 G5: run a dispatch pass soon (a job now owes its combine)."""
         self._manager = manager
         self._grants = grants
@@ -156,6 +197,11 @@ class SplitService:
         ``retry.max_attempts`` rules still bound the job)."""
         self._cooldown: OrderedDict[tuple[str, int], float] = OrderedDict()
         self._tracked_lanes: set[str] = set()
+        self._stalls: OrderedDict[int, _Stall] = OrderedDict()
+        """D451: chunk item id -> its stalled lease (copied first)."""
+        self._stall_peaks: OrderedDict[tuple[int, int], float] = OrderedDict()
+        """D451: (item id, lease seq) -> longest ``stalled_s`` (chunk record)."""
+        store.stall_peaks = self._stall_peaks
         """(lane, chunk) -> monotonic time before which that lane does not get
         that chunk again (after an unverified result)."""
         manager.dispatch.register("chunk_request", self._on_request)
@@ -243,6 +289,7 @@ class SplitService:
             held=body.held,
             now=self._wall(),
             avoid=self._avoid(lane.attempt_id),
+            stalled=self._stalled_for(lane.job_id, live.node_id),
         )
         if isinstance(got, FenceCause):
             self._fenced(live, "chunk_request", got.value, lane.attempt_id)
@@ -325,6 +372,14 @@ class SplitService:
         failure = body.failure
         key = (lane.attempt_id, body.item_id)
         unverified = False
+        env_failed = (
+            outcome == "failed"
+            and failure is not None
+            and failure[0] is FailureType.ENV_ERROR
+            and self._end_lane is not None
+        )
+        if env_failed:
+            outcome = "released"  # D448: the node's env, not the chunk's fault
         if outcome == "done" and digest is not None:
             size = (
                 None
@@ -384,8 +439,30 @@ class SplitService:
                 stderr_tail=body.stderr_tail,
             ),
         )
+        if got.kind is not ResultKind.FENCED:
+            # D451: that lease's try is over (a committed chunk: every lease)
+            self._clear_stall(
+                body.item_id,
+                None if got.kind is ResultKind.COMMITTED else body.lease_seq,
+            )
         if unverified and got.kind is ResultKind.RELEASED:
             self._note_unverified(key)
+        if env_failed and got.kind is ResultKind.RELEASED:
+            assert failure is not None  # noqa: S101 - env_failed checked it
+            assert self._end_lane is not None  # noqa: S101
+            log.warning(
+                "controller.split.lane_env_failed",
+                job_id=lane.job_id,
+                attempt_id=lane.attempt_id,
+                node_id=live.node_id,
+                chunk=body.chunk_index,
+            )
+            await self._end_lane(
+                LiveLane(lane.attempt_id, live.node_id, lane.fencing_token),
+                lane.job_id,
+                FailureType.ENV_ERROR,
+                failure[1],
+            )
         self._manager.ack_message(live, message_id)  # stored (or never will be)
         if (
             unverified
@@ -532,7 +609,12 @@ class SplitService:
         self._cooldown[key] = self._clock() + self._settings.wait_retry_s
 
     def forget_lane(self, attempt_id: str) -> None:
-        """The lane ended: its unverified counters and cool-downs go."""
+        """The lane ended: its unverified counters, cool-downs and stalled
+        marks go."""
+        for item_id in [
+            k for k, v in self._stalls.items() if v.attempt_id == attempt_id
+        ]:
+            del self._stalls[item_id]
         if attempt_id not in self._tracked_lanes:
             return
         self._tracked_lanes.discard(attempt_id)
@@ -548,6 +630,76 @@ class SplitService:
             del self._cooldown[key]
         return frozenset(i for (a, i) in self._cooldown if a == attempt_id)
 
+    # ------------------------------------------------------------ D451 stalls
+
+    def _stalled_for(
+        self, job_id: str, node_id: str
+    ) -> dict[int, tuple[int, float]] | None:
+        """The job's stalled leases a lane on ``node_id`` may copy (another
+        node's), ``item id -> (seq, stalled_s)``; None = none."""
+        found = {
+            item: (m.seq, m.stalled_s)
+            for item, m in self._stalls.items()
+            if m.job_id == job_id and m.node_id != node_id
+        }
+        return found or None
+
+    async def _note_stalls(self, live: LiveSession, body: LeaseRenewIn) -> None:
+        lane = body.lane
+        for item_id, seq in body.leases:
+            stalled_s = body.stalled.get((item_id, seq))
+            mark = self._stalls.get(item_id)
+            if stalled_s is None:
+                if mark is not None and mark.seq == seq:
+                    del self._stalls[item_id]
+                    log.info(
+                        "controller.split.chunk_resumed",
+                        job_id=lane.job_id,
+                        attempt_id=lane.attempt_id,
+                        node_id=live.node_id,
+                        item_id=item_id,
+                        lease_seq=seq,
+                    )
+                continue
+            key = (item_id, seq)
+            self._stall_peaks[key] = max(self._stall_peaks.get(key, 0.0), stalled_s)
+            self._stall_peaks.move_to_end(key)
+            while len(self._stall_peaks) > _MAX_STALLS:
+                self._stall_peaks.popitem(last=False)
+            if mark is not None and mark.seq == seq:
+                mark.stalled_s = stalled_s
+                continue
+            others = await self._store.other_lanes(
+                lane.job_id, lane.attempt_id, live.node_id
+            )
+            self._stalls[item_id] = _Stall(
+                lane.job_id, lane.attempt_id, live.node_id, seq, stalled_s
+            )
+            while len(self._stalls) > _MAX_STALLS:
+                self._stalls.popitem(last=False)
+            self.stats.stalls += 1
+            self.stats.stalls_alone += int(others == 0)
+            log.warning(
+                "controller.split.chunk_stalled",
+                job_id=lane.job_id,
+                attempt_id=lane.attempt_id,
+                node_id=live.node_id,
+                item_id=item_id,
+                lease_seq=seq,
+                stalled_s=round(stalled_s, 1),
+                other_lanes=others,
+                action="alone" if others == 0 else "copy_first",
+                hint="no other node's lane can take a copy; the lease is kept "
+                "(a reclaim would run it again here) - check the node"
+                if others == 0
+                else "the next lane on another node that asks gets a copy first",
+            )
+
+    def _clear_stall(self, item_id: int, seq: int | None) -> None:
+        mark = self._stalls.get(item_id)
+        if mark is not None and (seq is None or mark.seq == seq):
+            del self._stalls[item_id]
+
     async def _renew(self, live: LiveSession, body: LeaseRenewIn) -> None:
         lane = body.lane
         got = await self._store.renew(
@@ -561,6 +713,11 @@ class SplitService:
         if isinstance(got, FenceCause):
             self._fenced(live, "lease_renew", got.value, lane.attempt_id)
             return
+        if got[1] == 0:
+            # D451-R1: only a renewal the store fully accepted may mark stalls - a
+            # refused lease is not this lane's, so it must not plant a mark on a
+            # peer's lease (a partly refused renewal waits for the next one).
+            await self._note_stalls(live, body)
         self.stats.renewed += got[0]
         self.stats.renew_refused += got[1]
         if got[1]:
@@ -575,6 +732,15 @@ class SplitService:
     async def parts_index(self, digest: str) -> PartsIndex:
         """V0.10 G5: a job's parts index (the combine's input and fetch scope)."""
         return await self._store.parts_index(digest)
+
+    async def hold_lane(self, attempt_id: str, seconds: float) -> int:
+        """V1.0 G10 (D445): keep a lane's leases through its node's grace
+        (``seconds`` from now, plus the normal visibility timeout)."""
+        return await self._store.hold_lane(
+            attempt_id,
+            timeout_s=min(86_400.0, seconds + self._settings.visibility_timeout_s),
+            now=self._wall(),
+        )
 
     async def held_leases(self, attempt_id: str) -> int:
         """Live leases of one lane (its upload grant's refresh quota)."""

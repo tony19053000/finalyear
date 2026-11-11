@@ -67,7 +67,11 @@ async def runtime(pg_settings: DatabaseSettings) -> AsyncIterator[ControllerRunt
             "require_measured_rates": False,  # lanes, not D438: split on a first run
         },
         liveness=LivenessSettings(
-            heartbeat_interval_s=HB_S, miss_allowance_s=0.1, lease_multiplier=3
+            heartbeat_interval_s=HB_S,
+            miss_allowance_s=0.1,
+            lease_multiplier=3,
+            # these tests prove the node-loss path itself: no D445 grace
+            attempt_grace_s=0.0,
         ),
     )
     async with running_controller(settings) as rt:

@@ -151,6 +151,7 @@ from meshforge.agent.execution.fetch import (
     tree_sources,
 )
 from meshforge.agent.execution.lane import LaneState
+from meshforge.agent.execution.lane_base import LANE_DRAINED
 from meshforge.agent.execution.live_redaction import LiveRedaction
 from meshforge.agent.execution.logs import AttemptLogs, Chunk, file_sha256
 from meshforge.agent.execution.offer import ExecutionSetup
@@ -1407,8 +1408,18 @@ class Executor(CombineSteps):
         await self._send(attempt, AttemptState.STAGING)
         stage_started = self._clock()
         if attempt.lane is not None:
-            # V0.10 G4 (D264): the item list first - it decides what to stage
-            await self._lane_prepare(attempt, plan, msg.spec)
+            # V0.10 G4 (D264): the item list first - it decides what to stage.
+            # V1.0 G10-C (D447): under the staging retry like every staging
+            # fetch - a refused token waits for RefreshFetchToken, a cut link
+            # is retried; never a final ``unauthorized`` (lab L3 2026-11-10).
+            await asyncio.to_thread(self._prepare_work_root_only)  # the list's file
+            if not attempt.fetch_token:
+                attempt.fetch_token = plan.fetch_token
+
+            async def items(_token: str) -> None:
+                await self._lane_prepare(attempt, plan, msg.spec)
+
+            await self._retry_staging(attempt, items)
         if attempt.combine is not None:
             # V0.10 G5 (D268): the parts (and, for a script, the project)
             await self._combine_stage(attempt, plan, workdir, msg.spec)
@@ -2176,6 +2187,11 @@ class Executor(CombineSteps):
     async def _stopped(
         self, attempt: _Attempt, *, exit_code: int | None, signal: int | None
     ) -> None:
+        if attempt.stop_reason == LANE_DRAINED:
+            # V1.0 G10 (D446): every chunk of the job was committed while this
+            # lane still staged - it ends DONE now, not at its first request
+            await self._send(attempt, AttemptState.DONE, exit_code=0)
+            return
         if attempt.stop_reason == "agent_shutdown":
             failure = (FailureType.NODE_LOST, "agent_shutdown", True)
         elif attempt.stop_reason == OUTPUT_LIMIT:

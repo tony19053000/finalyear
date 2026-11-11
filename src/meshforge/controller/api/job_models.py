@@ -210,6 +210,11 @@ class AttemptSummary(ApiModel):
     ended_at: Utc | None = None
     transfers: list[TransferOut] = Field(default_factory=list)
     """What staging cost per tree and source (V0.5 G5); empty until it ended."""
+    reconnect_grace_until: Utc | None = None
+    """V1.0 G10 (D445): the attempt's node lost its lease while it ran; the
+    controller waits for the node to reconnect with it until this time (then
+    it is lost and retried). Null = not waiting. In-memory on the controller:
+    a controller restart clears it."""
 
 
 class BenchmarkRef(ApiModel):

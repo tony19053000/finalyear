@@ -1,4 +1,4 @@
-"""The venv runtime: an **unsandboxed** process in a cached uv venv (ADR-0004, V0.5 D86).
+r"""The venv runtime: an **unsandboxed** process in a cached uv venv (ADR-0004, V0.5 D86).
 
 Same process handling, limits and contract as
 :class:`~meshforge.agent.execution.subprocess_runtime.SubprocessRuntime` (it *is*
@@ -23,13 +23,27 @@ Docker uses this runtime with ``env.base: python-cpu``, ``resources.gpu:
 required`` and CUDA torch in its requirements (V1.0 G9-B). The
 probe says ``available`` only when the pinned ``uv`` binary (the ``uv`` wheel, agent
 extra) runs.
+
+**One worker process on Windows (V1.0 G10 BUG-4, D451).** There a venv's
+``Scripts\python.exe`` is not the interpreter but a launcher that starts the
+base interpreter (``pyvenv.cfg`` ``home``) as a second process with
+``__PYVENV_LAUNCHER__`` set, and waits for it (lab L4: the worker appeared 17 s
+after the launcher, then hung). The runtime does the launcher's job itself: it
+starts the base interpreter directly with that variable (CPython ``getpath``:
+``sys.executable`` becomes the venv's python and the venv is found next to it -
+same ``sys.prefix``, same site-packages, :func:`direct_python`). One process -
+the one the job object, the CPU sampler and the stall watch see. Anything
+unusual (no ``pyvenv.cfg``, no ``home``, a missing interpreter) keeps the
+launcher.
 """
 
 from __future__ import annotations
 
 import asyncio
+import sys
 import time
 from collections.abc import Callable
+from pathlib import Path
 from typing import ClassVar, Final
 
 from meshforge.agent.envs._tool import capture_tool, tool_env, venv_bin
@@ -44,10 +58,42 @@ from meshforge.agent.execution.subprocess_runtime import (
     pump_sink,
 )
 
-__all__ = ["VENV_RUNTIME_NAME", "VenvRuntime"]
+__all__ = ["PYVENV_LAUNCHER_VAR", "VENV_RUNTIME_NAME", "VenvRuntime", "direct_python"]
 
 VENV_RUNTIME_NAME: Final = "venv"
+PYVENV_LAUNCHER_VAR: Final = "__PYVENV_LAUNCHER__"
+"""What CPython's venv launcher sets for the base interpreter it starts (D451)."""
 _PROBE_TIMEOUT_S: Final = 15.0
+
+
+def _pyvenv_home(venv: Path) -> Path | None:
+    try:
+        text = (venv / "pyvenv.cfg").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    for line in text.splitlines():
+        key, sep, value = line.partition("=")
+        if sep and key.strip().lower() == "home" and value.strip():
+            return Path(value.strip())
+    return None
+
+
+def direct_python(
+    venv: Path, *, platform: str = sys.platform
+) -> tuple[Path, dict[str, str]] | None:
+    """Windows (D451): ``(base interpreter, env)`` that runs as ``venv`` without
+    the launcher process, or None (not Windows, or anything unusual: keep the
+    launcher)."""
+    if platform != "win32":
+        return None
+    launcher = venv / "Scripts" / "python.exe"
+    home = _pyvenv_home(venv)
+    if home is None or not launcher.is_file():
+        return None
+    base = home / "python.exe"
+    if not base.is_file():
+        return None
+    return base, {PYVENV_LAUNCHER_VAR: str(launcher)}
 
 
 class VenvRuntime(SubprocessRuntime):
@@ -113,8 +159,10 @@ class VenvRuntime(SubprocessRuntime):
             on_output=pump_sink(pump),
             log_fields={"attempt_id": spec.attempt_id, "runtime": self.name},
         )
-        return EnvUse(
-            built,
-            env={"PATH": str(venv_bin(built.path)), "VIRTUAL_ENV": str(built.path)},
-            argv0=str(built.python),
-        )
+        env = {"PATH": str(venv_bin(built.path)), "VIRTUAL_ENV": str(built.path)}
+        argv0 = str(built.python)
+        direct = await asyncio.to_thread(direct_python, built.path)
+        if direct is not None:  # D451: one process on Windows, no launcher hop
+            argv0 = str(direct[0])
+            env.update(direct[1])
+        return EnvUse(built, env=env, argv0=argv0)
