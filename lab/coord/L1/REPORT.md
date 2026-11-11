@@ -1196,3 +1196,9 @@ job_01M75155RE5YFXJ6FW46DV8HRP (4 items/chunk):
 reading: NOT first-chunk only. Every Windows chunk pays ~10-20 s fixed cost (new python.exe + torch/CUDA import per chunk); the first chunk
     adds ~12-16 s more (lane setup). L1 (Linux, Docker, warm env) has ~0 per-chunk cost. Phase times per chunk are not in `jobs --json`
     (only per-attempt transfers); numbers are from controller.split.granted -> chunk_result committed.
+
+### 2026-11-12 03:56 - G10 BUG-4 a: Mode 3 GPU split on venv (as job_01M73B13999W9AWDT89F7KDX2H) - PASS (controller side; L4 process check pending)
+job_01M76BG06PMZTQ5MHRBZT3JVSN (~/mf-eval/gpu-big, 480 items / 120 chunks, gpu preferred, --exclude-node JARVISM3): succeeded 25m27s (predicted 20m37s),
+    lanes L4, L2, L3 done exit=0, combine on L4. Chunks: L4 58 (GPU, rest avg 25.2 s, max 36.1), L2 46 (GPU, rest avg 31.6 s, 1st 70.8),
+    L3 16 (CPU, avg 92.5 s). chunk_stalled / stalled speculation: 0. No hung chunk in 120 chunk starts (before: chunk 68 hung 17 min on L4).
+    Per-chunk max on L4 36.1 s -> no outlier. L4 Get-Process (one python.exe per chunk, Program Files interpreter, no launcher) pending from L4.
