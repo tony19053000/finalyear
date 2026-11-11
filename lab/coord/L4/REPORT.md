@@ -452,3 +452,16 @@ SIGNAL: upgraded L4 0.17.2
    - J1 job_01M75BNHZWCKYJD160E4AJ7SZP: only agent.cas.staged (code tree) 18:40:01: blobs_hit 1, fetched 1, 389 B, chunks_resumed 0. No input_staged (interrupted by the stop).
    - J2 job_01M75BT6Y5AQER3AF64GS76WW4: cas.staged 18:42:33 (hit 2, 0 B); `agent.cas.input_staged` 18:45:32 ref ds5g@5 mount data/ds: blobs_hit 3, blobs_fetched 3, bytes_fetched 3137339392 (~3.1 GB), chunks_resumed 10. -> resume works (5 GB - 3.1 GB fetched ~= 2 GB reused).
 BUG-4 a: L4 ready - submit it whenever you want; tell L4 and we will record Get-Process python during it.
+
+## G10 BUG-4 a (chat 20261112-035614/044205/044246 L1) - 2026-11-12
+Job job_01M76E3YHA1YT5157097JWD9Q6 (L4 only). Samples (IST):
+- 04:45:05: only agent host 6612 + child 21076 (between chunks).
+- 04:46:21: + ONE python.exe 28184, parent 21076 (agent child), started 04:46:15.
+- 04:47:36: + ONE python.exe 23608, parent 21076, started 04:47:20 (28184 gone).
+- 04:50:32 (Admin, full cmdline): ONE chunk process 12284, parent 21076:
+  "C:\Program Files\MeshForge\0.17.1-1\python\python.exe" run_chunk.py ...att_01M76E3YJG580EBJH2B9X3TAEP.chunk\in\items.json 18 ...\out
+- No venv Scripts\python.exe launcher, no py.exe at any sample. No chunk_stalled lines for job_01M76* in agent.log*. No hung chunk.
+RESULT: BUG-4 a PASS (one python.exe per chunk, Program Files interpreter, parent = agent).
+FINDING (minor, for LEAD): the chunk runs the **0.17.1-1** interpreter while the agent is 0.17.2-1. The cached venv 8e2ebada... was built under 0.17.1, so its base python points to C:\Program Files\MeshForge\0.17.1-1. If the old version folder is ever removed (uninstall/cleanup), this venv breaks; env hash does not include the interpreter version/path. Suggest: include base interpreter path/version in env_hash, or rebuild venvs after upgrade.
+(First job job_01M76BG06PMZTQ5MHRBZT3JVSN: missed - ended before check.)
+SIGNAL: bug4a-done L4
