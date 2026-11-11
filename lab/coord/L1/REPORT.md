@@ -1164,3 +1164,8 @@ C5.11-f r2 job_01M759S1XCAM7R913TESW2R1ND (same, after L3 back online; L3 free R
 verdict C5.11-f: r2 PASS; r1 FAIL stays as BUG-5 candidate = a 5 GB fetch on L3 with < ~1 GiB free RAM starves heartbeats -> offline -> job lost.
 CORRECTION C5.11-f r1 (human, 18:15): L3's Wi-Fi actually DISCONNECTED during r1. So r1 = real network loss; the pinned job failing node_lost is
     correct behaviour. BUG-5 candidate WITHDRAWN (the earlier suspect flaps fit a weak/dropping Wi-Fi link, not heartbeat starvation). C5.11-f = PASS (r2).
+C5.11-f r3 (low-RAM attempt) job_01M75AFTY19Q1S2W3R8ENGSCS4: NEW dataset ds5g@4 (fresh 5 GiB, sha256 ef2f1aaa...0bdd, nothing cached), --node L3,
+    L3 free RAM 0.74 GiB at start -> 1.6 GiB mid-run; ran IN PARALLEL with C5.11-g J1 to L4 for the first minutes (shared L1 uplink, human OK).
+    ONE attempt, 18:19:2x -> succeeded 18:27:03 (~7.5 min). L3 sha256 ef2f1aaa...0bdd = L1. Only <1 s suspect flicks. PASS.
+    Note: RAM rose during the run, so the "< 1 GiB the whole time" case is only partly covered.
+C5.11-g J1 job_01M75A5YJKS51FZ5W0JWW54SGA (ds5g@3 to L4): succeeded 18:19:26 with NO agent stop (L4 did not act; L4 silent since 14:59) -> kill/resume NOT tested; redo.
