@@ -1021,7 +1021,7 @@ async def speculation_candidates(
 
     ``only`` (V1.0 G10, D451): just these item ids - **stalled** items the
     agent reported as making no progress - and then pending items do not
-    hold the copy back (waiting for the tail is what left a hung chunk
+    hold the copy back (waiting for the tail is what left a hung item
     alone for 17 minutes)."""
     site = holder if site is None else site
     queue = await get_queue(db, queue_id)
