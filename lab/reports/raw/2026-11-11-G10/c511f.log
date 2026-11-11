@@ -1,0 +1,4 @@
+compute: uploaded 0 files / 0 bytes, skipped 2
+compute: idempotency key cli-01M758N57DRC5R346A26750W9T (after a network error, re-run with --idempotency-key cli-01M758N57DRC5R346A26750W9T to avoid a second job)
+job_01M758N58FSW4G69NDF197CY7K
+compute: job_01M758N58FSW4G69NDF197CY7K failed (node_lost)

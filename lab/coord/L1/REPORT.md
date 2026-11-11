@@ -1147,3 +1147,14 @@ new dataset ds5g@3 (5 x 1 GiB fresh /dev/urandom + labels.csv, so no node has it
 job_01M7581NM5N8R0B6ZREN56YFW4 (~/mf-lab/reader, input ds5g@3, --node L2): ONE attempt, staging 17:36:43 -> running 17:42:59 (~376 s, ~114 Mbit/s for 5 GiB),
     succeeded 17:43:13. L2 printed dataset sha256 146bceb9...98c4 = L1 -> data intact. No node_lost, no transfer_error retry.
 verdict: the v0.17.0 pattern "first attempt of every 5 GB Wi-Fi fetch fails" is gone (G9-A fix). PASS. (L2 agent.cas lines requested.)
+
+### 2026-11-11 17:47 - C5.11-f (re-run on v0.17.2): 5 GB fetch to L3 over Wi-Fi - FAIL (BUG-5 candidate)
+job_01M758N58FSW4G69NDF197CY7K (reader, ds5g@3, --node L3 node_01M752J3FZ912G0ZJ9W4ANRPE1): staging from 17:47:22; L3 went
+    online->suspect within ~1 min and flapped suspect/online the whole fetch (12:18:59Z, 12:25:20Z, 12:28:00Z, 12:28:25Z back online for <2 s each),
+    then suspect->offline 12:34:02Z, lease_expired 12:34:05Z (last_rtt 245.6 ms, commands_unacked 0) -> attempt_lost node_offline -> pinned job failed
+    node_lost / placed_node_offline at 18:04:10 IST (~17 min). Controller also re-sent start_attempt 53 times (every ~20 s) during staging.
+    L3 still offline right after (free RAM 1.76 GiB at last report).
+compare: same dataset to L2 at 17:36 = one attempt, 376 s, PASS. L3 = weak CPU (75.7 GF), 7.7 GiB RAM, Wi-Fi.
+BUG-5 candidate (Lead -> BUG-FIX): a 5 GB fetch on a weak/low-RAM Windows node starves the agent's lease/heartbeats -> node suspect for most of the
+    fetch -> offline -> job lost. G9-A fix (v0.17.1) is not enough on L3. Need L3 agent.log (cas + session lines) for 17:47-18:05.
+evidence: lab/reports/raw/2026-11-11-G10/c511f-*.txt/.log
