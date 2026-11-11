@@ -406,3 +406,7 @@ SIGNAL: upgraded L3 version=0.17.2-1
 when: 2026-11-11 14:10 (local)
 result: low-RAM condition on purpose: RAM 7.08/7.69 GiB used (92 %), free 0.72 GiB, commit 15.1/20.2; open: Edge x20 1.2 GB, ChatGPT x19 0.9 GB, Claude 1.0 GB, codex. Waiting for L1 to run G9-D on L3.
 SIGNAL: g10-g9d-ready L3 free=0.72
+
+### G10 L3 row - RAM cleared by human decision
+when: 2026-11-11 14:10 (local)
+result: human asked to clear RAM before the run: ChatGPT, codex, Edge, Chrome, BlueStacks ended -> free 2.54 GiB. The G9-D run will therefore NOT be under low RAM (the Lead's row asks for big apps open) - low-RAM part pending.
