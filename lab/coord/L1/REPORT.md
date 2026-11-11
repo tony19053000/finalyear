@@ -1169,3 +1169,12 @@ C5.11-f r3 (low-RAM attempt) job_01M75AFTY19Q1S2W3R8ENGSCS4: NEW dataset ds5g@4 
     ONE attempt, 18:19:2x -> succeeded 18:27:03 (~7.5 min). L3 sha256 ef2f1aaa...0bdd = L1. Only <1 s suspect flicks. PASS.
     Note: RAM rose during the run, so the "< 1 GiB the whole time" case is only partly covered.
 C5.11-g J1 job_01M75A5YJKS51FZ5W0JWW54SGA (ds5g@3 to L4): succeeded 18:19:26 with NO agent stop (L4 did not act; L4 silent since 14:59) -> kill/resume NOT tested; redo.
+
+### 2026-11-11 18:40 - C5.11-g (re-run on v0.17.2): 5 GB fetch to L4, agent restart mid-download, resume - PASS
+fresh dataset ds5g@5 (sha256 3a1032de...7a78, never on L4). Times fixed by chat (start 18:40, stop 18:42); L4 human Admin PowerShell.
+J1 job_01M75BNHZWCKYJD160E4AJ7SZP: started 18:40:01; 18:42:01 session.closed agent_closed (L4 Stop-Service), back online 18:42:19 -> J1 failed
+    node_lost (pinned; expected).
+J2 job_01M75BT6Y5AQER3AF64GS76WW4 (same, submitted 18:42:33): succeeded 18:45:41 (~3 min vs ~6 min for a full 5 GB). Transfer lines:
+    dataset tree 8aa131ed: **cache hits=3 (2048.0 MiB) resumed_chunks=10 refetched=0**; from controller 2992.0 MiB (374 units).
+    L4 sha256 3a1032de...7a78 = L1 -> intact.
+verdict c3: resumed_chunks = 10 > 0 and 2 GiB reused (not fetched again) -> PASS. (v0.17.0 result was FAIL: no resumed_chunks field.)
