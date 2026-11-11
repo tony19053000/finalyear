@@ -1158,3 +1158,7 @@ compare: same dataset to L2 at 17:36 = one attempt, 376 s, PASS. L3 = weak CPU (
 BUG-5 candidate (Lead -> BUG-FIX): a 5 GB fetch on a weak/low-RAM Windows node starves the agent's lease/heartbeats -> node suspect for most of the
     fetch -> offline -> job lost. G9-A fix (v0.17.1) is not enough on L3. Need L3 agent.log (cas + session lines) for 17:47-18:05.
 evidence: lab/reports/raw/2026-11-11-G10/c511f-*.txt/.log
+C5.11-f r2 job_01M759S1XCAM7R913TESW2R1ND (same, after L3 back online; L3 free RAM 0.84 -> 1.44 GiB, human closed apps during staging):
+    ONE attempt, succeeded 18:10:54, staged by 18:10:43 (~4 min - faster: part of ds5g@3 was likely already in L3's cache from the failed run = reuse/resume).
+    L3 sha256 146bceb9...98c4 = L1 -> intact. Brief suspect<->online flicks (<1 s) at 12:37:22, :25, :55, 12:39:53, 12:40:00Z, no drop.
+verdict C5.11-f: r2 PASS; r1 FAIL stays as BUG-5 candidate = a 5 GB fetch on L3 with < ~1 GiB free RAM starves heartbeats -> offline -> job lost.
