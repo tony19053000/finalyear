@@ -10,6 +10,11 @@ buffered without bound.
 If ``on_output`` raises, :attr:`OutputPump.failed` is set, the event fires (the
 runtime stops the workload and reports ``internal_error``) and everything after is
 discarded so producers never block on a dead consumer.
+
+V1.0 G10 (D450): :meth:`OutputPump.keep_tail` keeps the last bytes put (every
+stream, in put order, from any producer thread) so a runtime can classify a
+failed step from its own output - e.g. a Docker env build that ran out of disk
+(``disk_full``, not ``env_error``).
 """
 
 from __future__ import annotations
@@ -42,6 +47,30 @@ class OutputPump:
         self.failed: BaseException | None = None
         self.failed_event = asyncio.Event()
         self.delivered_bytes = 0
+        self._tail: bytearray | None = None
+        self._tail_limit = 0
+        self._tail_lock = threading.Lock()
+
+    def keep_tail(self, limit: int) -> None:
+        """From now on keep the last ``limit`` bytes put (a fresh, empty tail)."""
+        with self._tail_lock:
+            self._tail = bytearray()
+            self._tail_limit = max(1, limit)
+
+    def tail(self) -> bytes:
+        """The kept tail (empty when :meth:`keep_tail` was never called)."""
+        with self._tail_lock:
+            return b"" if self._tail is None else bytes(self._tail)
+
+    def _note(self, data: bytes) -> None:
+        with self._tail_lock:
+            tail = self._tail
+            if tail is None:
+                return
+            tail += data
+            excess = len(tail) - self._tail_limit
+            if excess > 0:
+                del tail[:excess]
 
     def start(self) -> None:
         self._loop = asyncio.get_running_loop()
@@ -63,6 +92,7 @@ class OutputPump:
 
     async def put(self, stream: Stream, data: bytes) -> None:
         if data:
+            self._note(data)
             await self._queue.put((stream, data))
 
     def put_from_thread(
@@ -73,6 +103,7 @@ class OutputPump:
         loop = self._loop
         if loop is None or not data:
             return loop is not None
+        self._note(data)
         try:
             fut = asyncio.run_coroutine_threadsafe(
                 self._queue.put((stream, data)), loop

@@ -1594,6 +1594,19 @@ class LivenessSettings(SectionModel):
         ge=1,
         description="Lease = heartbeat_interval_s x this; silence past it = OFFLINE.",
     )
+    attempt_grace_s: float = Field(
+        default=60.0,
+        ge=0.0,
+        le=3600.0,
+        description=(
+            "V1.0 G10 (D445): after a node's lease expires, its RUNNING attempts "
+            "(Mode 1 jobs and split lanes) wait this long for the node to "
+            "reconnect and report them still running before they are lost and "
+            "retried elsewhere. A dead node delays its retries by this much. "
+            "0 = lose them at once (the behaviour before D445). A revoked node, "
+            "a clean close (Goodbye) or a replaced certificate never waits."
+        ),
+    )
 
     @model_validator(mode="after")
     def _consistent(self) -> LivenessSettings:

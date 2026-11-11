@@ -69,7 +69,7 @@ import hashlib
 import hmac
 import json
 import re
-from collections.abc import Collection, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from typing import Annotated, Any, Final, Literal, Protocol
 
 from fastapi import APIRouter, Depends, Path, Query, Request, Response, status
@@ -396,6 +396,7 @@ async def _detail(
     job: JobRecord,
     inputs: NamedInputStore | None = None,
     benchmark: BenchmarkRef | None = None,
+    held_until: Callable[[str], dt.datetime | None] | None = None,
 ) -> JobDetail:
     transitions = await store.transitions(job.id)
     attempts = await store.list_attempts(job.id)
@@ -424,7 +425,15 @@ async def _detail(
             for t in transitions
         ),
         attempts=tuple(
-            _attempt(a).model_copy(update={"transfers": by_attempt.get(a.id, [])})
+            _attempt(a).model_copy(
+                update={
+                    "transfers": by_attempt.get(a.id, []),
+                    # D445: waiting for its node to reconnect (in memory)
+                    "reconnect_grace_until": None
+                    if held_until is None
+                    else held_until(a.id),
+                }
+            )
             for a in attempts
         ),
         inputs=tuple(
@@ -928,7 +937,13 @@ async def get_job(
     if job is None or not user.may_see_job(job.owner_user_id):
         raise ApiError.not_found("job")
     marks = await _benchmarks(jobs, [job.id])
-    return await _detail(jobs.store, job, jobs.inputs, marks.get(job.id))
+    return await _detail(
+        jobs.store,
+        job,
+        jobs.inputs,
+        marks.get(job.id),
+        None if jobs.dispatcher is None else jobs.dispatcher.held_until,
+    )
 
 
 @job_router.post(

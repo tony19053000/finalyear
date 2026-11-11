@@ -55,7 +55,10 @@ pytestmark = [pytest.mark.asyncio, pytest.mark.timeout(120)]
 # OFFLINE 3 s after the last heartbeat: quick, but far above a loaded
 # machine's loop stall (the agents run in this event loop).
 LIVENESS = LivenessSettings(
-    heartbeat_interval_s=0.2, miss_allowance_s=1.0, lease_multiplier=15
+    heartbeat_interval_s=0.2,
+    miss_allowance_s=1.0,
+    lease_multiplier=15,
+    attempt_grace_s=0.0,  # the lease-expiry loss itself (no D445 grace)
 )
 WORKLOAD = """\
 import os, sys, time

@@ -772,6 +772,7 @@ class ControllerRuntime:
             on_split_change=tracker.touch,
             calibration=self.calibration,
             ml=self.ml_source,  # V0.15 G4 (D336)
+            attempt_grace_s=cfg.liveness.attempt_grace_s,  # V1.0 G10 (D445)
             on_integrity_failure=(
                 functools.partial(
                     self.scrubber.suspect_tree_soon, why="attempt_integrity_error"
@@ -871,6 +872,8 @@ class ControllerRuntime:
         # accepted; every HelloAck carries it, the interceptor and the HTTPS
         # policy check against it, a periodic sync picks up CLI revocations.
         revocations = Revocations(RevocationStore(engine), manager)
+        if self.dispatcher is not None:  # D445 r1: held attempts of a revoked node
+            revocations.on_revoked = self.dispatcher.on_revoked
         await revocations.sync()
         self.revocations = revocations
         manager.revoked_serials = revocations.sent_serials

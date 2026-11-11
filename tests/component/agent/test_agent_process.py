@@ -173,7 +173,7 @@ async def test_sigterm_exits_zero_and_controller_records_agent_closed(
         rec = await registry.get_session(session_id)
         return rec is not None and rec.end_reason is SessionEndReason.AGENT_CLOSED
 
-    await poll_until(closed, timeout_s=5.0)
+    await poll_until(closed, timeout_s=15.0)  # a loaded CI runner took > 5 s
 
     async def offline() -> bool:  # NB-G5-1 regression (G6, D19): a clean stop
         rec = await registry.get_node(node_id)

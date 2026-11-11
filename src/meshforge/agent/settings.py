@@ -1510,6 +1510,42 @@ class SplitSettings(SectionModel):
             "result (V0.10 G8, D261); 0 = send none."
         ),
     )
+    # V1.0 G10 BUG-4 (D451): a chunk with no progress is reported as stalled
+    stall_watch: bool = Field(
+        default=True,
+        description=(
+            "Judge every running chunk: no output and ~no CPU for the stall "
+            "threshold is reported to the controller with the lease (never killed "
+            "here)."
+        ),
+    )
+    stall_floor_s: float = Field(
+        default=300.0,
+        ge=10.0,
+        le=86_400.0,
+        description="Shortest idle time that is a stall (also used before the "
+        "lane has a finished chunk to compare with).",
+    )
+    stall_factor: float = Field(
+        default=4.0,
+        ge=1.0,
+        le=1000.0,
+        description="A stall is idle for max(stall_floor_s, stall_factor x the "
+        "chunk's expected time from this lane's recent chunks).",
+    )
+    stall_cpu_share: float = Field(
+        default=0.02,
+        ge=0.0,
+        le=1.0,
+        description="CPU-seconds per wall second (the chunk's whole process tree) "
+        "below which a silent chunk counts as idle.",
+    )
+    stall_check_s: float = Field(
+        default=10.0,
+        ge=0.5,
+        le=300.0,
+        description="How often a running chunk is judged.",
+    )
 
 
 class ConditionSettings(SectionModel):

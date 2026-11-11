@@ -141,10 +141,22 @@ def test_apply_without_sudo_explains_and_exits_4(
     assert "meshforge" in said[0] and "su -s /bin/sh" in said[0]
 
 
-def test_apply_returns_on_the_common_case(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("platform", ["linux", "win32"])
+def test_apply_returns_on_the_common_case(
+    monkeypatch: pytest.MonkeyPatch, platform: str
+) -> None:
+    """Hermetic (V1.0 G10): both platform branches, whatever this host has
+    installed - a lab laptop with MeshForge installed (L3) must pass too."""
+    monkeypatch.setattr("meshforge.agent.system_cli.sys.platform", platform)
+    monkeypatch.delenv(config.INSTALL_MODE_ENV_VAR, raising=False)
     monkeypatch.setattr(system_cli, "system_install_present", lambda: False)
     # Windows checks the install separately (lab L3, a laptop with MeshForge installed)
     monkeypatch.setattr(_common_system_cli, "windows_installed", lambda: False)
+    monkeypatch.setattr(
+        _common_system_cli,
+        "windows_elevated",
+        lambda: pytest.fail("not installed: never asks"),
+    )
     system_cli.apply(
         ["identity", "show"],
         execvp=lambda f, a: pytest.fail("must not exec"),

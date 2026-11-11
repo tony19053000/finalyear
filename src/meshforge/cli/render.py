@@ -49,6 +49,7 @@ with a top-level ``schema_version`` (docs/CLI.md).
 
 from __future__ import annotations
 
+import datetime as dt
 import json
 import os
 from collections.abc import Mapping, Sequence
@@ -700,6 +701,9 @@ def job_detail_table(payload: Mapping[str, Any]) -> Table:
                 f"missing={missing_text}"
             ),
         )
+        waiting = reconnect_grace_text(attempt)
+        if waiting:
+            table.add_row(_cell("  waiting"), _cell(waiting))
         failed = attempt_failure_text(attempt)
         if failed:
             # its own row: the attempt row is long already and a cell is
@@ -719,6 +723,26 @@ def job_detail_table(payload: Mapping[str, Any]) -> Table:
                 ),
             )
     return table
+
+
+def reconnect_grace_text(
+    attempt: Mapping[str, Any], now: dt.datetime | None = None
+) -> str:
+    """V1.0 G10 (D445): ``waiting for node to reconnect (Ns)`` while the
+    attempt's node lost its lease and the controller holds the attempt for
+    it (``reconnect_grace_until``), else "". ``N`` = seconds left, never
+    negative (the controller ends the wait at its next tick)."""
+    raw = attempt.get("reconnect_grace_until")
+    if not isinstance(raw, str) or not raw:
+        return ""
+    try:
+        until = dt.datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return ""
+    if until.tzinfo is None:
+        until = until.replace(tzinfo=dt.UTC)
+    left = (until - (now or dt.datetime.now(dt.UTC))).total_seconds()
+    return f"waiting for node to reconnect ({max(0, round(left))}s)"
 
 
 def attempt_failure_text(attempt: Mapping[str, Any]) -> str:

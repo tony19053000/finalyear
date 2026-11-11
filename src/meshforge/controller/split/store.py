@@ -48,7 +48,7 @@ import dataclasses
 import datetime as dt
 import functools
 from collections import Counter, OrderedDict
-from collections.abc import AsyncIterator, Callable, Collection, Sequence
+from collections.abc import AsyncIterator, Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any, Final
@@ -313,6 +313,10 @@ class ChunkStore:
         self.conflict_retries: Counter[str] = Counter()
         """V1.0 G9-D2 (D440): transactions re-run after a deadlock or
         serialization failure, per operation."""
+        self.stall_peaks: Mapping[tuple[int, int], float] = {}
+        """V1.0 G10 (D451): (item id, lease seq) -> the longest ``stalled_s``
+        its lane reported (kept by the service); written into the lease's
+        chunk record (``chunk_record.stalled_s``)."""
 
     async def _lane(
         self,
@@ -352,9 +356,13 @@ class ChunkStore:
         held: Collection[tuple[int, int]],
         now: dt.datetime,
         avoid: Collection[int] = (),
+        stalled: Mapping[int, tuple[int, float]] | None = None,
     ) -> RequestOutcome:
         """``avoid``: chunk item ids this lane must not get now (a cool-down
-        after its unverified result); they are left pending for other lanes."""
+        after its unverified result); they are left pending for other lanes.
+        ``stalled`` (D451): ``item id -> (lease seq, stalled_s)`` of leases
+        reported making no progress - this lane gets a copy of one of them
+        first, before any pending chunk (:mod:`.speculation`)."""
         async with self._sessions() as db, db.begin():
             lane = await self._lane(
                 db, node_id=node_id, attempt_id=attempt_id, token=token, lock_job=False
@@ -390,6 +398,31 @@ class ChunkStore:
             # D437: a chunk that ran past the time limit here never runs here
             # again while another node could take it
             never = await _deadline_elsewhere(db, job.id, queue.id, node_id)
+            if stalled and not lost and k > 0 and self._speculation is not None:
+                # D451: a stalled chunk elsewhere is copied before new work
+                spec = await speculate_for(
+                    db,
+                    queue=queue,
+                    job_id=job.id,
+                    attempt_id=attempt_id,
+                    node_id=node_id,
+                    now=now,
+                    config=self._speculation,
+                    avoid=skip | set(never),
+                    stalled=stalled,
+                )
+                if isinstance(spec, Speculated):
+                    g = spec.grant
+                    copy = self._grant_out(
+                        digest,
+                        items,
+                        idx=g.idx,
+                        item_id=g.item_id,
+                        seq=g.seq,
+                        payload=g.payload,
+                        speculative=True,
+                    )
+                    return ChunkGrantOut((copy,), 0, _chunk_cap(job), spec)
             pulled = (
                 await wq.lease_next(
                     db,
@@ -613,6 +646,7 @@ class ChunkStore:
                         failure_type=None,
                         limits=self._stderr,
                         now=now,
+                        stalled=self.stall_peaks,
                     )
                 return ResultOutcome(
                     ResultKind.ALREADY_DONE, None, job.id, nondeterministic=mismatch
@@ -626,6 +660,7 @@ class ChunkStore:
                 report=measured,
                 limits=self._stderr,
                 now=now,
+                stalled=self.stall_peaks,
             )
             cancel = await _lanes_of(db, got.superseded)
             copy_won = (
@@ -703,6 +738,7 @@ class ChunkStore:
             failure_type=kind.value,
             limits=self._stderr,
             now=now,
+            stalled=self.stall_peaks,
         )
         if isinstance(got, AlreadyDone):
             return ResultOutcome(ResultKind.ALREADY_DONE, None, job.id)
@@ -850,12 +886,49 @@ class ChunkStore:
             return (renewed, len(outs) - renewed)
 
     @typed_store_call
+    @retry_conflicts("split.hold_lane")
+    async def hold_lane(
+        self, attempt_id: str, *, timeout_s: float, now: dt.datetime
+    ) -> int:
+        """V1.0 G10 (D445): every live lease of the lane ``attempt_id`` lasts
+        at least until ``now + timeout_s`` (never shortened) - its node lost its
+        lease and the controller waits ``attempt_grace_s`` for it to come back
+        with the lane. The number of leases extended."""
+        async with self._sessions() as db, db.begin():
+            rows = (
+                await db.execute(
+                    select(work_lease.c.item_id, work_lease.c.seq).where(
+                        work_lease.c.holder == attempt_id,
+                        work_lease.c.state == LeaseState.LIVE.value,
+                    )
+                )
+            ).all()
+            if not rows:
+                return 0
+            outs = await wq.renew(
+                db,
+                holder=attempt_id,
+                leases=[(int(r.item_id), int(r.seq)) for r in rows],
+                now=now,
+                timeout_s=timeout_s,
+            )
+            return sum(1 for o in outs if isinstance(o, Renewed))
+
+    @typed_store_call
     @retry_conflicts("split.expire")
     async def expire(self, *, now: dt.datetime, limit: int = 500) -> int:
         """Expire due leases (their chunks go back to pending)."""
         async with self._sessions() as db, db.begin():
             result = await wq.expire_due(db, now=now, limit=limit)
         return sum(len(e.leases) for e in result.expired)
+
+    @typed_store_call
+    async def other_lanes(self, job_id: str, attempt_id: str, node_id: str) -> int:
+        """V1.0 G10 (D451): live lanes of ``job_id`` on **other** nodes than
+        ``node_id`` - the lanes that could take a copy of a stalled chunk."""
+        async with self._sessions() as db:
+            lanes = await live_lanes(db, job_id, exclude=attempt_id)
+            return sum(1 for x in lanes if x.node_id != node_id)
 
     @typed_store_call
     async def held_leases(self, attempt_id: str) -> int:
