@@ -574,3 +574,4 @@ SIGNAL: capture-pushed
 
 ## 2026-11-12
 - 05:22 read: C5.11-e (5 GB fetch to L2, 2026-11-11 17:36) asks for agent.cas log lines; agent log is admin-only (ProgramData access denied) -> asked human. L1 asks free RAM > 2 GB; now ~0.74 GB free -> asked human.
+- 05:3x RAM prep (L1 1.0.7): closed Edge, ChatGPT, Copilot (human OK). Free RAM 0.76 -> 1.62 GB (target > 2 GB not reached; rest is Claude app ~1.2 GB + Windows).
