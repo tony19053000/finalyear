@@ -1101,3 +1101,13 @@ lane end vs last commit (08:47:47.5Z): L2 lane ended 08:47:50.1 (+2.6 s, with jo
 FINDING (perf, for Lead): a 2-item GPU chunk takes ~45-50+ s on the Windows nodes (L4, L2) vs ~4.6 s on L1 (Docker, warm env). The planner predicted 28 s
     total, so it expects Windows chunks far faster; per-chunk start cost on Windows venv (new python.exe + torch/CUDA init each chunk, D451) looks ~40 s.
     Result: L2 GPU does no work in a short job. Worth a check: L4 agent.log chunk start->first output for this job.
+
+### 2026-11-11 15:01 - G10 BUG-4 b (hung-chunk check, L4 stall_floor_s 60) - PASS (controller side; L4 log lines pending)
+setup: L4 [agent.split] stall_floor_s = 60, restarted 14:58:42 (chat 20261111-145916). Job ~/mf-eval/bug4b: python-cpu, every chunk on L4 sleeps 600 s silently.
+try 1 job_01M74Z5VRPEYTWXSSBCJF6JQR1 (12 items): succeeded 43 s, but L4's chunk 2 was copied at +29 s by normal end-of-queue speculation -> did not test the stall path.
+try 2 job_01M74Z7T6JD6KVJ85B7CAQ9CVB (60 items, 30 chunks, L1+L2+L4): succeeded 2m45s (predicted 2m42s).
+    L4 chunk 1 granted 09:32:47.97Z -> controller.split.chunk_stalled (L4) 09:33:59.88Z (+72 s = floor 60 + check) -> speculated chunk 1 reason "stalled"
+    to L2 at 09:34:08.07Z while the queue still had work (NOT waiting for the queue to empty) -> resolved 09:34:20Z.
+    L4 got chunk 19 at 09:34:21Z (also sleeps); copied to L1 at 09:35:14Z by end-of-queue speculation (53 s, under the floor). Job done 09:35:32Z.
+verdict: stall detected ~1 min after start and copied at once -> BUG-4 fix works. (Before: 17 min.) L4 agent.log chunk_stalled + Get-Process pending from L4.
+note: L4 receives new chunks after a stalled one (it stalled again); fine for a real rare hang, could matter if a node hangs every chunk.
