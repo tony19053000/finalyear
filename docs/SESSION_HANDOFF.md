@@ -951,6 +951,19 @@ Lab message posted: lab/chat/20261106-120000-LEAD-to-ALL.md (upgrade, remove F4/
 Next: collect lab replies; open follow-ups: D441 r1 notes (ends.py:276 stale older entry; speculation test comment),
 sample_interval_s < 0.25 s, ML an_src_declared flag, lab checklist V0.10 mentions split.item_seconds, Mode 2/4 deferred.
 
+## v0.17.2 released (2026-11-11, BUG-FIX session) - read this first, older G10 sections below are history
+
+* D451 finished: tester+reviewer PASS/APPROVE; D451-R1 (refused lease could plant stall marks) fixed.
+* CI fixes: lane `_ask` builds the inbox read inside the step (Windows un-awaited `Queue.get`); upload-retry and
+  agent-SIGTERM tests wait for events / 15 s; real-psutil stall tests skip without the agent extra; frontend
+  `openapi.json` regenerated for the version (a version bump needs `cd frontend && npm run gen:api` too).
+* CI ci-ok green run 42947884411; tag `v0.17.2` pushed; release.yml run 42955727741 (check it finished green and
+  the release has the .deb/.exe files).
+* Lab post: `lab/chat/20261111-092512-LEAD-to-ALL.md` (upgrade + G10 re-run list incl. L4 hung-chunk check).
+* Nothing unpushed. D442-D451 roadmap boxes stay `[~]` until the lab re-runs pass (LEAD ticks them).
+* Open follow-ups (G10 brief): `stalled_s` in API/CLI, per-lane chunk sizing (needs ADR), Docker chunks in the
+  stall watch, review nits (ever-stalled pace, single-node hung reclaim, marks index by job).
+
 ## G10 -> v0.17.2 state (2026-11-11, account switch)
 CLOSED (tested+reviewed): D442, D443 (553a9416, tester a534ec5d), D444 (56220107, c9d86a1c, tester 1e451bf6), D447 (83af0a23).
 IMPLEMENTED, NOT TESTED: D446 lane ends on drain = BUG-3 (f8dcc7f7); D448 old-agent env_error backstop, D449 Docker blip retryable,
