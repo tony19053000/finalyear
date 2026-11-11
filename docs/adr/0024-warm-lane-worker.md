@@ -1,6 +1,6 @@
 # ADR-0024: Warm lane worker — cut the fixed per-chunk cost on venv lanes
 
-> **Status:** Proposed (2026-11-12) — team GO for round G11 (lab chat 20261112-043333-L1-to-LEAD, confirmed by the user in the BUG-FIX session) · **Deciders:** team + Lead agent
+> **Status:** Deferred (2026-11-12) — scope cut by the team for time: not built in v0.17.3; future work. Only the planner per-node chunk cost (D456) ships. · **Deciders:** team + Lead agent
 
 ## Context
 Lab round 10 (L1 REPORT 2026-11-12, controller journal granted→committed) measured a fixed cost on **every**
