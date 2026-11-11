@@ -40,10 +40,11 @@ here without touching a caller.
 costing a set; it never changes what any other set is, so the chosen plan is
 exactly the unpruned one. Lane ``B`` is *idle-dominated* when an
 already-included lane ``A`` (earlier in rate order, not dominated itself) is
-no worse on both lane terms (start = stage + env, seconds per item =
-``1/r + f``), better on one, **and** alone finishes every item before ``B``
-could even start (``start_A + items x per_item_A + chunks x t_o <= start_B``,
-with the most chunks the chunk rules allow). ``A`` is then in every prefix set
+no worse on every lane term (ready = stage + env + first-chunk extra, seconds
+per item = ``1/r + f``, fixed chunk cost ``t`` - V1.0 G11, D456), better on
+one, **and** alone finishes every item before ``B`` could even start
+(``ready_A + items x per_item_A + chunks x t_A <= ready_B``, with the most
+chunks the chunk rules allow). ``A`` is then in every prefix set
 ``B`` is in, and the water filling of :func:`~.split.estimate_split` gives
 ``B`` no chunk there. A generated set ``P`` that holds idle-dominated lanes is
 skipped only when ``P'`` = ``P`` without them is generated too **and** has the
@@ -267,20 +268,26 @@ def dominated_lanes(
     chunks = _most_chunks(items, chunk_items, config)
     kept: list[tuple[Lane, float]] = []  # (lane, the time it needs alone)
     out: list[Pruned] = []
+
+    def fixed_of(item: Lane) -> float:
+        # D456: the lane's own fixed chunk cost, else the shared one
+        return max(0.0, overhead_s if item.fixed is None else item.fixed.seconds)
+
     for lane_b in ordered:
-        start_b, per_b = lane_b.start_s, lane_b.per_item_s
+        start_b, per_b, fix_b = lane_b.ready_s, lane_b.per_item_s, fixed_of(lane_b)
         by: str | None = None
         for lane_a, alone_a in kept:
-            start_a, per_a = lane_a.start_s, lane_a.per_item_s
-            no_worse = start_a <= start_b and per_a <= per_b
-            better = start_a < start_b or per_a < per_b
+            start_a, per_a = lane_a.ready_s, lane_a.per_item_s
+            fix_a = fixed_of(lane_a)
+            no_worse = start_a <= start_b and per_a <= per_b and fix_a <= fix_b
+            better = start_a < start_b or per_a < per_b or fix_a < fix_b
             if no_worse and better and alone_a <= start_b:
                 by = lane_a.node_id
                 break
         if by is not None:
             out.append(Pruned(node_id=lane_b.node_id, by=by))
             continue
-        alone = start_b + max(1, items) * per_b + chunks * max(0.0, overhead_s)
+        alone = start_b + max(1, items) * per_b + chunks * fix_b
         kept.append((lane_b, alone))
     return tuple(out)
 
@@ -397,6 +404,7 @@ def _split(
             items=split.items,
             min_nodes=split.min_nodes,
             max_nodes=split.max_nodes,
+            target_chunk_s=snapshot.config.split.target_chunk_s,  # D456
         )
         if snapshot.config.prune_dominated:  # V0.14 G3 (D294)
             groups, pruned = _skip_dominated(groups, lanes, request, snapshot)

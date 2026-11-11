@@ -15,7 +15,8 @@ One function, so the Plan tab and the CLI cannot say different things
 * :func:`term_note` - what a predicted term's ``detail`` says that its seconds
   and source do not: where a transfer's bandwidth came from (V0.6 G4, D131),
   a cached environment, a bandwidth raised to the floor, stale probes ignored,
-  and a ``risk`` term's failure probability (D296). The calibration factor is
+  a ``risk`` term's failure probability (D296), and a ``chunk_overhead``
+  term's per-node fixed and first-chunk costs (V1.0 G11, D456). The calibration factor is
   **not** in it - the API carries it as its own typed field.
 
 Every value read here may be anything (stored JSON, a hostile or older
@@ -168,7 +169,49 @@ def term_note(term: object, *, name: str | None = None) -> str | None:
         risk = _risk_note(detail)
         if risk is not None:
             parts.append(risk)
+    if name == "chunk_overhead":
+        cost = _chunk_cost_note(detail)
+        if cost is not None:
+            parts.append(cost)
     return ", ".join(parts) if parts else None
+
+
+def _chunk_cost_note(detail: Mapping[str, Any]) -> str | None:
+    """V1.0 G11 (D456): ``per chunk 0002ab12 20.0s (n=17) +15.0s first (n=1),
+    ...`` - each lane's own fixed chunk cost (``shared`` when it has none) and
+    its first-chunk extra; ``None`` when the detail has no ``per_node``."""
+    per_node = detail.get("per_node")
+    if not isinstance(per_node, Mapping):
+        return None
+    parts: list[str] = []
+    for node, row in sorted(per_node.items(), key=lambda kv: str(kv[0])):
+        if not isinstance(row, Mapping):
+            continue
+        fixed = _num(row.get("fixed_s"))
+        if fixed is None:
+            continue
+        samples = _num(row.get("fixed_samples"))
+        origin = (
+            f"n={samples:g}"
+            if row.get("fixed_from") == "node" and samples is not None
+            else "shared"
+        )
+        text = f"{str(node)[-_ORIGIN_CHARS:]} {fixed:.1f}s ({origin})"
+        first = _num(row.get("first_s"))
+        if first is not None:
+            first_n = _num(row.get("first_samples"))
+            text += f" +{first:.1f}s first" + (
+                f" (n={first_n:g})" if first_n is not None else ""
+            )
+        parts.append(text)
+    if not parts:
+        return None
+    more = len(parts) - _MAX_LANES
+    return (
+        "per chunk "
+        + ", ".join(parts[:_MAX_LANES])
+        + (f" + {more} more" if more > 0 else "")
+    )
 
 
 # ------------------------------------------------------------------ margin test

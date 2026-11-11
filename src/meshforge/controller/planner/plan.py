@@ -128,6 +128,14 @@ _G3_CONFIG_DEFAULTS: dict[str, Any] = {
 # --- V1.0 G2 (D418): likewise, an empty disabled_modes never enters the digest
 _V10_CONFIG_DEFAULTS: dict[str, Any] = {"disabled_modes": []}
 
+# --- V1.0 G11 (D456): likewise, empty per-node chunk costs
+_G11_HISTORY_KEYS: tuple[str, ...] = (
+    "chunk_fixed_s_by_node",
+    "chunk_fixed_samples_by_node",
+    "chunk_first_s_by_node",
+    "chunk_first_samples_by_node",
+)
+
 
 def _without_unset_g3(data: dict[str, Any]) -> dict[str, Any]:
     if data["request"].get("objective") is None:
@@ -139,6 +147,12 @@ def _without_unset_g3(data: dict[str, Any]) -> dict[str, Any]:
     split_info = data["request"].get("split")
     if isinstance(split_info, dict) and split_info.get("item_seconds") is None:
         split_info.pop("item_seconds", None)
+    # V1.0 G11 (D456): no per-node chunk cost learned = the digest before it
+    history = data["request"].get("history")
+    if isinstance(history, dict):
+        for name in _G11_HISTORY_KEYS:
+            if not history.get(name):
+                history.pop(name, None)
     snapshot = data["snapshot"]
     for node in snapshot["nodes"]:
         if node.get("reliability") is None:
