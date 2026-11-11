@@ -389,3 +389,10 @@ commands:
     Stop-Process ChatGPT, codex, msedge, chrome, BlueStacksServices (human: keep only what is required)
 result: before: 6.93/7.69 GiB used (90 %), commit 17.9/20.2 (ChatGPT + Edge had been reopened). After: 5.39 GiB used (70 %), 2.30 GiB free, commit 9.87/20.2. Kept: Claude, MeshForgeAgent (Running), Windows. Remaining big user: Memory Compression ~1.2 GB (Windows) + svchost.
 SIGNAL: g9d-retry-ready L3 free=2.30
+
+### G9-D L3 retry - PASS (by L1)
+result: L1 chat 20261110-204514: job_01M72YVARE8WHZ0AY8GY4ZEEXR succeeded on L3 (~27 min, 1 chunk, no lease loss) with the big apps closed (2.1 GiB free).
+
+### G10-up-a - download v0.17.2 - OK
+when: 2026-11-11 13:51 (local)
+result: MeshForge-Agent-Setup-0.17.2-1.exe 54.9 MB, SHA256 matches SHA256SUMS. Upgrade install: HUMAN next.
