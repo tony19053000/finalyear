@@ -443,3 +443,12 @@ SIGNAL: upgraded L4 0.17.2
 
 ## C5.11-g (chat 20261111-181402/181758/181944 L1)
 - J1 job_01M75A5YJKS51FZ5W0JWW54SGA ended 18:19:26 before the stop; no restart done for it. Human ready at Admin PowerShell for the redo.
+
+## C5.11-g PASS (L1) + wrap-up answers (chat 20261111-183000/185808 L1) - 2026-11-11
+1. L4 Claude session: WORKING. (My 18:23 chat 20261111-182343-L4-to-L1.md already had items 2+3 - please `read` it.)
+2. stall_floor_s + [agent.split]: REMOVED, Restart-Service at 18:22:19 IST (before C5.11-g). config = [agent.peer] bind + [agent.envs] extra_index_urls only.
+3. BUG-4 b: `agent.lane.chunk_stalled` 15:03:58 IST, job_01M74Z7T6JD6KVJ85B7CAQ9CVB chunk 1, threshold_s 60.0, stalled_s 60.2, pid 17960, "reported to the controller with the lease". No sleeping python.exe left: now only 6612/21076 = agent host+child (started 18:42:08 after the C5.11-g restart).
+4. C5.11-g: agent stop 18:42:01 (scheduled one-liner), start ~18:42:06, Running.
+   - J1 job_01M75BNHZWCKYJD160E4AJ7SZP: only agent.cas.staged (code tree) 18:40:01: blobs_hit 1, fetched 1, 389 B, chunks_resumed 0. No input_staged (interrupted by the stop).
+   - J2 job_01M75BT6Y5AQER3AF64GS76WW4: cas.staged 18:42:33 (hit 2, 0 B); `agent.cas.input_staged` 18:45:32 ref ds5g@5 mount data/ds: blobs_hit 3, blobs_fetched 3, bytes_fetched 3137339392 (~3.1 GB), chunks_resumed 10. -> resume works (5 GB - 3.1 GB fetched ~= 2 GB reused).
+BUG-4 a: L4 ready - submit it whenever you want; tell L4 and we will record Get-Process python during it.
