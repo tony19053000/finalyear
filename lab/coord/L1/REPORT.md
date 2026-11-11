@@ -1202,3 +1202,9 @@ job_01M76BG06PMZTQ5MHRBZT3JVSN (~/mf-eval/gpu-big, 480 items / 120 chunks, gpu p
     lanes L4, L2, L3 done exit=0, combine on L4. Chunks: L4 58 (GPU, rest avg 25.2 s, max 36.1), L2 46 (GPU, rest avg 31.6 s, 1st 70.8),
     L3 16 (CPU, avg 92.5 s). chunk_stalled / stalled speculation: 0. No hung chunk in 120 chunk starts (before: chunk 68 hung 17 min on L4).
     Per-chunk max on L4 36.1 s -> no outlier. L4 Get-Process (one python.exe per chunk, Program Files interpreter, no launcher) pending from L4.
+BUG-4 a process check (chat 20261112-045057-L4-to-L1): job_01M76E3YHA1YT5157097JWD9Q6 (bug4a2, 160 items, L4 only). L4 samples 04:45-04:50:
+    ONE python.exe per running chunk, parent = agent child 21076, cmdline "C:\Program Files\MeshForge\0.17.1-1\python\python.exe run_chunk.py ...";
+    no venv launcher, no py.exe, no chunk_stalled -> BUG-4 a PASS (complete).
+FINDING (L4, medium, for LEAD/BUG-FIX): chunk runs the 0.17.1-1 interpreter while agent is 0.17.2-1 - venv 8e2ebada... built under 0.17.1 keeps
+    its base python = C:\Program Files\MeshForge\0.17.1-1. If old version folders are removed (cleanup/uninstall), cached venvs break; env hash does
+    not include interpreter path/version. Fix idea: add base interpreter path/version to env_hash or rebuild venvs after upgrade. Relevant to 0.17.6.
