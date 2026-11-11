@@ -1117,3 +1117,9 @@ job_01M74ZGH35HWKBP8EQ1CR3W2MC (~/mf-eval/v010/mc, --node L3): succeeded, 5000/5
     output sha256:02af067fd6cd... No grace/resume/node_lost/lease events in the controller log for this job.
 L3 free RAM ~2.0 GiB (human cleared RAM before, chat 20261111-141102) -> this is NOT the low-RAM case the Lead row asks for; that part stays open.
 evidence: lab/reports/raw/2026-11-11-G10/
+
+### 2026-11-11 15:36 - big mixed job on ALL 4 laptops (human demo) - PASS
+job_01M75155RE5YFXJ6FW46DV8HRP (~/mf-eval/gpu-big: 480 items, 120 chunks, gpu preferred, no excludes): planner chose split over 4 nodes,
+    predicted 941 s vs best single 2903 s (offload L4). Actual: succeeded in 8m31s (511 s), all 4 lanes done exit=0, combine on L1, failed 0.
+chunks committed: L1 81, L4 18, L2 15, L3 6 (CPU). items by device: RTX 3050 (L1+L4) 396, RTX 2050 (L2) 60, CPU Mohit (L3) 24.
+    => ~5.7x faster than the predicted best single laptop; every laptop (3 GPUs + 1 CPU) did real work in one job.
