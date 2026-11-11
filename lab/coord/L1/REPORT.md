@@ -1184,3 +1184,15 @@ job_01M75C6EE8DBF1V5TWTSY0FTE1 (~/mf-eval/bug2f = gpu-split with requirements to
     agent log: ONE agent.execution.run_failed setup_failed at 18:49:17 -> agent.lane.env_failed -> lane ended; no second install attempt.
     job: failed env_error "no lane left with 12 of 12 chunks to run: env build failed on this node: setup_failed: requirements install failed (exit 1)".
 verdict: exactly one install attempt, failed env_error right after it (before v0.17.2: retried per chunk). PASS.
+
+### 2026-11-12 - G11 perf evidence (LEAD chat 20261112-035020): per-chunk times, grant -> committed (controller journal)
+job_01M74WKXPN8V7XM1N9HEBYNZ6N (2 items/chunk): L1 11 chunks 4.5-4.8 s each; L4 1 chunk 46.8 s; L2 0 chunks.
+job_01M75155RE5YFXJ6FW46DV8HRP (4 items/chunk):
+| node | chunks | 1st chunk | rest avg (min-max) | pure train for 4 items (results.json s) | overhead per chunk |
+| L1 Linux docker | 81 | 6.5 s | 6.3 (6.1-6.5) | ~6.2 (1.54 s/item) | ~0 |
+| L4 Win venv 3050 | 18 | 42.3 s | 26.6 (24.3-28.2) | ~6.2 (1.54 s/item) | ~20 s every chunk (+~15 s on the 1st) |
+| L2 Win venv 2050 | 15 | 43.2 s | 31.5 (26.9-36.3) | ~21.4 (5.34 s/item) | ~10 s every chunk (+~12 s on the 1st) |
+| L3 Win venv CPU | 6 | 93.9 s | 77.9 (76.7-79.4) | ~66.6 (16.66 s/item) | ~11 s every chunk (+~16 s on the 1st) |
+reading: NOT first-chunk only. Every Windows chunk pays ~10-20 s fixed cost (new python.exe + torch/CUDA import per chunk); the first chunk
+    adds ~12-16 s more (lane setup). L1 (Linux, Docker, warm env) has ~0 per-chunk cost. Phase times per chunk are not in `jobs --json`
+    (only per-attempt transfers); numbers are from controller.split.granted -> chunk_result committed.
