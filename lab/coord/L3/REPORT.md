@@ -382,3 +382,10 @@ commands:
     Stop-Process ChatGPT, codex, msedge (human asked the agent to end them)
 result: RAM free 0.72 -> 2.14 GiB, commit 17.3 -> 9.96 / 20.2 GiB. L3 ready for the G9-D retry.
 SIGNAL: g9d-retry-ready L3 free=2.14
+
+### G9-D L3 - memory freed again - OK
+when: 2026-11-11 13:44 (local)
+commands:
+    Stop-Process ChatGPT, codex, msedge, chrome, BlueStacksServices (human: keep only what is required)
+result: before: 6.93/7.69 GiB used (90 %), commit 17.9/20.2 (ChatGPT + Edge had been reopened). After: 5.39 GiB used (70 %), 2.30 GiB free, commit 9.87/20.2. Kept: Claude, MeshForgeAgent (Running), Windows. Remaining big user: Memory Compression ~1.2 GB (Windows) + svchost.
+SIGNAL: g9d-retry-ready L3 free=2.30
