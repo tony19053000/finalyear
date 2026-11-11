@@ -396,3 +396,13 @@ result: L1 chat 20261110-204514: job_01M72YVARE8WHZ0AY8GY4ZEEXR succeeded on L3 
 ### G10-up-a - download v0.17.2 - OK
 when: 2026-11-11 13:51 (local)
 result: MeshForge-Agent-Setup-0.17.2-1.exe 54.9 MB, SHA256 matches SHA256SUMS. Upgrade install: HUMAN next.
+
+### G10-up-b - upgrade to v0.17.2 - OK
+when: 2026-11-11 14:10 (local)
+result: installer launched 13:51:43 (human clicked through); current.txt 0.17.2-1; service Running; no rejoin.
+SIGNAL: upgraded L3 version=0.17.2-1
+
+### G10 L3 row - G9-D with the big apps open - READY
+when: 2026-11-11 14:10 (local)
+result: low-RAM condition on purpose: RAM 7.08/7.69 GiB used (92 %), free 0.72 GiB, commit 15.1/20.2; open: Edge x20 1.2 GB, ChatGPT x19 0.9 GB, Claude 1.0 GB, codex. Waiting for L1 to run G9-D on L3.
+SIGNAL: g10-g9d-ready L3 free=0.72
