@@ -565,3 +565,7 @@ SIGNAL: capture-pushed
 - Downloaded MeshForge-Agent-Setup-0.17.2-1.exe (57,611,213 B); sha256 f5332d55...6193c7 matches release SHA256SUMS. Human ran it as admin.
 - Service Running; `compute --version` 0.17.2; node: agent version 0.17.2, online, connected; exec-gpu + RTX 2050 still listed.
 - No other L2 rows in the G10 re-run list.
+
+## 2026-11-11 - session restart + G9-B g
+- STARTED 16:59 (new session after account limit). Merged origin/main. Today's GPU lanes (G9-B c run 2 job_01M74WKXPN8V7XM1N9HEBYNZ6N, big 4-laptop job 15 chunks on RTX 2050): PASS (details in L1 REPORT).
+- G9-B g: old job cancelled, old cues ignored. Sent L1 'ready for G9-B g' (lab/chat/20261111-165929-L2-to-L1.md). Waiting for drop time.
