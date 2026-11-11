@@ -420,3 +420,4 @@ result: human asked to clear RAM before the run: ChatGPT, codex, Edge, Chrome, B
 - Noise after: grpc GOAWAY too_many_pings (ENHANCE_YOUR_CALM) at 15:53:23 to 192.168.31.13:47100.
 - 16:00:48 identity reset --yes OK; join OK -> NEW node_id node_01M752J3FZ912G0ZJ9W4ANRPE1 (fabric fab_01M6BMCGQBHTN059R0R5MY3WYW), cert until 2026-12-11. Code used, not recorded.
 - SIGNAL: g9bf-rejoined L3 node_01M752J3FZ912G0ZJ9W4ANRPE1
+- 16:04 restart done: service Running (new PIDs), peer rule present, accept_jobs True, allow_unsandboxed True, accept_gpu False. SIGNAL: g9bf-online L3
