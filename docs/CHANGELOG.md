@@ -81,6 +81,23 @@ for Linux and Windows.
 - ADRs still marked *Proposed* need the team's acceptance before the tag
   ([adr/README.md](adr/README.md#needs-team-acceptance-before-v100)).
 
+## [0.17.2] - 2026-11-11
+
+Lab fix release from the real-laptop campaign (lab fix group G10, `docs/briefs/progress/V1.0-G10-lab-fixes.md`).
+
+### Fixed
+
+- Docker env builds no longer fail with ENOSPC after the torch download; a full disk is reported as such (D442, D450).
+- A failed env build is not retried for every chunk of a lane (D443); chunk `env_error` and a Docker daemon blip
+  have backstops (D448, D449).
+- Lane lease and test-isolation fixes from L3 under memory pressure (D444); a lane keeps its item list through
+  the staging retry after a stream drop instead of ending `failed unauthorized` (D447).
+- Lanes end cleanly when the queue is drained (D446) and survive a short reconnect within a grace period (D445).
+- A hung chunk no longer holds its lease for many minutes (BUG-4, D451): Windows venv chunks start one
+  interpreter instead of launcher + interpreter; the agent never shows invisible error dialogs; the agent watches
+  each chunk's CPU and output, reports `stalled_s` on lease renewals, and the controller gives a stalled chunk's
+  copy to another node first (`chunk_record.stalled_s`, migration 0038).
+
 ## [0.17.1] - 2026-11-06
 
 Lab fix release from the real-laptop campaign (lab fix group G9, `docs/briefs/progress/V1.0-G9-lab-fixes.md`).
