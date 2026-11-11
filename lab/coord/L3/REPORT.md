@@ -410,3 +410,13 @@ SIGNAL: g10-g9d-ready L3 free=0.72
 ### G10 L3 row - RAM cleared by human decision
 when: 2026-11-11 14:10 (local)
 result: human asked to clear RAM before the run: ChatGPT, codex, Edge, Chrome, BlueStacks ended -> free 2.54 GiB. The G9-D run will therefore NOT be under low RAM (the Lead's row asks for big apps open) - low-RAM part pending.
+
+## G9-B f (revoke during job) - L3 - 2026-11-11
+- L1 revoked node_01M6K0TZRNPEGBRN166GP6S61N at 15:52:24 IST during job_01M7520YAPJM4CC49DRNCPJ337 (att_01M7520YBVP23F8818RG3AC8S0, started 15:51:28).
+- agent.log 15:52:24.418 session stream_ended PERMISSION_DENIED node_revoked, action stop_revoked; session ONLINE->STOPPING->STOPPED.
+- 15:52:27.528 run_cancelled (job process stopped ~3 s after revoke); 15:52:28.198 attempt state failed, failure_type node_lost.
+- 15:52:28.270 agent.revoked (error, failure_type config_error); console phase running->stopped reason revoked.
+- Windows service MeshForgeAgent stayed Running (service host alive, agent session stopped); python PIDs 1544/1704 = service host, unchanged. No job python process left.
+- Noise after: grpc GOAWAY too_many_pings (ENHANCE_YOUR_CALM) at 15:53:23 to 192.168.31.13:47100.
+- 16:00:48 identity reset --yes OK; join OK -> NEW node_id node_01M752J3FZ912G0ZJ9W4ANRPE1 (fabric fab_01M6BMCGQBHTN059R0R5MY3WYW), cert until 2026-12-11. Code used, not recorded.
+- SIGNAL: g9bf-rejoined L3 node_01M752J3FZ912G0ZJ9W4ANRPE1
