@@ -421,3 +421,9 @@ result: human asked to clear RAM before the run: ChatGPT, codex, Edge, Chrome, B
 - 16:00:48 identity reset --yes OK; join OK -> NEW node_id node_01M752J3FZ912G0ZJ9W4ANRPE1 (fabric fab_01M6BMCGQBHTN059R0R5MY3WYW), cert until 2026-12-11. Code used, not recorded.
 - SIGNAL: g9bf-rejoined L3 node_01M752J3FZ912G0ZJ9W4ANRPE1
 - 16:04 restart done: service Running (new PIDs), peer rule present, accept_jobs True, allow_unsandboxed True, accept_gpu False. SIGNAL: g9bf-online L3
+
+## C5.11-f (5 GB download to L3) logs - 2026-11-11 17:45-18:45 IST
+- Raw: lab/reports/raw/2026-11-11-C5.11-f-L3-agent.txt (146 lines, filtered session/cas/lease/stall/memory).
+- No session drop logged 17:48-18:04 (first run); 18:05:09-18:06:10 IST: 4x stream_ended UNAVAILABLE with reconnects (matches L1 offline 18:04:02), plus many cas.source_dropped 17:47-18:06.
+- cas.staged at 17:47:22, 18:06:59, 18:19:26 show only ~388 bytes fetched (dataset not staged via CAS in these lines).
+- Free RAM low during runs (~0.7-0.84 GiB per controller). Today 05:25: 1.66 GiB free after closing ChatGPT/Opera/Edge and stopping SQL Server Express.
