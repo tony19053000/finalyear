@@ -422,3 +422,8 @@ SIGNAL: g9-c-done L4
 4. Repro: 30/30 runs of `import torch; torch.zeros(1,device='cuda')` in the same venv (Admin) -> all ok, 2-3 s each, no hang. Did NOT reproduce outside MeshForge.
 5. Event Viewer System 00:00-00:12 IST: no events at all (no nvlddmkm/Display/TDR, no WU).
 Note: in the hang, the 17 s gap between launcher (00:04:03) and worker (00:04:20) is unusual vs ~1 s normally.
+
+## G10 upgrade to v0.17.2 + BUG-4 b setup (chat 20261111-092512/134456 LEAD, 135422/141924/142058 L1) - 2026-11-11
+- MeshForge-Agent-Setup-0.17.2-1.exe from release v0.17.2, SHA256 f5332d55...93c7 matches SHA256SUMS. Human installed; current.txt = 0.17.2-1.
+- BUG-4 b: added [agent.split] stall_floor_s = 60 to config.toml (Admin), Restart-Service 14:58:42, service Running. (Must be removed after the test.)
+SIGNAL: upgraded L4 0.17.2
