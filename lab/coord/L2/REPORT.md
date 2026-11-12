@@ -576,3 +576,4 @@ SIGNAL: capture-pushed
 - 05:22 read: C5.11-e (5 GB fetch to L2, 2026-11-11 17:36) asks for agent.cas log lines; agent log is admin-only (ProgramData access denied) -> asked human. L1 asks free RAM > 2 GB; now ~0.74 GB free -> asked human.
 - 05:3x RAM prep (L1 1.0.7): closed Edge, ChatGPT, Copilot (human OK). Free RAM 0.76 -> 1.62 GB (target > 2 GB not reached; rest is Claude app ~1.2 GB + Windows).
 - 13:08 read: demo 03 cue (05:36) missed - L2 session was idle, no reply sent. LEAD: v0.17.3 released -> upgrade + G11 rows (L2 or L4: D457 Windows). RAM available 807 MB.
+- v0.17.3: downloaded MeshForge-Agent-Setup-0.17.3-1.exe (57,641,574 B); sha256 84a1c2cd...feac35 matches release SHA256SUMS. Waiting for human to run it as admin.
