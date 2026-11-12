@@ -1,0 +1,163 @@
+DEMO 04-planner-explains - work folder /tmp/meshforge-demo/04-planner-explains
+
+== Reset 04-planner-explains  [  0.0 s]
+   clean: no demo job running, no demo invite open, outputs removed
+
+== Job A - needs no network: objective min_network  [  0.0 s]
+   $ compute run /tmp/meshforge-demo/04-planner-explains/job-a
+     job_01M77CM568PT5Z2GMH26Z7ZRFE
+   EXPECTED   the planner kept job A on this laptop
+   why: Local moves no bytes
+   $ compute explain job_01M77CM568PT5Z2GMH26Z7ZRFE
+                    decision 1639 - attempt 1: dispatched (policy cost_model), objective min_network - chosen                
+      node_01M6BMFVHJVZXC7AET3CFRE3AV, calibration v35, replay v2, decided in 1.91 ms, at 2026-11-12T08:05:12.533247+00:00,  
+                                                      snapshot 0674f7438c3c                                                  
+     +----------------------------------------------------------------------------------------------------------------------+
+     |RANK | NODE                          | MODE    | SLOT | FEASIBLE | SCORE | PREDICTED | REASON                         |
+     |-----+-------------------------------+---------+------+----------+-------+-----------+--------------------------------|
+     |1    | node_01M6BMFVHJVZXC7AET3CFRE3 | local   | cpu  | yes      | 1328  | 26.15s    | chosen                         |
+     |     | AV                            |         |      |          |       |           |                                |
+     |2    | node_01M752J3FZ912G0ZJ9W4ANRP | offload | cpu  | yes      | 1328  | 57.54s    | feasible                       |
+     |     | E1                            |         |      |          |       |           |                                |
+     |3    | node_01M6GCKN7PYT2J297BT241P4 | offload | cpu  | yes      | 1328  | 58.22s    | feasible                       |
+     |     | 36                            |         |      |          |       |           |                                |
+     |4    | node_01M6GGJP3FW5VHBDFKYQ6SF3 | offload | cpu  | yes      | 1328  | 62.63s    | feasible                       |
+     |     | 18                            |         |      |          |       |           |                                |
+     |-    | node_01M6GGZ7VNCSRKFAEDH3AX7Q | offload | -    | no       | -     | -         | revoked: the node was revoked  |
+     |     | QY                            |         |      |          |       |           | from the fabric                |
+     |-    | node_01M6K0TZRNPEGBRN166GP6S6 | offload | -    | no       | -     | -         | revoked: the node was revoked  |
+     |     | 1N                            |         |      |          |       |           | from the fabric                |
+     |-    | node_01M6K66M7877NWES0Z93DP3E | offload | -    | no       | -     | -         | revoked: the node was revoked  |
+     |     | P8                            |         |      |          |       |           | from the fabric                |
+     +----------------------------------------------------------------------------------------------------------------------+
+                                                            predicted                                                        
+     +----------------------------------------------------------------------------------------------------------------------+
+     |NODE           | QUEUE         | TRANSFER      | ENV           | COMPUTE       | OUTPUT        | RISK         | TOTAL |
+     |---------------+---------------+---------------+---------------+---------------+---------------+--------------+-------|
+     |node_01M6BMFVH | 0.00s         | 0.00s         | 0.32s         | 24.34s        | 0.00s         | 1.49s        | 26.15s|
+     |JVZXC7AET3CFRE | (measured)    | (history,     | (history,     | (assumed,     | (assumed)     | (history,    |       |
+     |3AV            |               | from          | x0.20         | x0.41         |               | p_fail 5.9%  |       |
+     |               |               | controller    | calibrated    | calibrated    |               | (2 of 31     |       |
+     |               |               | (last         | (n=200,       | (n=8, node))  |               | ends in 7d)) |       |
+     |               |               | transfer 41h  | node))        |               |               |              |       |
+     |               |               | ago), x0.95   |               |               |               |              |       |
+     |               |               | calibrated    |               |               |               |              |       |
+     |               |               | (n=2,         |               |               |               |              |       |
+     |               |               | global))      |               |               |               |              |       |
+     |node_01M752J3F | 0.00s         | 0.00s         | 1.36s         | 51.89s        | 0.00s         | 4.29s        | 57.54s|
+     |Z912G0ZJ9W4ANR | (measured)    | (history,     | (history,     | (assumed,     | (assumed)     | (history,    |       |
+     |PE1            |               | from          | x0.84         | x0.86         |               | p_fail 8.0%  |       |
+     |               |               | controller    | calibrated    | calibrated    |               | (1 of 5 ends |       |
+     |               |               | (last         | (n=1, node))  | (n=1, node))  |               | in 7d))      |       |
+   dashboard: https://192.168.31.13:47110/jobs/job_01M77CM568PT5Z2GMH26Z7ZRFE  (Plan tab = the 'why')
+
+== Job B - while this laptop is busy with A: fastest finish (min_time)  [  1.3 s]
+   $ compute run /tmp/meshforge-demo/04-planner-explains/job-b
+     job_01M77CM6H0FNHX06VAD68WXT8E
+   EXPECTED   the planner offloaded job B (Mode 1)
+   EXPECTED   because this laptop's slot is full (Local rejected: slots_full)
+   EXPECTED   job A was still running when B was planned
+   $ compute explain job_01M77CM6H0FNHX06VAD68WXT8E
+     decision 1640 - attempt 1: dispatched (policy cost_model), objective min_time - chosen node_01M752J3FZ912G0ZJ9W4ANRPE1, 
+            calibration v35, replay v2, decided in 1.55 ms, at 2026-11-12T08:05:13.939620+00:00, snapshot 25877a40181b       
+     +----------------------------------------------------------------------------------------------------------------------+
+     |RANK | NODE                          | MODE    | SLOT | FEASIBLE | SCORE   | PREDICTED | REASON                       |
+     |-----+-------------------------------+---------+------+----------+---------+-----------+------------------------------|
+     |1    | node_01M752J3FZ912G0ZJ9W4ANRP | offload | cpu  | yes      | 57.5587 | 57.56s    | chosen                       |
+     |     | E1                            |         |      |          |         |           |                              |
+     |2    | node_01M6GCKN7PYT2J297BT241P4 | offload | cpu  | yes      | 58.3195 | 58.32s    | feasible                     |
+     |     | 36                            |         |      |          |         |           |                              |
+     |3    | node_01M6GGJP3FW5VHBDFKYQ6SF3 | offload | cpu  | yes      | 62.6398 | 62.64s    | feasible                     |
+     |     | 18                            |         |      |          |         |           |                              |
+     |-    | node_01M6BMFVHJVZXC7AET3CFRE3 | local   | -    | no       | -       | -         | slots_full: every CPU slot of|
+     |     | AV                            |         |      |          |         |           | the node is in use           |
+     |-    | node_01M6GGZ7VNCSRKFAEDH3AX7Q | offload | -    | no       | -       | -         | revoked: the node was revoked|
+     |     | QY                            |         |      |          |         |           | from the fabric              |
+     |-    | node_01M6K0TZRNPEGBRN166GP6S6 | offload | -    | no       | -       | -         | revoked: the node was revoked|
+     |     | 1N                            |         |      |          |         |           | from the fabric              |
+     |-    | node_01M6K66M7877NWES0Z93DP3E | offload | -    | no       | -       | -         | revoked: the node was revoked|
+     |     | P8                            |         |      |          |         |           | from the fabric              |
+     +----------------------------------------------------------------------------------------------------------------------+
+                                                            predicted                                                        
+     +----------------------------------------------------------------------------------------------------------------------+
+     |NODE           | QUEUE         | TRANSFER      | ENV           | COMPUTE       | OUTPUT        | RISK         | TOTAL |
+     |---------------+---------------+---------------+---------------+---------------+---------------+--------------+-------|
+     |node_01M752J3F | 0.00s         | 0.00s         | 1.36s         | 51.89s        | 0.00s         | 4.31s        | 57.56s|
+     |Z912G0ZJ9W4ANR | (measured)    | (history,     | (history,     | (assumed,     | (assumed)     | (history,    |       |
+     |PE1            |               | from          | x0.84         | x0.86         |               | p_fail 8.0%  |       |
+     |               |               | controller    | calibrated    | calibrated    |               | (1 of 5 ends |       |
+     |               |               | (last         | (n=1, node))  | (n=1, node))  |               | in 7d))      |       |
+     |               |               | transfer 19h  |               |               |               |              |       |
+     |               |               | ago), x0.95   |               |               |               |              |       |
+     |               |               | calibrated    |               |               |               |              |       |
+     |               |               | (n=2,         |               |               |               |              |       |
+     |               |               | global))      |               |               |               |              |       |
+     |node_01M6GCKN7 | 0.00s         | 0.00s         | 0.61s         | 52.41s        | 0.00s         | 5.31s        | 58.32s|
+     |PYT2J297BT241P | (measured)    | (history,     | (history,     | (assumed,     | (assumed)     | (history,    |       |
+     |436            |               | from          | x0.38         | x0.87         |               | p_fail 9.8%  |       |
+     |               |               | controller    | calibrated    | calibrated    |               | (3 of 21     |       |
+     |               |               | (last         | (n=10, node)) | (n=16, node)) |               | ends in 7d)) |       |
+     |               |               | transfer 20h  |               |               |               |              |       |
+   dashboard: https://192.168.31.13:47110/jobs/job_01M77CM6H0FNHX06VAD68WXT8E  (Plan tab = the 'why')
+   EXPECTED   job_01M77CM568PT5Z2GMH26Z7ZRFE succeeded
+   EXPECTED   job_01M77CM6H0FNHX06VAD68WXT8E succeeded
+
+== Job C - 48 independent items, every laptop free  [ 31.1 s]
+   $ compute run /tmp/meshforge-demo/04-planner-explains/job-c
+     job_01M77CN3KBYQ9TGJBZYGE066SN
+   UNEXPECTED the planner split job C (Mode 3) - got local
+   why: not split: the best set 52.64s would pass (<= 75.43s) only on assumed per-item rates - no run of this workload is recorded yet, so it runs whole and the next run decides on the measured time (set split.item_seconds in compute.yaml to split on the first run)
+   $ compute explain job_01M77CN3KBYQ9TGJBZYGE066SN
+     decision 1641 - attempt 1: dispatched (policy cost_model), objective min_time - chosen node_01M6BMFVHJVZXC7AET3CFRE3AV, 
+            calibration v35, replay v2, decided in 2.59 ms, at 2026-11-12T08:05:43.675165+00:00, snapshot e6cc17ebcbbd       
+     +----------------------------------------------------------------------------------------------------------------------+
+     |RANK | NODE                         | MODE    | SLOT | FEASIBLE | SCORE   | PREDICTED | REASON                        |
+     |-----+------------------------------+---------+------+----------+---------+-----------+-------------------------------|
+     |1    | node_01M6BMFVHJVZXC7AET3CFRE | local   | cpu  | yes      | 83.8138 | 83.81s    | chosen                        |
+     |     | 3AV                          |         |      |          |         |           |                               |
+     |2    | node_01M6GGJP3FW5VHBDFKYQ6SF | offload | cpu  | yes      | 100.376 | 100.38s   | feasible                      |
+     |     | 318                          |         |      |          |         |           |                               |
+     |3    | node_01M6GCKN7PYT2J297BT241P | offload | cpu  | yes      | 128.922 | 128.92s   | feasible                      |
+     |     | 436                          |         |      |          |         |           |                               |
+     |4    | node_01M752J3FZ912G0ZJ9W4ANR | offload | cpu  | yes      | 438.532 | 438.53s   | feasible                      |
+     |     | PE1                          |         |      |          |         |           |                               |
+     |5    | node_01M6BMFVHJVZXC7AET3CFRE | split   | cpu  | yes      | 52.6437 | 52.64s    | feasible                      |
+     |     | 3AV +2                       |         |      |          |         |           |                               |
+     |6    | node_01M6BMFVHJVZXC7AET3CFRE | split   | cpu  | yes      | 55.8782 | 55.88s    | feasible                      |
+     |     | 3AV +1                       |         |      |          |         |           |                               |
+     |7    | node_01M6BMFVHJVZXC7AET3CFRE | split   | cpu  | yes      | 70.747  | 70.75s    | feasible                      |
+     |     | 3AV +3                       |         |      |          |         |           |                               |
+     |-    | node_01M6GGZ7VNCSRKFAEDH3AX7 | offload | -    | no       | -       | -         | revoked: the node was revoked |
+     |     | QQY                          |         |      |          |         |           | from the fabric               |
+     |-    | node_01M6K0TZRNPEGBRN166GP6S | offload | -    | no       | -       | -         | revoked: the node was revoked |
+     |     | 61N                          |         |      |          |         |           | from the fabric               |
+     |-    | node_01M6K66M7877NWES0Z93DP3 | offload | -    | no       | -       | -         | revoked: the node was revoked |
+     |     | EP8                          |         |      |          |         |           | from the fabric               |
+     +----------------------------------------------------------------------------------------------------------------------+
+        not split: the best set 52.64s would pass (<= 75.43s) only on assumed per-item rates - no run of this workload is    
+     recorded yet, so it runs whole and the next run decides on the measured time (set split.item_seconds in compute.yaml to 
+                                                    split on the first run...                                                
+     +----------------------------------------------------------------------------------------------------------------------+
+     |RANK | MODE    | NODES                  | CHUNKS       | RATE                   | PREDICTED | MARGIN TEST             |
+     |-----+---------+------------------------+--------------+------------------------+-----------+-------------------------|
+     |1    | local   | node_01M6BMFVHJVZXC7AE | 12 x 4 items | 0.8/s (assumed), first | 83.81s    | -                       |
+     |     |         | T3CFRE3AV              |              | chunk at 0.32s         |           |                         |
+     |2    | offload | node_01M6GGJP3FW5VHBDF | 12 x 4 items | 0.624/s (assumed),     | 100.38s   | -                       |
+     |     |         | KYQ6SF318              |              | first chunk at 0.93s   |           |                         |
+     |3    | offload | node_01M6GCKN7PYT2J297 | 12 x 4 items | 0.4714/s (assumed),    | 128.92s   | -                       |
+     |     |         | BT241P436              |              | first chunk at 0.61s   |           |                         |
+     |4    | offload | node_01M752J3FZ912G0ZJ | 12 x 4 items | 0.117/s (assumed),     | 438.53s   | -                       |
+     |     |         | 9W4ANRPE1              |              | first chunk at 1.36s   |           |                         |
+   dashboard: https://192.168.31.13:47110/jobs/job_01M77CN3KBYQ9TGJBZYGE066SN  (Plan tab = the 'why')
+   EXPECTED   job C succeeded
+   $ compute get job_01M77CN3KBYQ9TGJBZYGE066SN --dest /tmp/meshforge-demo/04-planner-explains/out-c
+     1 files -> /tmp/meshforge-demo/04-planner-explains/out-c
+   EXPECTED   job C's combined output is correct
+
+== Three jobs, three answers  [ 46.1 s]
+   job A: local
+   job B: mode1
+   job C: local
+
+DEMO 04-planner-explains: FAIL in 46.1 s
+  - the planner split job C (Mode 3) - got local

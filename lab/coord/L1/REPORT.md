@@ -1215,3 +1215,13 @@ D454 baseline: `df -h /var/lib/meshforge` = 161G used, 18G avail.
 D452 (old revoked Mohit node_01M6K0TZ... still in the fabric): 
   `compute run --exclude-node Mohit` -> accepted (was refused "matches 2 nodes" on 0.17.2); job_01M77CATA0BPMAD8NAJT92M4BZ succeeded on L1, not L3.
   `compute run --node Mohit` -> accepted; job_01M77CATP6PGZZGG7324X8MK62 succeeded on the LIVE L3 node_01M752J3FZ912G0ZJ9W4ANRPE1. PASS.
+
+### 2026-11-12 13:3x - D457 (`run --local` with the packaged agent) - PASS; demo 04 act C FAIL (demo-script issue)
+`ls -ld`: /var/lib/meshforge drwxr-x--- meshforge; /var/lib/meshforge-public drwxr-xr-x meshforge; node-id.json `644 meshforge` = as expected.
+demo 01: PASS in 3.0 s (job_01M77CKNWVQSST7SQNWCH8QPQJ ran on L1, result.json right). Was FAIL exit 4 on 0.17.2.
+demo 04 (--dashboard-url): Local act PASS (job A kept on L1; job B offloaded Mode 1, Local rejected slots_full).
+    Act C FAIL: job_01M77CN3KBYQ9TGJBZYGE066SN (48 items) planned LOCAL, not Mode 3. explain: split set 52.64 s < local 83.81 s, but
+    "not split: ... only on assumed per-item rates - no run of this workload is recorded yet ... (set split.item_seconds in compute.yaml to split
+    on the first run)". = the G9-E safety rule; the demo's job C has no split.item_seconds and a new name each run, so it is always "new".
+    Job C still succeeded with correct output. FINDING (Lead): demo script job C must declare split.item_seconds (planner is right).
+verdict D457: PASS.

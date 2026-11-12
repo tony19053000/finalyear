@@ -1,0 +1,23 @@
+   Building meshforge @ file:///home/aayush/mf-lab-L1
+      Built meshforge @ file:///home/aayush/mf-lab-L1
+Uninstalled 1 package in 0.42ms
+Installed 1 package in 0.47ms
+DEMO 01-local - work folder /tmp/meshforge-demo/01-local
+
+== Reset 01-local  [  0.0 s]
+   clean: no demo job running, no demo invite open, outputs removed
+
+== Local: run the job on this laptop's own agent  [  0.0 s]
+   --local pins the job to the agent on the laptop compute runs on.
+   $ compute run /tmp/meshforge-demo/01-local/job --local
+     job_01M77CKNWVQSST7SQNWCH8QPQJ
+   EXPECTED   the job succeeded
+   EXPECTED   compute knows this laptop's node
+   EXPECTED   it ran on this laptop
+   $ compute get job_01M77CKNWVQSST7SQNWCH8QPQJ --dest /tmp/meshforge-demo/01-local/out-local
+     1 files -> /tmp/meshforge-demo/01-local/out-local
+   EXPECTED   result.json is right
+   result: {"rounds": 3000000, "sha256": "ead53bd1dd49adb7c6ec8d38949b882b5521f8262cf4b4556fd43bfe4f100c70"}
+   EXPECTED   finished within 300 s
+
+DEMO 01-local: PASS in 3.0 s
