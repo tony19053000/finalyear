@@ -1238,3 +1238,19 @@ note: the brand-new d454test blobs stay until min_age passes (by design, protect
 job_01M77CSJ55MTNAD9SM6SYYBG2V (main.py 900, --node Mohit) running on L3; 13:38:29 `compute node revoke node_01M752J3FZ912G0ZJ9W4ANRPE1` (session cut).
 `compute jobs <id>` (no --json): state failed, failure_type node_lost, failure_detail placed_node_offline, **failure_cause node_lost: node_revoked**,
     row **failed: node_lost: node_revoked**. (0.17.2 showed node_revoked only in --json.) PASS. L3 re-join pending (human code).
+
+### 2026-11-12 13:39-13:54 - D456 (planner learns per-node chunk cost) - big split PASS, small split PARTIAL
+(L3 revoked during these runs -> L1/L2/L4 only.) First Windows chunk after the upgrade = venv rebuild (D458): L2 201 s, L4 180 s (one time).
+| run | job | planner chose | predicted | real | chunks |
+| warm-up 24 it | job_01M77CWJ7H2ZGJ48K5GKH11H6Y | split L1+L2 | 40.4 s | 67 s | L1 12 (L2 rebuilding) |
+| run1 24 it | job_01M77CYMPG7WVE8YSYH5PM6M79 | local L1 | 61.7 s | 67 s | L1 12 |
+| run2 24 it | job_01M77D0Q4QDFHSYTSMGT4FZ596 | split L1+L2 | 41.1 s | 57 s | L1 12 (L2 chunk >50 s rebuild -> speculated) |
+| **big 480 it** | job_01M77D2FNRE7SCB1KSGDZ0NMS4 | split L1+L4+L2 | **557.4 s** | **558 s** | L1 92 (6.1 s), L2 14 (26.2 s, 1st 201), L4 14 (27.4 s, 1st 180) |
+| run3 24 it (warm) | job_01M77DM46NTQ3777EN6EDY18SP | split L1+L2 | 38.3 s | 52 s (+36 %) | L1 10 (4.8 s), L2 2 (18.0, 16.1 s) |
+| run4 24 it | job_01M77DNQN6SRTRVPBPFYTM62AK | local L1 | 60.3 s | 58 s | L1 12 |
+chunk_overhead (big run): L1 fixed 0.21 s; **L2 fixed 2.79 s +12.1 s first; L4 fixed 2.28 s +16.9 s first** (source node history). First-chunk costs match
+    LEAD's expectation (L2 ~12, L4 ~16); fixed costs lower than expected (2-3 s vs 4/14 s).
+FINDING: for the 24-item gpu-split workload L2's overhead stays "shared" 0.015 s (no per-node sample for this workload) -> run3 under-predicts by 36 %
+    (> 20 %). Per-node cost seems learned per workload, not per node across workloads. Planner also alternates local/split on identical runs (run1/3 vs 2/4).
+vs v0.17.2: big job (L2+L4+L3, L1 excluded) 25m27s; today L1+L2+L4 558 s - not same set, no direct speed claim.
+verdict D456: PASS for the big split (0.2 % error); PARTIAL for small 24-item split (36 % error, L2 cost not learned for that workload).

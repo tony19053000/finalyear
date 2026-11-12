@@ -1,0 +1,17 @@
+== run3 job_01M77DM46NTQ3777EN6EDY18SP 13:52:40
+mode split nodes ['L1', 'L2'] predicted_total_s 38.3
+  overhead L1 fixed_s 0.268783 first_s 0.219382 from node
+  overhead L2 fixed_s 0.015 first_s None from shared
+real_s 52
+|state             | succeeded                                                 |
+L1: 10 chunks | 1st 4.7 s | rest avg 4.8 s | min 4.7 max 4.9
+   per chunk in lane: 4.7 4.7 4.7 4.8 4.7 4.8 4.8 4.8 4.9 4.7
+L2: 2 chunks | 1st 18.0 s | rest avg 16.1 s | min 16.1 max 18.0
+   per chunk in lane: 18.0 16.1
+== run4 job_01M77DNQN6SRTRVPBPFYTM62AK 13:53:32
+mode local nodes ['L1'] predicted_total_s 60.3
+  overhead L1 fixed_s 0.209458 first_s 0.171468 from node
+real_s 58
+|state             | succeeded                                                 |
+L1: 12 chunks | 1st 4.6 s | rest avg 4.7 s | min 4.6 max 4.9
+   per chunk in lane: 4.6 4.8 4.9 4.7 4.7 4.7 4.7 4.7 4.7 4.7 4.7 4.8
