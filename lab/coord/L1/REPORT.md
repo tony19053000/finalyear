@@ -1208,3 +1208,10 @@ BUG-4 a process check (chat 20261112-045057-L4-to-L1): job_01M76E3YHA1YT5157097J
 FINDING (L4, medium, for LEAD/BUG-FIX): chunk runs the 0.17.1-1 interpreter while agent is 0.17.2-1 - venv 8e2ebada... built under 0.17.1 keeps
     its base python = C:\Program Files\MeshForge\0.17.1-1. If old version folders are removed (cleanup/uninstall), cached venvs break; env hash does
     not include interpreter path/version. Fix idea: add base interpreter path/version to env_hash or rebuild venvs after upgrade. Relevant to 0.17.6.
+
+### 2026-11-12 13:2x - v0.17.3 upgrade + D452 (names skip revoked nodes) - PASS
+upgrade: L1 controller+agent 0.17.3-1 (sha256 OK, human apt install); `compute nodes`: JARVISM3, AILESH, LAPTOP-7ORVM30G, Mohit online 0.17.3. config clean.
+D454 baseline: `df -h /var/lib/meshforge` = 161G used, 18G avail.
+D452 (old revoked Mohit node_01M6K0TZ... still in the fabric): 
+  `compute run --exclude-node Mohit` -> accepted (was refused "matches 2 nodes" on 0.17.2); job_01M77CATA0BPMAD8NAJT92M4BZ succeeded on L1, not L3.
+  `compute run --node Mohit` -> accepted; job_01M77CATP6PGZZGG7324X8MK62 succeeded on the LIVE L3 node_01M752J3FZ912G0ZJ9W4ANRPE1. PASS.
