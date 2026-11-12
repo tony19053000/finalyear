@@ -465,3 +465,11 @@ RESULT: BUG-4 a PASS (one python.exe per chunk, Program Files interpreter, paren
 FINDING (minor, for LEAD): the chunk runs the **0.17.1-1** interpreter while the agent is 0.17.2-1. The cached venv 8e2ebada... was built under 0.17.1, so its base python points to C:\Program Files\MeshForge\0.17.1-1. If the old version folder is ever removed (uninstall/cleanup), this venv breaks; env hash does not include the interpreter version/path. Suggest: include base interpreter path/version in env_hash, or rebuild venvs after upgrade.
 (First job job_01M76BG06PMZTQ5MHRBZT3JVSN: missed - ended before check.)
 SIGNAL: bug4a-done L4
+
+## v0.17.3 upgrade + G11 rows (chat 20261112-053604 L1, 123426/130602 LEAD) - 2026-11-12
+- Missed L1 demo 03 standby (chat 20261112-053604, 05:36): nobody typed `read` until 13:08; demo long over.
+- Upgrade: MeshForge-Agent-Setup-0.17.3-1.exe, SHA256 84a1c2cd...ac35 matches SHA256SUMS. Human installed. current.txt 0.17.3-1, MeshForgeAgent Running (host 27008 / child 12632 since 13:17:55), TCP Established to 192.168.31.13:47100.
+- D457 Windows part 1 PASS: as non-admin user `Get-Content C:\ProgramData\MeshForge\public\node-id.json` -> {"agent_version": "0.17.3", "format": 1, "key_fingerprint_sha256": "f0a152a5...7740", "node_id": "node_01M6GGJP3FW5VHBDFKYQ6SF318", "written_at": "2026-11-12T07:47:58+00:00"} (node id matches).
+- D457 part 2 (`compute run --local`) NOT RUN: non-admin `compute nodes` -> exit 4 "no fabric CA certificate to verify the controller with: run `compute login --fingerprint FP` ... on a laptop with an enrolled agent it is found automatically". The CA is NOT found automatically for a non-admin user on Windows (the system agent's CA is in the private ProgramData dir). Needs a human `compute login` (password typed by the human) - or L2 does this row.
+- D458: pending - needs the first Mode 3 GPU job on L4 (venv rebuild ~2.5 GB first).
+SIGNAL: upgraded L4 0.17.3
