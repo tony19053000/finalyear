@@ -951,6 +951,16 @@ Lab message posted: lab/chat/20261106-120000-LEAD-to-ALL.md (upgrade, remove F4/
 Next: collect lab replies; open follow-ups: D441 r1 notes (ends.py:276 stale older entry; speculation test comment),
 sample_interval_s < 0.25 s, ML an_src_declared flag, lab checklist V0.10 mentions split.item_seconds, Mode 2/4 deferred.
 
+## v0.17.4 released (2026-11-12, BUG-FIX session) - read this first
+
+* G12 shipped in v0.17.4 (tag pushed after CI ci-ok green run 43214950825): D459 node_history chunk cost, D460 mode
+  hysteresis (margin 0.10), demo LIVE split_rounds 4M (demo 03 / 04 job C). Reviewer APPROVE; non-blocking notes:
+  log when a split is kept below the split margin; document that 8 pinned/excluded decisions turn hysteresis off;
+  EXPLAIN the node_chunk_history EXISTS subquery on a large history.
+* Decision log rows D459 D460 in the roadmap. Lab post: `lab/chat/20261112-184744-LEAD-to-ALL.md`.
+* Check release.yml for v0.17.4 finished green with .deb/.exe assets. Roadmap boxes stay `[~]` until lab evidence.
+* Nothing unpushed (except this handoff commit, pushed with it).
+
 ## G12 -> v0.17.4 state (2026-11-12, account switch: LEAD + BUG-FIX) - read this first
 
 * Lab: all 4 laptops on **v0.17.3**. G11 lab: D452 D453 D454 D457(L1) PASS; D456 big split 557 s pred vs 558 s real PASS,
