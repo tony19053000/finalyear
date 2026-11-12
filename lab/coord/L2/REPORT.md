@@ -578,3 +578,4 @@ SIGNAL: capture-pushed
 - 13:08 read: demo 03 cue (05:36) missed - L2 session was idle, no reply sent. LEAD: v0.17.3 released -> upgrade + G11 rows (L2 or L4: D457 Windows). RAM available 807 MB.
 - v0.17.3: downloaded MeshForge-Agent-Setup-0.17.3-1.exe (57,641,574 B); sha256 84a1c2cd...feac35 matches release SHA256SUMS. Waiting for human to run it as admin.
 - 13:16 v0.17.3 installed (human, admin). Service Running; compute 0.17.3 (git b88d0c2db16b); node AILESH online, agent 0.17.3. Others: L3 Mohit 0.17.3; L1 JARVISM3 + L4 still 0.17.2.
+- 14:26 read demo 03 cues: 14:17 'L2 STOP NOW' missed (no session read in time; agent was NOT stopped). New plan: L2 agent auto-stop 14:40:00, auto-start 14:41:00 (scheduled script, human, admin). RAM available 1953 MB.
