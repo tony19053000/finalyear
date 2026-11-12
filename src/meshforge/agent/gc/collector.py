@@ -24,6 +24,15 @@ container uses it). An env is removed only while holding its build lock
 (``envs/locks/<hash>.lock``, taken without waiting: a busy env is skipped), so
 a build or a reuse in another process never races its removal. Base images
 are never items, so never evicted.
+
+**Stale venvs go first, quota or not (V1.0 G11, D458).** A full pass (one that
+reconciles) also removes every venv whose base interpreter is gone or lies in
+an older MeshForge bundle than this agent's
+(:func:`~meshforge.agent.envs.base_python.stale_base`) - the same rules as
+above: unprotected, older than ``min_age_s``, under its build lock. After an
+upgrade no job can pick such a venv (its hash names the old interpreter), so
+it is dead weight, and once it is gone nothing points into the old version
+folder.
 """
 
 from __future__ import annotations
@@ -37,9 +46,11 @@ import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Final
+from typing import Final, Literal
 
+from meshforge.agent.envs.base_python import StaleBase, stale_base
 from meshforge.agent.envs.fsutil import remove_tree
+from meshforge.common.buildinfo import bundle_root
 from meshforge.common.cas import CasStore
 from meshforge.common.filelock import locked
 from meshforge.common.gc_index import GcIndex, Victim, collect_kind
@@ -53,6 +64,7 @@ __all__ = [
     "GcReport",
     "scan_blobs",
     "scan_env_dirs",
+    "scan_stale_venvs",
 ]
 
 log = get_logger(__name__)
@@ -62,6 +74,29 @@ _ENV_MARKER: Final = ".meshforge-env.json"
 _MAX_MARKER_BYTES: Final = 64 * 1024
 _HEX_RE: Final = re.compile(r"[0-9a-f]{64}")
 _GC_SUFFIX: Final = ".gc-"
+_STALE_VICTIM_LIMIT: Final = 100_000
+"""Unprotected env rows read when looking for stale venvs (every one, in practice)."""
+
+
+def _own_bundle() -> Path | None:
+    root = bundle_root()
+    return None if root is None else Path(os.path.realpath(root))
+
+
+def scan_stale_venvs(root: Path, current_root: Path | None) -> dict[str, StaleBase]:
+    """V1.0 G11 (D458): ``venv/<hash>`` -> why its base interpreter is stale."""
+    out: dict[str, StaleBase] = {}
+    try:
+        entries = list((root / "venv").iterdir())
+    except OSError:
+        return out
+    for entry in entries:
+        if not _HEX_RE.fullmatch(entry.name):
+            continue
+        reason = stale_base(entry, current_root)
+        if reason is not None:
+            out[f"venv/{entry.name}"] = reason
+    return out
 
 
 @dataclass(frozen=True, slots=True)
@@ -139,6 +174,7 @@ class GarbageCollector:
         remove_image: Callable[[str], bool] | None = None,
         wall: Callable[[], float] = time.time,
         clock: Callable[[], float] = time.monotonic,
+        current_bundle: Path | Literal["auto"] | None = "auto",
     ) -> None:
         if config.batch < 1:
             raise ValueError("batch >= 1")
@@ -151,6 +187,11 @@ class GarbageCollector:
         self._wall = wall
         self._clock = clock
         self._pending_dirs: list[Path] = []
+        self.current_bundle = (
+            _own_bundle() if current_bundle == "auto" else current_bundle
+        )
+        """This agent's bundle root, resolved (D458: a venv on another bundle's
+        interpreter is stale); None in a dev venv (only vanished bases are)."""
 
     # ------------------------------------------------------------ reconcile
 
@@ -207,6 +248,7 @@ class GarbageCollector:
         self.index.reap_dead_owners()
         if reconcile:
             self.reconcile()
+            self._evict_stale_venvs(report)
         self._collect("blob", self.config.cas_bytes, report)
         self._collect("env", self.config.envs_bytes, report)
         report.duration_s = self._clock() - started
@@ -245,6 +287,43 @@ class GarbageCollector:
                 usage=result.usage,
                 quota=quota,
                 detail="everything left is in use, pinned or younger than min_age_s",
+            )
+
+    def _evict_stale_venvs(self, report: GcReport) -> None:
+        """D458 (module docstring): venvs on an old or vanished base, removed
+        under the usual protections; what is protected stays for a later pass."""
+        if self.envs_root is None:
+            return
+        stale = scan_stale_venvs(self.envs_root, self.current_bundle)
+        if not stale:
+            return
+        with self.index.tx():
+            victims = [
+                v
+                for v in self.index.victims(
+                    "env",
+                    cutoff=self._wall() - self.config.min_age_s,
+                    limit=_STALE_VICTIM_LIMIT,
+                )
+                if v.key in stale
+            ]
+            for victim in victims:
+                if self._evict_env(victim):
+                    report.count(victim)
+                    log.info(
+                        "agent.gc.stale_env_evicted",
+                        env=victim.key,
+                        reason=stale[victim.key],
+                        size=victim.size,
+                    )
+                else:
+                    report.skipped += 1
+        self._finish_env_removals()
+        if len(victims) < len(stale):
+            log.info(
+                "agent.gc.stale_env_kept",
+                count=len(stale) - len(victims),
+                detail="in use, pinned or younger than min_age_s",
             )
 
     # ------------------------------------------------------------- removals
