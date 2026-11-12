@@ -1233,3 +1233,8 @@ setup: pushed d454test@1 (2.0 GiB random). df before rm: 163G used / 16G avail.
 `compute data gc --dry-run` -> "would free 29 blobs / 20.0 GiB; kept 2 unreferenced blobs used recently (2.0 GiB)".
 `compute data gc` -> "freed 29 blobs / 20.0 GiB" (the removed ds5g@1-@5 from 2026-11-11). df after: 143G used / **36G avail** (+20 GB). PASS.
 note: the brand-new d454test blobs stay until min_age passes (by design, protects upload-then-submit).
+
+### 2026-11-12 13:38 - D453 (revoke cause in the normal job view) - PASS
+job_01M77CSJ55MTNAD9SM6SYYBG2V (main.py 900, --node Mohit) running on L3; 13:38:29 `compute node revoke node_01M752J3FZ912G0ZJ9W4ANRPE1` (session cut).
+`compute jobs <id>` (no --json): state failed, failure_type node_lost, failure_detail placed_node_offline, **failure_cause node_lost: node_revoked**,
+    row **failed: node_lost: node_revoked**. (0.17.2 showed node_revoked only in --json.) PASS. L3 re-join pending (human code).
