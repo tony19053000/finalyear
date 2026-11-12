@@ -1225,3 +1225,11 @@ demo 04 (--dashboard-url): Local act PASS (job A kept on L1; job B offloaded Mod
     on the first run)". = the G9-E safety rule; the demo's job C has no split.item_seconds and a new name each run, so it is always "new".
     Job C still succeeded with correct output. FINDING (Lead): demo script job C must declare split.item_seconds (planner is right).
 verdict D457: PASS.
+
+### 2026-11-12 13:4x - D454 (`data rm` frees + `compute data gc`) - PASS
+setup: pushed d454test@1 (2.0 GiB random). df before rm: 163G used / 16G avail.
+`compute data rm d454test@1` -> "freed 0 blobs / 0 B on the controller; 2 recently used blobs kept (run `compute data gc` later)" - prints bytes freed;
+    0 here because the blobs were just uploaded (min_age protection), told clearly.
+`compute data gc --dry-run` -> "would free 29 blobs / 20.0 GiB; kept 2 unreferenced blobs used recently (2.0 GiB)".
+`compute data gc` -> "freed 29 blobs / 20.0 GiB" (the removed ds5g@1-@5 from 2026-11-11). df after: 143G used / **36G avail** (+20 GB). PASS.
+note: the brand-new d454test blobs stay until min_age passes (by design, protects upload-then-submit).
