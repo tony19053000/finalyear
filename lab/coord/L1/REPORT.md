@@ -1267,3 +1267,10 @@ run1 job_01M77CYMPG7WVE8YSYH5PM6M79 -> LOCAL: candidates local L1 61.67 s, split
 run2 job_01M77D0Q4QDFHSYTSMGT4FZ596 -> SPLIT: split L1+L2 41.10 s, split L1+L2+L4 64.26 s, offload L2 61.97 s, local 62.28 s -> "split over 2 nodes".
 reading: flapping = L2 availability between back-to-back runs (slots_full while its previous lane/speculated chunk still runs), not a cost bug.
     L4 alone is slow for this small job (541 s offload = venv rebuild history?). Evidence: ~/mf-eval/g10/flap-explain.txt.
+
+### 2026-11-12 14:2x-14:40 - demos after a69266bb: 04 PASS; 03 FAIL x2 (hook timeout, then job too small)
+demo 04: PASS 42.4 s (A local, B Mode 1 slots_full, C split Mode 3, output correct).
+demo 03 r1 (14:19): split over 3 laptops OK; kill hook (lab-chat cue to L2) timed out after the demo's 120 s - human cue too slow (my process).
+demo 03 r2 (timed: L2 scheduled stop 14:40:00, demo start 14:39:48): job_01M77GAEVZBR8SEV3T871BP2JV planned LOCAL - "not split: best set 12.79 s
+    above 0.9 x 13.02 s". With history the 48 x 400k job takes ~13 s on L1; split overhead to Windows (~12-17 s first chunk) makes splitting lose.
+    Planner correct; demo LIVE profile too small. Sent to LEAD (bigger split_rounds).
