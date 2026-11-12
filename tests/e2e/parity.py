@@ -153,6 +153,12 @@ COMPUTE: Final[dict[str, Entry]] = {
         "no data upload in V0.8 (G5 hand-off, D203 deviations) - the Data page "
         "shows the `compute data push` command instead."
     ),
+    "data gc": CliOnly(
+        "controller disk maintenance, not a job operation (V1.0 G11, D454): an "
+        "admin sweeps unreferenced blobs from the controller's store now. "
+        "`data rm` (the Data page's Delete) already frees the removed version's "
+        "blobs; no dashboard action - Lead to decide whether one lands later."
+    ),
     "secret list": InUi(
         "/settings/secrets",
         "names and times (never values)",

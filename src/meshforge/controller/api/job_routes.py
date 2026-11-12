@@ -180,6 +180,28 @@ _JOB_ID_MAX: Final = 40
 _MISSING_SHOWN: Final = 20
 
 
+class SweepOutcome(Protocol):
+    """``controller.gc.SweepReport`` as the data routes see it."""
+
+    removed: int
+    removed_bytes: int
+    kept_recent: int
+
+    def as_dict(self) -> dict[str, object]: ...
+
+
+class BlobSweeper(Protocol):
+    """``controller.gc.ControllerGc.sweep`` (V1.0 G11, D454)."""
+
+    async def sweep(
+        self,
+        reason: str,
+        *,
+        dry_run: bool = False,
+        among: Collection[str] | None = None,
+    ) -> SweepOutcome: ...
+
+
 class BenchLinks(Protocol):
     """``controller.bench.store.BenchStore``'s job -> campaign-run lookup."""
 
@@ -207,8 +229,12 @@ class JobApi:
         bench: BenchLinks | None = None,
         split_limits: SplitLimits | None = None,
         split_progress: ProgressReads | None = None,
+        gc: BlobSweeper | None = None,
     ) -> None:
         self.store = store
+        self.gc = gc
+        """V1.0 G11 (D454): sweeps unreferenced blobs after ``compute data
+        rm`` and for ``compute data gc``; None = GC off (nothing is swept)."""
         self.split_progress = split_progress
         """V0.10 G7 (D270): split jobs' progress and chunk pages, read from
         the rows; None = ``/split`` and ``/chunks`` answer config_error."""

@@ -205,6 +205,17 @@ class GcSettings(SectionModel):
             "and its submit, and recent outputs not downloaded yet."
         ),
     )
+    sweep_min_age_s: float = Field(
+        default=600.0,
+        ge=0.0,
+        le=365 * 86_400.0,
+        description=(
+            "V1.0 G11 (D454): `compute data rm` and `compute data gc` unlink "
+            "blobs no job, named input or model references at once - except "
+            "those used within this many seconds (an upload, 'have' answer or "
+            "download that may still need them)."
+        ),
+    )
     interval_s: float = Field(
         default=3600.0, ge=1.0, le=86_400.0, description="A GC pass runs this often."
     )

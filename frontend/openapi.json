@@ -2378,6 +2378,51 @@
         "title": "CurrentChunkOut",
         "type": "object"
       },
+      "DataGcOut": {
+        "additionalProperties": false,
+        "description": "V1.0 G11 (D454): ``POST /v1/data/gc`` - one sweep of unreferenced blobs.",
+        "properties": {
+          "dry_run": {
+            "title": "Dry Run",
+            "type": "boolean"
+          },
+          "duration_s": {
+            "title": "Duration S",
+            "type": "number"
+          },
+          "failed_blobs": {
+            "title": "Failed Blobs",
+            "type": "integer"
+          },
+          "kept_recent_blobs": {
+            "title": "Kept Recent Blobs",
+            "type": "integer"
+          },
+          "kept_recent_bytes": {
+            "title": "Kept Recent Bytes",
+            "type": "integer"
+          },
+          "removed_blobs": {
+            "title": "Removed Blobs",
+            "type": "integer"
+          },
+          "removed_bytes": {
+            "title": "Removed Bytes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "dry_run",
+          "removed_blobs",
+          "removed_bytes",
+          "kept_recent_blobs",
+          "kept_recent_bytes",
+          "failed_blobs",
+          "duration_s"
+        ],
+        "title": "DataGcOut",
+        "type": "object"
+      },
       "DecisionList": {
         "additionalProperties": false,
         "properties": {
@@ -4201,6 +4246,21 @@
             "title": "Files",
             "type": "integer"
           },
+          "freed_blobs": {
+            "default": 0,
+            "title": "Freed Blobs",
+            "type": "integer"
+          },
+          "freed_bytes": {
+            "default": 0,
+            "title": "Freed Bytes",
+            "type": "integer"
+          },
+          "kept_recent_blobs": {
+            "default": 0,
+            "title": "Kept Recent Blobs",
+            "type": "integer"
+          },
           "name": {
             "title": "Name",
             "type": "string"
@@ -4220,6 +4280,11 @@
           "size": {
             "title": "Size",
             "type": "integer"
+          },
+          "swept": {
+            "default": false,
+            "title": "Swept",
+            "type": "boolean"
           },
           "tree_id": {
             "title": "Tree Id",
@@ -13737,6 +13802,121 @@
           }
         },
         "summary": "Register an uploaded tree as a named input",
+        "tags": [
+          "data"
+        ]
+      }
+    },
+    "/v1/data/gc": {
+      "post": {
+        "operationId": "sweep_blobs_v1_data_gc_post",
+        "parameters": [
+          {
+            "description": "Count only; unlink nothing.",
+            "in": "query",
+            "name": "dry_run",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Count only; unlink nothing.",
+              "title": "Dry Run",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DataGcOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid input (`invalid_input`)"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "No, or no longer a valid, credential (`unauthorized`)"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not allowed: admin only, CSRF, foreign origin (`unauthorized`)"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not found - also another user's object (`not_found`)"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Conflict (`conflict`, `no_feasible_plan`)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Invalid parameters (`invalid_input`)"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Rate limited; see Retry-After (`resource_busy`)"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "A dependency (the database) is unavailable; retry (`network_error`)"
+          }
+        },
+        "summary": "Sweep unreferenced blobs from the controller's store now (admin)",
         "tags": [
           "data"
         ]

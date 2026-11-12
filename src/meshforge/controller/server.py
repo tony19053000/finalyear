@@ -541,6 +541,7 @@ class ControllerRuntime:
                 interval_s=cfg.gc.interval_s,
                 batch=cfg.gc.batch,
                 ml_keep_superseded=cfg.planner.ml_keep_superseded,  # V0.15 G3
+                sweep_min_age_s=cfg.gc.sweep_min_age_s,  # V1.0 G11 (D454)
             )
             try:
                 await gc.start()
@@ -1010,6 +1011,7 @@ class ControllerRuntime:
                     max_items=cfg.split.max_items, max_chunks=cfg.split.max_chunks
                 ),
                 split_progress=progress_reads,
+                gc=self.gc,
             ),
             network=NetworkApi(store=network_store, prober=network),
             invites=InviteApi(

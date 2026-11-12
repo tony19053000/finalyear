@@ -6,7 +6,7 @@ API: **MeshForge controller**, version `0.17.2`, OpenAPI 3.1.0.
 
 The compute fabric's REST surface. Every call but /healthz and POST /v1/auth/login needs a user's API token (`compute login`).
 
-75 operations.
+76 operations.
 
 ## Endpoints
 
@@ -40,6 +40,7 @@ The compute fabric's REST surface. Every call but /healthz and POST /v1/auth/log
 | GET | `/v1/data/{name}` | One named input's versions | data |
 | PATCH | `/v1/data/{name}/{version}` | Pin or unpin one version | data |
 | DELETE | `/v1/data/{name}/{version}` | Remove one version | data |
+| POST | `/v1/data/gc` | Sweep unreferenced blobs from the controller's store now (admin) | data |
 | POST | `/v1/nodes/{node_id}/prepare` | Pull base images / build environments on a node | nodes |
 | GET | `/v1/nodes/{node_id}/prepare/{request_id}` | Progress of a prepare request | nodes |
 | POST | `/v1/nodes/{node_id}/gc` | Ask a node to run a GC pass now | nodes |
@@ -691,6 +692,26 @@ Remove one version
 | Status | Meaning | Body |
 |---|---|---|
 | 200 | Successful Response | `application/json` [InputRemoved](#schema-inputremoved) |
+| 400 | Invalid input (`invalid_input`) | `application/json` [ErrorEnvelope](#schema-errorenvelope) |
+| 401 | No, or no longer a valid, credential (`unauthorized`) | `application/json` [ErrorEnvelope](#schema-errorenvelope) |
+| 403 | Not allowed: admin only, CSRF, foreign origin (`unauthorized`) | `application/json` [ErrorEnvelope](#schema-errorenvelope) |
+| 404 | Not found - also another user's object (`not_found`) | `application/json` [ErrorEnvelope](#schema-errorenvelope) |
+| 409 | Conflict (`conflict`, `no_feasible_plan`) | `application/json` [ErrorEnvelope](#schema-errorenvelope) |
+| 422 | Invalid parameters (`invalid_input`) | `application/json` [ErrorEnvelope](#schema-errorenvelope) |
+| 429 | Rate limited; see Retry-After (`resource_busy`) | `application/json` [ErrorEnvelope](#schema-errorenvelope) |
+| 503 | A dependency (the database) is unavailable; retry (`network_error`) | `application/json` [ErrorEnvelope](#schema-errorenvelope) |
+
+### `POST /v1/data/gc`
+
+Sweep unreferenced blobs from the controller's store now (admin)
+
+| Parameter | In | Type | Required | Description |
+|---|---|---|---|---|
+| `dry_run` | query | boolean | no | Count only; unlink nothing. (default `False`) |
+
+| Status | Meaning | Body |
+|---|---|---|
+| 200 | Successful Response | `application/json` [DataGcOut](#schema-datagcout) |
 | 400 | Invalid input (`invalid_input`) | `application/json` [ErrorEnvelope](#schema-errorenvelope) |
 | 401 | No, or no longer a valid, credential (`unauthorized`) | `application/json` [ErrorEnvelope](#schema-errorenvelope) |
 | 403 | Not allowed: admin only, CSRF, foreign origin (`unauthorized`) | `application/json` [ErrorEnvelope](#schema-errorenvelope) |
@@ -2200,6 +2221,22 @@ One recorded try of a chunk (its chunk record, V0.10 G8, D271).
 | `leased_at` | [Utc](#schema-utc) | yes | - |
 | `speculative` | boolean | yes | - |
 
+<a id="schema-datagcout"></a>
+
+### DataGcOut
+
+V1.0 G11 (D454): ``POST /v1/data/gc`` - one sweep of unreferenced blobs.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `dry_run` | boolean | yes | - |
+| `duration_s` | number | yes | - |
+| `failed_blobs` | integer | yes | - |
+| `kept_recent_blobs` | integer | yes | - |
+| `kept_recent_bytes` | integer | yes | - |
+| `removed_blobs` | integer | yes | - |
+| `removed_bytes` | integer | yes | - |
+
 <a id="schema-decisionlist"></a>
 
 ### DecisionList
@@ -2681,11 +2718,15 @@ Type: enum: `evaluated`, `excluded`, `no_replay`
 |---|---|---|---|
 | `created_at` | string | yes | - |
 | `files` | integer | yes | - |
+| `freed_blobs` | integer | no | default `0` |
+| `freed_bytes` | integer | no | default `0` |
+| `kept_recent_blobs` | integer | no | default `0` |
 | `name` | string | yes | - |
 | `pinned` | boolean | yes | - |
 | `ref` | string | yes | - |
 | `removed` | boolean | yes | - |
 | `size` | integer | yes | - |
+| `swept` | boolean | no | default `False` |
 | `tree_id` | string | yes | - |
 | `version` | integer | yes | - |
 

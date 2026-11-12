@@ -677,6 +677,11 @@ def job_detail_table(payload: Mapping[str, Any]) -> Table:
     table = _table("FIELD", "VALUE", title="Job")
     for key in ("job_id", "name", "state", "failure_type", "failure_detail"):
         table.add_row(_cell(key), _cell(payload.get(key)))
+    cause = job_failure_cause(payload)
+    if cause:
+        # G11 (D453): e.g. ``node_lost: node_revoked`` under a job-level
+        # ``placed_node_offline`` - the why, next to the job's failure
+        table.add_row(_cell("failure_cause"), _cell(cause))
     if payload.get("output_digest"):
         table.add_row(_cell("output"), _cell(payload.get("output_digest")))
     for text in warning_lines(payload):
@@ -760,6 +765,34 @@ def attempt_failure_text(attempt: Mapping[str, Any]) -> str:
     if isinstance(detail, str) and detail.strip():
         text += f": {scrub(detail.strip())}"
     return text
+
+
+def job_failure_cause(payload: Mapping[str, Any]) -> str:
+    """V1.0 G11 (D453): the failure of a failed job's **last** ended attempt
+    (highest fencing token with a ``failure_type``) as
+    :func:`attempt_failure_text`, when it says more than the job's own
+    ``failure_type`` / ``failure_detail`` - else "". A revoked node's job
+    fails ``node_lost / placed_node_offline`` while the attempt names the
+    cause (``node_revoked``); before this it was visible only in ``--json``
+    or in the attempt rows further down."""
+    failure = payload.get("failure_type")
+    if not isinstance(failure, str) or not failure:
+        return ""
+    attempts = payload.get("attempts")
+    ended = [
+        a
+        for a in (attempts if isinstance(attempts, list) else [])
+        if isinstance(a, Mapping) and attempt_failure_text(a)
+    ]
+    if not ended:
+        return ""
+    last = max(ended, key=lambda a: _num(a.get("fencing_token")) or 0)
+    text = attempt_failure_text(last)
+    detail = payload.get("failure_detail")
+    same = scrub(failure)
+    if isinstance(detail, str) and detail.strip():
+        same += f": {scrub(detail.strip())}"
+    return "" if text == same else text
 
 
 def warning_lines(payload: Mapping[str, Any]) -> list[str]:

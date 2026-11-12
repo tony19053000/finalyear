@@ -138,7 +138,12 @@ def run(
     ] = Path(),
     node: Annotated[
         str | None,
-        typer.Option("--node", help="Pin the job to this node (Mode 1)."),
+        typer.Option(
+            "--node",
+            help="Pin the job to this node (Mode 1): a node id, or a laptop's "
+            "name or hostname as `compute nodes` shows it (revoked nodes never "
+            "match a name).",
+        ),
     ] = None,
     local: Annotated[
         bool,
@@ -252,7 +257,13 @@ def run(
         return
     settings = cli._settings()
     own_node = _own_node_id(settings.data_dir, required=local)
-    node_id = own_node if local else cli._checked_node_id(node)
+    # G11 (D452): --node NAME is resolved once the client is open (below)
+    pin_name = None if local or node is None or _is_node_id(node) else node
+    node_id: str | None = None
+    if local:
+        node_id = own_node
+    elif pin_name is None:
+        node_id = cli._checked_node_id(node)
     key = idempotency_key or _new_key()
     if not _key_ok(key):
         cli._die(
@@ -289,6 +300,11 @@ def run(
     if own_node is not None:
         body["submitter_node_id"] = own_node
     with cli._client(settings) as client:
+        if pin_name is not None:
+            # G11 (D452): a name -> one non-revoked node, same resolver as
+            # --exclude-node
+            node_id = cli._resolve_node_refs(client, [pin_name], "--node")[0]
+            placement.update(node_id=node_id, local=False)
         if exclude_node:
             excluded = _resolve_excluded(client, exclude_node)
             if node_id is not None and node_id in excluded:
@@ -340,55 +356,22 @@ def run(
         _follow_to_exit(client, job_id, settings.cli.timeout_s)
 
 
-def _resolve_excluded(client: Any, values: list[str]) -> list[str]:
-    """V1.0 G9-B: each ``--exclude-node`` value -> a node id. A canonical
-    ``node_<ULID>`` is taken as is; anything else must match exactly one
-    node's display name or hostname (case-insensitive) in ``compute nodes``
-    - none or several is a usage error (never a guess). The node list is
-    fetched once, only when a name is given."""
+def _is_node_id(value: str) -> bool:
     from meshforge.common.errors import InvalidIdError
     from meshforge.common.ids import validate_node_id
 
-    out: list[str] = []
-    nodes: list[Mapping[str, Any]] | None = None
-    for value in values:
-        try:
-            out.append(str(validate_node_id(value)))
-            continue
-        except InvalidIdError:
-            pass
-        wanted = value.strip().casefold()
-        if not wanted:
-            cli._die("--exclude-node needs a node id or name", CliExit.USAGE_ERROR)
-        if nodes is None:
-            listed = cli._fetch(client.nodes).get("nodes")
-            nodes = [n for n in listed or [] if isinstance(n, Mapping)]
-        matches = sorted(
-            {
-                str(n.get("node_id"))
-                for n in nodes
-                if any(
-                    isinstance(n.get(key), str)
-                    and n[key].strip()
-                    and n[key].strip().casefold() == wanted
-                    for key in ("display_name", "hostname")
-                )
-            }
-        )
-        if not matches:
-            cli._die(
-                f"--exclude-node {render.clip(value)!r}: no node has that id, name "
-                "or hostname; run `compute nodes` to list them",
-                CliExit.USAGE_ERROR,
-            )
-        if len(matches) > 1:
-            cli._die(
-                f"--exclude-node {render.clip(value)!r} matches {len(matches)} nodes "
-                f"({', '.join(render.clip(m) for m in matches)}); give the node id",
-                CliExit.USAGE_ERROR,
-            )
-        out.append(matches[0])
-    return sorted(set(out))
+    try:
+        validate_node_id(value)
+    except InvalidIdError:
+        return False
+    return True
+
+
+def _resolve_excluded(client: Any, values: list[str]) -> list[str]:
+    """V1.0 G9-B: each ``--exclude-node`` value -> a node id, through the one
+    shared NODE resolver (:func:`meshforge.cli.shared._resolve_node_refs`:
+    an id as is, else exactly one non-revoked node's name or hostname)."""
+    return sorted(set(cli._resolve_node_refs(client, values, "--exclude-node")))
 
 
 def _seed(settings: Any, built: Any) -> bool:
@@ -510,7 +493,8 @@ def _follow_to_exit(client: Any, job_id: str, timeout_s: float) -> None:
         raise typer.Exit(exit_code_for(exc)) from None
     state = str(end.get("state"))
     failure = end.get("failure_type")
-    _print_warnings(client, job_id)
+    detail = _print_warnings(client, job_id)
+    cause = "" if detail is None else render.job_failure_cause(detail)
     code = job_exit_code(
         state,
         None if failure is None else str(failure),
@@ -525,23 +509,26 @@ def _follow_to_exit(client: Any, job_id: str, timeout_s: float) -> None:
                 if end.get("exit_code") is not None
                 else ""
             )
+            + (f"; last attempt: {render.echo(cause)}" if cause else "")
         )
     raise typer.Exit(code)
 
 
-def _print_warnings(client: Any, job_id: str) -> None:
+def _print_warnings(client: Any, job_id: str) -> Mapping[str, Any] | None:
     """V0.10 G5 (D269): the ended job's warnings (``nondeterministic_chunk``),
-    best effort - a failed read only skips them."""
+    best effort - a failed read only skips them. Returns the job detail it
+    read (G11, D453: the end line names the last attempt's failure)."""
     from meshforge.cli.client import ControllerError
 
     try:
         detail = client.job(job_id)
     except (ControllerError, OSError):
-        return
+        return None
     if not isinstance(detail, Mapping):
-        return
+        return None
     for text in render.warning_lines(detail):
         render.note(f"warning: {render.flat(text)}")
+    return detail
 
 
 # ------------------------------------------------------------------ jobs

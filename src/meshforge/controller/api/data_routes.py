@@ -9,6 +9,10 @@ D141): named inputs are shared by the whole fabric.
 * ``PATCH /v1/data/{name}/{version}`` ``{pinned}`` - pin or unpin a version.
 * ``DELETE /v1/data/{name}/{version}`` - ``409`` (naming the jobs) while an
   unfinished job uses it, ``404`` unknown, else ``200`` with what was removed.
+  V1.0 G11 (D454): the removed tree's blobs that nothing else references are
+  unlinked at once (``freed_blobs`` / ``freed_bytes``), not at quota pressure.
+* ``POST /v1/data/gc?dry_run=`` (admin, V1.0 G11, D454) - sweep every
+  unreferenced blob of the controller's store now; answers count and bytes.
 
 A change to the pinned set is sent to every live agent at once.
 """
@@ -19,15 +23,17 @@ import json
 import re
 from typing import Annotated, Any, Final
 
-from fastapi import APIRouter, Depends, Path, Request, Response, status
+from fastapi import APIRouter, Depends, Path, Query, Request, Response, status
 
 from meshforge.common.errors import FailureType
 from meshforge.common.hashing import Digest
+from meshforge.common.logging import get_logger
 from meshforge.common.manifest import INPUT_NAME_RE
-from meshforge.controller.api.auth import CurrentUser
+from meshforge.controller.api.auth import AdminUser, CurrentUser
 from meshforge.controller.api.errors import ApiError
 from meshforge.controller.api.job_routes import JobApi, check_tree, get_job_api
 from meshforge.controller.api.response_models import (
+    DataGcOut,
     InputList,
     InputOut,
     InputRegistered,
@@ -41,6 +47,8 @@ from meshforge.controller.named_inputs import (
 )
 
 __all__ = ["data_router"]
+
+log = get_logger(__name__)
 
 _DIGEST_RE: Final = re.compile(r"sha256:[0-9a-f]{64}")
 _MAX_BODY: Final = 4096
@@ -190,4 +198,49 @@ async def remove_input(
         raise _error(exc) from None
     if record.pinned:
         await _pins_changed(jobs)
-    return {**record.as_dict(), "removed": True}
+    return {**record.as_dict(), "removed": True, **await _sweep_removed(jobs, record)}
+
+
+async def _sweep_removed(jobs: JobApi, record: NamedInputRecord) -> dict[str, Any]:
+    """D454: unlink the removed tree's blobs nothing else references. The row
+    is gone already (committed); a failed sweep only leaves them to GC."""
+    if jobs.gc is None:
+        return {"swept": False}
+    tree = Digest.parse(record.tree_id)
+    try:
+        among = {tree.hex, *await jobs.blobs.tree_members(tree)}
+        report = await jobs.gc.sweep("data_rm", among=among)
+    except Exception as exc:  # noqa: BLE001 - the removal itself succeeded
+        log.warning(
+            "controller.data.sweep_failed",
+            ref=f"{record.name}@{record.version}",
+            cause=type(exc).__name__,
+            error=str(exc)[:200],
+        )
+        return {"swept": False}
+    return {
+        "swept": True,
+        "freed_blobs": report.removed,
+        "freed_bytes": report.removed_bytes,
+        "kept_recent_blobs": report.kept_recent,
+    }
+
+
+@data_router.post(
+    "/gc",
+    summary="Sweep unreferenced blobs from the controller's store now (admin)",
+    response_model=DataGcOut,
+)
+async def sweep_blobs(
+    _admin: AdminUser,
+    jobs: Jobs,
+    dry_run: Annotated[bool, Query(description="Count only; unlink nothing.")] = False,
+) -> dict[str, Any]:
+    if jobs.gc is None:
+        raise ApiError(
+            FailureType.CONFIG_ERROR,
+            "the controller's blob GC is off ([controller.gc] enabled = false, "
+            "or its index is in use by another process)",
+        )
+    report = await jobs.gc.sweep("manual", dry_run=dry_run)
+    return report.as_dict()
