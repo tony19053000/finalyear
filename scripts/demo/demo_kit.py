@@ -371,10 +371,24 @@ def write_job_project(
     return dest
 
 
+SHA256_PER_S: Final = 1_000_000
+"""A conservative laptop SHA-256 rate (rounds per second) for the demo's
+declared ``split.item_seconds``; real laptops are 1-3x faster."""
+
+
+def item_seconds(rounds: int) -> float:
+    """The demo piece's declared seconds per item (at least 0.05 s)."""
+    return max(0.05, round(rounds / SHA256_PER_S, 2))
+
+
 def write_split_project(
     dest: Path, *, name: str, items: int, chunk: int, rounds: int
 ) -> Path:
-    """A Mode 3 project (03, 04): ``piece.py`` over the range ``0..items-1``."""
+    """A Mode 3 project (03, 04): ``piece.py`` over the range ``0..items-1``.
+
+    It declares ``split.item_seconds`` (V1.0 G11 lab): demo job names are new on
+    every run, so without a declared rate the G9-E first-run rule (D438) runs the
+    job whole and the demo shows no split."""
     if dest.exists():
         shutil.rmtree(dest)
     dest.mkdir(parents=True)
@@ -388,6 +402,7 @@ def write_split_project(
             f"  over: {{range: {{stop: {items}}}}}",
             f"  chunk: {{items: {chunk}}}",
             "  combine: concat",
+            f"  item_seconds: {item_seconds(rounds)}",
             "  min_nodes: 2",
             "limits:",
             "  timeout: 10m",
