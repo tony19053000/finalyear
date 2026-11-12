@@ -86,3 +86,11 @@ You are the MeshForge LAB AGENT for laptop L1 (JARVISM3, Linux, controller lapto
 ```
 You are the MeshForge lab agent for laptop L<n>. git fetch origin; git checkout lab/L<n>; git merge origin/main. Read docs/HANDOFF_PROMPTS.md section 0, lab/coord/RULES.md (incl. "Lab chat"), the top of lab/coord/ANNOUNCE.md, your TODO and the tail of your REPORT. Then `read` the lab chat and do what is addressed to you; ask me only for admin/physical steps. Record + push to lab/L<n>. Short simple messages.
 ```
+
+---
+
+## 5. Handoff 2026-11-12 (G12 -> v0.17.4) - USE THESE TWO
+
+State: docs/SESSION_HANDOFF.md section "G12 -> v0.17.4 state". Paste each into a NEW session in `/home/aayush/Desktop/FINAL YEAR`.
+
+**LEAD:** see the prompt in section 5a below. **BUG-FIX:** section 5b.
