@@ -951,6 +951,18 @@ Lab message posted: lab/chat/20261106-120000-LEAD-to-ALL.md (upgrade, remove F4/
 Next: collect lab replies; open follow-ups: D441 r1 notes (ends.py:276 stale older entry; speculation test comment),
 sample_interval_s < 0.25 s, ML an_src_declared flag, lab checklist V0.10 mentions split.item_seconds, Mode 2/4 deferred.
 
+## v0.17.3 released (2026-11-12, BUG-FIX session) - read this first
+
+* G11 shipped in v0.17.3 (tag pushed, release run 43172547817 green, assets up): D452 names skip revoked,
+  D453 failure cause in job view, D454 `data rm` frees + `compute data gc`, D456 planner per-node fixed +
+  first-chunk cost, D457 `run --local` via public node-id file, D458 venv key names the base interpreter.
+  Briefs: `docs/briefs/progress/V1.0-G11-lab-fixes.md`, `V1.0-G11-D457.md`, `V1.0-G11-D458.md`.
+* Scope cut by the team: ADR-0024 warm lane worker stays Proposed, build deferred; per-chunk phase times,
+  `gpus` list for L2/L4, idle-lane +2-4 s deferred.
+* Lab post: `lab/chat/20261112-123426-LEAD-to-ALL.md`. Roadmap boxes stay `[~]` until lab evidence.
+* Lesson: a version bump also needs `cd frontend && npm run gen:api` (openapi.json carries the version).
+* Nothing unpushed.
+
 ## v0.17.2 released (2026-11-11, BUG-FIX session) - read this first, older G10 sections below are history
 
 * D451 finished: tester+reviewer PASS/APPROVE; D451-R1 (refused lease could plant stall marks) fixed.
