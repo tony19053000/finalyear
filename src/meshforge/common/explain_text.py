@@ -30,6 +30,7 @@ from typing import Any, Final
 
 __all__ = [
     "format_seconds",
+    "kept_sentence",
     "margin_sentence",
     "term_note",
 ]
@@ -176,10 +177,29 @@ def term_note(term: object, *, name: str | None = None) -> str | None:
     return ", ".join(parts) if parts else None
 
 
+def _cost_origin(row: Mapping[str, Any]) -> str:
+    """V1.0 G12 (D459): where a lane's fixed chunk cost came from -
+    ``history n=17`` (this workload's chunks on the node), ``node_history
+    venv n=40`` (the node's chunks of any workload on that runtime kind),
+    ``shared`` (the job's shared overhead, measured) or ``assumed`` (the
+    configured ``chunk_overhead_s``)."""
+    origin = row.get("fixed_from")
+    samples = _num(row.get("fixed_samples"))
+    count = f" n={samples:g}" if samples is not None else ""
+    if origin == "node":
+        return "history" + count
+    if origin == "node_history":
+        runtime = row.get("runtime")
+        kind = f" {runtime}" if isinstance(runtime, str) and runtime.isalpha() else ""
+        return "node_history" + kind[:12] + count
+    return "assumed" if row.get("fixed_source") == "assumed" else "shared"
+
+
 def _chunk_cost_note(detail: Mapping[str, Any]) -> str | None:
-    """V1.0 G11 (D456): ``per chunk 0002ab12 20.0s (n=17) +15.0s first (n=1),
-    ...`` - each lane's own fixed chunk cost (``shared`` when it has none) and
-    its first-chunk extra; ``None`` when the detail has no ``per_node``."""
+    """V1.0 G11 (D456): ``per chunk 0002ab12 20.0s (history n=17) +15.0s
+    first (n=1), ...`` - each lane's fixed chunk cost with its origin
+    (:func:`_cost_origin`) and its first-chunk extra; ``None`` when the
+    detail has no ``per_node``."""
     per_node = detail.get("per_node")
     if not isinstance(per_node, Mapping):
         return None
@@ -190,12 +210,7 @@ def _chunk_cost_note(detail: Mapping[str, Any]) -> str | None:
         fixed = _num(row.get("fixed_s"))
         if fixed is None:
             continue
-        samples = _num(row.get("fixed_samples"))
-        origin = (
-            f"n={samples:g}"
-            if row.get("fixed_from") == "node" and samples is not None
-            else "shared"
-        )
+        origin = _cost_origin(row)
         text = f"{str(node)[-_ORIGIN_CHARS:]} {fixed:.1f}s ({origin})"
         first = _num(row.get("first_s"))
         if first is not None:
@@ -295,14 +310,46 @@ def _pruned(rows: Sequence[Mapping[str, Any]]) -> str:
     )
 
 
+_MODE_NAMES: Final = {"local": "local", "offload": "mode1", "split": "mode3"}
+
+
+def _mode_name(value: object) -> str:
+    return _MODE_NAMES.get(value, _DASH) if isinstance(value, str) else _DASH
+
+
+def kept_sentence(candidates: object) -> str | None:
+    """V1.0 G12 (D460): ``kept previous mode mode3 (new best local 40.1s
+    within 10% of 42.0s)`` when the decision's hysteresis kept the previous
+    decision's mode; ``None`` otherwise."""
+    rows = candidates if isinstance(candidates, list | tuple) else []
+    chosen = next(
+        (c for c in rows if isinstance(c, Mapping) and c.get("rank") == 1), None
+    )
+    kept = chosen.get("kept_mode") if chosen is not None else None
+    if not isinstance(kept, Mapping):
+        return None
+    margin = _num(kept.get("margin"))
+    within = _DASH if margin is None else f"{margin * 100:g}%"
+    return (
+        f"kept previous mode {_mode_name(kept.get('previous_mode'))} (new best "
+        f"{_mode_name(kept.get('best_mode'))} {format_seconds(kept.get('best_s'))}"
+        f" within {within} of {format_seconds(kept.get('kept_s'))})"
+    )
+
+
 def margin_sentence(candidates: object) -> str | None:
     """Why the split job was (not) split, plus the pruned nodes; ``None`` when
-    no candidate is a split job's row (a job that runs whole)."""
+    no candidate is a split job's row (a job that runs whole). V1.0 G12
+    (D460): a decision that kept the previous mode (hysteresis) says so -
+    for a job that runs whole that is the whole sentence."""
+    kept = kept_sentence(candidates)
     rows = [
         c
         for c in (candidates if isinstance(candidates, list | tuple) else [])
         if isinstance(c, Mapping) and _node_set(c)
     ]
     if not rows:
-        return None
+        return kept
+    if kept is not None:
+        return kept + _pruned(rows)
     return _verdict(rows) + _pruned(rows)

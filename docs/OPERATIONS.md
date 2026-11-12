@@ -1715,6 +1715,39 @@ compute get <JOB_ID>               # outputs -> ./outputs/<JOB_ID>/ (--dest, --f
      rates may split - a tiny job can then be split for nothing).
   3. **A benchmark campaign** that forces the node set (`mode3` config) always
      splits; the block is still recorded in its decision.
+- **Per-chunk cost of a new workload (V1.0 G12, D459).** Each lane pays a
+  fixed cost per chunk (process start, venv activation; ~0.2 s on Linux
+  Docker, 2-3 s on a Windows venv lane) and more on its first chunk (+12-16 s).
+  The planner learns both per node from the workload's own chunks (D456); a
+  node that has not run enough chunks of *this* workload (fewer than 3) now
+  uses its cost learned from its latest committed chunks of **any** workload
+  on the **same runtime kind** the job would use there (Docker / venv /
+  subprocess, from the node's capability tags), before falling back to the
+  job's shared overhead. `compute explain` shows each lane's source in the
+  `chunk_overhead` note: `history n=..` (this workload), `node_history venv
+  n=..` (other workloads, same runtime), `shared` (the job's measured shared
+  overhead) or `assumed` (`[controller.split] chunk_overhead_s`). It reuses
+  `[controller.planner] history_runs` (latest chunks per node and runtime).
+- **Mode hysteresis (V1.0 G12, D460).** Two runs of the same workload no
+  longer flip between Local, Mode 1 and Mode 3 on a near tie. The planner
+  keeps the mode the workload's latest dispatched decision chose (a job you
+  did not pin) unless another mode is predicted at least
+  `[controller.planner] mode_switch_margin` faster (default `0.10` = 10 %;
+  `0` = off; at most `0.5`):
+
+  ```toml
+  [controller.planner]
+  mode_switch_margin = 0.10
+  ```
+
+  It never overrides feasibility or refusals (a busy or offline laptop is
+  still skipped), `--node` / `--local` / `--exclude-node`, a campaign's forced
+  set, a rule policy, an objective other than `min_time`, an ML-planned
+  decision, or a Mode 3 set blocked by `require_measured_rates`. Within one
+  mode nothing changes (Mode 1 may still move between laptops). When it
+  applies, `compute explain` says e.g. `kept previous mode mode3 (new best
+  local 40.10s within 10% of 42.00s)` and the chosen row of
+  `plan_decision.candidates` carries `kept_mode`.
 
 ---
 

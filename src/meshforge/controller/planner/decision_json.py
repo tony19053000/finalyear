@@ -39,6 +39,11 @@ and, when the predictor failed and the decision fell back to calibration
 ``detail.ml`` says what the model did for it. A decision without a model has
 neither key (byte-identical to V0.14).
 
+**V1.0 G12 (D460).** When mode hysteresis kept the previous decision's mode,
+the chosen row adds ``"kept_mode": {"previous_mode", "best_mode", "best_s",
+"kept_s", "margin"}`` (absent otherwise). A split job's ``chunk_overhead``
+term may name ``fixed_from: "node_history"`` (+ ``runtime``) per node (D459).
+
 **Never a non-finite number (D131).** PostgreSQL's ``jsonb`` refuses
 ``Infinity``/``NaN``, and one refused row would undo the whole dispatch
 tick's transaction. :func:`json_safe` therefore replaces any non-finite float
@@ -178,6 +183,25 @@ def _candidate(item: CandidateEval) -> dict[str, Any]:
         "score": item.score,
         "rank": item.rank,
         **_split_fields(item),
+        **_kept(item),
+    }
+
+
+def _kept(item: CandidateEval) -> dict[str, Any]:
+    """V1.0 G12 (D460): the chosen row of a decision whose hysteresis kept
+    the previous mode says so (absent otherwise - every older decision is
+    byte-identical)."""
+    kept = item.kept
+    if kept is None:
+        return {}
+    return {
+        "kept_mode": {
+            "previous_mode": kept.previous_mode,
+            "best_mode": kept.best_mode,
+            "best_s": kept.best_s,
+            "kept_s": kept.kept_s,
+            "margin": kept.margin,
+        }
     }
 
 

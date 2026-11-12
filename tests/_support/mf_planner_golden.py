@@ -80,12 +80,14 @@ def fields_text(decision: Decision) -> str:
 
 
 def _without_unset_blocked(value: Any) -> Any:
-    """V1.0 G9-E (D438): a margin test's ``blocked`` counts only when set."""
+    """V1.0 G9-E (D438): a margin test's ``blocked`` counts only when set.
+    V1.0 G12 (D460): likewise a candidate's ``kept`` (mode hysteresis)."""
     if isinstance(value, dict):
         return {
             k: _without_unset_blocked(v)
             for k, v in value.items()
             if not (k == "blocked" and v is None and "threshold_s" in value)
+            and not (k == "kept" and v is None and "rank" in value)
         }
     if isinstance(value, list | tuple):
         return [_without_unset_blocked(v) for v in value]

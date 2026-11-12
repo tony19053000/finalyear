@@ -241,7 +241,9 @@ class DecisionOut(ApiModel):
     ``replay_max_bytes``)."""
     margin_sentence: str | None = None
     """V0.14 G5 (D300): why a split job was (not) split - the margin test, the
-    objective, pruned nodes; null for a job that runs whole."""
+    objective, pruned nodes; V1.0 G12 (D460): or that the decision kept the
+    previous decision's mode (hysteresis) - the only sentence a job that runs
+    whole can have; null otherwise."""
     decision_ms: float | None = None
     """V0.14 G6 (D324): how long the dispatcher took to make this decision
     (ms; criterion 3). Null for a row written before migration 0033."""

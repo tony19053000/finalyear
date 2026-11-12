@@ -925,6 +925,22 @@ class PlannerSettings(SectionModel):
         ),
     )
     # --- end V1.0 G2 -------------------------------------------------------------
+    # --- V1.0 G12 (D460): mode hysteresis -----------------------------------------
+    mode_switch_margin: float = Field(
+        default=0.10,
+        ge=0.0,
+        le=0.5,
+        description=(
+            "D460: an automatically placed job keeps the mode (local, Mode 1, "
+            "Mode 3) the latest dispatched decision of the same workload chose, "
+            "unless another mode's best candidate is predicted at least this "
+            "fraction faster - near ties no longer flip between modes from run "
+            "to run. Only for the cost_model policy with the min_time "
+            "objective and without an ML model; pinned jobs, --exclude-node "
+            "and refusals are never overridden. 0 = off."
+        ),
+    )
+    # --- end V1.0 G12 ------------------------------------------------------------
 
     @field_validator("disabled_modes")
     @classmethod

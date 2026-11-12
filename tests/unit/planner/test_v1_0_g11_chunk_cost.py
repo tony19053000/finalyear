@@ -395,7 +395,7 @@ def test_decision_json_and_explain_note_show_the_per_node_terms() -> None:
     assert "first_s" not in per_node["n3"]
     note = term_note(term, name="chunk_overhead")
     assert note is not None
-    assert "n2 20.0s (n=12) +15.0s first (n=2)" in note
+    assert "n2 20.0s (history n=12) +15.0s first (n=2)" in note  # G12 label
     assert "n3 0.5s (shared)" in note
     assert term_note(term, name="tail") is None or "per chunk" not in str(
         term_note(term, name="tail")

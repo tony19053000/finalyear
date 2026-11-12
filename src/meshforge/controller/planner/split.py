@@ -22,8 +22,10 @@ fresh process. Per node ``n``:
   (``history``), else ``[controller.split] chunk_overhead_s`` (``assumed``).
 * (V1.0 G11, D456) ``t_n`` / ``first_n`` - the node's **own** fixed cost per
   chunk and the extra its lane's first chunk costs, learned from the
-  fingerprint's chunk history on ``n`` (:mod:`~.chunk_cost`, ``history``).
-  ``t_n`` falls back to the shared ``t_o``; ``first_n`` to none.
+  fingerprint's chunk history on ``n`` (:mod:`~.chunk_cost`, ``history``),
+  else (V1.0 G12, D459) from ``n``'s chunks of any workload on the runtime
+  kind the job would use there (``node_history``). ``t_n`` falls back to the
+  shared ``t_o``; ``first_n`` to none.
 
 A chunk of ``c`` items takes ``c x (1/r_n + f_n) + t_n`` on ``n``, so a lane
 completes ``r'_n = c / (c x (1/r_n + f_n) + t_n)`` items/s, and its first chunk
@@ -370,32 +372,65 @@ def chunk_overhead(request: PlanRequest, config: SplitConfig) -> EstimateTerm:
 # --- V1.0 G11 (D456): per-node chunk costs --------------------------------------
 
 
+FROM_NODE: Final = "node"
+"""``detail.from`` / ``per_node[].fixed_from`` of a cost learned from the
+fingerprint's own chunks on the node (D456; ``compute explain``: history)."""
+FROM_NODE_HISTORY: Final = "node_history"
+"""V1.0 G12 (D459): learned from the node's chunks of any workload on the
+same runtime kind."""
+
+
 def _learned(
-    values: Mapping[str, float], samples: Mapping[str, int], node_id: str
+    values: Mapping[str, float],
+    samples: Mapping[str, int],
+    node_id: str,
+    origin: str = FROM_NODE,
+    runtime: str | None = None,
 ) -> EstimateTerm | None:
     value = values.get(node_id)
     if value is None or not math.isfinite(value) or value < 0.0:
         return None
-    return EstimateTerm(
-        bounded(value),
-        TermSource.HISTORY,
-        {"from": "node", "samples": int(samples.get(node_id, 0))},
-    )
+    detail: dict[str, Any] = {"from": origin, "samples": int(samples.get(node_id, 0))}
+    if runtime is not None:
+        detail["runtime"] = runtime
+    return EstimateTerm(bounded(value), TermSource.HISTORY, detail)
 
 
 def _chunk_terms(
     request: PlanRequest, node_id: str, config: SplitConfig
 ) -> tuple[EstimateTerm, EstimateTerm | None]:
-    """``(t_n, first_n)`` of ``node_id``: its learned costs, else the shared
-    :func:`chunk_overhead` and no first-chunk extra."""
+    """``(t_n, first_n)`` of ``node_id``: its costs learned from the
+    fingerprint's chunks, else (V1.0 G12, D459) from the node's chunks of
+    any workload on the same runtime kind, else the shared
+    :func:`chunk_overhead` and no first-chunk extra. Both terms come from
+    one source (``first_s`` is relative to that source's ``fixed_s``)."""
     history = request.history
     fixed = _learned(
         history.chunk_fixed_s_by_node, history.chunk_fixed_samples_by_node, node_id
     )
-    first = _learned(
-        history.chunk_first_s_by_node, history.chunk_first_samples_by_node, node_id
+    if fixed is not None:
+        first = _learned(
+            history.chunk_first_s_by_node, history.chunk_first_samples_by_node, node_id
+        )
+        return fixed, first
+    runtime = history.node_chunk_runtime_by_node.get(node_id)
+    pooled = _learned(
+        history.node_chunk_fixed_s_by_node,
+        history.node_chunk_fixed_samples_by_node,
+        node_id,
+        FROM_NODE_HISTORY,
+        runtime,
     )
-    return fixed or chunk_overhead(request, config), first
+    if pooled is not None:
+        first = _learned(
+            history.node_chunk_first_s_by_node,
+            history.node_chunk_first_samples_by_node,
+            node_id,
+            FROM_NODE_HISTORY,
+            runtime,
+        )
+        return pooled, first
+    return chunk_overhead(request, config), None
 
 
 def lane_fixed(item: Lane, shared: EstimateTerm) -> EstimateTerm:
@@ -783,14 +818,17 @@ def _per_node_detail(
     per_node: dict[str, Any] = {}
     for item in sorted(active, key=lambda lane_: lane_.node_id):
         own = lane_fixed(item, shared)
-        learned = own.detail.get("from") == "node"
+        origin = own.detail.get("from")
+        learned = origin in (FROM_NODE, FROM_NODE_HISTORY)
         row: dict[str, Any] = {
             "fixed_s": round(own.seconds, _ROUND),
             "fixed_source": own.source.value,
-            "fixed_from": "node" if learned else "shared",
+            "fixed_from": origin if learned else "shared",
         }
         if learned:
             row["fixed_samples"] = own.detail.get("samples", 0)
+        if origin == FROM_NODE_HISTORY and "runtime" in own.detail:
+            row["runtime"] = own.detail["runtime"]  # V1.0 G12 (D459)
         if item.first is not None:
             row["first_s"] = round(item.first.seconds, _ROUND)
             row["first_samples"] = item.first.detail.get("samples", 0)

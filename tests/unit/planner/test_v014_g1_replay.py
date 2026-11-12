@@ -39,7 +39,8 @@ def test_every_planner_input_field_is_in_replay_v1() -> None:
         assert {f.name for f in dataclasses.fields(cls)} == names, cls.__name__
     request, snapshot, now = synthetic_fabric(3, split=True)
     replay = to_replay(request, snapshot, now)
-    assert set(replay["request"]) == REPLAY_FIELDS[type(request)]
+    # V1.0 G12 (D460): previous_mode is written only when known
+    assert set(replay["request"]) | {"previous_mode"} == REPLAY_FIELDS[type(request)]
     assert set(replay["snapshot"]) == REPLAY_FIELDS[ClusterSnapshot]
     assert set(replay["snapshot"]["nodes"][0]) == REPLAY_FIELDS[NodeSnapshot]
     assert replay["replay_version"] == REPLAY_VERSION == 2  # V0.14 G2+G3 merge

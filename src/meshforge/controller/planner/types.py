@@ -32,6 +32,7 @@ __all__ = [
     "EstimateTerm",
     "GpuNeed",
     "History",
+    "KeptMode",
     "LanePlan",
     "LinkStat",
     "MarginTest",
@@ -259,6 +260,17 @@ class History:
     """node_id -> extra seconds a lane's first chunk costs there (cold start);
     absent = not learned (no extra)."""
     chunk_first_samples_by_node: Mapping[str, int] = field(default_factory=dict)
+    # --- V1.0 G12 (D459): node history - the node's chunk costs learned from
+    # its latest committed chunks of ANY workload on the runtime kind this job
+    # would use there (:func:`~.chunk_cost.pooled_chunk_cost`); only for nodes
+    # without a fingerprint cost above. Filled per job by the dispatcher. ----
+    node_chunk_fixed_s_by_node: Mapping[str, float] = field(default_factory=dict)
+    node_chunk_fixed_samples_by_node: Mapping[str, int] = field(default_factory=dict)
+    node_chunk_first_s_by_node: Mapping[str, float] = field(default_factory=dict)
+    node_chunk_first_samples_by_node: Mapping[str, int] = field(default_factory=dict)
+    node_chunk_runtime_by_node: Mapping[str, str] = field(default_factory=dict)
+    """node_id -> the runtime kind (``docker`` / ``venv`` / ``subprocess``)
+    the node-history costs were learned on."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -342,6 +354,12 @@ class PlanRequest:
     objective: Objective | None = None
     """What ``cost_model`` ranks by; None = ``min_time`` (a request from before
     G3, or a hand-built one). Rule policies ignore it."""
+    # V1.0 G12 (D460)
+    previous_mode: Mode | None = None
+    """The mode (``local`` / ``offload`` / ``split``) the latest dispatched
+    decision of this fingerprint chose (an unpinned job's); None = none
+    recorded. With ``mode_switch_margin`` it keeps near-tie decisions from
+    flapping between modes (:mod:`.hysteresis`)."""
 
     @property
     def is_gpu_job(self) -> bool:
@@ -590,6 +608,13 @@ class PlannerConfig:
     job runs unsplit). Empty (the default, and every replay that lacks the
     key) = every mode. A pinned job and a campaign's forced node set are
     never affected (the user named the nodes)."""
+    # --- V1.0 G12 (D460): mode hysteresis ------------------------------------
+    mode_switch_margin: float = 0.0
+    """``[controller.planner] mode_switch_margin``: a decision keeps the
+    previous decision's mode (:attr:`PlanRequest.previous_mode`) unless the
+    new best candidate is at least this fraction faster than that mode's
+    best candidate now (:mod:`.hysteresis`). 0 (the default, and every replay
+    that lacks the key) = no hysteresis."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -727,6 +752,19 @@ class SplitPlan:
 
 
 @dataclass(frozen=True, slots=True)
+class KeptMode:
+    """V1.0 G12 (D460): hysteresis kept :attr:`previous_mode` - the new best
+    candidate (``best_mode``, ``best_s``) was not at least ``margin`` faster
+    than the previous mode's best candidate now (``kept_s``)."""
+
+    previous_mode: Mode
+    best_mode: Mode
+    best_s: float
+    kept_s: float
+    margin: float
+
+
+@dataclass(frozen=True, slots=True)
 class CandidateEval:
     node_id: str
     mode: Mode
@@ -747,6 +785,9 @@ class CandidateEval:
     chunks: int | None = None
     margin: MarginTest | None = None
     """``split`` candidates: this set against the best single node."""
+    kept: KeptMode | None = None
+    """V1.0 G12 (D460): set on the chosen row when hysteresis kept the
+    previous decision's mode over a near-tie better candidate."""
 
 
 @dataclass(frozen=True, slots=True)
