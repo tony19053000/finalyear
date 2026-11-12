@@ -1,0 +1,16 @@
+DEMO 03-mode3-split - work folder /tmp/meshforge-demo/03-mode3-split
+
+== Reset 03-mode3-split  [  0.0 s]
+   clean: no demo job running, no demo invite open, outputs removed
+
+== Mode 3: 48 items in pieces of 4; the planner decides  [  0.0 s]
+   $ compute run /tmp/meshforge-demo/03-mode3-split/split
+     job_01M77DT2Z2MB8BNY54WYJM1XCE
+   UNEXPECTED the planner split the job - got local
+   why: not split: the best set 49.40s would pass (<= 74.60s) only on assumed per-item rates - no run of this workload is recorded yet, so it runs whole and the next run decides on the measured time (set split.item_seconds in compute.yaml to split on the first run)
+   lanes on 1 laptops
+   FAILED the job ended before a laptop could be killed - use more items
+
+DEMO 03-mode3-split: FAIL in 10.9 s
+  - the planner split the job - got local
+  - the job ended before a laptop could be killed - use more items

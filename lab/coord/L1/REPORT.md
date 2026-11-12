@@ -1254,3 +1254,9 @@ FINDING: for the 24-item gpu-split workload L2's overhead stays "shared" 0.015 s
     (> 20 %). Per-node cost seems learned per workload, not per node across workloads. Planner also alternates local/split on identical runs (run1/3 vs 2/4).
 vs v0.17.2: big job (L2+L4+L3, L1 excluded) 25m27s; today L1+L2+L4 558 s - not same set, no direct speed claim.
 verdict D456: PASS for the big split (0.2 % error); PARTIAL for small 24-item split (36 % error, L2 cost not learned for that workload).
+
+### 2026-11-12 14:0x - 1.0.7 demos on v0.17.3: 01 PASS, 02 PASS, 03 FAIL, 04 act C FAIL (same demo-script cause)
+demo 02: PASS 8.9 s (Local on L1, Mode 1 to L2, result byte-identical).
+demo 03 (--kill-cmd/--revive-cmd = lab-chat cue helper ~/mf-eval/demo/kill_via_chat.sh): FAIL 10.9 s - planner ran the job LOCAL ("not split ...
+    only on assumed per-item rates - no run of this workload recorded yet"), job ended before a laptop could be killed; no stop cue sent.
+cause (03 + 04 C): demo split projects have a fresh name each run and no split.item_seconds -> G9-E rule never splits on first run. Sent to LEAD.
