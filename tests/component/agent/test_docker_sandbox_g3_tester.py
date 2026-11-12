@@ -244,9 +244,11 @@ def test_an_unreachable_docker_daemon_is_a_typed_result_not_a_traceback(
     spec = spec_target.spec(workdir, "print(1)")
     capture = Capture()
     result = asyncio.run(runtime.run(spec, capture))
-    assert result.failure_type in (FailureType.ENV_ERROR, FailureType.INTERNAL_ERROR)
+    # V1.0 G10 (D449): a daemon that cannot be reached is a passing condition of
+    # the node - retryable resource_busy, never env_error (no known-bad env)
+    assert result.failure_type is FailureType.RESOURCE_BUSY
     assert not result.ok
-    assert result.reason in ("docker_unavailable", "docker_daemon_unreachable")
+    assert result.reason == "docker_unavailable"
 
 
 # --------------------------------------------------------------- cancel in env

@@ -22,10 +22,10 @@ cheap.
 from __future__ import annotations
 
 import ssl
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from contextvars import ContextVar
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Any, NoReturn
+from typing import TYPE_CHECKING, Annotated, Any, Final, NoReturn
 
 import typer
 from rich.console import Console
@@ -186,6 +186,68 @@ def _checked_node_id(value: str | None) -> str | None:
             "NODE_ID is not a canonical node_<ULID>; run `compute nodes` to list them",
             CliExit.USAGE_ERROR,
         )
+
+
+_REVOKED: Final = "revoked"
+
+
+def _resolve_node_refs(client: Any, values: Sequence[str], option: str) -> list[str]:
+    """The CLI's one NODE-by-name resolver (V1.0 G9-B; G11, D452): each value
+    -> a node id, in order. A canonical ``node_<ULID>`` is taken as is (a
+    revoked node's id too - the controller answers for it). Anything else
+    must match exactly one node's display name or hostname
+    (case-insensitive) in ``compute nodes``, **ignoring revoked nodes**: a
+    laptop that re-joined after a revoke keeps its hostname, and its old
+    revoked row must not make the name ambiguous. None or several matches is
+    a usage error (never a guess). The node list is fetched once, only when a
+    name is given."""
+    from meshforge.common.errors import InvalidIdError
+    from meshforge.common.ids import validate_node_id
+
+    out: list[str] = []
+    nodes: list[Mapping[str, Any]] | None = None
+    for value in values:
+        try:
+            out.append(str(validate_node_id(value)))
+            continue
+        except InvalidIdError:
+            pass
+        wanted = value.strip().casefold()
+        if not wanted:
+            _die(f"{option} needs a node id or name", CliExit.USAGE_ERROR)
+        if nodes is None:
+            listed = _fetch(client.nodes).get("nodes")
+            nodes = [
+                n
+                for n in listed or []
+                if isinstance(n, Mapping) and n.get("state") != _REVOKED
+            ]
+        matches = sorted(
+            {
+                str(n.get("node_id"))
+                for n in nodes
+                if any(
+                    isinstance(n.get(key), str)
+                    and n[key].strip()
+                    and n[key].strip().casefold() == wanted
+                    for key in ("display_name", "hostname")
+                )
+            }
+        )
+        if not matches:
+            _die(
+                f"{option} {render.clip(value)!r}: no node has that id, name "
+                "or hostname; run `compute nodes` to list them",
+                CliExit.USAGE_ERROR,
+            )
+        if len(matches) > 1:
+            _die(
+                f"{option} {render.clip(value)!r} matches {len(matches)} nodes "
+                f"({', '.join(render.clip(m) for m in matches)}); give the node id",
+                CliExit.USAGE_ERROR,
+            )
+        out.append(matches[0])
+    return out
 
 
 def _checked_campaign_id(value: str) -> str:

@@ -81,6 +81,54 @@ for Linux and Windows.
 - ADRs still marked *Proposed* need the team's acceptance before the tag
   ([adr/README.md](adr/README.md#needs-team-acceptance-before-v100)).
 
+## [0.17.3] - 2026-11-12
+
+Lab fix release (lab fix group G11, `docs/briefs/progress/V1.0-G11-lab-fixes.md`, `V1.0-G11-D457.md`,
+`V1.0-G11-D458.md`).
+
+### Added
+
+- `compute data gc [--dry-run] [--json]` (admin) and `POST /v1/data/gc`: free every unreferenced input blob now
+  (D454).
+- `compute run --node` accepts a node name or hostname (D452).
+
+### Changed
+
+- The planner learns a per-node fixed chunk cost and a lane's first-chunk cost from `chunk_record`, so slow-start
+  nodes (Windows venv lanes) get fewer, larger chunks or none, and the prediction is closer to the real time
+  (D456).
+
+### Fixed
+
+- `--exclude-node <name>` no longer matches revoked nodes with the same name (D452).
+- `compute jobs <id>` and `run -f` show the last attempt's failure cause (e.g. `node_lost: node_revoked`) (D453).
+- `compute data rm` frees the removed input's blobs at once and prints the bytes freed (D454).
+- `compute run --local` works with the packaged (system) agent: the agent publishes a public `node-id.json`
+  (`/var/lib/meshforge-public`, `%ProgramData%\MeshForge\public`); the private identity stays locked (D457).
+- Cached venvs no longer keep the old bundled Python after an agent upgrade: the env key names the base
+  interpreter, and the agent GC removes venvs of old bundles (D458; every upgrade rebuilds venvs once).
+
+### Deferred
+
+- Warm lane worker and per-chunk phase times (ADR-0024, future work).
+
+## [0.17.2] - 2026-11-11
+
+Lab fix release from the real-laptop campaign (lab fix group G10, `docs/briefs/progress/V1.0-G10-lab-fixes.md`).
+
+### Fixed
+
+- Docker env builds no longer fail with ENOSPC after the torch download; a full disk is reported as such (D442, D450).
+- A failed env build is not retried for every chunk of a lane (D443); chunk `env_error` and a Docker daemon blip
+  have backstops (D448, D449).
+- Lane lease and test-isolation fixes from L3 under memory pressure (D444); a lane keeps its item list through
+  the staging retry after a stream drop instead of ending `failed unauthorized` (D447).
+- Lanes end cleanly when the queue is drained (D446) and survive a short reconnect within a grace period (D445).
+- A hung chunk no longer holds its lease for many minutes (BUG-4, D451): Windows venv chunks start one
+  interpreter instead of launcher + interpreter; the agent never shows invisible error dialogs; the agent watches
+  each chunk's CPU and output, reports `stalled_s` on lease renewals, and the controller gives a stalled chunk's
+  copy to another node first (`chunk_record.stalled_s`, migration 0038).
+
 ## [0.17.1] - 2026-11-06
 
 Lab fix release from the real-laptop campaign (lab fix group G9, `docs/briefs/progress/V1.0-G9-lab-fixes.md`).

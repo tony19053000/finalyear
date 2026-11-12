@@ -1083,6 +1083,12 @@ message Ack {
 message ChunkLeaseRef {
   uint64 item_id = 1;
   uint64 lease_seq = 2;
+  // V1.0 G10 BUG-4 (D451), LeaseRenew only (0 elsewhere): seconds this lease's
+  // chunk process has made no progress (no output, ~no CPU) once that passed
+  // the agent's stall threshold ([agent.split] stall_*); 0 = progressing or
+  // not judged. The agent only reports; the controller decides (speculate
+  // early / reclaim).
+  double stalled_s = 3;
 }
 
 // Agent -> controller: "give me up to `want` chunks". `held` lists the leases

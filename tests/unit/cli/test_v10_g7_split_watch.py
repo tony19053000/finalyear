@@ -346,7 +346,7 @@ def test_run_follow_shows_progress_for_split_jobs_only(
         followed.append(job_id)
 
     monkeypatch.setattr(job_commands, "_follow_to_exit", follow)
-    monkeypatch.setattr(job_commands, "_own_node_id", lambda *_a, **_k: None)
+    monkeypatch.setattr(job_commands, "_own_node", lambda *_a, **_k: None)
     monkeypatch.setattr(
         transfer,
         "upload_tree",

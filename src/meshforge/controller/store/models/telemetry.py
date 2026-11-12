@@ -278,3 +278,7 @@ class ChunkRecord(Base):
     """The try's chunk-process stderr tail (redacted on the agent, bounded by
     ``[controller.split] chunk_stderr_tail_bytes``) - for ``GET
     /v1/jobs/{id}/chunks/{index}``; never in the dataset."""
+    stalled_s: Mapped[float | None] = mapped_column(Float, nullable=True)
+    """V1.0 G10 (D451): the longest "no progress" time the lane reported for
+    this lease (``LeaseRenew``); null = never reported. Operational, never in
+    the dataset."""

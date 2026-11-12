@@ -85,6 +85,16 @@ counted (``agent.session.stale_message``); a repeated ``message_id`` is acked ag
 but has no second effect; a duplicate ``Ack`` for a report already removed from the
 ring is ignored.
 
+**Why a stream ended (V1.0 G10, D444).** ``agent.session.stream_ended`` also
+carries ``core_error`` (gRPC's ``debug_error_string``, bounded) when there is
+one, ``write_failed`` when the status is gRPC aio's local ``INTERNAL "Internal
+error from Core"`` - a write on a stream Core had already torn down; aio then
+*overwrites* the status the controller sent (e.g. ``ABORTED lease_expired``) - and
+``loop_lag_max_s``, the worst stall of this process's own event loop in the last
+``STALL_WINDOW_S`` (:mod:`meshforge.agent.loop_watch`, hook ``loop_lag``): a
+lease the controller expired because this laptop did not run is told apart from
+a network or controller fault in one line.
+
 Time: ``loop.time()`` (injectable ``clock``) for backoff and stream lifetime; the
 wall clock only for ``sent_at`` / ``agent_time`` timestamps.
 """
@@ -177,6 +187,14 @@ _UNBUFFERED_PAYLOADS: Final = frozenset({"chunk_request", "lease_renew"})
 """V0.10 G4: agent payloads :meth:`AgentSessionClient.send_now` may write."""
 GOODBYE_DETAIL: Final = "agent stop requested"
 """``Goodbye.detail`` on a requested stop (well inside the controller's bound)."""
+CORE_INTERNAL_DETAIL: Final = "Internal error from Core"
+"""gRPC aio's local status detail for a write (or another batch) Core refused:
+the stream was already gone. It replaces whatever status the peer sent (D444)."""
+CORE_ERROR_MAX_CHARS: Final = 300
+"""Bound on the ``debug_error_string`` logged with a stream end."""
+STALL_WINDOW_S: Final = 30.0
+"""``loop_lag_max_s`` of a stream end: the worst loop stall this long before it
+(five leases at the default timing - covers the silence that expired one)."""
 #: Bounds on the controller-owned heartbeat interval. Below the minimum the
 #: agent would spin; above the maximum a buggy or hostile controller could buy
 #: itself days of silence (a value of 10**9 ms is ~11.6 days). Out-of-range
@@ -222,11 +240,28 @@ def grpc_channel_options(
     ]
 
 
+def _core_error(exc: grpc.aio.AioRpcError) -> str:
+    """``exc``'s ``debug_error_string``, bounded ("" when there is none)."""
+    try:
+        text = exc.debug_error_string() or ""
+    except Exception:  # noqa: BLE001 - diagnostics only, never fatal
+        return ""
+    return text[:CORE_ERROR_MAX_CHARS]
+
+
+def write_failed(end: StreamEnd) -> bool:
+    """D444: the end is gRPC aio's local ``INTERNAL`` for a refused write, not a
+    status the controller sent (which that local status overwrote)."""
+    return end.code is grpc.StatusCode.INTERNAL and end.details == CORE_INTERNAL_DETAIL
+
+
 @dataclass(frozen=True, slots=True)
 class StreamEnd:
     code: grpc.StatusCode | None
     details: str
     action: StreamEndAction
+    core_error: str = ""
+    """gRPC's ``debug_error_string`` when the end was raised (D444), else ""."""
 
 
 @dataclass(slots=True)
@@ -371,6 +406,10 @@ class AgentSessionClient:
         owner's console writes the file it reads)."""
         self.on_hello_ack: Callable[[agent_pb2.HelloAck], None] | None = None
         self.live_policy: LivePolicy | None = None
+        self.loop_lag: Callable[[float], float] | None = None
+        """V1.0 G10 (D444): the worst event-loop stall (s) of the last N seconds
+        (:meth:`~meshforge.agent.loop_watch.LoopWatch.max_lag_s`); None = not
+        wired, nothing logged."""
         self.owner_heartbeat: Callable[[], tuple[bool, str, str]] | None = None
         """V0.9 G5 (D246): ``(owner_active, reason, idle_source)`` for every
         heartbeat (None = the owner guard is not wired: all false/empty)."""
@@ -604,7 +643,7 @@ class AgentSessionClient:
 
             first = await self._until_stop(self._read_first(call))
             if isinstance(first, _Stopped):
-                await self._close_call(call)
+                await self._stop_before_ack(call)
                 return _Outcome.STOP
             if first is None:  # timeout waiting for HelloAck
                 log.warning(
@@ -1047,7 +1086,9 @@ class AgentSessionClient:
                 )
             except grpc.aio.AioRpcError as exc:
                 # grpc.aio raises on an aborted stream instead of returning EOF.
-                return self._stream_end(exc.code(), exc.details() or "")
+                return self._stream_end(
+                    exc.code(), exc.details() or "", core_error=_core_error(exc)
+                )
             if msg is grpc.aio.EOF:
                 return await self._status_of(call)
             try:
@@ -1284,6 +1325,13 @@ class AgentSessionClient:
     async def _finish_stream(self, end: StreamEnd) -> _Outcome:
         lived = self._backoff_or_raise().stream_ended()
         self.stats.stream_ends.append(end)
+        extra: dict[str, Any] = {}
+        if end.core_error:
+            extra["core_error"] = end.core_error
+        if write_failed(end):
+            extra["write_failed"] = True
+        if self.loop_lag is not None:
+            extra["loop_lag_max_s"] = round(self.loop_lag(STALL_WINDOW_S), 3)
         log.info(
             "agent.session.stream_ended",
             node_id=self.node_id,
@@ -1292,6 +1340,7 @@ class AgentSessionClient:
             details=end.details or None,
             action=end.action.value,
             lived_s=round(lived, 3),
+            **extra,
         )
         if (
             end.code is grpc.StatusCode.UNIMPLEMENTED
@@ -1325,8 +1374,12 @@ class AgentSessionClient:
         )
         return _Outcome.BACKOFF
 
-    def _stream_end(self, code: grpc.StatusCode | None, details: str) -> StreamEnd:
-        return StreamEnd(code, details, stream_end_action(code, details))
+    def _stream_end(
+        self, code: grpc.StatusCode | None, details: str, *, core_error: str = ""
+    ) -> StreamEnd:
+        return StreamEnd(
+            code, details, stream_end_action(code, details), core_error=core_error
+        )
 
     async def _status_of(self, call: Any) -> StreamEnd:
         try:
@@ -1334,7 +1387,13 @@ class AgentSessionClient:
             details = await call.details()
         except (grpc.aio.AioRpcError, asyncio.CancelledError, grpc.aio.UsageError):
             return self._stream_end(None, "")
-        return self._stream_end(code, details or "")
+        core = ""
+        if code is not grpc.StatusCode.OK:
+            with contextlib.suppress(Exception):  # diagnostics only (D444)
+                core = str(await call.debug_error_string() or "")
+        return self._stream_end(
+            code, details or "", core_error=core[:CORE_ERROR_MAX_CHARS]
+        )
 
     async def _before_goodbye(self) -> None:
         """Let running attempts report ``agent_shutdown`` first (D52), bounded."""
@@ -1388,10 +1447,28 @@ class AgentSessionClient:
             session_id=self.session_id or None,
         )
 
+    async def _stop_before_ack(self, call: Any) -> None:
+        """A stop while the HelloAck is in flight (G11 CI race): the controller
+        may already have accepted the Hello and opened the session. Wait a
+        little for the ack; if it accepted, say Goodbye with its session id
+        (``agent_closed``, not ``stream_lost``), else just close."""
+        ack: agent_pb2.HelloAck | None = None
+        with contextlib.suppress(TimeoutError, grpc.aio.AioRpcError):
+            msg = await asyncio.wait_for(call.read(), _CLOSE_GRACE_S)
+            if (
+                isinstance(msg, agent_pb2.ControllerMessage)
+                and msg.WhichOneof("payload") == "hello_ack"
+                and msg.hello_ack.accepted
+            ):
+                ack = msg.hello_ack
+        if ack is not None:
+            self.session_id = ack.session_id
+            await self._say_goodbye()
+        await self._close_call(call)
+
     async def _close_call(self, call: Any) -> None:
-        """Stop before the HelloAck: no session exists yet, so there is nothing to
-        say Goodbye to. Half-close, wait a little for the final status, then
-        cancel whatever is left."""
+        """Half-close, wait a little for the final status, then cancel whatever
+        is left (after :meth:`_stop_before_ack` said Goodbye if it could)."""
         with contextlib.suppress(Exception):
             await call.done_writing()
         with contextlib.suppress(TimeoutError):

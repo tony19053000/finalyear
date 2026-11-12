@@ -118,9 +118,15 @@ from meshforge.controller.jobs.execution_store import (
 from meshforge.controller.jobs.logs import LogHub
 from meshforge.controller.jobs.peers import PeerSources
 from meshforge.controller.jobs.planning import DispatchPlanner, MlServingStats
-from meshforge.controller.jobs.recovery import RecoverySteps, _Offline, _Reconcile
+from meshforge.controller.jobs.recovery import (
+    RecoverySteps,
+    _Offline,
+    _Reconcile,
+    _Revoked,
+)
 from meshforge.controller.jobs.reports import parse_status
 from meshforge.controller.jobs.store import JobRecord, JobStoreError
+from meshforge.controller.jobs.transitions import AttemptEvent
 from meshforge.controller.liveness import LivenessEvent
 from meshforge.controller.ml.predictor import MlInputSource
 from meshforge.controller.named_inputs import NamedInputStore
@@ -134,6 +140,7 @@ from meshforge.controller.settings import (
     PlannerSettings,
     SplitSettings,
 )
+from meshforge.controller.split.lanes import LiveLane
 from meshforge.controller.split.records import StderrLimits
 from meshforge.controller.split.service import ChunkWork, SplitService
 from meshforge.controller.split.speculation import SpeculationConfig
@@ -176,7 +183,7 @@ class _Acked:
     message_id: str = ""
 
 
-type _Item = _Status | _Acked | _Reconcile | _Offline | ChunkWork
+type _Item = _Status | _Acked | _Reconcile | _Offline | _Revoked | ChunkWork
 
 
 class Dispatcher(RecoverySteps):
@@ -213,8 +220,12 @@ class Dispatcher(RecoverySteps):
         on_split_change: Callable[[str | None], None] | None = None,
         calibration: CalibrationSource | None = None,
         ml: MlInputSource | None = None,
+        attempt_grace_s: float = 0.0,
     ) -> None:
         self._store = store
+        self._attempt_grace_s = attempt_grace_s
+        """V1.0 G10 (D445): ``[controller.liveness] attempt_grace_s``."""
+        self._held = {}
         self._calibration = calibration
         """V0.14 G2 (D293): the planner calibration read once per tick."""
         self._ml = ml
@@ -315,6 +326,7 @@ class Dispatcher(RecoverySteps):
                 wall_clock=self._wall,
                 put=self._put,
                 wake=self._wake_soon,
+                end_lane=self._end_lane_env,
             )
         )
         """V0.10 G4 (D263): a lane's chunk messages, handled in this task.
@@ -445,7 +457,7 @@ class Dispatcher(RecoverySteps):
         self._put(_Reconcile(live, held))
 
     def _on_node_offline(self, live: LiveSession, event: LivenessEvent) -> None:
-        if self._put(_Offline(live.node_id, live.session_id, event)):
+        if self._put(_Offline(live.node_id, live.session_id, event, live.cert_serial)):
             pending = self._offline_pending
             pending[live.node_id] = pending.get(live.node_id, 0) + 1
 
@@ -540,6 +552,8 @@ class Dispatcher(RecoverySteps):
                 await self._store.mark_start_acked(item.attempt_id, item.fencing_token)
         elif isinstance(item, _Reconcile):
             await self._reconcile(item)
+        elif isinstance(item, _Revoked):
+            await self._revoked(item)  # D445 r1
         elif isinstance(item, ChunkWork):
             if self._split is not None:
                 await self._split.handle(item)
@@ -561,6 +575,7 @@ class Dispatcher(RecoverySteps):
         if expired and self._on_split_change is not None:
             self._on_split_change(None)
         await self._backstop()
+        await self._grace_expiry()  # V1.0 G10 (D445)
         # One read of the live attempts for both sweeps. An attempt the first
         # one ends is still listed for the second: ending it again is a no-op
         # (end_attempt answers DUPLICATE).
@@ -736,6 +751,7 @@ class Dispatcher(RecoverySteps):
         if attempt is None:
             return
         if outcome.ended:
+            self._held.pop(attempt.id, None)  # D445 r1: no longer waiting
             self._end_tokens(attempt.id)
             if self._logs is not None and outcome.kind is StatusKind.APPLIED:
                 self._logs.finalize(attempt.id, None if report is None else report.logs)
@@ -746,6 +762,47 @@ class Dispatcher(RecoverySteps):
             and outcome.kind is StatusKind.APPLIED
         ):
             self._send_cancel(attempt, "cancelled by request")
+
+    async def _end_lane_env(
+        self, lane: LiveLane, job_id: str, failure_type: FailureType, detail: str
+    ) -> None:
+        """D448: an older agent's lane reported a chunk failed ``env_error``:
+        the lane ends here (``FAILED``, not retryable - the job finishes on its
+        other lanes or fails), ``(node, env)`` becomes known-bad (D116/D433)
+        and the agent is told to stop the lane (its own end is then a
+        duplicate). Never one env build per chunk."""
+        text = f"env build failed on this node (reported per chunk): {detail}"
+        try:
+            outcome = await self._store.end_attempt(
+                lane.attempt_id,
+                lane.fencing_token,
+                event=AttemptEvent.FAIL,
+                failure_type=failure_type,
+                detail=text[:1024],
+                retryable=False,
+            )
+        except JobStoreError as exc:
+            log.warning(
+                "controller.split.lane_env_end_failed",
+                job_id=job_id,
+                attempt_id=lane.attempt_id,
+                error=type(exc).__name__,
+            )
+            return
+        self._after(outcome)
+        self._note_retry(outcome)
+        if outcome.ended:
+            self._remember_bad_env(
+                outcome,
+                StatusReport(
+                    attempt_id=lane.attempt_id,
+                    fencing_token=lane.fencing_token,
+                    state=AttemptState.FAILED,
+                    failure_type=failure_type,
+                    detail=text,
+                ),
+            )
+        self._cancel_on(lane.node_id, lane.attempt_id, lane.fencing_token, "env_error")
 
     def _remember_bad_env(self, outcome: StatusOutcome, report: StatusReport) -> None:
         """D116: an attempt that ended env_error makes (node, env) known-bad."""

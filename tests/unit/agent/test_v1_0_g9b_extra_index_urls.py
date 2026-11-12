@@ -143,7 +143,10 @@ def test_uv_installs_carry_every_extra_index_and_stay_wheels_only(
 
     async def interpreter(_python: str | None) -> object:
         return SimpleNamespace(
-            path=Path("/usr/bin/python3"), base="cpython-3.12", platform="x"
+            path=Path("/usr/bin/python3"),
+            base="cpython-3.12",
+            platform="x",
+            identity="",
         )
 
     builder._install = fake_install  # type: ignore[method-assign]

@@ -108,6 +108,10 @@ class DispatcherStats:
     statuses_rejected: int = 0
     statuses_dropped: int = 0
     attempts_lost: int = 0
+    attempts_held: int = 0
+    """V1.0 G10 (D445): RUNNING attempts put in their node's reconnect grace."""
+    attempts_resumed: int = 0
+    """D445: held attempts their node reported again in time (not lost)."""
     backstops: int = 0
     cancels_sent: int = 0
     releases_sent: int = 0

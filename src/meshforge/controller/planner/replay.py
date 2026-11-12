@@ -65,6 +65,11 @@ planner before G9-E, which let assumed per-item rates pass the margin test),
 so every older replay decodes to the planner that made its decision and
 reproduces unchanged. ``REPLAY_VERSION`` stays 2.
 
+**V1.0 G11 optional keys (D456).** ``request.history``'s per-node chunk costs
+(``chunk_fixed_s_by_node``, ``chunk_first_s_by_node`` and their sample counts)
+are written only when not empty; absent = none learned (the shared
+``chunk_overhead`` for every lane), so every older replay decodes unchanged.
+
 **V0.15 G4 optional key (D364).** A decision planned with an ML model adds
 ``ml: {version}`` (the model set's version) and, when its predictor failed
 and it fell back to calibration (D363), ``ml.fallback`` (the error) - absent
@@ -196,6 +201,11 @@ REPLAY_FIELDS: Final[Mapping[type, frozenset[str]]] = {
             "item_rate_samples_by_node",
             "chunk_overhead_s",
             "chunk_overhead_samples",
+            # V1.0 G11 (D456: optional, written only when not empty)
+            "chunk_fixed_s_by_node",
+            "chunk_fixed_samples_by_node",
+            "chunk_first_s_by_node",
+            "chunk_first_samples_by_node",
         }
     ),
     SplitInfo: frozenset(
@@ -412,6 +422,17 @@ def _history(history: History) -> dict[str, Any]:
         "item_rate_samples_by_node": _nums(history.item_rate_samples_by_node),
         "chunk_overhead_s": _num(history.chunk_overhead_s),
         "chunk_overhead_samples": history.chunk_overhead_samples,
+        # V1.0 G11 (D456): only when learned, so older replays stay byte-identical
+        **{
+            name: _nums(values)
+            for name, values in (
+                ("chunk_fixed_s_by_node", history.chunk_fixed_s_by_node),
+                ("chunk_fixed_samples_by_node", history.chunk_fixed_samples_by_node),
+                ("chunk_first_s_by_node", history.chunk_first_s_by_node),
+                ("chunk_first_samples_by_node", history.chunk_first_samples_by_node),
+            )
+            if values
+        },
     }
 
 
@@ -732,6 +753,11 @@ def _from_history(data: Mapping[str, Any]) -> History:
         item_rate_samples_by_node=_dnums(data["item_rate_samples_by_node"]),
         chunk_overhead_s=_dnum(data["chunk_overhead_s"]),
         chunk_overhead_samples=_int(data["chunk_overhead_samples"]),
+        # V1.0 G11 (D456): optional - absent = no per-node chunk cost
+        chunk_fixed_s_by_node=_dnums(data.get("chunk_fixed_s_by_node", {})),
+        chunk_fixed_samples_by_node=_dnums(data.get("chunk_fixed_samples_by_node", {})),
+        chunk_first_s_by_node=_dnums(data.get("chunk_first_s_by_node", {})),
+        chunk_first_samples_by_node=_dnums(data.get("chunk_first_samples_by_node", {})),
     )
 
 

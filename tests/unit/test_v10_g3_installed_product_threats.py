@@ -122,6 +122,18 @@ def test_windows_machine_state_acl_is_exact_and_never_wide() -> None:
     for acl in plan:
         sids = {g.sid for g in acl.grants}
         assert {wsvc.SID_SYSTEM, wsvc.SID_ADMINISTRATORS, svc} <= sids, acl.path
+        if acl.path == layout.public_dir:
+            # V1.0 G11 (D457): the one deliberate wide grant - Users READ the
+            # public node record (node_id, public-key hash, version) only
+            assert sids == {
+                wsvc.SID_SYSTEM,
+                wsvc.SID_ADMINISTRATORS,
+                svc,
+                ws.SID_USERS,
+            }, acl.path
+            users = next(g for g in acl.grants if g.sid == ws.SID_USERS)
+            assert users.access is ws.Access.READ
+            continue
         if acl.path != layout.console_dir:
             assert sids == {wsvc.SID_SYSTEM, wsvc.SID_ADMINISTRATORS, svc}, acl.path
         # the installing user (and only for the console token folder) reads

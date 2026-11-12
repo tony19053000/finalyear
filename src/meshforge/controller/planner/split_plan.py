@@ -72,6 +72,7 @@ from meshforge.controller.planner.split import (
     chunk_overhead,
     estimate_split,
     lane,
+    lane_fixed,
     set_chunk,
 )
 from meshforge.controller.planner.types import (
@@ -121,7 +122,7 @@ def _single_chunk(
 ) -> ChunkChoice:
     if split.chunk_items is None:
         return ChunkChoice(max(1, split.items), 1, ("one_chunk",))
-    overhead = chunk_overhead(request, snapshot.config.split)
+    overhead = lane_fixed(lone, chunk_overhead(request, snapshot.config.split))
     return choose_chunk_items(
         split.items,
         fastest_per_item_s=lone.per_item_s,
@@ -219,9 +220,12 @@ def _risked(
     """``item`` with its risk term: a lost lane re-runs only the chunk it had
     leased (D267), so each active lane costs ``p_fail x (its chunk time +
     lease release)`` (:func:`~.risk.lane_risk`)."""
-    overhead = chunk_overhead(request, snapshot.config.split).seconds
+    shared = chunk_overhead(request, snapshot.config.split)
     lanes = [
-        (lane_.node, item.chunk.items * lane_.per_item_s + overhead)
+        (
+            lane_.node,
+            item.chunk.items * lane_.per_item_s + lane_fixed(lane_, shared).seconds,
+        )
         for lane_ in item.lanes
         if lane_.node_id in item.active
     ]

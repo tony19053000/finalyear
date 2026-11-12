@@ -53,9 +53,10 @@ from meshforge.controller.split.lanes import QUEUE_KIND as SPLIT_QUEUE_KIND
 from meshforge.controller.store.engine import create_session_factory
 from meshforge.controller.store.models.data import JobInput, NamedInput
 from meshforge.controller.store.models.job import Attempt, Job
+from meshforge.controller.store.models.ml import MlModel
 from meshforge.workqueue.tables import work_item, work_queue
 
-__all__ = ["BlobScrubber", "ControllerGc", "GcPassReport", "Protected"]
+__all__ = ["BlobScrubber", "ControllerGc", "GcPassReport", "Protected", "SweepReport"]
 
 log = get_logger(__name__)
 
@@ -83,6 +84,35 @@ class GcPassReport:
     duration_s: float = 0.0
 
 
+@dataclass(slots=True)
+class SweepReport:
+    """V1.0 G11 (D454): one sweep of unreferenced blobs."""
+
+    reason: str
+    dry_run: bool = False
+    removed: int = 0
+    """Blobs unlinked (``dry_run``: that would be unlinked)."""
+    removed_bytes: int = 0
+    kept_recent: int = 0
+    """Unreferenced blobs used within ``sweep_min_age_s`` (an upload, a
+    ``have`` answer or a download in flight may still need them)."""
+    kept_recent_bytes: int = 0
+    failed: int = 0
+    """Blobs whose unlink failed (logged; the next sweep retries)."""
+    duration_s: float = 0.0
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "dry_run": self.dry_run,
+            "removed_blobs": self.removed,
+            "removed_bytes": self.removed_bytes,
+            "kept_recent_blobs": self.kept_recent,
+            "kept_recent_bytes": self.kept_recent_bytes,
+            "failed_blobs": self.failed,
+            "duration_s": round(self.duration_s, 3),
+        }
+
+
 def _hex(digest: str | None) -> str | None:
     if digest and digest.startswith("sha256:") and len(digest) == 71:
         return digest[7:]
@@ -105,8 +135,12 @@ class ControllerGc:
         wall: Callable[[], float] = time.time,
         clock: Callable[[], float] = time.monotonic,
         ml_keep_superseded: int = 5,
+        sweep_min_age_s: float = 600.0,
     ) -> None:
         self.blobs = blobs
+        self.sweep_min_age_s = sweep_min_age_s
+        """V1.0 G11 (D454): an unreferenced blob used within this many
+        seconds survives a sweep (in-flight upload / have / download)."""
         self.ml_keep_superseded = ml_keep_superseded
         """V0.15 G3: superseded model sets whose artefacts stay (rollback)."""
         self.index = GcIndex(index_dir, wall=wall)
@@ -178,17 +212,31 @@ class ControllerGc:
 
     async def protected(self) -> Protected:
         """What PostgreSQL says must stay (module docstring)."""
+        return await self._references(every=False)
+
+    async def referenced(self) -> Protected:
+        """V1.0 G11 (D454): what any row still names - a superset of
+        :meth:`protected`: the tree, bundle, split lists, chunk results,
+        outputs and final logs of **every** job (finished ones too: ``compute
+        get`` / ``compute logs`` read them), **every** named input (pinned or
+        not) and every stored ML artefact. Only a finished job's named-input
+        rows (``job_input``) are history, not a reference: the input's own
+        row owns its tree, so ``compute data rm`` can free it."""
+        return await self._references(every=True)
+
+    async def _references(self, *, every: bool) -> Protected:
         out = Protected()
         async with self._sessions() as db:
             live_jobs = select(Job.id).where(Job.state.not_in(_TERMINAL))
-            rows = await db.execute(
-                select(
-                    Job.tree_id,
-                    Job.bundle_digest,
-                    Job.split_items_digest,
-                    Job.split_parts_digest,
-                ).where(Job.state.not_in(_TERMINAL))
+            jobs = select(
+                Job.tree_id,
+                Job.bundle_digest,
+                Job.split_items_digest,
+                Job.split_parts_digest,
             )
+            if not every:
+                jobs = jobs.where(Job.state.not_in(_TERMINAL))
+            rows = await db.execute(jobs)
             for tree_id, bundle, split_items, split_parts in rows.all():
                 if (h := _hex(tree_id)) is not None:
                     out.trees.add(h)
@@ -199,29 +247,32 @@ class ControllerGc:
                 if (h := _hex(split_parts)) is not None:  # V0.10 G4 parts index
                     out.blobs.add(h)
             # V0.10 G4 (D261): the committed chunk results of live split jobs
-            chunks = await db.execute(
+            chunk_query = (
                 select(work_item.c.result_digest)
                 .join(work_queue, work_queue.c.id == work_item.c.queue_id)
                 .where(
                     work_queue.c.kind == SPLIT_QUEUE_KIND,
-                    work_queue.c.owner_id.in_(live_jobs),
                     work_item.c.result_digest.is_not(None),
                 )
             )
+            if not every:
+                chunk_query = chunk_query.where(work_queue.c.owner_id.in_(live_jobs))
+            chunks = await db.execute(chunk_query)
             out.blobs.update(h for (d,) in chunks.all() if (h := _hex(d)) is not None)
+            # a finished job's inputs are history (D454): only live jobs pin them
             inputs = await db.execute(
                 select(JobInput.tree_id).where(JobInput.job_id.in_(live_jobs))
             )
             out.trees.update(h for (t,) in inputs.all() if (h := _hex(t)) is not None)
-            pinned = await db.execute(
-                select(NamedInput.tree_id).where(NamedInput.pinned.is_(True))
-            )
+            named = select(NamedInput.tree_id)
+            if not every:
+                named = named.where(NamedInput.pinned.is_(True))
+            pinned = await db.execute(named)
             out.trees.update(h for (t,) in pinned.all() if (h := _hex(t)) is not None)
-            attempts = await db.execute(
-                select(Attempt.output_digest, Attempt.logs).where(
-                    Attempt.job_id.in_(live_jobs)
-                )
-            )
+            outputs = select(Attempt.output_digest, Attempt.logs)
+            if not every:
+                outputs = outputs.where(Attempt.job_id.in_(live_jobs))
+            attempts = await db.execute(outputs)
             for output, logs in attempts.all():
                 if (h := _hex(output)) is not None:
                     out.blobs.add(h)
@@ -233,6 +284,15 @@ class ControllerGc:
                         out.blobs.add(h)
             # V0.15 G3: the ML model artefacts that may still be loaded
             out.blobs.update(await protected_artefacts(db, self.ml_keep_superseded))
+            if every:
+                artefacts = await db.scalars(
+                    select(MlModel.artefact_digest).where(
+                        MlModel.artefact_digest.is_not(None)
+                    )
+                )
+                out.blobs.update(
+                    h for d in artefacts.all() if (h := _hex(d)) is not None
+                )
         return out
 
     async def run_pass(self, reason: str = "manual") -> GcPassReport:
@@ -280,6 +340,81 @@ class ControllerGc:
             duration_s=round(report.duration_s, 3),
         )
         return report
+
+    async def sweep(
+        self,
+        reason: str,
+        *,
+        dry_run: bool = False,
+        among: Iterable[str] | None = None,
+    ) -> SweepReport:
+        """V1.0 G11 (D454): unlink every stored blob no row references
+        (:meth:`referenced`) that was not used within ``sweep_min_age_s`` -
+        now, not at quota pressure. ``among`` limits it to these blob hexes
+        (``compute data rm``: the removed tree's manifest and members).
+
+        Holds :attr:`BlobStore.gc_guard` exclusively for the whole sweep, like
+        :meth:`run_pass`: a job submission or a named-input push (which hold
+        it shared from their tree check to their row) can never commit a new
+        reference to a blob this sweep removes - it either committed before
+        (and is read here) or runs after (and finds the blob missing). The
+        references are read inside the guard; files go only after that."""
+        started = self._clock()
+        report = SweepReport(reason, dry_run=dry_run)
+        only = None if among is None else set(among)
+        async with self.blobs.gc_guard.exclusive():
+            refs = await self.referenced()
+            keep = set(refs.blobs) | set(refs.trees)
+            members, known = await asyncio.to_thread(self.index.members_of, refs.trees)
+            keep |= members
+            for tree_hex in refs.trees - known:
+                keep |= await self.blobs.tree_members(
+                    Digest.parse(f"sha256:{tree_hex}")
+                )
+            cutoff = self._wall() - self.sweep_min_age_s
+            stored = await asyncio.to_thread(self.index.items, "blob")
+            victims: list[Victim] = []
+            for key, size, last_use in stored:
+                if key in keep or (only is not None and key not in only):
+                    continue
+                if last_use > cutoff:
+                    report.kept_recent += 1
+                    report.kept_recent_bytes += size
+                    continue
+                victims.append(Victim("blob", key, size))
+            if dry_run:
+                report.removed = len(victims)
+                report.removed_bytes = sum(v.size for v in victims)
+            else:
+                await asyncio.to_thread(self._sweep_evict, victims, report)
+        report.duration_s = self._clock() - started
+        log.info(
+            "controller.gc.sweep",
+            reason=reason,
+            dry_run=dry_run,
+            removed=report.removed,
+            removed_bytes=report.removed_bytes,
+            kept_recent=report.kept_recent,
+            failed=report.failed,
+            scoped=only is not None,
+            duration_s=round(report.duration_s, 3),
+        )
+        return report
+
+    def _sweep_evict(self, victims: list[Victim], report: SweepReport) -> None:
+        for i in range(0, len(victims), self._batch):
+            batch = victims[i : i + self._batch]
+            with self.index.tx():
+                # a lease or pin taken since the listing still wins
+                held = self.index.protected_blobs(v.key for v in batch)
+                for victim in batch:
+                    if victim.key in held:
+                        continue
+                    if self._evict(victim):
+                        report.removed += 1
+                        report.removed_bytes += victim.size
+                    else:
+                        report.failed += 1
 
     def _evict(self, victim: Victim) -> bool:
         digest = Digest.parse(f"sha256:{victim.key}")

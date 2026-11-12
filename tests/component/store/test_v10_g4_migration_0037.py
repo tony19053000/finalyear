@@ -112,6 +112,7 @@ def test_0037_backfills_exactly_the_recorded_attempts(
         assert f"'{state}'" in indexdef
     assert "'running'" not in indexdef
     assert "NOT recorded" in UNRECORDED_ATTEMPT_SQL
+    command.upgrade(cfg, "head")  # later migrations (0038) touch other tables
     command.check(cfg)  # the model declares the same column and index
     # the index holds only the 50 unrecorded terminal rows
     (row,) = asyncio.run(

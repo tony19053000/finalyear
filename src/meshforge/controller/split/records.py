@@ -32,6 +32,10 @@ TD1) - so no API, CLI or log view of it can act on a terminal. It was already
 redacted of the job's secret values on the agent (D261), and it is never
 exported in the dataset.
 
+``stalled_s`` (V1.0 G10, D451; operational, not in the dataset): the longest
+"no progress" time the lane reported for that lease (``LeaseRenew``), null when
+it never reported one - so a hung try is visible in the chunk record.
+
 Durations come from the agent's monotonic clock (D213): ``stage_ms`` /
 ``env_ms`` / ``run_ms`` / ``upload_ms``; ``leased_at`` / ``ended_at`` are the
 controller's wall clock, for ordering only.
@@ -200,6 +204,7 @@ def _row(
     failure_type: str | None,
     measured: dict[str, Any],
     ended_at: dt.datetime | None,
+    stalled_s: float | None = None,
 ) -> dict[str, Any]:
     span = chunk_span(lease.payload, item_count)
     return {
@@ -219,6 +224,7 @@ def _row(
         **measured,
         "leased_at": lease.leased_at,
         "ended_at": ended_at,
+        "stalled_s": stalled_s,
     }
 
 
@@ -234,6 +240,7 @@ async def record_try(
     failure_type: str | None,
     limits: StderrLimits,
     now: dt.datetime,
+    stalled: Mapping[tuple[int, int], float] | None = None,
 ) -> None:
     """The row of one applied try that did not win: ``lost`` (it finished
     after another result won) or ``failed``. A ``superseded`` row of the same
@@ -252,6 +259,7 @@ async def record_try(
         failure_type=failure_type,
         measured=_measured(report, limit=limit),
         ended_at=lease.ended_at or now,
+        stalled_s=(stalled or {}).get((item_id, seq)),
     )
     insert = pg_insert(ChunkRecord).values(row)
     filled = {
@@ -268,6 +276,7 @@ async def record_try(
             "upload_ms",
             "stderr_tail",
             "failure_class",
+            "stalled_s",
         )
     }
     await db.execute(
@@ -289,6 +298,7 @@ async def record_commit(
     report: ChunkReport,
     limits: StderrLimits,
     now: dt.datetime,
+    stalled: Mapping[tuple[int, int], float] | None = None,
 ) -> int:
     """The committed chunk's rows: the winner (``seq``) and every other lease
     of the chunk without a row yet (module docstring). The number written."""
@@ -305,6 +315,7 @@ async def record_commit(
                     failure_type=None,
                     measured=_measured(report, limit=limits.ok),
                     ended_at=lease.done_at or now,
+                    stalled_s=(stalled or {}).get((item_id, int(lease.seq))),
                 )
             )
             continue
@@ -321,6 +332,7 @@ async def record_commit(
                 failure_type=None,
                 measured=_measured(None, limit=0),
                 ended_at=lease.ended_at,
+                stalled_s=(stalled or {}).get((item_id, int(lease.seq))),
             )
         )
     if not rows:  # pragma: no cover - the winner's lease exists

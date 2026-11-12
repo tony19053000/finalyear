@@ -85,12 +85,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"{run.order:5d} b{run.block:03d} {run.profile:13s} {run.run_id}")
         return 0
     from meshforge.cli import shared
-    from meshforge.cli.job_commands import _own_node_id, _seed
+    from meshforge.cli.job_commands import _own_node, _seed
+    from meshforge.common.local_node import LocalNodeSource
 
     settings = shared._settings()
-    origin = (
-        args.origin or spec.origin or _own_node_id(settings.data_dir, required=False)
-    )
+    own = _own_node(settings.data_dir, required=False)
+    origin = args.origin or spec.origin or (own.node_id if own is not None else None)
     if origin is None:
         print(
             "no origin node: run on a laptop with an enrolled agent, or give "
@@ -99,7 +99,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return 2
     client = shared._client(settings)
-    seed = None if args.no_seed else (lambda built: _seed(settings, built))
+    # D457: the system agent never reads the user cache - seeding it would be a no-op
+    system = own is not None and own.source is LocalNodeSource.SYSTEM
+    seed = None if args.no_seed or system else (lambda built: _seed(settings, built))
     fabric = HttpFabric(client, seed=seed)
     options = Options(
         raw_dir=args.raw,

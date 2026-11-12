@@ -11,7 +11,10 @@ that already names this exact tree. A job then names it in ``compute.yaml``::
 
 ``--pin`` keeps the input on every node's cache and the controller's store (GC
 never evicts it); ``compute data pin NAME@VERSION [--off]`` changes that later.
-``compute data rm NAME@VERSION`` is refused while an unfinished job uses it.
+``compute data rm NAME@VERSION`` is refused while an unfinished job uses it;
+otherwise the blobs only it used are deleted from the controller at once
+(V1.0 G11, D454). ``compute data gc [--dry-run]`` (admin) sweeps every blob
+nothing references from the controller's store now.
 REST only, like every ``compute`` command.
 """
 
@@ -179,3 +182,50 @@ def rm(ref: Annotated[str, typer.Argument(metavar="NAME@VERSION")]) -> None:
     with cli._client(settings) as client:
         done = cli._fetch(lambda: client.remove_input(name, version))
     render.line(f"removed {render.echo(done.get('ref'))}")
+    if done.get("swept") is True:
+        render.note(
+            f"freed {render.echo(done.get('freed_blobs'))} blobs / "
+            f"{render.format_bytes(done.get('freed_bytes'))} on the controller"
+            + _kept_note(done.get("kept_recent_blobs"))
+        )
+
+
+def _kept_note(kept: object) -> str:
+    if not isinstance(kept, int) or isinstance(kept, bool) or kept <= 0:
+        return ""
+    return (
+        f"; {kept} recently used blobs kept (run `compute data gc` later to free them)"
+    )
+
+
+@data_app.command("gc")
+def gc(
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Only count what would be freed."),
+    ] = False,
+    as_json: cli.JsonOption = False,
+) -> None:
+    """Free controller disk now: delete every stored blob that no job, named
+    input or model references (admin). Blobs used in the last few minutes
+    ([controller.gc] sweep_min_age_s) are kept."""
+    settings = cli._settings()
+    with cli._client(settings) as client:
+        done = cli._fetch(lambda: client.data_gc(dry_run=dry_run))
+    if as_json:
+        cli._echo_json(done)
+        return
+    verb = "would free" if dry_run else "freed"
+    render.line(
+        f"{verb} {render.echo(done.get('removed_blobs'))} blobs / "
+        f"{render.format_bytes(done.get('removed_bytes'))}"
+    )
+    kept = done.get("kept_recent_blobs")
+    if isinstance(kept, int) and not isinstance(kept, bool) and kept > 0:
+        render.note(
+            f"kept {kept} unreferenced blobs used recently "
+            f"({render.format_bytes(done.get('kept_recent_bytes'))})"
+        )
+    failed = done.get("failed_blobs")
+    if isinstance(failed, int) and not isinstance(failed, bool) and failed > 0:
+        render.note(f"{failed} blobs could not be deleted (see the controller log)")

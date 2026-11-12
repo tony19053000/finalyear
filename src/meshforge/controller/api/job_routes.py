@@ -69,7 +69,7 @@ import hashlib
 import hmac
 import json
 import re
-from collections.abc import Collection, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from typing import Annotated, Any, Final, Literal, Protocol
 
 from fastapi import APIRouter, Depends, Path, Query, Request, Response, status
@@ -180,6 +180,28 @@ _JOB_ID_MAX: Final = 40
 _MISSING_SHOWN: Final = 20
 
 
+class SweepOutcome(Protocol):
+    """``controller.gc.SweepReport`` as the data routes see it."""
+
+    removed: int
+    removed_bytes: int
+    kept_recent: int
+
+    def as_dict(self) -> dict[str, object]: ...
+
+
+class BlobSweeper(Protocol):
+    """``controller.gc.ControllerGc.sweep`` (V1.0 G11, D454)."""
+
+    async def sweep(
+        self,
+        reason: str,
+        *,
+        dry_run: bool = False,
+        among: Collection[str] | None = None,
+    ) -> SweepOutcome: ...
+
+
 class BenchLinks(Protocol):
     """``controller.bench.store.BenchStore``'s job -> campaign-run lookup."""
 
@@ -207,8 +229,12 @@ class JobApi:
         bench: BenchLinks | None = None,
         split_limits: SplitLimits | None = None,
         split_progress: ProgressReads | None = None,
+        gc: BlobSweeper | None = None,
     ) -> None:
         self.store = store
+        self.gc = gc
+        """V1.0 G11 (D454): sweeps unreferenced blobs after ``compute data
+        rm`` and for ``compute data gc``; None = GC off (nothing is swept)."""
         self.split_progress = split_progress
         """V0.10 G7 (D270): split jobs' progress and chunk pages, read from
         the rows; None = ``/split`` and ``/chunks`` answer config_error."""
@@ -396,6 +422,7 @@ async def _detail(
     job: JobRecord,
     inputs: NamedInputStore | None = None,
     benchmark: BenchmarkRef | None = None,
+    held_until: Callable[[str], dt.datetime | None] | None = None,
 ) -> JobDetail:
     transitions = await store.transitions(job.id)
     attempts = await store.list_attempts(job.id)
@@ -424,7 +451,15 @@ async def _detail(
             for t in transitions
         ),
         attempts=tuple(
-            _attempt(a).model_copy(update={"transfers": by_attempt.get(a.id, [])})
+            _attempt(a).model_copy(
+                update={
+                    "transfers": by_attempt.get(a.id, []),
+                    # D445: waiting for its node to reconnect (in memory)
+                    "reconnect_grace_until": None
+                    if held_until is None
+                    else held_until(a.id),
+                }
+            )
             for a in attempts
         ),
         inputs=tuple(
@@ -928,7 +963,13 @@ async def get_job(
     if job is None or not user.may_see_job(job.owner_user_id):
         raise ApiError.not_found("job")
     marks = await _benchmarks(jobs, [job.id])
-    return await _detail(jobs.store, job, jobs.inputs, marks.get(job.id))
+    return await _detail(
+        jobs.store,
+        job,
+        jobs.inputs,
+        marks.get(job.id),
+        None if jobs.dispatcher is None else jobs.dispatcher.held_until,
+    )
 
 
 @job_router.post(

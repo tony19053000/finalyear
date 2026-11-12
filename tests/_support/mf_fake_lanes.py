@@ -37,6 +37,11 @@ agent's lane runner does - the wire protocol only, no staging or processes:
 
 ``speed_s`` is the time one chunk "takes"; ``ledger`` records every chunk this
 lane ran ((chunk_index, lease_seq)).
+
+* V1.0 G10 (D443): ``env_fail`` = (type, detail, retryable) - the real agent's
+  lane whose env build failed: on its first grant the lane ends ``FAILED``
+  with that failure and :data:`ENV_FAIL_HASH` (no chunk result, no further
+  request; the controller releases its lease uncounted).
 """
 
 from __future__ import annotations
@@ -66,7 +71,10 @@ from meshforge.common.split_chunks import (
 )
 from meshforge.common.states import AttemptState
 
-__all__ = ["FakeLane", "default_output"]
+__all__ = ["ENV_FAIL_HASH", "FakeLane", "default_output"]
+
+ENV_FAIL_HASH = "e" * 64
+"""The env hash an ``env_fail`` lane reports with its end (V1.0 G10)."""
 
 
 def _bearer(token: str) -> dict[str, str]:
@@ -156,6 +164,10 @@ class FakeLane:
     measured: bool = False
     """V0.10 G8: send ``phases`` (stage 0.01 s, run = the chunk's speed) and
     ``input_bytes`` (the items' text) like the real agent."""
+    env_fail: tuple[FailureType, str, bool] | None = None
+    """V1.0 G10 (D443): end the lane with this failure at its first grant."""
+    env_failed: list[tuple[str, int]] = field(default_factory=list)
+    """(attempt_id, chunk_index) of every grant an ``env_fail`` lane ended at."""
     _cancels: dict[tuple[int, int], asyncio.Event] = field(default_factory=dict)
     _stops: dict[str, asyncio.Event] = field(default_factory=dict)
     """attempt_id -> set by a CancelAttempt (the running chunk is killed)."""
@@ -258,6 +270,7 @@ class FakeLane:
         *,
         retryable: bool = False,
         output_digest: str = "",
+        env_hash: str = "",
     ) -> None:
         status = agent_pb2.AttemptStatus(
             job_id=start.job_id,
@@ -266,6 +279,7 @@ class FakeLane:
             state=attempt_state_to_proto(state),
             runtime="subprocess",
             output_digest=output_digest,
+            env_hash=env_hash,
         )
         if failure is not None:
             status.failure.CopyFrom(
@@ -399,6 +413,19 @@ class FakeLane:
                 self.stopped[attempt_id] = "stop"
                 await self._status(
                     start, AttemptState.FAILED, (FailureType.CANCELLED, "stopped")
+                )
+                return
+            if self.env_fail is not None and reply.chunk_grant.chunks:
+                kind, detail, retryable = self.env_fail
+                first = reply.chunk_grant.chunks[0]
+                self.env_failed.append((attempt_id, int(first.chunk_index)))
+                self.stopped[attempt_id] = "env_failed"
+                await self._status(
+                    start,
+                    AttemptState.FAILED,
+                    (kind, detail),
+                    retryable=retryable,
+                    env_hash=ENV_FAIL_HASH,
                 )
                 return
             for chunk in reply.chunk_grant.chunks:

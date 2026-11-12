@@ -33,6 +33,7 @@ team may move it (agents create ADRs as Proposed and never accept them).
 | [0021](0021-ml-planner-residual-hybrid.md) | ML planner as a residual hybrid over the analytical model | Proposed | current |
 | [0022](0022-productization-install-services.md) | Productization: bundled runtime, machine-wide services, managed PostgreSQL, agent local console | Proposed | current |
 | [0023](0023-release-acceptance-and-evaluation.md) | Release acceptance: one manifest, one check, evidence tied to the release build | Proposed | current (V1.0) |
+| [0024](0024-warm-lane-worker.md) | Warm lane worker: env checked once per lane, opt-in warm worker, per-node chunk cost | Proposed | current (V1.0 G11) |
 
 ## Needs team acceptance before v1.0.0
 
@@ -52,6 +53,7 @@ ADR's `**Status:**` line and this table together. What is recorded today:
 | [0021](0021-ml-planner-residual-hybrid.md) | Proposed 2026-10-22, V0.15 brief D333-D344, awaiting team | the ML part of the planner |
 | [0022](0022-productization-install-services.md) | Proposed 2026-10-24, "brief approved by the team 2026-10-24; ADR pending formal acceptance" | installers and services |
 | [0023](0023-release-acceptance-and-evaluation.md) | Proposed 2026-10-27, "V1.0 brief approved by the team 2026-10-27; ADR pending formal acceptance" | the release rule (`release_check.py`, the acceptance manifest) |
+| [0024](0024-warm-lane-worker.md) | Proposed 2026-11-12, build deferred (scope cut for time, future work) | the lane runtime and the planner's per-node chunk cost |
 
 ## How to write an ADR
 

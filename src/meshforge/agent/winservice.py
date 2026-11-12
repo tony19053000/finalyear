@@ -81,6 +81,7 @@ __all__ = [
     "SHUTDOWN_GRACE_S",
     "SID_ADMINISTRATORS",
     "SID_SYSTEM",
+    "SID_USERS",
     "STOP_GRACE_S",
     "Access",
     "DirAcl",
@@ -134,6 +135,9 @@ the identity) - OPERATIONS §2's ``RestartPreventExitStatus=4 5``."""
 ERROR_SERVICE_SPECIFIC_ERROR: Final = 1066
 """``dwWin32ExitCode`` meaning "see ``dwServiceSpecificExitCode``"."""
 
+SID_USERS: Final = "S-1-5-32-545"
+"""BUILTIN\\Users: may read the public node record folder (D457), nothing else."""
+
 AGENT_LOG_NAME: Final = "agent.log"
 SERVICE_LOG_NAME: Final = "service.log"
 
@@ -181,6 +185,13 @@ class MachineLayout:
         return self.root / "console"
 
     @property
+    def public_dir(self) -> PureWindowsPath:
+        """V1.0 G11 (D457): the service's public node record (``node-id.json``,
+        public facts only) that ``compute run --local`` reads; the same path as
+        ``common.local_node.system_public_dir`` on Windows."""
+        return self.root / "public"
+
+    @property
     def folders(self) -> tuple[PureWindowsPath, ...]:
         """Every state folder, root first (creation and ACL order)."""
         return (
@@ -190,6 +201,7 @@ class MachineLayout:
             self.cache_dir,
             self.logs_dir,
             self.console_dir,
+            self.public_dir,
         )
 
 
@@ -391,6 +403,11 @@ def acl_plan(
     the installer and anyone an administrator added - **read**: its token file
     inherits that ACL, which is the whole permission to open the console (the
     Windows twin of the Linux ``meshforge-admin`` group).
+
+    ``public`` (V1.0 G11, D457) lets every local user (``BUILTIN\\Users``)
+    **read** the service's public node record - its ``node_id``, public-key
+    fingerprint and version, never the identity - so a non-elevated
+    ``compute run --local`` finds this laptop's node.
     """
     admin = (Grant(SID_SYSTEM, Access.FULL), Grant(SID_ADMINISTRATORS, Access.FULL))
     readers = tuple(
@@ -409,6 +426,10 @@ def acl_plan(
         DirAcl(layout.cache_dir, (*admin, Grant(svc_sid, Access.MODIFY))),
         DirAcl(layout.logs_dir, (*admin, Grant(svc_sid, Access.MODIFY))),
         DirAcl(layout.console_dir, (*admin, Grant(svc_sid, Access.MODIFY), *readers)),
+        DirAcl(
+            layout.public_dir,
+            (*admin, Grant(svc_sid, Access.MODIFY), Grant(SID_USERS, Access.READ)),
+        ),
     )
 
 

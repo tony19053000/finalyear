@@ -1,7 +1,8 @@
 #!/bin/sh
 # meshforge-agent postinst (V0.17 G1, D385-D387). Idempotent and re-runnable.
 #
-#  1. machine-wide state folders with their modes (D385);
+#  1. machine-wide state folders with their modes (D385; the public node
+#     record folder, D457);
 #  2. GPU device groups for the service user, if the groups exist (D386);
 #  3. identity + config migration from a per-user agent (D387): refusal leaves
 #     the package installed but the service NOT started, with the reason above
@@ -132,6 +133,16 @@ if [ ! -d /var/lib/meshforge ]; then
 	install -d -m 0750 -o meshforge -g meshforge /var/lib/meshforge
 else
 	chown meshforge:meshforge /var/lib/meshforge
+fi
+# V1.0 G11 (D457): the agent's public node record (node-id.json: node_id,
+# public-key fingerprint, version - never the identity) that `compute run
+# --local` reads as the logged-in user. A sibling, so /var/lib/meshforge stays
+# 0750; writable by the service only (compute refuses a shared-writable one).
+if [ ! -d /var/lib/meshforge-public ]; then
+	install -d -m 0755 -o meshforge -g meshforge /var/lib/meshforge-public
+else
+	chown meshforge:meshforge /var/lib/meshforge-public
+	chmod go-w /var/lib/meshforge-public
 fi
 
 # 2. GPU access (NVIDIA/DRM device nodes); Docker deliberately not (Q12)

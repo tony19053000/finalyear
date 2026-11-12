@@ -1113,6 +1113,19 @@ day, and at once when a job failed `integrity_error`; a corrupt blob is removed
 (`controller.blobs.scrub_corrupt`) and the next `compute run` / `compute data
 push` uploads it again.
 
+**Freeing controller disk now (V1.0 G11, D454).** `compute data rm NAME@V` deletes
+the removed version's blobs that nothing else references at once and prints
+`freed N blobs / X`. `compute data gc [--dry-run]` (admin; REST `POST /v1/data/gc`)
+sweeps the whole store: every blob that no job (any state: its project, outputs and
+logs stay for `compute get` / `compute logs`), no named input (pinned or not) and no
+stored ML model references is deleted, and it prints the count and bytes freed. A
+finished job's *named-input* history does not keep a removed input alive. Blobs used
+within `[controller.gc] sweep_min_age_s` (600 s) are kept - they may belong to an
+upload whose submit or push is still coming; run `compute data gc` again later.
+Both sweeps hold the same guard as a GC pass, so a submission or push can never
+commit a reference to a blob being deleted. The quota GC above stays as the safety
+net. Never delete files in the blob store by hand.
+
 **Named inputs** - register a dataset or model once, use it by name:
 
 ```

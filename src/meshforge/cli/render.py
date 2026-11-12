@@ -49,6 +49,7 @@ with a top-level ``schema_version`` (docs/CLI.md).
 
 from __future__ import annotations
 
+import datetime as dt
 import json
 import os
 from collections.abc import Mapping, Sequence
@@ -676,6 +677,11 @@ def job_detail_table(payload: Mapping[str, Any]) -> Table:
     table = _table("FIELD", "VALUE", title="Job")
     for key in ("job_id", "name", "state", "failure_type", "failure_detail"):
         table.add_row(_cell(key), _cell(payload.get(key)))
+    cause = job_failure_cause(payload)
+    if cause:
+        # G11 (D453): e.g. ``node_lost: node_revoked`` under a job-level
+        # ``placed_node_offline`` - the why, next to the job's failure
+        table.add_row(_cell("failure_cause"), _cell(cause))
     if payload.get("output_digest"):
         table.add_row(_cell("output"), _cell(payload.get("output_digest")))
     for text in warning_lines(payload):
@@ -700,6 +706,9 @@ def job_detail_table(payload: Mapping[str, Any]) -> Table:
                 f"missing={missing_text}"
             ),
         )
+        waiting = reconnect_grace_text(attempt)
+        if waiting:
+            table.add_row(_cell("  waiting"), _cell(waiting))
         failed = attempt_failure_text(attempt)
         if failed:
             # its own row: the attempt row is long already and a cell is
@@ -721,6 +730,26 @@ def job_detail_table(payload: Mapping[str, Any]) -> Table:
     return table
 
 
+def reconnect_grace_text(
+    attempt: Mapping[str, Any], now: dt.datetime | None = None
+) -> str:
+    """V1.0 G10 (D445): ``waiting for node to reconnect (Ns)`` while the
+    attempt's node lost its lease and the controller holds the attempt for
+    it (``reconnect_grace_until``), else "". ``N`` = seconds left, never
+    negative (the controller ends the wait at its next tick)."""
+    raw = attempt.get("reconnect_grace_until")
+    if not isinstance(raw, str) or not raw:
+        return ""
+    try:
+        until = dt.datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return ""
+    if until.tzinfo is None:
+        until = until.replace(tzinfo=dt.UTC)
+    left = (until - (now or dt.datetime.now(dt.UTC))).total_seconds()
+    return f"waiting for node to reconnect ({max(0, round(left))}s)"
+
+
 def attempt_failure_text(attempt: Mapping[str, Any]) -> str:
     """V1.0 G9-B: ``<failure_type>: <detail>`` of an attempt that ended with a
     failure (the detail is the agent's text or the controller's reason, e.g.
@@ -736,6 +765,34 @@ def attempt_failure_text(attempt: Mapping[str, Any]) -> str:
     if isinstance(detail, str) and detail.strip():
         text += f": {scrub(detail.strip())}"
     return text
+
+
+def job_failure_cause(payload: Mapping[str, Any]) -> str:
+    """V1.0 G11 (D453): the failure of a failed job's **last** ended attempt
+    (highest fencing token with a ``failure_type``) as
+    :func:`attempt_failure_text`, when it says more than the job's own
+    ``failure_type`` / ``failure_detail`` - else "". A revoked node's job
+    fails ``node_lost / placed_node_offline`` while the attempt names the
+    cause (``node_revoked``); before this it was visible only in ``--json``
+    or in the attempt rows further down."""
+    failure = payload.get("failure_type")
+    if not isinstance(failure, str) or not failure:
+        return ""
+    attempts = payload.get("attempts")
+    ended = [
+        a
+        for a in (attempts if isinstance(attempts, list) else [])
+        if isinstance(a, Mapping) and attempt_failure_text(a)
+    ]
+    if not ended:
+        return ""
+    last = max(ended, key=lambda a: _num(a.get("fencing_token")) or 0)
+    text = attempt_failure_text(last)
+    detail = payload.get("failure_detail")
+    same = scrub(failure)
+    if isinstance(detail, str) and detail.strip():
+        same += f": {scrub(detail.strip())}"
+    return "" if text == same else text
 
 
 def warning_lines(payload: Mapping[str, Any]) -> list[str]:
