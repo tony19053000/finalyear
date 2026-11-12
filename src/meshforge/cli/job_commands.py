@@ -11,7 +11,8 @@ functions at its end and registers them on the one Typer application.
 resolved items, uploads and submits nothing - :mod:`.dry_run`)
 (V0.6: without --node/--local the controller's planner places the job; this
 laptop's own enrolled agent, if any, is sent as ``submitter_node_id`` - the
-Local candidate):
+Local candidate; V1.0 G11 D457: on a packaged install that is the system
+agent's public record, ``common.local_node.resolve_local_node``):
 
 1. read the manifest (``compute.yaml``, or inferred - D46) and build the
    project's tree manifest (V0.5 D81: one blob per file, same ignore rules as
@@ -47,7 +48,7 @@ import sys
 import tempfile
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Annotated, Any, Final
+from typing import TYPE_CHECKING, Annotated, Any, Final
 
 import typer
 
@@ -55,6 +56,9 @@ from meshforge.cli import render
 from meshforge.cli import shared as cli
 from meshforge.cli.exits import CliExit
 from meshforge.common.errors import FailureType
+
+if TYPE_CHECKING:
+    from meshforge.common.local_node import LocalNode
 
 _WORD = re.compile(r"[a-z_]{1,32}")
 MAX_EXCLUDE_NODES = 16
@@ -256,7 +260,8 @@ def run(
         preview(path.resolve(), name)
         return
     settings = cli._settings()
-    own_node = _own_node_id(settings.data_dir, required=local)
+    local_node = _own_node(settings.data_dir, required=local)
+    own_node = None if local_node is None else str(local_node.node_id)
     # G11 (D452): --node NAME is resolved once the client is open (below)
     pin_name = None if local or node is None or _is_node_id(node) else node
     node_id: str | None = None
@@ -331,8 +336,9 @@ def run(
         )
         if own_node is not None and (node_id is None or node_id == own_node):
             # D109: the Local candidate needs no download if its cache holds
-            # the project already.
-            body["seeded"] = _seed(settings, built)
+            # the project already. D457: only an agent on the CLI's own data
+            # dir - the system service's cache is not ours to write.
+            body["seeded"] = _seed_for(local_node, settings, built)
         if idempotency_key is None:
             render.note(
                 f"idempotency key {key} (after a network error, "
@@ -405,17 +411,40 @@ def _seed(settings: Any, built: Any) -> bool:
     return report.seeded
 
 
-def _own_node_id(data_dir: Path, *, required: bool) -> str | None:
+def _own_node(data_dir: Path, *, required: bool) -> LocalNode | None:
     """This laptop's enrolled node (D103): required for --local; otherwise
-    best effort - no agent here simply means no Local candidate."""
-    from meshforge.common.local_node import LocalNodeError, read_local_node_id
+    best effort - no agent here simply means no Local candidate.
 
+    V1.0 G11 (D457): the user-mode identity in ``data_dir`` first, then the
+    installed system agent's public record (``common.local_node``)."""
+    from meshforge.common.local_node import (
+        LocalNodeError,
+        resolve_local_node,
+        system_public_dir,
+    )
+
+    public_dir = system_public_dir()
     try:
-        return str(read_local_node_id(data_dir))
+        return resolve_local_node(
+            data_dir, public_dir=None if public_dir is None else Path(public_dir)
+        )
     except LocalNodeError as exc:
         if required:
             cli._die(exc.message, CliExit.CONFIG_ERROR)
         return None
+
+
+def _seed_for(local_node: LocalNode | None, settings: Any, built: Any) -> bool:
+    """D109 seeding, only into a cache this CLI shares with the agent (D457)."""
+    from meshforge.common.local_node import LocalNodeSource
+
+    if local_node is None or local_node.source is not LocalNodeSource.USER:
+        render.note(
+            "local agent cache not seeded (the installed agent service keeps "
+            "its own cache); a job placed here downloads the project"
+        )
+        return False
+    return _seed(settings, built)
 
 
 def _print_rejections(rejections: object) -> None:

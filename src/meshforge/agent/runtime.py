@@ -744,8 +744,12 @@ def start_renewer(
     if settings.security.insecure:
         return None
     renewer = CertRenewer(settings, client)
+
     # D457: a rotated key changes the public record's fingerprint
-    renewer.on_renewed.append(publish_if_system)
+    def republish(identity: NodeIdentity) -> None:
+        publish_if_system(identity)
+
+    renewer.on_renewed.append(republish)
     if http_tls is not None:
         renewer.on_renewed.append(http_tls.reload)
     peer_tls = peer.tls if peer is not None else None

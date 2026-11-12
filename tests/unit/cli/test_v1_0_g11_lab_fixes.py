@@ -132,7 +132,7 @@ def _run(
     from meshforge.cli import transfer
 
     client = RunClient()
-    monkeypatch.setattr(job_commands, "_own_node_id", lambda *_a, **_k: None)
+    monkeypatch.setattr(job_commands, "_own_node", lambda *_a, **_k: None)
     monkeypatch.setattr(
         transfer,
         "upload_tree",
