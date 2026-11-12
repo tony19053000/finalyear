@@ -120,6 +120,7 @@ from meshforge.agent.policy import (
     not_enforced_caps,
     policy_path,
 )
+from meshforge.agent.public_node import publish_if_system
 from meshforge.agent.resources import ResourceMonitor, ResourceSampler
 from meshforge.agent.session.client import AgentSessionClient
 from meshforge.agent.session.errors import NodeRevokedError
@@ -404,6 +405,9 @@ async def serve(
             lock_timeout_s=settings.agent.identity_lock_timeout_s,
         )
     node_id = str(identity.node_id)
+    # V1.0 G11 (D457): the installed service tells `compute run --local` which
+    # node this laptop is - public facts only, its identity stays owner-only
+    await asyncio.to_thread(publish_if_system, identity)
     # V0.7 G3 (D139): HTTPS with the node certificate for blobs and probes, TLS
     # on the peer server; refuses to start unenrolled (the exact remedy).
     http_tls = (
@@ -740,6 +744,8 @@ def start_renewer(
     if settings.security.insecure:
         return None
     renewer = CertRenewer(settings, client)
+    # D457: a rotated key changes the public record's fingerprint
+    renewer.on_renewed.append(publish_if_system)
     if http_tls is not None:
         renewer.on_renewed.append(http_tls.reload)
     peer_tls = peer.tls if peer is not None else None
