@@ -1260,3 +1260,10 @@ demo 02: PASS 8.9 s (Local on L1, Mode 1 to L2, result byte-identical).
 demo 03 (--kill-cmd/--revive-cmd = lab-chat cue helper ~/mf-eval/demo/kill_via_chat.sh): FAIL 10.9 s - planner ran the job LOCAL ("not split ...
     only on assumed per-item rates - no run of this workload recorded yet"), job ended before a laptop could be killed; no stop cue sent.
 cause (03 + 04 C): demo split projects have a fresh name each run and no split.item_seconds -> G9-E rule never splits on first run. Sent to LEAD.
+
+### 2026-11-12 14:2x - planner local/split flapping evidence (LEAD 20261112-141539 item 3)
+run1 job_01M77CYMPG7WVE8YSYH5PM6M79 -> LOCAL: candidates local L1 61.67 s, split L1+L4 83.14 s, offload L4 541.6 s; **L2 offload infeasible
+    reject_code slots_full** (L2 still busy from the previous job's lane / its rebuilding chunk) -> "not split: best set 83.14 s > 55.50 s".
+run2 job_01M77D0Q4QDFHSYTSMGT4FZ596 -> SPLIT: split L1+L2 41.10 s, split L1+L2+L4 64.26 s, offload L2 61.97 s, local 62.28 s -> "split over 2 nodes".
+reading: flapping = L2 availability between back-to-back runs (slots_full while its previous lane/speculated chunk still runs), not a cost bug.
+    L4 alone is slow for this small job (541 s offload = venv rebuild history?). Evidence: ~/mf-eval/g10/flap-explain.txt.
