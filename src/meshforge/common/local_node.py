@@ -175,7 +175,7 @@ def read_public_node_id(public_dir: Path) -> NodeId:
     refused: whoever could rewrite it would decide where ``--local`` jobs run.
     """
     path = public_node_json(public_dir)
-    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
     try:
         if os.name == "posix":
             _check_not_shared_writable(public_dir, os.stat(public_dir), "folder")
@@ -240,7 +240,11 @@ def _parse(raw: bytes, fmt: int, what: str) -> NodeId:
         meta = json.loads(raw)
     except (ValueError, RecursionError):
         raise LocalNodeError(f"{what} is not JSON") from None
-    if not isinstance(meta, dict) or meta.get("format") != fmt:
+    if (
+        not isinstance(meta, dict)
+        or type(meta.get("format")) is not int
+        or meta.get("format") != fmt
+    ):
         raise LocalNodeError(
             f"{what} has an unknown format; upgrade compute or the agent"
         )

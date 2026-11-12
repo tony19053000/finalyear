@@ -177,11 +177,6 @@ def test_hostile_public_records_are_config_errors_never_a_node(
     assert info.value.failure_type is FailureType.CONFIG_ERROR
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="DEFECT (minor) common/local_node.py _parse: `meta.get('format') != fmt` "
-    "accepts JSON true (True == 1); use `type(...) is int`",
-)
 def test_a_bool_format_is_not_format_1(tmp_path: Path) -> None:
     """JSON ``true == 1`` in Python: a record with ``"format": true`` must not pass."""
     payload = json.dumps({"format": True, "node_id": str(new_node_id())}).encode()
@@ -228,11 +223,6 @@ def test_a_symlinked_public_folder_to_a_writable_target_is_refused(
 
 
 @posix_only
-@pytest.mark.xfail(
-    strict=True,
-    reason="DEFECT (minor) common/local_node.py read_public_node_id: os.open on a "
-    "FIFO blocks forever; add O_NONBLOCK (then fstat S_ISREG) or lstat first",
-)
 def test_a_fifo_in_place_of_the_record_does_not_hang_the_cli(tmp_path: Path) -> None:
     """Defect probe: ``os.open(path, O_RDONLY)`` on a FIFO blocks until a writer
     appears; the `compute run --local` path must refuse a non-regular file
