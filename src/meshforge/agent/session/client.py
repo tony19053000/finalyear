@@ -643,7 +643,7 @@ class AgentSessionClient:
 
             first = await self._until_stop(self._read_first(call))
             if isinstance(first, _Stopped):
-                await self._close_call(call)
+                await self._stop_before_ack(call)
                 return _Outcome.STOP
             if first is None:  # timeout waiting for HelloAck
                 log.warning(
@@ -1447,10 +1447,28 @@ class AgentSessionClient:
             session_id=self.session_id or None,
         )
 
+    async def _stop_before_ack(self, call: Any) -> None:
+        """A stop while the HelloAck is in flight (G11 CI race): the controller
+        may already have accepted the Hello and opened the session. Wait a
+        little for the ack; if it accepted, say Goodbye with its session id
+        (``agent_closed``, not ``stream_lost``), else just close."""
+        ack: agent_pb2.HelloAck | None = None
+        with contextlib.suppress(TimeoutError, grpc.aio.AioRpcError):
+            msg = await asyncio.wait_for(call.read(), _CLOSE_GRACE_S)
+            if (
+                isinstance(msg, agent_pb2.ControllerMessage)
+                and msg.WhichOneof("payload") == "hello_ack"
+                and msg.hello_ack.accepted
+            ):
+                ack = msg.hello_ack
+        if ack is not None:
+            self.session_id = ack.session_id
+            await self._say_goodbye()
+        await self._close_call(call)
+
     async def _close_call(self, call: Any) -> None:
-        """Stop before the HelloAck: no session exists yet, so there is nothing to
-        say Goodbye to. Half-close, wait a little for the final status, then
-        cancel whatever is left."""
+        """Half-close, wait a little for the final status, then cancel whatever
+        is left (after :meth:`_stop_before_ack` said Goodbye if it could)."""
         with contextlib.suppress(Exception):
             await call.done_writing()
         with contextlib.suppress(TimeoutError):
