@@ -951,6 +951,15 @@ Lab message posted: lab/chat/20261106-120000-LEAD-to-ALL.md (upgrade, remove F4/
 Next: collect lab replies; open follow-ups: D441 r1 notes (ends.py:276 stale older entry; speculation test comment),
 sample_interval_s < 0.25 s, ML an_src_declared flag, lab checklist V0.10 mentions split.item_seconds, Mode 2/4 deferred.
 
+## v0.17.4 -> lab re-run (2026-11-12, LEAD account switch) - read this first
+
+* v0.17.4 verified by LEAD: tag, release assets (.exe, 2 .deb, SHA256SUMS), main pushed, nothing local. BUG-FIX session done.
+* Lab: NO report since v0.17.4 yet (last REPORTs 13:16-14:40 on 0.17.3). Lab post 20261112-184744-LEAD-to-ALL = upgrade + re-runs.
+* Waiting on lab: all upgrade 0.17.4; L3 re-join (revoked; human join code); L1 re-runs D459 (small split pred vs real), D460
+  (same job twice keeps mode), demo 03, 04, then 05 (needs L3); L4 D457 part 2 + D458; L1 owes 2 flapping explain outputs; then 0.14.8.
+* LEAD to-do: tick v0.17.1-v0.17.4 roadmap boxes + status bar only with REPORT evidence. Reviewer follow-ups (non-blocking) above.
+* Next BUG-FIX session only if the lab finds a bug.
+
 ## v0.17.4 released (2026-11-12, BUG-FIX session) - read this first
 
 * G12 shipped in v0.17.4 (tag pushed after CI ci-ok green run 43214950825): D459 node_history chunk cost, D460 mode

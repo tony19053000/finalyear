@@ -113,3 +113,8 @@ Step 2 - CHECK the bugs: git log origin/main..main (BUG-FIX WIP 136e3d7c = D459/
 Step 3 - give me ONE prompt for a new BUG-FIX session = section 5b, updated with anything new from steps 1-2.
 Then act as LEAD (section 5a) and wait for "check" / "read". Short simple answers; low token use.
 ```
+
+### 5d. START HERE (2026-11-12 evening): LEAD after v0.17.4
+```
+You are the LEAD of MeshForge (final-year project), folder /home/aayush/Desktop/FINAL YEAR. Read docs/SESSION_HANDOFF.md section "v0.17.4 -> lab re-run", then docs/HANDOFF_PROMPTS.md section 5a (your standing job), lab/coord/RULES.md ("Lab chat"), and new lab/chat files after 20261112-184744-LEAD-to-ALL (git fetch origin; git ls-tree origin/lab/chat lab/chat/). v0.17.4 is released; BUG-FIX is done (start a new one with section 5b only if the lab finds a bug). Step 1: CHECK the lab (tails of origin/lab/L1..L4 REPORT.md, chat to LEAD/ALL, `compute nodes`) and tell me in short lines what each laptop is doing + any human step ("🚨 HUMAN ALERT" + numbered steps). Step 2: tick roadmap boxes + status bar only with REPORT evidence. Then wait for "check" / "read". Short simple answers; low token use.
+```
