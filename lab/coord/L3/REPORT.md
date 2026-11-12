@@ -427,3 +427,7 @@ result: human asked to clear RAM before the run: ChatGPT, codex, Edge, Chrome, B
 - No session drop logged 17:48-18:04 (first run); 18:05:09-18:06:10 IST: 4x stream_ended UNAVAILABLE with reconnects (matches L1 offline 18:04:02), plus many cas.source_dropped 17:47-18:06.
 - cas.staged at 17:47:22, 18:06:59, 18:19:26 show only ~388 bytes fetched (dataset not staged via CAS in these lines).
 - Free RAM low during runs (~0.7-0.84 GiB per controller). Today 05:25: 1.66 GiB free after closing ChatGPT/Opera/Edge and stopping SQL Server Express.
+
+## v0.17.3 upgrade - L3 - 2026-11-12 13:09
+- Demo 03 cue (05:36) seen late, no STOP NOW for L3 received; not acted on.
+- Setup-0.17.3-1.exe downloaded, sha256 84a1c2cd...feac35 MATCH SHA256SUMS. Install pending (human, admin).
