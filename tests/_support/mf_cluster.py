@@ -206,6 +206,11 @@ class Timing:
     agent_reconnect_base_s: float | None = None
     agent_reconnect_cap_s: float | None = None
     agent_hello_timeout_s: float | None = None
+    attempt_grace_s: float | None = 0.0
+    """V1.0 G10 (D445) ``[controller.liveness] attempt_grace_s``. 0 by default
+    in the cluster scenarios: they kill or partition agents and expect the
+    node-loss path at the lease edge (the grace has its own tests). ``SHIPPED``
+    sets None = the product default."""
 
     @property
     def heartbeat_s(self) -> float:
@@ -236,7 +241,7 @@ FAST: Final = Timing(
 )
 """D25 default cluster profile (like ``FAST_LIVENESS``)."""
 
-SHIPPED: Final = Timing(name="shipped")
+SHIPPED: Final = Timing(name="shipped", attempt_grace_s=None)
 """D25 slow profile: nothing overridden - the product's shipped defaults."""
 
 
@@ -755,6 +760,7 @@ class Fabric:
                     "heartbeat_interval_s": t.heartbeat_interval_s,
                     "miss_allowance_s": t.miss_allowance_s,
                     "lease_multiplier": t.lease_multiplier,
+                    "attempt_grace_s": t.attempt_grace_s,
                 }
             ),
             "security": self._security_table(),

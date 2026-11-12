@@ -12,7 +12,8 @@ from __future__ import annotations
 
 import math
 import re
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 from typing import Final
 
 from meshforge.common.errors import FailureType, InvalidIdError
@@ -44,6 +45,8 @@ agent sends at most this; more is a broken or hostile agent: refused)."""
 _MAX_INPUT_BYTES: Final = 2**62
 _MAX_ID: Final = 2**63 - 1
 _MAX_PHASE_S: Final = 30 * 86_400.0
+MAX_STALLED_S: Final = 30 * 86_400.0
+"""D451: a reported ``stalled_s`` is clamped here (a month)."""
 _DIGEST: Final = re.compile(r"sha256:[0-9a-f]{64}")
 _OUTCOMES: Final = {
     agent_pb2.ChunkResult.OUTCOME_DONE: "done",
@@ -89,6 +92,9 @@ class ChunkResultIn:
 class LeaseRenewIn:
     lane: LaneRef
     leases: tuple[tuple[int, int], ...]
+    stalled: Mapping[tuple[int, int], float] = field(default_factory=dict)
+    """V1.0 G10 (D451): (item id, lease seq) -> ``stalled_s`` > 0 the lane
+    reported (no progress past its threshold); absent = progressing."""
 
 
 def _lane(where: str, job_id: str, attempt_id: str, token: int) -> LaneRef | str:
@@ -134,7 +140,12 @@ def parse_lease_renew(msg: agent_pb2.LeaseRenew) -> LeaseRenewIn | str:
     leases = _leases("LeaseRenew.leases", list(msg.leases))
     if isinstance(leases, str):
         return leases
-    return LeaseRenewIn(lane, leases)
+    stalled: dict[tuple[int, int], float] = {}
+    for ref in msg.leases:
+        value = float(ref.stalled_s)
+        if math.isfinite(value) and value > 0:  # NaN/inf/negative: ignored
+            stalled[(int(ref.item_id), int(ref.lease_seq))] = min(value, MAX_STALLED_S)
+    return LeaseRenewIn(lane, leases, stalled)
 
 
 def parse_chunk_result(msg: agent_pb2.ChunkResult) -> ChunkResultIn | str:

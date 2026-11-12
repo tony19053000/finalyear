@@ -2,6 +2,7 @@ import { Badge } from "../Status";
 import type { AttemptSummary } from "../../pages/jobs/jobsApi";
 import type { StatusTone } from "../../lib/status";
 import { between, formatBytes, formatDuration, formatTime } from "./format";
+import { reconnectGraceText } from "./reconnectGrace";
 
 /** Attempt states (common/states.py AttemptState) -> tone. */
 const ATTEMPT_TONES: Record<string, StatusTone> = {
@@ -65,6 +66,11 @@ export function AttemptsTable({ attempts }: { attempts: readonly AttemptSummary[
                 <td className="px-3 py-2 font-mono text-xs whitespace-nowrap">{a.node_id}</td>
                 <td className="px-3 py-2">
                   <Badge tone={attemptTone(a.state)}>{a.state}</Badge>
+                  {reconnectGraceText(a.reconnect_grace_until) !== "" && (
+                    <div className="mt-0.5 text-2xs whitespace-nowrap text-fg-muted" role="status">
+                      {reconnectGraceText(a.reconnect_grace_until)}
+                    </div>
+                  )}
                 </td>
                 <td className="px-3 py-2 text-xs">
                   {a.failure_type != null ? <span className="font-mono">{a.failure_type}</span> : "—"}

@@ -541,6 +541,7 @@ class ControllerRuntime:
                 interval_s=cfg.gc.interval_s,
                 batch=cfg.gc.batch,
                 ml_keep_superseded=cfg.planner.ml_keep_superseded,  # V0.15 G3
+                sweep_min_age_s=cfg.gc.sweep_min_age_s,  # V1.0 G11 (D454)
             )
             try:
                 await gc.start()
@@ -772,6 +773,7 @@ class ControllerRuntime:
             on_split_change=tracker.touch,
             calibration=self.calibration,
             ml=self.ml_source,  # V0.15 G4 (D336)
+            attempt_grace_s=cfg.liveness.attempt_grace_s,  # V1.0 G10 (D445)
             on_integrity_failure=(
                 functools.partial(
                     self.scrubber.suspect_tree_soon, why="attempt_integrity_error"
@@ -871,6 +873,8 @@ class ControllerRuntime:
         # accepted; every HelloAck carries it, the interceptor and the HTTPS
         # policy check against it, a periodic sync picks up CLI revocations.
         revocations = Revocations(RevocationStore(engine), manager)
+        if self.dispatcher is not None:  # D445 r1: held attempts of a revoked node
+            revocations.on_revoked = self.dispatcher.on_revoked
         await revocations.sync()
         self.revocations = revocations
         manager.revoked_serials = revocations.sent_serials
@@ -1007,6 +1011,7 @@ class ControllerRuntime:
                     max_items=cfg.split.max_items, max_chunks=cfg.split.max_chunks
                 ),
                 split_progress=progress_reads,
+                gc=self.gc,
             ),
             network=NetworkApi(store=network_store, prober=network),
             invites=InviteApi(

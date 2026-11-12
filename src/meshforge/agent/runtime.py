@@ -104,6 +104,7 @@ from meshforge.agent.identity import (
     NodeIdentity,
     load_or_create,
 )
+from meshforge.agent.loop_watch import LoopWatch
 from meshforge.agent.owner_activity import (
     CpuSampler,
     OwnerActivity,
@@ -119,6 +120,7 @@ from meshforge.agent.policy import (
     not_enforced_caps,
     policy_path,
 )
+from meshforge.agent.public_node import publish_if_system
 from meshforge.agent.resources import ResourceMonitor, ResourceSampler
 from meshforge.agent.session.client import AgentSessionClient
 from meshforge.agent.session.errors import NodeRevokedError
@@ -127,6 +129,7 @@ from meshforge.agent.session.renewal import CertRenewer
 from meshforge.agent.session.state import AgentState
 from meshforge.agent.session.tls import JOIN_HINT, SessionTlsError
 from meshforge.agent.settings import AgentSettings, parse_controller_address
+from meshforge.agent.win_error_mode import quiet_error_mode
 from meshforge.common import owner_policy
 from meshforge.common.bench_conditions import capability_tag
 from meshforge.common.capabilities import (
@@ -387,6 +390,9 @@ async def serve(
     client as soon as it exists (``on_client``) to stop it, read its state and
     its peer endpoint.
     """
+    # V1.0 G10 BUG-4 (D451): no invisible error dialog may block a workload
+    # (inherited by every child; a no-op off Windows).
+    quiet_error_mode()
     if settings.security.insecure:
         # D139: every start, loud - this mode must never go unnoticed.
         log.warning(
@@ -399,6 +405,9 @@ async def serve(
             lock_timeout_s=settings.agent.identity_lock_timeout_s,
         )
     node_id = str(identity.node_id)
+    # V1.0 G11 (D457): the installed service tells `compute run --local` which
+    # node this laptop is - public facts only, its identity stays owner-only
+    await asyncio.to_thread(publish_if_system, identity)
     # V0.7 G3 (D139): HTTPS with the node certificate for blobs and probes, TLS
     # on the peer server; refuses to start unenrolled (the exact remedy).
     http_tls = (
@@ -514,6 +523,13 @@ async def serve(
     wire_executor(client, executor)
     bench_guard.preempt = executor.preempt_benchmarks
     client.owner_heartbeat = bench_guard.heartbeat_fields
+    # V1.0 G10 (D444): a stall of this process's loop is logged, and its size is
+    # named in every stream end (a lease lost to memory pressure, not the link).
+    loop_watch = LoopWatch(clock=asyncio.get_running_loop().time, node_id=node_id)
+    client.loop_lag = loop_watch.max_lag_s
+    loop_watch_task = asyncio.create_task(
+        loop_watch.run(), name=f"agent-loop-watch:{node_id}"
+    )
     activity_task: asyncio.Task[None] | None = None
     if activity is not None:
         activity.on_change = bench_guard.on_activity
@@ -596,6 +612,7 @@ async def serve(
         await stop_task(renew_task)
         await stop_task(policy_task)
         await stop_task(activity_task)
+        await stop_task(loop_watch_task)
         # Cancelling the scoring task kills its benchmark child tree (runner).
         await stop_task(scores_task)
         if monitor is not None and monitor_task is not None:
@@ -727,6 +744,12 @@ def start_renewer(
     if settings.security.insecure:
         return None
     renewer = CertRenewer(settings, client)
+
+    # D457: a rotated key changes the public record's fingerprint
+    def republish(identity: NodeIdentity) -> None:
+        publish_if_system(identity)
+
+    renewer.on_renewed.append(republish)
     if http_tls is not None:
         renewer.on_renewed.append(http_tls.reload)
     peer_tls = peer.tls if peer is not None else None

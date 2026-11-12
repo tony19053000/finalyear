@@ -37,7 +37,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime as dt
-from collections.abc import Collection, Mapping
+from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any, Final, Protocol
@@ -307,6 +307,9 @@ class Revocations:
         self._nodes: frozenset[str] = frozenset()
         self._lock = asyncio.Lock()
         self._scanned = False
+        self.on_revoked: Callable[[frozenset[str], frozenset[str]], None] | None = None
+        """V1.0 G10 (D445 r1): told the revoked nodes and serials after every
+        sync - attempts held in a reconnect grace end at once."""
         self.kills = 0
         self.cert_cuts = 0
         self.cut_scans = 0
@@ -435,6 +438,8 @@ class Revocations:
                 self.cut_scans += 1
                 self.cert_cuts += len(superseded)
                 killed |= superseded
+            if self.on_revoked is not None:
+                self.on_revoked(snap.nodes, snap.serials)
             if changed:
                 sent = self._sessions.broadcast(
                     "revocation_update", self.update_message()

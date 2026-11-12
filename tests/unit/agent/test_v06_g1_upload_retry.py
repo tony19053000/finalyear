@@ -331,10 +331,11 @@ async def test_a_resent_start_of_a_held_attempt_replaces_its_credentials(
     revoked the old ones: the agent runs it once but adopts the new ones; a
     copy with another fencing token, or after the attempt ended, changes
     nothing."""
-    gate = asyncio.Event()
+    gate, running = asyncio.Event(), asyncio.Event()
 
     class SlowRuntime(WritingRuntime):
         async def run(self, spec: Any, on_output: Any, *, observer: Any = None) -> Any:
+            running.set()
             await gate.wait()
             return await super().run(spec, on_output, observer=observer)
 
@@ -343,7 +344,9 @@ async def test_a_resent_start_of_a_held_attempt_replaces_its_credentials(
     msg = _start(digest)
     _with_outputs(msg)
     executor.handle(msg)
-    await asyncio.sleep(0.1)
+    # wait for the run itself, not a fixed sleep (a slow Windows runner had not
+    # staged the attempt after 0.1 s)
+    await asyncio.wait_for(running.wait(), timeout=30)
     attempt = executor._attempts[msg.start_attempt.attempt_id]
 
     def copy(grant: str, fetch: str, fencing: int = 1) -> agent_pb2.ControllerMessage:

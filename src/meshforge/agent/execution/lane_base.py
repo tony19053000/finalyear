@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any, Final
 
 from meshforge.agent.execution.runtime import Stream
 from meshforge.agent.execution.stage_retry import STAGE_RETRYABLE
+from meshforge.agent.execution.stall_watch import PaceHistory
 from meshforge.common.errors import FailureType
 from meshforge.common.hashing import Digest
 from meshforge.common.proto.meshforge.v1 import agent_pb2
@@ -26,8 +27,10 @@ if TYPE_CHECKING:
 __all__ = [
     "ASK_TIMEOUT_S",
     "CHUNK_FAILURE_NOT_RETRYABLE",
+    "LANE_DRAINED",
     "RESULT_ACK_WAIT_S",
     "STAGE_RETRYABLE",
+    "LaneEnvFailedError",
     "LaneHost",
     "LaneState",
     "LaneStopError",
@@ -56,6 +59,10 @@ CHUNK_FAILURE_NOT_RETRYABLE: Final = frozenset(
 controller's queue bounds the tries (``retry.max_attempts``, two nodes)."""
 
 
+LANE_DRAINED: Final = "lane_drained"
+"""V1.0 G10 (D446): the stop reason of a lane told ``NoWork(drained)`` before it
+pulled its first chunk (still staging): it ends ``DONE`` at once - every chunk
+of the job is committed, there is nothing left for it to do."""
 MAX_EARLY_CANCELS: Final = 64
 """Most not-yet-started cancelled leases a lane remembers (a lane holds at
 most a few leases; older entries can only be stale)."""
@@ -63,6 +70,21 @@ most a few leases; older entries can only be stale)."""
 
 class LaneStopError(Exception):
     """The controller said ``NoWork(stop)``: the lane ends ``cancelled``."""
+
+
+class LaneEnvFailedError(Exception):
+    """V1.0 G10 (D443): a chunk's run failed before its workload started - in
+    the env phase (image, env build, setup). Every later chunk of the lane
+    would build the same env again and fail the same way, so the lane ends
+    ``FAILED`` with this typed failure instead of reporting a chunk failure
+    and pulling the next chunk. The chunk's lease goes back to the queue
+    uncounted when the controller records the lane's end (D267a)."""
+
+    def __init__(self, failure_type: FailureType, message: str, retryable: bool):
+        super().__init__(message)
+        self.failure_type = failure_type
+        self.message = message
+        self.retryable = retryable
 
 
 @dataclass(slots=True)
@@ -97,9 +119,20 @@ class LaneState:
     env_s: float = 0.0
     capped: int | None = None
     """Bytes written when the per-chunk output cap stopped the chunk."""
+    drain_pending: bool = False
+    """D446 r1: a ``NoWork(drained | stop)`` arrived unasked; every chunk not
+    started yet (a grant still in the inbox) is skipped with no result."""
+    pulling: bool = False
+    """V1.0 G10 (D446): the lane is in its pull loop (staging is over); a
+    ``NoWork`` that arrives unasked then stops only the current chunk."""
     tail: Any = None
     """V0.10 G8: the running chunk's stderr tail (``OutputTail``, redacted
     bytes, cleared per chunk) - its end goes with the chunk's result."""
+    stalled: dict[tuple[int, int], float] = field(default_factory=dict)
+    """V1.0 G10 BUG-4 (D451): lease -> ``stalled_s`` of its running chunk (sent
+    with the next ``LeaseRenew``; :mod:`.stall_watch`)."""
+    pace: PaceHistory = field(default_factory=PaceHistory)
+    """D451: this lane's recent per-item run time (the stall threshold)."""
 
 
 class LaneHost:
@@ -157,4 +190,5 @@ class LaneHost:
         def _tuning(self) -> Any: ...
         def _token_lookup(self, attempt: _Attempt, tree_id: str) -> Any: ...
         def _stopped_error(self) -> Exception: ...
+        def _stop(self, attempt: _Attempt, reason: str) -> None: ...
         def _current_spec(self, attempt: _Attempt) -> agent_pb2.ExecutionSpec: ...

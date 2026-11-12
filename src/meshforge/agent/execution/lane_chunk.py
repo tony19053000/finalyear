@@ -1,7 +1,11 @@
 """One chunk of a lane (V0.10 G4, D259/D261; split out of :mod:`.lane` in fix
 round 2): its control folder, one fresh process with the placeholders filled
 in, the per-chunk write caps, then ``out/`` packed (refusing a swapped
-folder), uploaded under the lane's grant and reported as a ``ChunkResult``."""
+folder), uploaded under the lane's grant and reported as a ``ChunkResult``.
+
+A run that failed in its env phase (the workload never started: image, env
+build, setup) is not a chunk result: :class:`LaneEnvFailedError` ends the lane
+(V1.0 G10, D443 - the lab's lane built a failing torch env once per chunk)."""
 
 from __future__ import annotations
 
@@ -20,13 +24,20 @@ from meshforge.agent.execution.failure_evidence import OutputTail, refine_result
 from meshforge.agent.execution.fetch import FetchError, UploadError
 from meshforge.agent.execution.lane_base import (
     CHUNK_FAILURE_NOT_RETRYABLE,
+    LaneEnvFailedError,
     LaneState,
 )
 from meshforge.agent.execution.lane_staging import ChunkStagingSteps
 from meshforge.agent.execution.outputs import OutputError
-from meshforge.agent.execution.runtime import RunResult, Stream
+from meshforge.agent.execution.runtime import RunObserver, RunResult, Stream
+from meshforge.agent.execution.stall_watch import (
+    ChunkProgress,
+    StallPolicy,
+    watch_chunk,
+)
 from meshforge.agent.execution.workdir_cap import WorkdirCap, stop_watch
-from meshforge.common.errors import FailureType
+from meshforge.agent.settings import SplitSettings
+from meshforge.common.errors import FailureType, is_retryable
 from meshforge.common.hashing import Digest
 from meshforge.common.logging import get_logger
 from meshforge.common.proto.meshforge.v1 import agent_pb2, common_pb2
@@ -62,6 +73,19 @@ class ChunkRunSteps(ChunkStagingSteps):
         assert lane.items is not None  # noqa: S101
         assert workdir is not None  # noqa: S101
         key = (int(chunk.item_id), int(chunk.lease_seq))
+        if lane.drain_pending:
+            # D446 r1: NoWork(drained | stop) came unasked after this grant
+            # was queued - the job needs nothing more from this lane
+            log.info(
+                "agent.lane.chunk_skipped",
+                node_id=self._node_id,
+                job_id=attempt.job_id,
+                attempt_id=attempt.attempt_id,
+                chunk=int(chunk.chunk_index),
+                lease_seq=key[1],
+                reason="drained",
+            )
+            return
         if key in lane.cancelled_early:
             # V0.10 G6: it lost (CancelChunk) before its turn here - the
             # controller already superseded the lease; nothing to run or send
@@ -119,6 +143,15 @@ class ChunkRunSteps(ChunkStagingSteps):
         try:
             try:
                 placed = await self._chunk_inputs(attempt, plan, folder, span, mine)
+            except asyncio.CancelledError:
+                task = asyncio.current_task()
+                if (
+                    _draining(lane)  # set by the NoWork while we awaited
+                    and attempt.stop_reason is None
+                    and (task is None or not task.cancelling())
+                ):
+                    return  # D446 r1: staging stopped by the NoWork, no result
+                raise
             except (FetchError, OSError, ValueError) as exc:
                 if attempt.stop_reason is not None:
                     raise
@@ -204,7 +237,9 @@ class ChunkRunSteps(ChunkStagingSteps):
         workdir = attempt.workdir
         assert lane is not None  # noqa: S101
         assert workdir is not None  # noqa: S101
-        if lane.cancelled_chunk is not None and lane.cancelled_chunk == lane.current:
+        if lane.drain_pending or (
+            lane.cancelled_chunk is not None and lane.cancelled_chunk == lane.current
+        ):
             return None  # cancelled while its inputs were staged: never started
         values = {
             "items_file": folder.seen_items,
@@ -248,11 +283,49 @@ class ChunkRunSteps(ChunkStagingSteps):
             free_read_timeout_s=self._cfg.free_disk_read_timeout_s,
         )
         out_cap.baseline = max(0, await self._step(attempt, out_cap.measure_once()))
+        # V1.0 G10 BUG-4 (D451): no output and ~no CPU for the stall threshold
+        # is reported with the lease (never killed here, :mod:`.stall_watch`)
+        policy = self._stall_policy()
+        key = lane.current
+        progress = ChunkProgress(
+            policy,
+            started=self._clock(),
+            expected_s=lane.pace.expected_s(int(chunk.item_count)),
+        )
+
+        async def seen(stream: Stream, data: bytes) -> None:
+            progress.output(self._clock())
+            await on_output(stream, data)
+
+        def report(stalled_s: float) -> None:
+            if key is not None and lane.current == key:
+                lane.stalled[key] = stalled_s
+
         run: asyncio.Future[RunResult] = asyncio.ensure_future(
-            runtime.run(spec, on_output, observer=observer)
+            runtime.run(spec, seen, observer=observer)
         )
         lane.run_task = run
         attempt.step = run
+        stall = asyncio.create_task(
+            watch_chunk(
+                progress,
+                policy,
+                clock=self._clock,
+                pid=lambda: _worker_pid(observer),
+                report=report,
+                log_fields={
+                    "node_id": self._node_id,
+                    "job_id": attempt.job_id,
+                    "attempt_id": attempt.attempt_id,
+                    "chunk": int(chunk.chunk_index),
+                    "expected_s": progress_expected(lane, chunk),
+                    "threshold_s": policy.threshold_s(
+                        lane.pace.expected_s(int(chunk.item_count))
+                    ),
+                },
+            ),
+            name=f"lane-stall:{attempt.attempt_id}",
+        )
 
         def over(written: int) -> None:
             lane.capped = written
@@ -276,6 +349,11 @@ class ChunkRunSteps(ChunkStagingSteps):
             attempt.step = None
             await stop_watch(watch)
             await stop_watch(out_watch)
+            await stop_watch(stall)
+            if key is not None:
+                lane.stalled.pop(key, None)
+        if result.ok and not progress.stalled:
+            lane.pace.add(result.run_s, items=int(chunk.item_count))
         lane.env_s += result.env_s
         attempt.env_hash = result.env_hash or attempt.env_hash
         if attempt.stop_reason is not None:
@@ -284,7 +362,30 @@ class ChunkRunSteps(ChunkStagingSteps):
             return None
         if stderr_tail is not None:
             result = refine_result(result, stderr_tail.data)  # D116
+        if _env_phase_failure(result, observer):
+            # D443: every later chunk would build this env again and fail alike
+            text = f"env build failed on this node: {self._run_text(result, lane)}"
+            log.warning(
+                "agent.lane.env_failed",
+                node_id=self._node_id,
+                job_id=attempt.job_id,
+                attempt_id=attempt.attempt_id,
+                chunk=int(chunk.chunk_index),
+                failure_type=(result.failure_type or FailureType.ENV_ERROR).value,
+                reason=result.reason,
+                env_hash=result.env_hash,
+                chunks_run=lane.chunks_run,
+            )
+            kind = result.failure_type or FailureType.ENV_ERROR
+            raise LaneEnvFailedError(kind, text, is_retryable(kind))
         return result
+
+    def _stall_policy(self) -> StallPolicy:
+        """``[agent.split] stall_*`` (D451); the defaults where the host has
+        no settings (unit-test hosts)."""
+        settings = getattr(self, "_settings", None)
+        split = settings.agent.split if settings is not None else SplitSettings()
+        return StallPolicy.from_settings(split)
 
     def _run_text(self, run: RunResult, lane: LaneState) -> str:
         if lane.capped is not None and lane.capped < 0:
@@ -377,6 +478,42 @@ class ChunkRunSteps(ChunkStagingSteps):
             if not result.HasField("failure")
             else int(result.failure.failure_type),
         )
+
+
+def _worker_pid(observer: RunObserver) -> int | None:
+    """The running workload's pid (D451), None outside the run phase."""
+    if observer.run_started is None or not observer.ident:
+        return None
+    try:
+        return int(observer.ident)
+    except ValueError:
+        return None  # a container id: the Docker runtime is not watched here
+
+
+def progress_expected(lane: LaneState, chunk: agent_pb2.GrantedChunk) -> float | None:
+    expected = lane.pace.expected_s(int(chunk.item_count))
+    return None if expected is None else round(expected, 1)
+
+
+def _draining(lane: LaneState) -> bool:
+    """``lane.drain_pending`` read afresh (it changes across an await)."""
+    return lane.drain_pending
+
+
+def _env_phase_failure(run: RunResult, observer: RunObserver) -> bool:
+    """D443: the run failed in its env phase - the runtime entered it (image,
+    env build, setup) and the workload never started. Not a chunk's fault: the
+    node cannot provide the job's environment. A passing condition
+    (``resource_busy``, e.g. the Docker daemon unreachable for a moment, D449)
+    does not end the lane: its chunk fails retryable and the next one tries
+    again."""
+    return (
+        not run.ok
+        and not run.cancelled
+        and run.failure_type is not FailureType.RESOURCE_BUSY
+        and observer.env_started is not None
+        and observer.run_started is None
+    )
 
 
 def _run_failure(run: RunResult, capped: int | None) -> tuple[FailureType, bool]:

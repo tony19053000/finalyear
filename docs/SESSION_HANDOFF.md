@@ -950,3 +950,52 @@ G9-A..F + D437-D441 done, CI green (run 42201726246), tag v0.17.1, release run 4
 Lab message posted: lab/chat/20261106-120000-LEAD-to-ALL.md (upgrade, remove F4/index_url workarounds, re-run table).
 Next: collect lab replies; open follow-ups: D441 r1 notes (ends.py:276 stale older entry; speculation test comment),
 sample_interval_s < 0.25 s, ML an_src_declared flag, lab checklist V0.10 mentions split.item_seconds, Mode 2/4 deferred.
+
+## v0.17.3 released (2026-11-12, BUG-FIX session) - read this first
+
+* G11 shipped in v0.17.3 (tag pushed, release run 43172547817 green, assets up): D452 names skip revoked,
+  D453 failure cause in job view, D454 `data rm` frees + `compute data gc`, D456 planner per-node fixed +
+  first-chunk cost, D457 `run --local` via public node-id file, D458 venv key names the base interpreter.
+  Briefs: `docs/briefs/progress/V1.0-G11-lab-fixes.md`, `V1.0-G11-D457.md`, `V1.0-G11-D458.md`.
+* Scope cut by the team: ADR-0024 warm lane worker stays Proposed, build deferred; per-chunk phase times,
+  `gpus` list for L2/L4, idle-lane +2-4 s deferred.
+* Lab post: `lab/chat/20261112-123426-LEAD-to-ALL.md`. Roadmap boxes stay `[~]` until lab evidence.
+* Lesson: a version bump also needs `cd frontend && npm run gen:api` (openapi.json carries the version).
+* Nothing unpushed.
+
+## v0.17.2 released (2026-11-11, BUG-FIX session) - read this first, older G10 sections below are history
+
+* D451 finished: tester+reviewer PASS/APPROVE; D451-R1 (refused lease could plant stall marks) fixed.
+* CI fixes: lane `_ask` builds the inbox read inside the step (Windows un-awaited `Queue.get`); upload-retry and
+  agent-SIGTERM tests wait for events / 15 s; real-psutil stall tests skip without the agent extra; frontend
+  `openapi.json` regenerated for the version (a version bump needs `cd frontend && npm run gen:api` too).
+* CI ci-ok green run 42947884411; tag `v0.17.2` pushed; release.yml run 42955727741 (check it finished green and
+  the release has the .deb/.exe files).
+* Lab post: `lab/chat/20261111-092512-LEAD-to-ALL.md` (upgrade + G10 re-run list incl. L4 hung-chunk check).
+* Nothing unpushed. D442-D451 roadmap boxes stay `[~]` until the lab re-runs pass (LEAD ticks them).
+* Open follow-ups (G10 brief): `stalled_s` in API/CLI, per-lane chunk sizing (needs ADR), Docker chunks in the
+  stall watch, review nits (ever-stalled pace, single-node hung reclaim, marks index by job).
+
+## G10 -> v0.17.2 state (2026-11-11, account switch)
+CLOSED (tested+reviewed): D442, D443 (553a9416, tester a534ec5d), D444 (56220107, c9d86a1c, tester 1e451bf6), D447 (83af0a23).
+IMPLEMENTED, NOT TESTED: D446 lane ends on drain = BUG-3 (f8dcc7f7); D448 old-agent env_error backstop, D449 Docker blip retryable,
+D450 Docker ENOSPC disk_full (e625c7da, renumber d9309609).
+WIP: D445 reconnect grace (0ed7b380): new test passes 5/5; NOT re-run: controller unit tier, ruff, older component tests that kill
+agents (set attempt_grace_s=0 where they expect immediate node_lost; one unidentified F seen).
+NOT STARTED (code): D451 BUG-4 L4 idle chunk; notes in empty commit 2f389d10 (candidates: run base interpreter directly via
+__PYVENV_LAUNCHER__/pyvenv.cfg home; inheritable SetErrorMode; CPU cap during torch import; plus progress watchdog -> early speculation).
+Nothing pushed. Worktrees: .claude/worktrees/agent-* (3, old), ~/Desktop/mf-chat-lead, a prunable chat worktree.
+NEXT: finish D445 tests -> tester+reviewer for D445, D446, D448-D450 -> D451 implement+test -> full gates -> push -> CI -> bump 0.17.2
++ CHANGELOG + regenerate API docs -> tag v0.17.2 -> LEAD-to-ALL chat (re-run steps in docs/briefs/progress/V1.0-G10-lab-fixes.md).
+
+## G10 -> v0.17.2 state (update 2026-11-11, final account switch)
+CLOSED: D442 D443 D444 D446(+r1 7aa351bb) D447 D448 D449 D450; D445 grace done incl. r1 dc0a2a5d (revoke/supersede during grace, UI/CLI "waiting").
+D451: agent side committed (ffca4bb0 direct base python + SetErrorMode; ad69e81d stall watch, LeaseRenew stalled_s), NOT tested by tester.
+Controller half = WIP commit (split/service, speculation, store, records, messages, telemetry model, workqueue/store, migration
+0038_chunk_stalled, test_v1_0_g10_stall_speculation.py): agent was stopped mid test run - state unknown; known: mypy 2 errors in
+split/store.py (`stalled` kw) and test_v10_g8_telemetry_unit chunk-columns test need updating for the stalled_s column.
+NEXT: finish D451 controller (rules: stalled lease -> early speculative copy on an idle lane; single lane keeps renewing + alert;
+no idle lane -> speculate first when one frees), make tests green -> tester+reviewer D451 -> full gates (ruff, format, mypy src,
+lint-imports, full unit ~19 min, component) -> push -> CI (Windows runner runs D451 Windows-only tests) -> bump 0.17.2 + CHANGELOG +
+regen API docs/OpenAPI -> tag v0.17.2 -> LEAD-to-ALL chat with re-run steps from docs/briefs/progress/V1.0-G10-lab-fixes.md.
+Nothing pushed.

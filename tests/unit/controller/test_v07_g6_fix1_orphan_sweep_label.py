@@ -43,6 +43,7 @@ def _dispatcher(queue_size: int = 8) -> Any:
     d: Any = Dispatcher.__new__(Dispatcher)
     d._queue = asyncio.Queue(queue_size)
     d._offline_pending = {}
+    d._held = {}  # V1.0 G10 (D445): no attempt in a reconnect grace
     d._clock = lambda: 100.0
     d._started_at = 0.0
     d._settings = SimpleNamespace(reconnect_grace_s=1.0)
@@ -57,7 +58,11 @@ def _dispatcher(queue_size: int = 8) -> Any:
 
 
 def _live(node_id: str) -> Any:
-    return SimpleNamespace(node_id=node_id, session_id=f"ses_{node_id}")
+    return SimpleNamespace(
+        node_id=node_id,
+        session_id=f"ses_{node_id}",
+        cert_serial=None,  # D445 r1
+    )
 
 
 def test_a_node_with_a_queued_offline_item_is_left_to_that_item() -> None:

@@ -20,13 +20,19 @@ fresh process. Per node ``n``:
   estimator's own terms.
 * ``t_o`` - per-chunk overhead (process start + stage + upload): chunk history
   (``history``), else ``[controller.split] chunk_overhead_s`` (``assumed``).
+* (V1.0 G11, D456) ``t_n`` / ``first_n`` - the node's **own** fixed cost per
+  chunk and the extra its lane's first chunk costs, learned from the
+  fingerprint's chunk history on ``n`` (:mod:`~.chunk_cost`, ``history``).
+  ``t_n`` falls back to the shared ``t_o``; ``first_n`` to none.
 
-A chunk of ``c`` items takes ``c x (1/r_n + f_n) + t_o`` on ``n``, so a lane
-completes ``r'_n = c / (c x (1/r_n + f_n) + t_o)`` items/s.
+A chunk of ``c`` items takes ``c x (1/r_n + f_n) + t_n`` on ``n``, so a lane
+completes ``r'_n = c / (c x (1/r_n + f_n) + t_n)`` items/s, and its first chunk
+starts ``first_n`` late: lane ``n``'s time for ``k`` chunks is ``start_n +
+first_n + k x t_n + items x (1/r_n + f_n)``.
 
 **Makespan of a set** (:func:`estimate_split`). Lanes start pulling when their
-own stage + env is done, so the work finishes at the ``M`` where
-``sum_n max(0, M - start_n) x r'_n = items`` (water filling; a lane whose start
+own stage + env is done (``ready_n = start_n + first_n``), so the work finishes
+at the ``M`` where ``sum_n max(0, M - ready_n) x r'_n = items`` (water filling; a lane whose start
 is after ``M`` gets no chunk and is marked inactive). With all starts equal
 this is D265's ``max(start) + items / sum r'``; with unequal starts it does not
 blame the whole set for one slow environment build. Then::
@@ -44,12 +50,14 @@ blame the whole set for one slow environment build. Then::
 
 ``M`` is shown as its parts: ``transfer`` and ``env`` (the lanes' start times
 weighted by their rates), ``compute`` (``items / sum r_n``), ``items_fetch``,
-``chunk_overhead`` - so the terms add up to the total exactly and each keeps
-the **weakest** source behind it (checklist 18).
+``chunk_overhead`` (with the lanes' first-chunk extras, rate-weighted, and -
+when a node's own costs were learned - ``detail.per_node``) - so the terms add
+up to the total exactly and each keeps the **weakest** source behind it
+(checklist 18).
 
 **Chunk size** (:func:`choose_chunk_items`, ``chunk: auto``): about
-``target_chunk_s`` on the fastest lane, raised until the overhead is at most
-``max_overhead_frac`` of a chunk there, then lowered until there are at least
+``target_chunk_s`` on the fastest lane, raised until the overhead (that lane's
+``t_n``) is at most ``max_overhead_frac`` of a chunk there, then lowered until there are at least
 ``min_chunks_per_node`` chunks per lane (tail balance wins), never more than
 ``max_chunks`` chunks. ``chunk: {items: N}`` is used as given.
 
@@ -62,7 +70,11 @@ against all 2^N subsets for N <= 5. Unequal starts (one node must build its
 environment) break that, so the prefixes of a second order - by the time the
 node alone would need, ``start + items x (1/r_n + f_n)`` - are added (still
 O(N)); against brute force the best plan is then within a few per cent (the
-residue is chunk sizing around a lane predicted to get no chunk).
+residue is chunk sizing around a lane predicted to get no chunk). Per-node
+fixed costs (D456) break the rate order too, so the prefixes of a third order -
+by the time per item at a reference chunk of ``target_chunk_s`` on the fastest
+lane, ``1/r_n + f_n + t_n / c_ref`` - are added (still O(N); identical to the
+first order when every lane has the same ``t_n``).
 """
 
 from __future__ import annotations
@@ -108,6 +120,7 @@ __all__ = [
     "estimate_split",
     "item_rate",
     "lane",
+    "lane_fixed",
     "prefix_sets",
     "set_chunk",
 ]
@@ -142,6 +155,12 @@ class Lane:
     """Seconds **per item** to fetch its bytes (``detail``: where from)."""
     stage: EstimateTerm
     env: EstimateTerm
+    fixed: EstimateTerm | None = None
+    """V1.0 G11 (D456): ``t_n``, seconds every chunk costs beyond its items on
+    this node; None = the job's shared :func:`chunk_overhead`."""
+    first: EstimateTerm | None = None
+    """V1.0 G11 (D456): ``first_n``, the extra of the lane's first chunk;
+    None = not learned (no extra)."""
 
     @property
     def node_id(self) -> str:
@@ -150,6 +169,16 @@ class Lane:
     @property
     def start_s(self) -> float:
         return bounded(self.stage.seconds + self.env.seconds)
+
+    @property
+    def first_s(self) -> float:
+        return 0.0 if self.first is None else self.first.seconds
+
+    @property
+    def ready_s(self) -> float:
+        """When the lane's first chunk starts paying off: start + first-chunk
+        extra (what water filling uses)."""
+        return bounded(self.start_s + self.first_s)
 
     @property
     def per_item_s(self) -> float:
@@ -338,6 +367,50 @@ def chunk_overhead(request: PlanRequest, config: SplitConfig) -> EstimateTerm:
     return EstimateTerm(bounded(config.chunk_overhead_s), TermSource.ASSUMED, {})
 
 
+# --- V1.0 G11 (D456): per-node chunk costs --------------------------------------
+
+
+def _learned(
+    values: Mapping[str, float], samples: Mapping[str, int], node_id: str
+) -> EstimateTerm | None:
+    value = values.get(node_id)
+    if value is None or not math.isfinite(value) or value < 0.0:
+        return None
+    return EstimateTerm(
+        bounded(value),
+        TermSource.HISTORY,
+        {"from": "node", "samples": int(samples.get(node_id, 0))},
+    )
+
+
+def _chunk_terms(
+    request: PlanRequest, node_id: str, config: SplitConfig
+) -> tuple[EstimateTerm, EstimateTerm | None]:
+    """``(t_n, first_n)`` of ``node_id``: its learned costs, else the shared
+    :func:`chunk_overhead` and no first-chunk extra."""
+    history = request.history
+    fixed = _learned(
+        history.chunk_fixed_s_by_node, history.chunk_fixed_samples_by_node, node_id
+    )
+    first = _learned(
+        history.chunk_first_s_by_node, history.chunk_first_samples_by_node, node_id
+    )
+    return fixed or chunk_overhead(request, config), first
+
+
+def lane_fixed(item: Lane, shared: EstimateTerm) -> EstimateTerm:
+    """``t_n`` of ``item``: its own, else ``shared`` (the job's
+    :func:`chunk_overhead`)."""
+    return shared if item.fixed is None else item.fixed
+
+
+def _fastest(group: Sequence[Lane]) -> Lane:
+    return min(group, key=lambda item: (item.per_item_s, item.node_id))
+
+
+# --- end V1.0 G11 ---------------------------------------------------------------
+
+
 # ---------------------------------------------------------------------- lanes
 
 
@@ -414,6 +487,7 @@ def lane(
     if split is None:
         raise ValueError("lane needs a split job")
     staged = _without_items(request, split)
+    fixed, first = _chunk_terms(request, node.node_id, snapshot.config.split)
     return Lane(
         node=node,
         slot=slot,
@@ -422,32 +496,50 @@ def lane(
         fetch=_fetch(request, split, node, snapshot, local=local, now=now),
         stage=transfer_term(staged, node, snapshot, local=local, now=now),
         env=env_term(request, node, snapshot),
+        fixed=fixed,
+        first=first,
     )
 
 
 def prefix_sets(
-    lanes: Sequence[Lane], *, items: int, min_nodes: int, max_nodes: int | None
+    lanes: Sequence[Lane],
+    *,
+    items: int,
+    min_nodes: int,
+    max_nodes: int | None,
+    target_chunk_s: float | None = None,
 ) -> list[tuple[Lane, ...]]:
     """The candidate sets (module docstring): the prefixes of sizes
     ``min_nodes .. min(max_nodes, len(lanes))`` of two orders - by rate, and
-    by the time the node alone would need (``start + items x per item``) - each
-    set once, in that order; none when fewer lanes."""
+    by the time the node alone would need (``ready + items x per item``) - and,
+    with ``target_chunk_s``, a third (D456: per item at a reference chunk,
+    with the lane's own fixed chunk cost), each set once, in that order; none
+    when fewer lanes."""
     top = len(lanes) if max_nodes is None else min(max_nodes, len(lanes))
 
     def by_rate(item: Lane) -> tuple[float, str]:
         return (item.per_item_s, item.node_id)
 
-    orders = (
+    orders = [
         sorted(lanes, key=by_rate),
         sorted(
             lanes,
             key=lambda item: (
-                item.start_s + items * item.per_item_s,
+                item.ready_s + items * item.per_item_s,
                 item.per_item_s,
                 item.node_id,
             ),
         ),
-    )
+    ]
+    if target_chunk_s is not None and lanes:
+        fast = max(MIN_SECONDS_PER_ITEM, _fastest(lanes).per_item_s)
+        ref = max(1.0, min(float(max(1, items)), round(target_chunk_s / fast)))
+
+        def by_chunk(item: Lane) -> tuple[float, float, str]:
+            fixed = 0.0 if item.fixed is None else item.fixed.seconds
+            return (item.per_item_s + fixed / ref, item.per_item_s, item.node_id)
+
+        orders.append(sorted(lanes, key=by_chunk))
     out: list[tuple[Lane, ...]] = []
     seen: set[frozenset[str]] = set()
     for ordered in orders:
@@ -510,10 +602,12 @@ def set_chunk(
     split = request.split
     if split is None or not group:
         raise ValueError("set_chunk needs a split job and at least one lane")
-    overhead = chunk_overhead(request, snapshot.config.split)
+    fastest = _fastest(group)
+    # D456: the overhead rule is about the fastest lane - its own t_n
+    overhead = lane_fixed(fastest, chunk_overhead(request, snapshot.config.split))
     return choose_chunk_items(
         split.items,
-        fastest_per_item_s=min(item.per_item_s for item in group),
+        fastest_per_item_s=fastest.per_item_s,
         lanes=len(group),
         overhead_s=overhead.seconds,
         config=snapshot.config.split,
@@ -553,18 +647,18 @@ def _weighted(
 def _water_fill(
     lanes: Sequence[Lane], rates: Mapping[str, float], items: int
 ) -> tuple[float, list[Lane]]:
-    """``(M, active lanes)``: ``sum max(0, M - start) x r' = items``."""
-    ordered = sorted(lanes, key=lambda item: (item.start_s, item.node_id))
+    """``(M, active lanes)``: ``sum max(0, M - ready) x r' = items``."""
+    ordered = sorted(lanes, key=lambda item: (item.ready_s, item.node_id))
     weight = 0.0
     weighted_start = 0.0
     active: list[Lane] = []
     finish = math.inf
     for index, item in enumerate(ordered):
         weight += rates[item.node_id]
-        weighted_start += item.start_s * rates[item.node_id]
+        weighted_start += item.ready_s * rates[item.node_id]
         active.append(item)
         finish = (items + weighted_start) / weight
-        following = ordered[index + 1].start_s if index + 1 < len(ordered) else None
+        following = ordered[index + 1].ready_s if index + 1 < len(ordered) else None
         if following is None or finish <= following:
             break
     return finish, active
@@ -585,9 +679,10 @@ def estimate_split(
     config = snapshot.config.split
     items = max(1, split.items)
     overhead = chunk_overhead(request, config)
+    fixed = {item.node_id: lane_fixed(item, overhead) for item in lanes}
     size = chunk.items
     chunk_s = {
-        item.node_id: bounded(size * item.per_item_s + overhead.seconds)
+        item.node_id: bounded(size * item.per_item_s + fixed[item.node_id].seconds)
         for item in lanes
     }
     effective = {
@@ -600,7 +695,13 @@ def estimate_split(
     paced = sum(effective[item.node_id] for item in active)
     compute_s = bounded(items / pure)
     fetch_s = bounded(max(0.0, items / fetched - items / pure))
-    overhead_total = bounded(max(0.0, items / paced - items / fetched))
+    # D456: the lanes' first-chunk extras, weighted as their starts are
+    first_s = sum(item.first_s * effective[item.node_id] for item in active) / paced
+    overhead_total = bounded(max(0.0, items / paced - items / fetched) + first_s)
+    overhead_source = weakest(
+        *(fixed[item.node_id].source for item in active),
+        *(item.first.source for item in active if item.first is not None),
+    )
     rate_source = weakest(*(item.rate.source for item in active))
     compute = EstimateTerm(
         compute_s,
@@ -618,21 +719,22 @@ def estimate_split(
     )
     chunk_term = EstimateTerm(
         overhead_total,
-        overhead.source,
+        overhead_source,
         {
             "overhead_s": round(overhead.seconds, _ROUND),
             "chunk_items": size,
             "chunks": chunk.chunks,
             "rules": list(chunk.rules),
+            **_per_node_detail(active, overhead, first_s),
         },
     )
     if len(active) > 1:
         longest = max(chunk_s[item.node_id] for item in active)
         # every active lane finishes at least the chunk it pulls first
-        first_end = max(item.start_s + chunk_s[item.node_id] for item in active)
+        first_end = max(item.ready_s + chunk_s[item.node_id] for item in active)
         tail = EstimateTerm(
             bounded(max(config.tail_frac * longest, first_end - finish)),
-            weakest(rate_source, overhead.source),
+            weakest(rate_source, overhead_source),
             {
                 "longest_chunk_s": round(longest, _ROUND),
                 "first_chunk_end_s": round(first_end, _ROUND),
@@ -665,6 +767,35 @@ def estimate_split(
         chunk=chunk,
         estimate=estimate,
     )
+
+
+def _per_node_detail(
+    active: Sequence[Lane], shared: EstimateTerm, first_s: float
+) -> dict[str, Any]:
+    """D456: the active lanes' own chunk costs (``compute explain``), only when
+    at least one was learned - a decision without any is unchanged."""
+    if all(
+        (item.fixed is None or item.fixed is shared or item.fixed == shared)
+        and item.first is None
+        for item in active
+    ):
+        return {}
+    per_node: dict[str, Any] = {}
+    for item in sorted(active, key=lambda lane_: lane_.node_id):
+        own = lane_fixed(item, shared)
+        learned = own.detail.get("from") == "node"
+        row: dict[str, Any] = {
+            "fixed_s": round(own.seconds, _ROUND),
+            "fixed_source": own.source.value,
+            "fixed_from": "node" if learned else "shared",
+        }
+        if learned:
+            row["fixed_samples"] = own.detail.get("samples", 0)
+        if item.first is not None:
+            row["first_s"] = round(item.first.seconds, _ROUND)
+            row["first_samples"] = item.first.detail.get("samples", 0)
+        per_node[item.node_id] = row
+    return {"first_s": round(first_s, _ROUND), "per_node": per_node}
 
 
 def _combine(

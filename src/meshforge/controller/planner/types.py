@@ -249,6 +249,16 @@ class History:
     """V0.10 G3 (D265): median per-chunk overhead of this fingerprint (process
     start + chunk stage + result upload); None = never measured."""
     chunk_overhead_samples: int = 0
+    # --- V1.0 G11 (D456): per-node chunk costs (:mod:`~.chunk_cost`) ---------
+    chunk_fixed_s_by_node: Mapping[str, float] = field(default_factory=dict)
+    """node_id -> learned fixed seconds every chunk of this fingerprint costs
+    on that node beyond its items; only nodes with enough chunk history (else
+    the shared :attr:`chunk_overhead_s`)."""
+    chunk_fixed_samples_by_node: Mapping[str, int] = field(default_factory=dict)
+    chunk_first_s_by_node: Mapping[str, float] = field(default_factory=dict)
+    """node_id -> extra seconds a lane's first chunk costs there (cold start);
+    absent = not learned (no extra)."""
+    chunk_first_samples_by_node: Mapping[str, int] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)

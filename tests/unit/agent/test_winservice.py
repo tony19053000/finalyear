@@ -127,8 +127,11 @@ def test_acl_plan_grants_only_system_admins_and_the_service() -> None:
         LAYOUT.cache_dir,
         LAYOUT.logs_dir,
         LAYOUT.console_dir,  # V0.17 G4: the console token folder
+        LAYOUT.public_dir,  # V1.0 G11 (D457): public node record, Users read
     }
     for acl in plan:
+        if acl.path == LAYOUT.public_dir:
+            continue  # tests/unit/agent/test_v1_0_g11_public_node.py
         assert {g.sid for g in acl.grants} == {
             ws.SID_SYSTEM,
             ws.SID_ADMINISTRATORS,

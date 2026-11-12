@@ -205,6 +205,17 @@ class GcSettings(SectionModel):
             "and its submit, and recent outputs not downloaded yet."
         ),
     )
+    sweep_min_age_s: float = Field(
+        default=600.0,
+        ge=0.0,
+        le=365 * 86_400.0,
+        description=(
+            "V1.0 G11 (D454): `compute data rm` and `compute data gc` unlink "
+            "blobs no job, named input or model references at once - except "
+            "those used within this many seconds (an upload, 'have' answer or "
+            "download that may still need them)."
+        ),
+    )
     interval_s: float = Field(
         default=3600.0, ge=1.0, le=86_400.0, description="A GC pass runs this often."
     )
@@ -1593,6 +1604,19 @@ class LivenessSettings(SectionModel):
         default=3,
         ge=1,
         description="Lease = heartbeat_interval_s x this; silence past it = OFFLINE.",
+    )
+    attempt_grace_s: float = Field(
+        default=60.0,
+        ge=0.0,
+        le=3600.0,
+        description=(
+            "V1.0 G10 (D445): after a node's lease expires, its RUNNING attempts "
+            "(Mode 1 jobs and split lanes) wait this long for the node to "
+            "reconnect and report them still running before they are lost and "
+            "retried elsewhere. A dead node delays its retries by this much. "
+            "0 = lose them at once (the behaviour before D445). A revoked node, "
+            "a clean close (Goodbye) or a replaced certificate never waits."
+        ),
     )
 
     @model_validator(mode="after")
