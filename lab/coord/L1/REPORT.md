@@ -1316,3 +1316,8 @@ spec raw/2026-11-13-G12/run1g.yaml: ml.cnn_train batch 40-256 (local+mode1) + sp
     3 reps, origin L1, all 4 nodes; 324 runs, 24 groups, 4.88 h ref. Pre-check: all 4 online 0.17.4, no jobs; free RAM L1 9.9, L2 2.9, L3 3.2,
     L4 6.4 GB; humans ready (plugged, sleep Never). Datasets for 2B already on L1 (Tiny ImageNet 237 MB, IMDB 41 MB via Hugging Face).
 Earlier today: campaigns camp_01M79Z60H7TNQ674ZS2MMKCQAG (small jobs, 14 runs) and camp_01M7A0BZQB5AN4TBW0CY7M4DZY (big A0, 15 runs) cancelled for re-planning.
+18:0x camp_01M7AE2T3K7AMXP5EAEEZHFKMB (with ml.cnn_train) CANCELLED ~3 min: built-in ml.cnn_train = env.base cuda-pytorch = Docker only;
+    L2 mode1 run skipped "no Docker and its agent's Python has no torch (no_runtime_for_base)" -> all L2/L3/L4 cnn_train runs would skip.
+### 2026-11-13 18:12:54 - Run 1 (planner exam, CPU) STARTED: camp_01M7AEXBBYM270PZBM2P3PVZZ4
+spec raw/2026-11-13-G12/run1h.yaml: cpu.primes 180M-400M (local+mode1) + split.image_classify 9k-20k (local+mode1+mode3), 12 sizes, 3 reps;
+    324 runs, 24 groups, 5.58 h ref. 1 min after start: 0 skipped/failed.
