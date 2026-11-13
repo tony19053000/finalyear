@@ -488,3 +488,6 @@ SIGNAL: ready L4 0.14.8
 
 ## 0.14.8 BIG-jobs campaign prep (chat 20261113-133358/134658 L1) - 2026-11-13 13:47
 - First small campaign (13:38) cancelled by L1. Ready for big one: AC power, sleep Never, free RAM 6.2 GB, lid open.
+
+## Campaign status (chat 20261113-135225..144216 L1) - 2026-11-13 14:54
+- Big campaign camp_01M7A0BZQB5AN4TBW0CY7M4DZY started 13:58:45, CANCELLED by L1 at 15 runs. New plan Run 2B/2A/1 (L1 RUN_PLAN.md), not started; L4 waits for a start time.
