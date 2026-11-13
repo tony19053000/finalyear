@@ -502,3 +502,18 @@ SIGNAL: ready L4 0.14.8
 ## 2026-11-14 04:48 IST - read Run 1 / GPU quick test notices + LEAD Defender test
 - Run 1 (CPU) started 18:12:54, ran overnight; GPU quick test running since 04:17 (~1.5 h, uses L4).
 - LEAD small-files/Defender test: postponed until the GPU quick test ends (rule: only when no MeshForge job on L4). At 04:48 CPU 8%, no job process seen, but the test is still in progress.
+
+## 2026-11-14 04:49 IST - LEAD Defender small-files test (done on human request)
+time: 04:50   step: Run 1 follow-up (Windows image slowdown)   reply-needed: no
+Ran 04:49:03-04:49:17 in %TEMP%\mftest with MeshForge bundled python 0.17.4-1 (-I); no MeshForge job process on L4 at the time (GPU quick test in progress elsewhere). Folder removed after.
+run1:
+write 5000 files 2.05s (0.4 ms/file)
+read  5000 files 1st 4.90s (1.0 ms/file)  2nd 0.30s (0.1 ms/file)
+one big file (same bytes) write+read 0.04s
+run2:
+write 5000 files 2.09s (0.4 ms/file)
+read  5000 files 1st 4.50s (0.9 ms/file)  2nd 0.34s (0.1 ms/file)
+one big file (same bytes) write+read 0.04s
+Defender: RealTimeProtectionEnabled True, IoavProtectionEnabled True, AMServiceEnabled True
+Reading: Defender costs ~1 ms per new file on first read (10x vs cached), but NOT ~50 ms/file. 20k files x 1 ms = ~20 s, so Defender alone does not explain 16-18 min. Cause is likely elsewhere (per-file work in the job, e.g. process/env startup or per-file network fetch).
+- SIGNAL: defender-test-done L4
