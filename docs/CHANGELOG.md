@@ -81,6 +81,21 @@ for Linux and Windows.
 - ADRs still marked *Proposed* need the team's acceptance before the tag
   ([adr/README.md](adr/README.md#needs-team-acceptance-before-v100)).
 
+## [0.17.4] - 2026-11-12
+
+Lab fix release (lab fix group G12, `docs/briefs/progress/V1.0-G12-planner.md`).
+
+### Changed
+
+- A new workload's split lanes use the node's learned chunk cost from recent chunks of any workload with the same
+  runtime kind, instead of the shared ~0 overhead; `compute explain` labels it `node_history <runtime> n=..` (D459).
+- Mode hysteresis: the planner keeps a workload's previous mode unless the new best is at least
+  `[controller.planner] mode_switch_margin` (default 0.10, 0 = off) faster; explain shows `kept previous mode` (D460).
+
+### Fixed
+
+- Demo 03 and demo 04 job C use 4M rounds per item so they still split once the workload has history.
+
 ## [0.17.3] - 2026-11-12
 
 Lab fix release (lab fix group G11, `docs/briefs/progress/V1.0-G11-lab-fixes.md`, `V1.0-G11-D457.md`,

@@ -41,24 +41,51 @@ At the chunk size the history was measured with, ``fixed_s + items x s`` is
 the measured chunk time either way; at a very different size the split
 between the two terms is approximate (ADR-0024's per-chunk ``spawn_s`` would
 remove that).
+
+**Node history (V1.0 G12, D459).** A new workload has no chunk on any node,
+so every lane fell back to the shared overhead (lab v0.17.3: a 24-item split
+predicted 38 s, ran 52 s). The fixed and first-chunk costs are mostly the
+node's and its runtime's (interpreter start, venv activation, Docker exec),
+not the workload's, so :func:`pooled_chunk_cost` learns them from the node's
+latest committed chunks of **any** workload that ran on the **same runtime
+kind** the job would use there (:func:`expected_runtime`). Same estimator,
+same minimums; each chunk's residual uses its **own** workload's seconds per
+item on that node (the median ``items / run seconds`` of that workload's
+chunks among the samples), so a slow workload's items are not read as fixed
+cost. The planner's order per node: the fingerprint's own costs, then this
+node history, then the shared ``chunk_overhead`` (history, else assumed).
 """
 
 from __future__ import annotations
 
 import math
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Final
+
+from meshforge.common.capabilities import (
+    EXEC_DOCKER_CAPABILITY,
+    EXEC_SUBPROCESS_CAPABILITY,
+    EXEC_TORCH_CAPABILITY,
+    TORCH_BASES,
+)
+from meshforge.controller.planner.feasibility import EXEC_VENV_CAPABILITY
+from meshforge.controller.planner.types import History, NodeSnapshot
 
 __all__ = [
     "BUILD_ENV_FACTOR",
     "BUILD_ENV_FLOOR_S",
     "MIN_FIRST_SAMPLES",
     "MIN_FIXED_SAMPLES",
+    "RUNTIME_KINDS",
     "ChunkSample",
     "NodeChunkCost",
+    "PooledSample",
     "chunk_costs",
+    "expected_runtime",
     "node_chunk_cost",
+    "pooled_chunk_cost",
+    "with_node_history",
 ]
 
 MIN_FIXED_SAMPLES: Final = 3
@@ -125,28 +152,39 @@ def _median(values: Sequence[float]) -> float:
     return (ordered[mid - 1] + ordered[mid]) / 2.0
 
 
+def _valid_spi(seconds_per_item: float) -> bool:
+    return _finite(seconds_per_item) and seconds_per_item > 0.0
+
+
+def _cost(pairs: Sequence[tuple[ChunkSample, float]]) -> NodeChunkCost | None:
+    """The estimator over ``(sample, its seconds per item)`` pairs (module
+    docstring): one rate for a fingerprint's chunks, each chunk's own
+    workload's rate for node history."""
+    usable = [(s, spi) for s, spi in pairs if _usable(s) and _valid_spi(spi)]
+    steady = [(s, spi) for s, spi in usable if not s.first]
+    if len(steady) < MIN_FIXED_SAMPLES:
+        return None
+    base = _median([_residual(s, spi) for s, spi in steady])
+    fixed = round(min(_MAX_S, max(0.0, base)), _ROUND)
+    env_steady = _median([max(0.0, s.env_s) for s, _ in steady])
+    build_above = BUILD_ENV_FACTOR * env_steady + BUILD_ENV_FLOOR_S
+    firsts = [(s, spi) for s, spi in usable if s.first and s.env_s <= build_above]
+    if len(firsts) < MIN_FIRST_SAMPLES:
+        return NodeChunkCost(fixed, len(steady))
+    extra = _median([_residual(s, spi) for s, spi in firsts]) - base
+    first = round(min(_MAX_S, max(0.0, extra)), _ROUND)
+    return NodeChunkCost(fixed, len(steady), first, len(firsts))
+
+
 def node_chunk_cost(
     samples: Iterable[ChunkSample], seconds_per_item: float
 ) -> NodeChunkCost | None:
     """The node's ``fixed_s`` / ``first_s`` (module docstring), None when it
     has fewer than :data:`MIN_FIXED_SAMPLES` usable non-first chunks or no
     usable rate."""
-    if not _finite(seconds_per_item) or seconds_per_item <= 0.0:
+    if not _valid_spi(seconds_per_item):
         return None
-    usable = [s for s in samples if _usable(s)]
-    steady = [s for s in usable if not s.first]
-    if len(steady) < MIN_FIXED_SAMPLES:
-        return None
-    base = _median([_residual(s, seconds_per_item) for s in steady])
-    fixed = round(min(_MAX_S, max(0.0, base)), _ROUND)
-    env_steady = _median([max(0.0, s.env_s) for s in steady])
-    build_above = BUILD_ENV_FACTOR * env_steady + BUILD_ENV_FLOOR_S
-    firsts = [s for s in usable if s.first and s.env_s <= build_above]
-    if len(firsts) < MIN_FIRST_SAMPLES:
-        return NodeChunkCost(fixed, len(steady))
-    extra = _median([_residual(s, seconds_per_item) for s in firsts]) - base
-    first = round(min(_MAX_S, max(0.0, extra)), _ROUND)
-    return NodeChunkCost(fixed, len(steady), first, len(firsts))
+    return _cost([(s, seconds_per_item) for s in samples])
 
 
 def chunk_costs(
@@ -163,3 +201,99 @@ def chunk_costs(
         if cost is not None:
             out[node_id] = cost
     return out
+
+
+# --- V1.0 G12 (D459): node history ----------------------------------------------
+
+RUNTIME_KINDS: Final = ("docker", "venv", "subprocess")
+"""The runtime kinds an attempt records (``attempt.runtime``)."""
+_VENV_BASES: Final = frozenset({"python-cpu"})
+"""Bases the venv runtime provides (``selection.py`` ``VENV_BASES``)."""
+
+
+@dataclass(frozen=True, slots=True)
+class PooledSample:
+    """One committed chunk of any workload on a node (node history)."""
+
+    workload: str
+    """The chunk's job fingerprint (its job id when it has none)."""
+    sample: ChunkSample
+    items_per_s: float
+    """This chunk's ``items / run seconds`` (the agent's chunk process)."""
+
+
+def pooled_chunk_cost(samples: Iterable[PooledSample]) -> NodeChunkCost | None:
+    """A node's ``fixed_s`` / ``first_s`` from chunks of several workloads
+    (module docstring, "Node history"): each workload's seconds per item is
+    ``1 / median(items_per_s)`` of its own chunks here; a workload without a
+    usable rate contributes nothing. None = too few samples (the same
+    :data:`MIN_FIXED_SAMPLES`)."""
+    rows = list(samples)
+    rates: dict[str, list[float]] = {}
+    for row in rows:
+        if _finite(row.items_per_s) and row.items_per_s > 0.0:
+            rates.setdefault(row.workload, []).append(row.items_per_s)
+    spi = {w: 1.0 / _median(r) for w, r in sorted(rates.items())}
+    return _cost([(r.sample, spi[r.workload]) for r in rows if r.workload in spi])
+
+
+def expected_runtime(capabilities: Iterable[str], base: str) -> str | None:
+    """The runtime kind a node's agent would run the job with - its
+    preference order (``agent/execution/selection.py`` ``choose_runtime``:
+    docker > venv > subprocess) over the runtimes its capability tags offer
+    that can provide ``base``; None = none fits.
+
+    Approximate where the tags cannot tell: they do not say which runtime
+    passes a GPU through, so a GPU job on a node offering Docker is assumed
+    to use Docker. Used only to pick which node history describes the job
+    (D459), never for feasibility."""
+    tags = frozenset(capabilities)
+    if EXEC_DOCKER_CAPABILITY in tags:
+        return "docker"
+    if EXEC_VENV_CAPABILITY in tags and base in _VENV_BASES:
+        return "venv"
+    if EXEC_SUBPROCESS_CAPABILITY in tags and (
+        base not in TORCH_BASES or EXEC_TORCH_CAPABILITY in tags
+    ):
+        return "subprocess"
+    return None
+
+
+def with_node_history(
+    history: History,
+    costs: Mapping[tuple[str, str], NodeChunkCost],
+    nodes: Iterable[NodeSnapshot],
+    base: str,
+) -> History:
+    """``history`` plus the node-history costs (D459) of every node in
+    ``nodes`` that has no cost learned from the fingerprint itself: the costs
+    learned on the runtime kind the job would use there
+    (:func:`expected_runtime`). Unchanged when no node gets one."""
+    fixed: dict[str, float] = {}
+    fixed_n: dict[str, int] = {}
+    first: dict[str, float] = {}
+    first_n: dict[str, int] = {}
+    runtime_of: dict[str, str] = {}
+    for node in sorted(nodes, key=lambda n: n.node_id):
+        if node.node_id in history.chunk_fixed_s_by_node:
+            continue
+        runtime = expected_runtime(node.capabilities, base)
+        cost = None if runtime is None else costs.get((node.node_id, runtime))
+        if runtime is None or cost is None:
+            continue
+        fixed[node.node_id] = cost.fixed_s
+        fixed_n[node.node_id] = cost.fixed_samples
+        runtime_of[node.node_id] = runtime
+        if cost.first_s is not None:
+            first[node.node_id] = cost.first_s
+            first_n[node.node_id] = cost.first_samples
+    if not fixed:
+        return history
+    return replace(
+        history,
+        node_chunk_fixed_s_by_node=fixed,
+        node_chunk_fixed_samples_by_node=fixed_n,
+        node_chunk_first_s_by_node=first,
+        node_chunk_first_samples_by_node=first_n,
+        node_chunk_runtime_by_node=runtime_of,
+    )

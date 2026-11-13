@@ -951,6 +951,44 @@ Lab message posted: lab/chat/20261106-120000-LEAD-to-ALL.md (upgrade, remove F4/
 Next: collect lab replies; open follow-ups: D441 r1 notes (ends.py:276 stale older entry; speculation test comment),
 sample_interval_s < 0.25 s, ML an_src_declared flag, lab checklist V0.10 mentions split.item_seconds, Mode 2/4 deferred.
 
+## v0.17.4 -> lab re-run (2026-11-12, LEAD account switch) - read this first
+
+* v0.17.4 verified by LEAD: tag, release assets (.exe, 2 .deb, SHA256SUMS), main pushed, nothing local. BUG-FIX session done.
+* Lab: NO report since v0.17.4 yet (last REPORTs 13:16-14:40 on 0.17.3). Lab post 20261112-184744-LEAD-to-ALL = upgrade + re-runs.
+* Waiting on lab: all upgrade 0.17.4; L3 re-join (revoked; human join code); L1 re-runs D459 (small split pred vs real), D460
+  (same job twice keeps mode), demo 03, 04, then 05 (needs L3); L4 D457 part 2 + D458; L1 owes 2 flapping explain outputs; then 0.14.8.
+* LEAD to-do: tick v0.17.1-v0.17.4 roadmap boxes + status bar only with REPORT evidence. Reviewer follow-ups (non-blocking) above.
+* Next BUG-FIX session only if the lab finds a bug.
+
+## v0.17.4 released (2026-11-12, BUG-FIX session) - read this first
+
+* G12 shipped in v0.17.4 (tag pushed after CI ci-ok green run 43214950825): D459 node_history chunk cost, D460 mode
+  hysteresis (margin 0.10), demo LIVE split_rounds 4M (demo 03 / 04 job C). Reviewer APPROVE; non-blocking notes:
+  log when a split is kept below the split margin; document that 8 pinned/excluded decisions turn hysteresis off;
+  EXPLAIN the node_chunk_history EXISTS subquery on a large history.
+* Decision log rows D459 D460 in the roadmap. Lab post: `lab/chat/20261112-184744-LEAD-to-ALL.md`.
+* Check release.yml for v0.17.4 finished green with .deb/.exe assets. Roadmap boxes stay `[~]` until lab evidence.
+* Nothing unpushed (except this handoff commit, pushed with it).
+
+## G12 -> v0.17.4 state (2026-11-12, account switch: LEAD + BUG-FIX) - read this first
+
+* Lab: all 4 laptops on **v0.17.3**. G11 lab: D452 D453 D454 D457(L1) PASS; D456 big split 557 s pred vs 558 s real PASS,
+  small split 38 vs 52 s PARTIAL (-> D459). L4: D457 part 2 (non-admin `compute login --fingerprint`) + D458 log proof pending.
+  L3 revoked for D453, re-join pending (human join code). Demos 01, 02, 04 PASS on v0.17.3; 05 waits for L3.
+* Demo fix a69266bb (item_seconds) pushed. **Demo 03 still FAILS**: now has history, 48 items x 400k rounds = ~13 s on L1, so
+  the planner correctly runs it local (Windows first-chunk cost 12-17 s). Needs a bigger LIVE split job (e.g. split_rounds 4_000_000
+  ~2 min on L1, within the 5 min budget); demo 04 job C same risk. Chat 20261112-144039-L1-to-LEAD. NOT yet sent to BUG-FIX.
+* **G12 (team GO): D459** node_history cost fallback for a new fingerprint (same runtime kind, median, explain source) and
+  **D460** mode hysteresis (keep previous mode for same fingerprint unless new best >= 10% faster). Brief
+  `docs/briefs/progress/V1.0-G12-planner.md`. WIP commit **136e3d7c (unpushed, stopped before final gates)**: code + tests written.
+  Next: run its tests, tester+reviewer, add demo 03/04 size fix, full gates, push, CI, bump 0.17.4 (+uv.lock, CHANGELOG,
+  `cd frontend && npm run gen:api`), tag, LEAD-to-ALL re-run list (D459/D460 + demo 03/04 + 0.14.8 next).
+* L1 still owes 2 `compute explain --json` outputs of a flapping identical pair (helps confirm D460).
+* Roadmap: v0.17.1/2/3 lab PASS results NOT yet ticked (LEAD job, evidence in origin/lab/L1 REPORT + chat).
+* Plan to v1.0: origin/lab/L1 `lab/coord/L1/TEST_PLAN.md`. User has time limits: prefer must-fix only; cut candidates 1.0.2 soak,
+  1.0.1 full re-run, 1.0.3 tuning. Deferred: ADR-0024 warm worker, phase times, gpus list, idle-lane delay.
+* BUG-FIX session id was local_3c7481b5-...; new sessions find each other with ccd list_sessions.
+
 ## v0.17.3 released (2026-11-12, BUG-FIX session) - read this first
 
 * G11 shipped in v0.17.3 (tag pushed, release run 43172547817 green, assets up): D452 names skip revoked,

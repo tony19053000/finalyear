@@ -39,7 +39,12 @@ from rich.table import Table
 
 from meshforge.cli import render
 from meshforge.cli import shared as cli
-from meshforge.common.explain_text import format_seconds, margin_sentence, term_note
+from meshforge.common.explain_text import (
+    format_seconds,
+    kept_sentence,
+    margin_sentence,
+    term_note,
+)
 from meshforge.common.ml_explain import (
     decision_ml,
     ml_decision_text,
@@ -173,6 +178,20 @@ def _facts_note(decision: Mapping[str, Any]) -> str:
     return " - " + ", ".join(parts)
 
 
+def _kept_note(decision: Mapping[str, Any]) -> str:
+    """V1.0 G12 (D460): a job that runs whole whose decision kept the previous
+    mode (hysteresis) - the API's ``margin_sentence`` carries it; a split job
+    shows it in its own table's title."""
+    candidates = decision.get("candidates")
+    rows = candidates if isinstance(candidates, list) else []
+    if any(isinstance(c, Mapping) and _node_set(c) for c in rows):
+        return ""
+    sentence = decision.get("margin_sentence")
+    if not isinstance(sentence, str):
+        sentence = kept_sentence(rows)
+    return f" - {sentence}" if sentence else ""
+
+
 def _ml_header(decision: Mapping[str, Any]) -> str | None:
     """V0.15 G5b (D373): the model set the decision was planned with and a
     whole-decision fallback (D363) - the answer's ``ml_model_version`` /
@@ -218,6 +237,7 @@ def _candidates_table(decision: Mapping[str, Any]) -> Table:
             f"{decision.get('outcome')} (policy {decision.get('policy')})"
             + _objective_note(decision)
             + _facts_note(decision)
+            + _kept_note(decision)
         ),
     )
     candidates = decision.get("candidates")
