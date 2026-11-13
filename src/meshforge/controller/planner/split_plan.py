@@ -42,6 +42,9 @@ from meshforge.controller.planner.calibration import (
 )
 from meshforge.controller.planner.candidates import FORCED_SET, Candidate, candidates
 from meshforge.controller.planner.estimator import bounded
+
+# V1.0 G12 (D460): mode hysteresis
+from meshforge.controller.planner.hysteresis import active, keep_previous, kept_mode
 from meshforge.controller.planner.objectives import (
     COST_MODEL,
     objective_of,
@@ -78,6 +81,7 @@ from meshforge.controller.planner.split import (
 from meshforge.controller.planner.types import (
     CandidateEval,
     ClusterSnapshot,
+    KeptMode,
     MarginTest,
     Mode,
     NodeSnapshot,
@@ -450,6 +454,57 @@ def _ml_combine(items: Sequence[SetEstimate], session: MlSession) -> list[SetEst
 # --- end V0.15 G4 ----------------------------------------------------------------
 
 
+# --- V1.0 G12 (D460) ---------------------------------------------------------------
+
+
+def _hysteresis(
+    previous: Mode | None,
+    margin: float,
+    *,
+    use_set: bool,
+    best_set: SetEstimate | None,
+    blocked: bool,
+    ranked: list[Ranked],
+    by_node: dict[str, SetEstimate],
+    modes: dict[str, Mode],
+) -> tuple[bool, list[Ranked], KeptMode | None]:
+    """:mod:`~.hysteresis` for a split job: ``(use the set?, the singles in
+    rank order, what was kept)`` - unchanged when the pick's mode is the
+    previous one, the previous mode has no eligible candidate now (a set
+    blocked by the measured-rates rule is not eligible) or the new best is
+    at least ``margin`` faster."""
+    if previous is None or (not ranked and not use_set):
+        return use_set, ranked, None
+    best = best_set if use_set else by_node[ranked[0].node_id]
+    if best is None:  # pragma: no cover - use_set implies a set
+        return use_set, ranked, None
+    mode: Mode = "split" if use_set else modes[ranked[0].node_id]
+    if mode == previous:
+        return use_set, ranked, None
+    if previous == "split":
+        if best_set is None or blocked:
+            return use_set, ranked, None
+        if not keep_previous(best.total_s, best_set.total_s, margin):
+            return use_set, ranked, None
+        note = kept_mode(previous, mode, best.total_s, best_set.total_s, margin)
+        return True, ranked, note
+    pool = [by_node[r.node_id] for r in ranked if modes[r.node_id] == previous]
+    if not pool:
+        return use_set, ranked, None
+    keep = min(pool, key=lambda s: (s.total_s, s.node_ids))
+    if not keep_previous(best.total_s, keep.total_s, margin):
+        return use_set, ranked, None
+    head = keep.node_ids[0]
+    order = [r for r in ranked if r.node_id == head] + [
+        r for r in ranked if r.node_id != head
+    ]
+    note = kept_mode(previous, mode, best.total_s, keep.total_s, margin)
+    return False, order, note
+
+
+# --- end V1.0 G12 ------------------------------------------------------------------
+
+
 def decide_split(
     request: PlanRequest,
     snapshot: ClusterSnapshot,
@@ -565,6 +620,26 @@ def decide_split(
         if chosen_set is not None and use_set:
             overall = _margin(chosen_set, best_single, margin, forced, config=config)
             sets = [chosen_set, *(s for s in sets if s is not chosen_set)]
+    kept: KeptMode | None = None
+    hysteresis = active(  # V1.0 G12 (D460): keep the previous mode on a near tie
+        request, snapshot.config.mode_switch_margin, policy, ml=ml is not None
+    )
+    if hysteresis is not None and not reads_objective and forced is None:
+        use_set, ranked, kept = _hysteresis(
+            request.previous_mode,
+            hysteresis,
+            use_set=use_set,
+            best_set=best_set,
+            blocked=overall.blocked is not None,
+            ranked=list(ranked),
+            by_node=by_node,
+            modes=modes,
+        )
+        if kept is not None:
+            single_rows = [
+                _row(by_node[r.node_id], modes[r.node_id], score=r.score)
+                for r in ranked
+            ]
     set_rows = [
         _row(
             s,
@@ -582,6 +657,8 @@ def decide_split(
         rows = [*set_rows, *single_rows]  # shown, unranked
     if forced_row is not None:
         rows.append(forced_row)
+    if kept is not None and ordered:  # V1.0 G12 (D460)
+        rows[0] = replace(rows[0], kept=kept)
     chosen = rows[0] if ordered else None
     plan: SplitPlan | None = None
     if chosen is not None:

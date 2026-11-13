@@ -30,7 +30,10 @@ PostgreSQL into a :class:`FabricRows`:
   the median items/s of the latest committed chunks (a "don't split" run is
   one chunk, so it counts too) and the median per-chunk overhead - the
   measured rates a Mode 3 decision needs before it may split; and (V1.0 G11,
-  D456) per node the learned fixed chunk cost and first-chunk cost;
+  D456) per node the learned fixed chunk cost and first-chunk cost; (V1.0
+  G12, D459) for a batch with a split job, every node's chunk costs over any
+  workload per runtime kind, and (D460) each fingerprint's latest dispatched
+  mode (:mod:`.planner_memory`);
 * the environment build-time history of the batch's ``env.base`` values (env
   phases of at least :data:`ENV_BUILD_MIN_MS` - shorter ones were cache hits);
 * the network matrix (``network_link``) and the controller -> node bandwidth
@@ -59,6 +62,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from meshforge.common.manifest import MAX_PRIORITY
 from meshforge.common.states import AttemptPhase, AttemptRole, AttemptState, JobState
+from meshforge.controller.jobs.planner_memory import (
+    NodeHistory,
+    node_chunk_history,
+    previous_modes,
+)
 from meshforge.controller.network.store import controller_links, read_links
 from meshforge.controller.planner.chunk_cost import ChunkSample, chunk_costs
 from meshforge.controller.planner.retry_exclusion import PastFailure
@@ -168,6 +176,13 @@ class FabricRows:
     combine_lanes: dict[str, dict[str, tuple[int, int]]] = field(default_factory=dict)
     """V0.10 G5: job_id -> {node_id: (cpu, gpu) slots of its draining lanes} -
     free for that job's combine."""
+    node_chunk_costs: NodeHistory = field(default_factory=dict)
+    """V1.0 G12 (D459): (node_id, runtime kind) -> the node's chunk costs over
+    any workload (:func:`~.planner_memory.node_chunk_history`); read only
+    when the batch holds a split job."""
+    previous_mode: dict[str, str] = field(default_factory=dict)
+    """V1.0 G12 (D460): fingerprint -> the mode its latest dispatched
+    unpinned decision chose (:func:`~.planner_memory.previous_modes`)."""
     reliability: dict[str, tuple[int, int]] = field(default_factory=dict)
     """V0.14 G3 (D296): node_id -> (node-caused ends, counted ends) of its
     attempts that ended in the risk window (:func:`_reliability`); empty =
@@ -702,6 +717,10 @@ async def read_fabric(
     split_ids = [j.id for j in jobs if j.split is not None]
     if split_ids:
         fabric.split_left = await _split_left(db, split_ids)
+        # V1.0 G12 (D459): node history for split jobs of a new workload
+        fabric.node_chunk_costs = await node_chunk_history(
+            db, list(fabric.nodes), history_runs
+        )
     keys = {k for job in jobs for k in keys_of(job)}
     keys |= {tree for trees in per_job.values() for tree, _ in trees}
     if keys:
@@ -719,6 +738,10 @@ async def read_fabric(
         fabric.holdings = {n: frozenset(k) for n, k in holdings.items()}
     fingerprints = sorted({j.fingerprint for j in jobs if j.fingerprint})
     fabric.history = await _history(db, fingerprints, history_runs)
+    # V1.0 G12 (D460): the mode each workload's latest decision chose
+    fabric.previous_mode = await previous_modes(
+        db, fingerprints, limit=MAX_HISTORY_FINGERPRINTS
+    )
     env_hashes = sorted(
         {h for hist in fabric.history.values() for h in hist.env_hash_by_node.values()}
     )

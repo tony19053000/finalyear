@@ -48,6 +48,9 @@ from meshforge.controller.planner.feasibility import (
     rejection,
     static_rejection,
 )
+
+# V1.0 G12 (D460): mode hysteresis
+from meshforge.controller.planner.hysteresis import active, with_kept
 from meshforge.controller.planner.objectives import (
     COST_MODEL,
     objective_of,
@@ -128,12 +131,18 @@ _G3_CONFIG_DEFAULTS: dict[str, Any] = {
 # --- V1.0 G2 (D418): likewise, an empty disabled_modes never enters the digest
 _V10_CONFIG_DEFAULTS: dict[str, Any] = {"disabled_modes": []}
 
-# --- V1.0 G11 (D456): likewise, empty per-node chunk costs
+# --- V1.0 G11 (D456): likewise, empty per-node chunk costs; V1.0 G12 (D459):
+# empty node-history costs
 _G11_HISTORY_KEYS: tuple[str, ...] = (
     "chunk_fixed_s_by_node",
     "chunk_fixed_samples_by_node",
     "chunk_first_s_by_node",
     "chunk_first_samples_by_node",
+    "node_chunk_fixed_s_by_node",
+    "node_chunk_fixed_samples_by_node",
+    "node_chunk_first_s_by_node",
+    "node_chunk_first_samples_by_node",
+    "node_chunk_runtime_by_node",
 )
 
 
@@ -143,6 +152,9 @@ def _without_unset_g3(data: dict[str, Any]) -> dict[str, Any]:
     # V1.0 G9-B: no excluded node = the digest of every decision before it
     if not data["request"].get("exclude_nodes"):
         data["request"].pop("exclude_nodes", None)
+    # V1.0 G12 (D460): no previous mode = the digest of every decision before it
+    if data["request"].get("previous_mode") is None:
+        data["request"].pop("previous_mode", None)
     # V1.0 G9-E (D438): no per-item estimate = the digest before it
     split_info = data["request"].get("split")
     if isinstance(split_info, dict) and split_info.get("item_seconds") is None:
@@ -163,6 +175,9 @@ def _without_unset_g3(data: dict[str, Any]) -> dict[str, Any]:
             config.pop(name, None)
     # V1.0 G9-E (D438): off = the planner before it (and what a replay
     # without the key decodes to) - the digest of every older decision
+    # V1.0 G12 (D460): no hysteresis = the planner before it
+    if config.get("mode_switch_margin") == 0.0:
+        config.pop("mode_switch_margin", None)
     split = config.get("split")
     if isinstance(split, dict) and split.get("require_measured_rates") is False:
         split.pop("require_measured_rates", None)
@@ -485,6 +500,11 @@ def _plan(
                 chosen = item
         final.append(item)
     final.sort(key=lambda c: (c.rank is None, c.rank or 0, c.node_id))
+    # V1.0 G12 (D460): keep the previous decision's mode on a near tie
+    margin = active(request, config.mode_switch_margin, policy, ml=ml_use is not None)
+    if margin is not None and chosen is not None:
+        final = with_kept(final, request, margin)
+        chosen = next(c for c in final if c.rank == 1)
     return Decision(
         policy=policy,
         candidates=tuple(final),
