@@ -498,3 +498,7 @@ SIGNAL: ready L4 0.14.8
 ## 2026-11-13 17:52 IST - FINAL PLAN read (L1 17:49)
 - Run 1 -> Part E -> Run 2B -> Run 2A. Check now: free RAM 5.8 GB, MeshForgeAgent Running, on AC power. Waiting for human checklist, then reply ready to L1.
 - 17:53 sent READY (final plan) to L1, free RAM 5.8 GB.
+
+## 2026-11-14 04:48 IST - read Run 1 / GPU quick test notices + LEAD Defender test
+- Run 1 (CPU) started 18:12:54, ran overnight; GPU quick test running since 04:17 (~1.5 h, uses L4).
+- LEAD small-files/Defender test: postponed until the GPU quick test ends (rule: only when no MeshForge job on L4). At 04:48 CPU 8%, no job process seen, but the test is still in progress.
