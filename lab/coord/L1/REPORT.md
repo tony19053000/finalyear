@@ -1332,3 +1332,14 @@ median submit->end times (s): image 9k: L1 20, L2 438, L4 560, L3 460, all4 26; 
 FINDING (for LEAD later, human: after Run 1): Windows nodes 15-25x slower than L1 on the image job (CPU score ratio only ~1.3-2x) -> large
     per-job overhead on Windows (input/env setup per job?); the main blocker for CPU Mode 3 speedups in this lab.
 Next: checklist A1 calibrate, B eval, C latency, D explain (L1 only), then Part E. evidence: raw/2026-11-14-run1/
+
+### 2026-11-14 04:17-05:08 - GPU quick test (human request): gpu-big GPU training job, chunk 16 items, L1 alone vs L1+L2+L4 vs all 4 - DONE
+| size | L1 alone | L1+L2+L4 (min/max 3) | all 4 (min/max 4) |
+| 480 | 406 s (30 chunks) | 312 s (L1 24 / L2 3 / L4 3) = 1.30x | 312 s (L1 23 / L2 4 / L4 3 / L3 0) = 1.30x |
+| 960 | 804 s (60 chunks) | 600 s (L1 46 / L2 8 / L4 6) = 1.34x | 600 s (L1 45 / L2 8 / L4 6 / L3 1) = 1.34x |
+jobs: 480: ...BHGCT8AEY23A8AMF1JSDCT / ...BJNPCXBDRH0VHDW13STAJQ / ...BJZ83ER058Y1PW6445SKBV; 960: ...BHX493C6QSJ5XXFW6DW9G8 / ...BK8T2R5WDFFCVKFVJSM3KT / ...BKV4T55H7A45SZ4BFD3A1Z.
+per chunk (16 trainings): L1 ~13 s, L2 (RTX 2050) ~73 s, L4 (RTX 3050, Windows) ~88 s, L3 (CPU) 314 s. All GPUs used (devices in results.json).
+GPU util on the dashboard during the test: L1 96 %, L2 43 %, L4 35 %. L2/L4 have policy max_cpu_percent=50 (L1 none) - sent to LEAD.
+planner: chose split correctly; over-predicts from declared item_seconds 2.5 (L1 real ~0.8): 480 alone pred 1208 / real 406; 960 split pred 888 / real 600.
+reading: modest 1.3x - L1 is ~6-7x faster per chunk than the Windows GPUs (Windows per-chunk overhead + launch-bound tiny model), so L1 does ~75 %.
+evidence: raw/2026-11-14-gputest/

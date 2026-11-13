@@ -1,0 +1,58 @@
+== 480 alone job_01M7BHGCT8AEY23A8AMF1JSDCT 04:17:29
+mode local nodes ['L1'] predicted_s 1207.7 | margin: not split: the job is pinned to one node
+real_s 406 |state | succeeded |
+L1: 30 chunks | 1st 14.3 s | rest avg 13.3 s | max 16.4
+    480 "gpu":"NVIDIA GeForce RTX 3050 Laptop GPU
+== 480 l1l2l4  04:24:16
+real_s 4 
+Traceback (most recent call last):
+  File "/home/aayush/mf-eval/tools/chunks.py", line 3, in <module>
+    job=sys.argv[1]; g={}; rows=collections.defaultdict(list)
+        ~~~~~~~~^^^
+IndexError: list index out of range
+== 480 all4  04:24:21
+real_s 5 
+Traceback (most recent call last):
+  File "/home/aayush/mf-eval/tools/chunks.py", line 3, in <module>
+    job=sys.argv[1]; g={}; rows=collections.defaultdict(list)
+        ~~~~~~~~^^^
+IndexError: list index out of range
+== 960 alone job_01M7BHX493C6QSJ5XXFW6DW9G8 04:24:27
+mode local nodes ['L1'] predicted_s 2414.8 | margin: not split: the job is pinned to one node
+== 960 alone job_01M7BHX493C6QSJ5XXFW6DW9G8 (resumed watch)
+real_s 804 |state | succeeded |
+L1: 60 chunks | 1st 13.3 s | rest avg 13.3 s | max 14.4
+== 480 l1l2l4 job_01M7BJNPCXBDRH0VHDW13STAJQ 04:37:52
+mode split nodes ['L1', 'L2', 'L4'] predicted_s 439.6 | margin: split over 3 nodes: 439.58s <= (1 - 0.1) x 1208.64s (best single node node_01M6BMFVHJVZXC7AET3CFRE3AV), needs <= 1087.78s
+real_s 312 |state | succeeded |
+L1: 24 chunks | 1st 12.5 s | rest avg 12.7 s | max 14.0
+L2: 3 chunks | 1st 94.8 s | rest avg 74.2 s | max 94.8
+L4: 3 chunks | 1st 107.0 s | rest avg 87.3 s | max 107.0
+     48 "gpu":"NVIDIA GeForce RTX 2050
+    432 "gpu":"NVIDIA GeForce RTX 3050 Laptop GPU
+== 480 all4 job_01M7BJZ83ER058Y1PW6445SKBV 04:43:05
+mode split nodes ['L1', 'L2', 'L4', 'L3'] predicted_s 554.7 | margin: split over 4 nodes: 554.74s <= (1 - 0.1) x 1209.18s (best single node node_01M6BMFVHJVZXC7AET3CFRE3AV), needs <= 1088.26s
+real_s 312 |state | succeeded |
+L1: 23 chunks | 1st 12.8 s | rest avg 13.0 s | max 14.4
+L2: 4 chunks | 1st 74.9 s | rest avg 72.7 s | max 74.9
+L4: 3 chunks | 1st 85.5 s | rest avg 85.7 s | max 85.8
+     64 "gpu":"NVIDIA GeForce RTX 2050
+    416 "gpu":"NVIDIA GeForce RTX 3050 Laptop GPU
+== 960 l1l2l4 job_01M7BK8T2R5WDFFCVKFVJSM3KT 04:48:18
+mode split nodes ['L1', 'L2', 'L4'] predicted_s 888.2 | margin: split over 3 nodes: 888.22s <= (1 - 0.1) x 2411.92s (best single node node_01M6BMFVHJVZXC7AET3CFRE3AV), needs <= 2170.73s
+real_s 600 |state | succeeded |
+L1: 46 chunks | 1st 12.4 s | rest avg 12.9 s | max 14.6
+L2: 8 chunks | 1st 74.5 s | rest avg 72.9 s | max 74.5
+L4: 6 chunks | 1st 106.6 s | rest avg 88.0 s | max 106.6
+    128 "gpu":"NVIDIA GeForce RTX 2050
+    832 "gpu":"NVIDIA GeForce RTX 3050 Laptop GPU
+== 960 all4 job_01M7BKV4T55H7A45SZ4BFD3A1Z 04:58:19
+mode split nodes ['L1', 'L2', 'L4', 'L3'] predicted_s 966.1 | margin: split over 4 nodes: 966.15s <= (1 - 0.1) x 2414.44s (best single node node_01M6BMFVHJVZXC7AET3CFRE3AV), needs <= 2172.99s
+real_s 600 |state | succeeded |
+L1: 45 chunks | 1st 14.4 s | rest avg 13.0 s | max 14.4
+L2: 8 chunks | 1st 74.9 s | rest avg 73.5 s | max 74.9
+L3: 1 chunks | 1st 314.2 s | rest avg 0.0 s | max 314.2
+L4: 6 chunks | 1st 82.7 s | rest avg 90.5 s | max 93.4
+     16 "gpu":"CPU Mohit
+    128 "gpu":"NVIDIA GeForce RTX 2050
+    816 "gpu":"NVIDIA GeForce RTX 3050 Laptop GPU
