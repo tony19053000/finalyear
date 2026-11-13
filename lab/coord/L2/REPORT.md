@@ -591,3 +591,4 @@ SIGNAL: capture-pushed
 - 13:33 sent L1 'ready' for 0.14.8 (lab/chat/20261113-133310-L2-to-L1.md).
 - 13:47 read: 13:38 small campaign cancelled (14 runs); new BIG campaign 0.14.8 (~9-12 h, 390 runs) asks ready. Lid close on AC = do nothing set; sleep AC Never.
 - 13:5x RAM: ChatGPT/Edge/Copilot had auto-started after reboot. With human OK, disabled user startup for Edge autolaunch, Opera, Teams, Docker Desktop, OneDrive, MathWorks, HP SEU, PDFEditor, OpenAI Codex/ChatGPT, Office hub, CrossDevice (Task Manager 'Startup apps' = Disabled; reversible). Closed them. RAM available after: see next line.
+- 13:51 sent L1 'ready' for BIG campaign, 2.05 GB available (lab/chat/20261113-135146-L2-to-L1.md).
