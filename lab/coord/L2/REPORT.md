@@ -582,3 +582,4 @@ SIGNAL: capture-pushed
 
 ## 2026-11-13
 - 12:15 read: LEAD v0.17.4 released -> upgrade (no L2-only re-test rows). Demo 03 (2026-11-12 14:40 auto-stop): stopped/started lines were never pasted back to this session; outcome with L1. L2 now: 0.17.3, service Running, RAM available 1353 MB.
+- v0.17.4: downloaded MeshForge-Agent-Setup-0.17.4-1.exe (57,663,084 B); sha256 1deb478b...979997 matches SHA256SUMS. Waiting for human to run it as admin.
