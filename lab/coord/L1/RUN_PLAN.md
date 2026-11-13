@@ -81,6 +81,11 @@ Proposed order: start **Run 1 first** while L1 writes the 2B job scripts (writin
 then Part E, then test/time the 2B jobs, then Run 2B, then Run 2A. After all: ML dataset ~970 + ~1070 runs -> small top-up to
 >= 2000, train ML, offline comparison (no re-run needed), short live ML check.
 
+## Run 3 (optional showcase) - AFTER all planned runs (human, 2026-11-13)
+One really big GPU AI training job (real data), run ONCE alone on one laptop (e.g. L2 alone, target ~2-3 h) and ONCE split on
+all 4 (expected ~30-45 min): a single measured before/after headline for the presentation. ~3-4 h lab time, best overnight.
+Exact size chosen from the Run 2B timings. Humans get the context + start time first.
+
 Rules during a run: laptops plugged in, sleep Never, Best performance, big apps closed (L2/L3 > 2 GB free RAM),
 agent never stopped, Windows Update paused; light use only; pause/resume possible (`compute bench pause/resume`).
 
