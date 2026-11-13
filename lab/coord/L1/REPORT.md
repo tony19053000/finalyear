@@ -1310,3 +1310,9 @@ FINDING L3: after a reboot 13:28 MeshForgeAgent was Stopped (StartType Automatic
 spec raw/2026-11-13-G12/v014big.yaml: cpu.primes limit 200M-380M (repeats 10), cpu.zlib 160-250 MB level 9 (repeats 6), split.image_classify
     11k-20k images (workload max 20k); local/mode1/mode3; all 4 nodes; 3 repetitions; 390 runs, ~7.11 h reference; budget 700 runs / 24 h.
     Human decision: long jobs only (product target; predictions closer on big jobs), 3 repeats enough. All 4 ready (L2 3.3 GB, L3 2.2 GB free).
+
+### 2026-11-13 17:58:24 - FINAL PLAN Run 1 (planner exam 0.14.8) STARTED: camp_01M7AE2T3K7AMXP5EAEEZHFKMB
+spec raw/2026-11-13-G12/run1g.yaml: ml.cnn_train batch 40-256 (local+mode1) + split.image_classify 9k-20k images (local+mode1+mode3), 12 sizes,
+    3 reps, origin L1, all 4 nodes; 324 runs, 24 groups, 4.88 h ref. Pre-check: all 4 online 0.17.4, no jobs; free RAM L1 9.9, L2 2.9, L3 3.2,
+    L4 6.4 GB; humans ready (plugged, sleep Never). Datasets for 2B already on L1 (Tiny ImageNet 237 MB, IMDB 41 MB via Hugging Face).
+Earlier today: campaigns camp_01M79Z60H7TNQ674ZS2MMKCQAG (small jobs, 14 runs) and camp_01M7A0BZQB5AN4TBW0CY7M4DZY (big A0, 15 runs) cancelled for re-planning.
