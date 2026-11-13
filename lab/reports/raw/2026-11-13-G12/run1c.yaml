@@ -1,0 +1,17 @@
+name: lab-run1-local-mode1-cpu-gpu
+seed: 1501
+families:
+  - family: cpu.primes
+    params: {limit: [200000000, 236000000, 272000000, 308000000, 344000000, 380000000], repeats: 10}
+  - family: cpu.zlib
+    params: {size_mb: [160, 178, 196, 214, 232, 250], level: 9, repeats: 6}
+  - family: ml.cnn_train
+    params: {batch: [64, 96, 128, 160, 192, 256]}
+  - family: gpu.matmul
+    params: {n: [6144, 7168, 8192, 9216, 10240, 11264]}
+strategies: [local, mode1]
+nodes: all
+origin: node_01M6BMFVHJVZXC7AET3CFRE3AV
+repetitions: 3
+session_label: wifi
+budget: {max_runs: 400, max_hours: 24}

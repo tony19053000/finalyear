@@ -1,0 +1,16 @@
+name: lab-run2a-cpu-mode3
+seed: 1502
+families:
+  - family: split.image_classify
+    params: {images: [11000, 12300, 13600, 14900, 16100, 17400, 18700, 20000]}
+  - family: split.montecarlo_range
+    params: {items: [12000, 14600, 17100, 19700, 22300, 24900, 27400, 30000]}
+  - family: split.csv_aggregate
+    params: {rows: [35000, 41400, 47900, 54300, 60700, 67100, 73600, 80000]}
+strategies: [local, mode3]
+mode3_sets: [[node_01M6BMFVHJVZXC7AET3CFRE3AV, node_01M6GCKN7PYT2J297BT241P436], [node_01M6BMFVHJVZXC7AET3CFRE3AV, node_01M6GCKN7PYT2J297BT241P436, node_01M6GGJP3FW5VHBDFKYQ6SF318], [node_01M6BMFVHJVZXC7AET3CFRE3AV, node_01M6GCKN7PYT2J297BT241P436, node_01M6GGJP3FW5VHBDFKYQ6SF318, node_01M79X8WTANK64QH74W9YMHBG5]]
+nodes: all
+origin: node_01M6BMFVHJVZXC7AET3CFRE3AV
+repetitions: 3
+session_label: wifi
+budget: {max_runs: 400, max_hours: 24}
