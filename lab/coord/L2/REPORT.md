@@ -585,3 +585,4 @@ SIGNAL: capture-pushed
 - v0.17.4: downloaded MeshForge-Agent-Setup-0.17.4-1.exe (57,663,084 B); sha256 1deb478b...979997 matches SHA256SUMS. Waiting for human to run it as admin.
 - 12:20 v0.17.4 installed (human, admin). Service Running; compute 0.17.4 (git 1590d833414d); AILESH online 0.17.4. L1 + L4 also 0.17.4; L3 not listed online (revoked, re-join pending).
 - 12:43 read demo 03 (v0.17.4) cue: L2 agent auto-stop 12:56:00, auto-start 12:57:00 (human, admin script; log C:\Users\Public\demo03-times.txt).
+- demo 03 (v0.17.4): L2 agent stopped 12:56:05, started 12:57:06 (scheduled admin script). Service Running after. Job outcome with L1.
