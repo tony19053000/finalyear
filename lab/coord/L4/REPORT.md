@@ -535,3 +535,8 @@ Reading: the maths is fine on Windows (~51 s vs L1 real job ~45 s), and low prio
 - SIGNAL: test3-done L4
 
 ## 2026-11-14 05:24 IST - read LEAD Windows slowdown test matrix (T1-T5). T1 given to human; T2-T5 driven by L1.
+time: 05:27   step: Windows slowdown investigation   reply-needed: no
+T1 (B) on L4, admin PowerShell, env stripped to PATH, SYSTEMROOT, TEMP, TMP + LANG=C.UTF-8, PYTHONUNBUFFERED=1, HOME=TEMP; venv 001f0edb... python -I t3.py, start 05:24:45:
+- 20000 images CNN: 49.3 s
+Reading: T1 is FAST (49 s, same as 51 s with the full env) -> the stripped environment (B) is NOT the cause. Ready for T2 (L1 submits t3 job pinned to L4); the L4 human will look at Task Manager during it.
+- SIGNAL: t1-done L4
