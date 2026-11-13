@@ -1,0 +1,48 @@
+DEMO 05-install-join - work folder /tmp/meshforge-demo/05-install-join
+
+== Reset 05-install-join  [  0.0 s]
+   clean: no demo job running, no demo invite open, outputs removed
+
+== Make a single-use join code for the new laptop  [  0.3 s]
+   join code: mf1-<redacted>
+   On the Windows laptop: run MeshForge-Agent-Setup-<version>.exe, Finish with
+   'Open MeshForge' ticked, paste this code on the page that opens (or its QR).
+   Screens: docs/user/install-windows.md, docs/user/join-a-laptop.md.
+   EXPECTED   the invite is listed (pending, its code never shown again)
+
+== Wait until the new laptop has joined  [  0.9 s]
+   EXPECTED   a new node joined with the code
+   EXPECTED   node_01M79X8WTANK64QH74W9YMHBG5 is online
+   $ compute nodes
+                                                            nodes (8)                                                        
+     +----------------------------------------------------------------------------------------------------------------------+
+     |NODE          | HOSTNAME     | STATE   | CONN | RTT  | CPU% | RAM          | GPU  | AGE  | NOT ENFORCED | SCORES      |
+     |--------------+--------------+---------+------+------+------+--------------+------+------+--------------+-------------|
+     |node_01M6BMFV | JARVISM3     | online  | yes  | 1.2  | 3    | 5.6 GiB/15.3 | 0:0% | 0.4s | vram         | CPU 518 GF, |
+     |HJVZXC7AET3CF |              |         |      |      |      | GiB          |      |      |              | GPU0 n/a TF |
+     |RE3AV         |              |         |      |      |      |              |      |      |              |             |
+     |node_01M6GCKN | AILESH       | online  | yes  | 5.5  | 16   | 5.8 GiB/7.6  | 0:0% | 1.7s | vram, ram    | CPU 305 GF, |
+     |7PYT2J297BT24 |              |         |      |      |      | GiB          |      |      |              | GPU0 n/a TF |
+     |1P436         |              |         |      |      |      |              |      |      |              |             |
+     |node_01M6GGJP | LAPTOP-7ORVM | online  | yes  | 66.9 | 2    | 9.1 GiB/15.7 | 0:0% | 0.4s | vram, ram    | CPU 404 GF, |
+     |3FW5VHBDFKYQ6 | 30G          |         |      |      |      | GiB          |      |      |              | GPU0 n/a TF |
+     |SF318         |              |         |      |      |      |              |      |      |              |             |
+     |node_01M6GGZ7 | Mohit        | revoked | no   | -    | -    | -            | -    | -    | -            | CPU 223 GF  |
+     |VNCSRKFAEDH3A |              |         |      |      |      |              |      |      |              |             |
+     |X7QQY         |              |         |      |      |      |              |      |      |              |             |
+     |node_01M6K0TZ | Mohit        | revoked | no   | -    | -    | -            | -    | -    | -            | CPU 75.7 GF |
+     |RNPEGBRN166GP |              |         |      |      |      |              |      |      |              |             |
+     |6S61N         |              |         |      |      |      |              |      |      |              |             |
+     |node_01M6K66M | -            | revoked | no   | -    | -    | -            | -    | -    | -            | -           |
+     |7877NWES0Z93D |              |         |      |      |      |              |      |      |              |             |
+     |P3EP8         |              |         |      |      |      |              |      |      |              |             |
+     |node_01M752J3 | Mohit        | revoked | no   | -    | -    | -            | -    | -    | -            | CPU 75.7 GF |
+     |FZ912G0ZJ9W4A |              |         |      |      |      |              |      |      |              |             |
+     |NRPE1         |              |         |      |      |      |              |      |      |              |             |
+     |node_01M79X8W | Mohit        | online  | yes  | 32.9 | -    | -            | -    | -    | vram         | CPU 75.7 GF |
+     |TANK64QH74W9Y |              |         |      |      |      |              |      |      |              |             |
+     |MHBG5         |              |         |      |      |      |              |      |      |              |             |
+     +----------------------------------------------------------------------------------------------------------------------+
+   EXPECTED   finished within 300 s
+
+DEMO 05-install-join: PASS in 219.3 s

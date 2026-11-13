@@ -1295,3 +1295,6 @@ demo 03: PASS 101.3 s. job_01M79WRFTN90P3WJWMA0NT594A split over 3 nodes (111.62
 demo status v0.17.4: 01 PASS (v0.17.3), 02 PASS (v0.17.3), 03 PASS, 04 PASS, 05 pending (= L3 re-join).
 note for evaluation: prediction accuracy is judged on big jobs (480-item +17 %, yesterday 0.2 %); small 24-item jobs over-predict 30-41 % from the
     declared item_seconds 6 (real ~2.4 s) - fixed costs dominate small jobs.
+demo 05: PASS 219.3 s - invite listed pending (code never shown again), L3 re-joined with the code (handed human-to-human by phone),
+    new node node_01M79X8WTANK64QH74W9YMHBG5 (Mohit, 0.17.4) online. => all 5 demos PASS (01/02 on v0.17.3, 03/04/05 on v0.17.4).
+    L3 back: all 4 nodes online 0.17.4.
