@@ -1,0 +1,15 @@
+name: lab-v014-planner-big
+seed: 1408
+families:
+  - family: cpu.primes
+    params: {limit: [200000000, 220000000, 240000000, 260000000, 280000000, 300000000, 320000000, 340000000, 360000000, 380000000], repeats: 10}
+  - family: cpu.zlib
+    params: {size_mb: [160, 170, 180, 190, 200, 210, 220, 230, 240, 250], level: 9, repeats: 6}
+  - family: split.image_classify
+    params: {images: [11000, 12000, 13000, 14000, 15000, 16000, 17000, 18000, 19000, 20000]}
+strategies: [local, mode1, mode3]
+nodes: all
+origin: node_01M6BMFVHJVZXC7AET3CFRE3AV
+repetitions: 3
+session_label: wifi
+budget: {max_runs: 700, max_hours: 24}

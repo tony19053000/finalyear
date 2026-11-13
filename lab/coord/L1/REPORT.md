@@ -1305,3 +1305,8 @@ spec = checklist A0 (cpu.primes x10, cpu.zlib x10, split.image_classify x10; loc
     `compute bench start --per-node 1 --cooldown 2` at 13:38:01. Pre-check: all 4 online 0.17.4, accept_jobs True, pause_benchmarks False;
     humans: plugged in, sleep Never, apps closed (L2 ~3.5 GB after closing Claude, L3 2.4 GB after reboot, L4 6.1 GB). spec: raw/2026-11-13-G12/v014.yaml
 FINDING L3: after a reboot 13:28 MeshForgeAgent was Stopped (StartType Automatic), 2nd time - sent to LEAD.
+13:4x small campaign camp_01M79Z60H7TNQ674ZS2MMKCQAG CANCELLED at 14 runs (human): runs were ~6 s each = small-job regime, not the product's target.
+### 2026-11-13 13:58:45 - 0.14.8 A0 BIG campaign STARTED: camp_01M7A0BZQB5AN4TBW0CY7M4DZY (lab-v014-planner-big)
+spec raw/2026-11-13-G12/v014big.yaml: cpu.primes limit 200M-380M (repeats 10), cpu.zlib 160-250 MB level 9 (repeats 6), split.image_classify
+    11k-20k images (workload max 20k); local/mode1/mode3; all 4 nodes; 3 repetitions; 390 runs, ~7.11 h reference; budget 700 runs / 24 h.
+    Human decision: long jobs only (product target; predictions closer on big jobs), 3 repeats enough. All 4 ready (L2 3.3 GB, L3 2.2 GB free).
