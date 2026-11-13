@@ -597,3 +597,4 @@ SIGNAL: capture-pushed
 - 15:24 read: Run 1 (0.14.8, 288 runs, ~5-6 h: cpu.primes, cpu.zlib, ml.cnn_train, gpu.matmul alone per laptop) asks ready.
 - 15:26 sent L1 'ready' for Run 1, 1.79 GB (lab/chat/20261113-152628-L2-to-L1.md). Claude app closed; L2 chat paused.
 - 17:52 read: FINAL PLAN (LEAD approved): Run 1 (324 runs ~6-7 h) -> Part E -> Run 2B GPU Mode 3 -> Run 2A CPU Mode 3. Run 1 asks ready. RAM 2.0 GB, agent Running.
+- 17:53 sent L1 'ready' for Run 1 (final plan), 1.71 GB (lab/chat/20261113-175330-L2-to-L1.md). Claude app closed; L2 chat paused.
