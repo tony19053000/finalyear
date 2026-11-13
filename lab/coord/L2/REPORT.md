@@ -596,3 +596,4 @@ SIGNAL: capture-pushed
 - 14:55 read: BIG campaign camp_01M7A0BZQB5AN4TBW0CY7M4DZY started 13:58:45, CANCELLED after 15 runs (re-plan). New L1 RUN_PLAN: 2B GPU Mode 3 (360 runs) -> 2A CPU Mode 3 (288) -> 1 local/Mode 1 (144); not started, L2 nothing to do until a start time. Agent Running; RAM 1.1 GB with Claude open.
 - 15:24 read: Run 1 (0.14.8, 288 runs, ~5-6 h: cpu.primes, cpu.zlib, ml.cnn_train, gpu.matmul alone per laptop) asks ready.
 - 15:26 sent L1 'ready' for Run 1, 1.79 GB (lab/chat/20261113-152628-L2-to-L1.md). Claude app closed; L2 chat paused.
+- 17:52 read: FINAL PLAN (LEAD approved): Run 1 (324 runs ~6-7 h) -> Part E -> Run 2B GPU Mode 3 -> Run 2A CPU Mode 3. Run 1 asks ready. RAM 2.0 GB, agent Running.
