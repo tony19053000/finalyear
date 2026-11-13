@@ -1274,3 +1274,15 @@ demo 03 r1 (14:19): split over 3 laptops OK; kill hook (lab-chat cue to L2) time
 demo 03 r2 (timed: L2 scheduled stop 14:40:00, demo start 14:39:48): job_01M77GAEVZBR8SEV3T871BP2JV planned LOCAL - "not split: best set 12.79 s
     above 0.9 x 13.02 s". With history the 48 x 400k job takes ~13 s on L1; split overhead to Windows (~12-17 s first chunk) makes splitting lose.
     Planner correct; demo LIVE profile too small. Sent to LEAD (bigger split_rounds).
+
+### 2026-11-13 12:2x - v0.17.4 upgrade; D459 PARTIAL (cost source PASS, time +41 %); D460 PASS
+upgrade: L1 controller+agent 0.17.4-1 (sha256 OK, human apt); L2, L4 online 0.17.4; L3 still revoked (re-join = demo 05).
+warm-up 480 split job_01M79TVY566EVNPVT96PPE78W4 (L1+L4+L2): predicted 529.9 s, real 621 s (+17 %); first chunk after upgrade = venv rebuild
+    (L2 224 s, L4 181 s); L1 93 / L4 17 / L2 10 chunks.
+D459 new workload d459-new-1232 (24 items, chunk 2, item_seconds 6) job_01M79VEXHKHQ3QNYG24NKTB7DK: split L1+L2+L4; chunk_overhead note
+    "T241P436 0.5s (node_history venv n=16) +1.5s first, YQ6SF318 1.6s (node_history venv n=18) +0.5s first" -> per-node source PASS (not shared).
+    predicted 71.1 s vs real 42 s = over by 41 % -> time criterion NOT met; cause: compute rate from the declared item_seconds 6 (real ~2.4 s/item
+    on L1 GPU, local predicted 152 s vs ~58 s measured before). Lab job over-declares; not a D459 defect.
+D460 same workload 4x back to back (15 s idle between): run1-4 job_01M79VH9W5J6FPW8QX3S3TGPQS / ...K3GFKB7TEGASXS4WXA80 / ...MX5D8CEFVTFNHJYD7HK1 /
+    ...PPSG8X77KV3CH5MHD0ZG: all mode3 L1+L4+L2, real 44 s each; runs 1-3 margin "kept previous mode mode3 (new best local 60.66s within 10% of
+    56.73s)". PASS. (pred ~57 s vs 44 s real: +30 %, history now pulls toward real.) kept explain: raw/2026-11-13-G12/d460-kept-explain.json

@@ -1,0 +1,4 @@
+run1 job_01M79VH9W5J6FPW8QX3S3TGPQS real 44s | mode split nodes ['L1', 'L4', 'L2'] predicted_s 56.7 | margin: kept previous mode mode3 (new best local 60.66s within 10% of 56.73s)
+run2 job_01M79VK3GFKB7TEGASXS4WXA80 real 44s | mode split nodes ['L1', 'L4', 'L2'] predicted_s 57.0 | margin: kept previous mode mode3 (new best local 62.41s within 10% of 56.96s)
+run3 job_01M79VMX5D8CEFVTFNHJYD7HK1 real 44s | mode split nodes ['L1', 'L4', 'L2'] predicted_s 57.7 | margin: kept previous mode mode3 (new best local 63.74s within 10% of 57.73s)
+run4 job_01M79VPPSG8X77KV3CH5MHD0ZG real 44s | mode split nodes ['L1', 'L4', 'L2'] predicted_s 57.4 | margin: split over 3 nodes: 57.44s <= (1 - 0.1) x 64.08s (best single node node_01M6BMFVHJVZXC7AET3CFRE3AV), needs <= 57.67s
