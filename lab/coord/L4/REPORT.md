@@ -533,3 +533,5 @@ Human ran t3.py in admin PowerShell with venv 001f0edb... python (numpy 2.5.3), 
 - BELOW_NORMAL priority: 20000 images CNN: 50.7 s
 Reading: the maths is fine on Windows (~51 s vs L1 real job ~45 s), and low priority makes no difference. So the 16-18 min comes from HOW MeshForge runs the job on Windows (data fetch/unpack, per-file staging, chunk overhead), not the CNN maths.
 - SIGNAL: test3-done L4
+
+## 2026-11-14 05:24 IST - read LEAD Windows slowdown test matrix (T1-T5). T1 given to human; T2-T5 driven by L1.
