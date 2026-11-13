@@ -1,6 +1,6 @@
 # Lab run plan - planner exam + Mode 3 evidence (CPU + GPU) - 2026-11-13
 
-Status: **FINAL PLAN agreed 2026-11-13 (human), not started.** Each run starts only after the human says "go"; laptops get the context + start time
+Status: **FINAL PLAN agreed 2026-11-13 (human) + approved by LEAD 17:13, not started.** Each run starts only after the human says "go"; laptops get the context + start time
 first and reply "ready". All laptops on v0.17.4. Order: **Run 1 (while 2B jobs are written) -> Part E -> Run 2B -> Run 2A.** GPU-split runs (2B) are not a built-in campaign, so they are graphs + ML data, not 0.14.8-scored (testing-tool gap, not a product gap).
 
 Why: MeshForge is for **long jobs**, and the X factor is **using other laptops' GPUs** (Mode 3 over GPUs).
@@ -63,7 +63,7 @@ GPUs of other laptops, 1 -> 2 -> 3 -> 4, with proof each GPU really worked.
 - Campaign `run1g.yaml`: cnn_train batch 40-256, images 9k-20k; `compute bench plan`: 324 runs, 24 groups, 4.88 h ref (~6-7 h real).
 - L3 has no GPU: its cnn_train configs are expected to fail/skip - check right after start that those groups still count.
 - **Part E** (checklist E, core of 0.14.8 "fresh workloads"): split.csv_aggregate (CPU split) + split.hash_files (I/O), never used
-  before - 5 planner-choice submissions each + a small 10-group campaign, ~80 runs, ~1-2 h. BEFORE Run 2A (2A uses csv_aggregate).
+  before - 5 planner-choice submissions each + a small 12-group campaign (LEAD: 12 not 10, spare groups), ~80-90 runs, ~1-2 h. BEFORE Run 2A (2A uses csv_aggregate).
 - Then checklist A1 (calibrate), B (eval), C (latency), D (explain) on L1, ~30 min, no laptops.
 
 ## Summary - FINAL PLAN
