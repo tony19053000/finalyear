@@ -1,0 +1,942 @@
+camp_01M7AEXBBYM270PZBM2P3PVZZ4: done
+runs: planned 0, submitted 0, done 324, failed 0, skipped 0
+records: 616 (fillers / warm-ups apart: none)
+measured (ok, used by the labels): 324
+infrastructure failures: 0.0 % (0; 4 stopped by the owner guard, not counted)
+condition failures: none
+workload failures: none
+ok but rejected by the label filter: no_workload_status 288
+other failures: none
+criterion 1 (infra failures < 2 %): met
+criterion 3 (every config >= 3 repetitions with a CV): met
+configs: 108, flagged 92 (CV threshold 0.1)
+            Campaign camp_01M7AEXBBYM270PZBM2P3PVZZ4: configurations            
++------------------------------------------------------------------------------+
+|         |        |   | MEDIAN  |       |        | OUTLIER | MISSIN |         |
+|GROUP    | CONFIG | N | ms      | CV    | CI ms  | S       | G      | FLAGS   |
+|---------+--------+---+---------+-------+--------+---------+--------+---------|
+|grp_21c6 | mode1  | 3 | 994787. | 0.380 | 601801 | 0       | comput | cv,missi|
+|86330433 | @      |   | 0       |       | .0..13 |         | e_ns   | ng      |
+|017e47ef | node_0 |   |         |       | 46780. |         | 3,     |         |
+|6fb4     | 1M6GGJ |   |         |       | 0      |         | comput |         |
+|         | P3FW5V |   |         |       |        |         | e_iter |         |
+|         | HBDFKY |   |         |       |        |         | ations |         |
+|         | Q6SF31 |   |         |       |        |         |  3,    |         |
+|         | 8      |   |         |       |        |         | bytes_ |         |
+|         |        |   |         |       |        |         | in 3   |         |
+|grp_21c6 | mode1  | 3 | 878625. | 0.245 | 818361 | 1       | comput | cv,missi|
+|86330433 | @      |   | 0       |       | .0..12 |         | e_ns   | ng      |
+|017e47ef | node_0 |   |         |       | 64813. |         | 3,     |         |
+|6fb4     | 1M79X8 |   |         |       | 0      |         | comput |         |
+|         | WTANK6 |   |         |       |        |         | e_iter |         |
+|         | 4QH74W |   |         |       |        |         | ations |         |
+|         | 9YMHBG |   |         |       |        |         |  3,    |         |
+|         | 5      |   |         |       |        |         | bytes_ |         |
+|         |        |   |         |       |        |         | in 3   |         |
+|grp_21c6 | local  | 3 | 40613.0 | 0.792 | 40059. | 1       | comput | cv,missi|
+|86330433 | @      |   |         |       | 0..142 |         | e_ns   | ng      |
+|017e47ef | node_0 |   |         |       | 273.0  |         | 3,     |         |
+|6fb4     | 1M6BMF |   |         |       |        |         | comput |         |
+|         | VHJVZX |   |         |       |        |         | e_iter |         |
+|         | C7AET3 |   |         |       |        |         | ations |         |
+|         | CFRE3A |   |         |       |        |         |  3,    |         |
+|         | V      |   |         |       |        |         | bytes_ |         |
+|         |        |   |         |       |        |         | in 3   |         |
+|grp_21c6 | mode3  | 3 | 43005.0 | 0.031 | 41317. | 0       | comput | missing |
+|86330433 | @      |   |         |       | 0..438 |         | e_ns   |         |
+|017e47ef | node_0 |   |         |       | 89.0   |         | 3,     |         |
+|6fb4     | 1M6BMF |   |         |       |        |         | comput |         |
+|         | VHJVZX |   |         |       |        |         | e_iter |         |
+|         | C7AET3 |   |         |       |        |         | ations |         |
+|         | CFRE3A |   |         |       |        |         |  3,    |         |
+|         | V      |   |         |       |        |         | bytes_ |         |
+|         |        |   |         |       |        |         | in 3   |         |
+|grp_21c6 | mode1  | 3 | 888759. | 0.148 | 834799 | 0       | comput | cv,missi|
+|86330433 | @      |   | 0       |       | .0..10 |         | e_ns   | ng      |
+|017e47ef | node_0 |   |         |       | 97810. |         | 3,     |         |
+|6fb4     | 1M6GCK |   |         |       | 0      |         | comput |         |
+|         | N7PYT2 |   |         |       |        |         | e_iter |         |
+|         | J297BT |   |         |       |        |         | ations |         |
+|         | 241P43 |   |         |       |        |         |  3,    |         |
+|         | 6      |   |         |       |        |         | bytes_ |         |
+|         |        |   |         |       |        |         | in 3   |         |
+|grp_2514 | mode1  | 3 | 56712.0 | 0.352 | 50309. | 1       | -      | cv      |
+|d9f1f127 | @      |   |         |       | 0..939 |         |        |         |
+|decc69db | node_0 |   |         |       | 61.0   |         |        |         |
+|db50     | 1M79X8 |   |         |       |        |         |        |         |
+|         | WTANK6 |   |         |       |        |         |        |         |
+|         | 4QH74W |   |         |       |        |         |        |         |
+|         | 9YMHBG |   |         |       |        |         |        |         |
+|         | 5      |   |         |       |        |         |        |         |
+|grp_2514 | mode1  | 3 | 51687.0 | 0.313 | 50893. | 1       | -      | cv      |
+|d9f1f127 | @      |   |         |       | 0..852 |         |        |         |
+|decc69db | node_0 |   |         |       | 57.0   |         |        |         |
+|db50     | 1M6GCK |   |         |       |        |         |        |         |
+|         | N7PYT2 |   |         |       |        |         |        |         |
+|         | J297BT |   |         |       |        |         |        |         |
+|         | 241P43 |   |         |       |        |         |        |         |
+|         | 6      |   |         |       |        |         |        |         |
+|grp_2fb3 | local  | 3 | 36545.0 | 0.835 | 35628. | 1       | comput | cv,missi|
+|5c44a8d0 | @      |   |         |       | 0..136 |         | e_ns   | ng      |
+|04e224ab | node_0 |   |         |       | 842.0  |         | 3,     |         |
+|86a3     | 1M6BMF |   |         |       |        |         | comput |         |
+|         | VHJVZX |   |         |       |        |         | e_iter |         |
+|         | C7AET3 |   |         |       |        |         | ations |         |
+|         | CFRE3A |   |         |       |        |         |  3,    |         |
+|         | V      |   |         |       |        |         | bytes_ |         |
+|         |        |   |         |       |        |         | in 3   |         |
+|grp_2fb3 | mode1  | 3 | 796524. | 0.130 | 741044 | 0       | comput | cv,missi|
+|5c44a8d0 | @      |   | 0       |       | .0..94 |         | e_ns   | ng      |
+|04e224ab | node_0 |   |         |       | 9755.0 |         | 3,     |         |
+|86a3     | 1M6GCK |   |         |       |        |         | comput |         |
+|         | N7PYT2 |   |         |       |        |         | e_iter |         |
+|         | J297BT |   |         |       |        |         | ations |         |
+|         | 241P43 |   |         |       |        |         |  3,    |         |
+|         | 6      |   |         |       |        |         | bytes_ |         |
+|         |        |   |         |       |        |         | in 3   |         |
+|grp_2fb3 | mode3  | 3 | 39122.0 | 0.046 | 36801. | 0       | comput | missing |
+|5c44a8d0 | @      |   |         |       | 0..402 |         | e_ns   |         |
+|04e224ab | node_0 |   |         |       | 78.0   |         | 3,     |         |
+|86a3     | 1M6BMF |   |         |       |        |         | comput |         |
+|         | VHJVZX |   |         |       |        |         | e_iter |         |
+|         | C7AET3 |   |         |       |        |         | ations |         |
+|         | CFRE3A |   |         |       |        |         |  3,    |         |
+|         | V      |   |         |       |        |         | bytes_ |         |
+|         |        |   |         |       |        |         | in 3   |         |
+|grp_2fb3 | mode1  | 3 | 559733. | 0.204 | 529708 | 1       | comput | cv,missi|
+|5c44a8d0 | @      |   | 0       |       | .0..76 |         | e_ns   | ng      |
+|04e224ab | node_0 |   |         |       | 0581.0 |         | 3,     |         |
+|86a3     | 1M6GGJ |   |         |       |        |         | comput |         |
+|         | P3FW5V |   |         |       |        |         | e_iter |         |
+|         | HBDFKY |   |         |       |        |         | ations |         |
+|         | Q6SF31 |   |         |       |        |         |  3,    |         |
+|         | 8      |   |         |       |        |         | bytes_ |         |
+|         |        |   |         |       |        |         | in 3   |         |
+|grp_2fb3 | mode1  | 3 | 821859. | 0.182 | 754646 | 0       | comput | cv,missi|
+|5c44a8d0 | @      |   | 0       |       | .0..10 |         | e_ns   | ng      |
+|04e224ab | node_0 |   |         |       | 59667. |         | 3,     |         |
+|86a3     | 1M79X8 |   |         |       | 0      |         | comput |         |
+|         | WTANK6 |   |         |       |        |         | e_iter |         |
+|         | 4QH74W |   |         |       |        |         | ations |         |
+|         | 9YMHBG |   |         |       |        |         |  3,    |         |
+|         | 5      |   |         |       |        |         | bytes_ |         |
+|         |        |   |         |       |        |         | in 3   |         |
+|grp_401d | mode1  | 3 | 107075. | 0.392 | 66282. | 0       | -      | cv      |
+|0bccad10 | @      |   | 0       |       | 0..151 |         |        |         |
+|8dc4a565 | node_0 |   |         |       | 092.0  |         |        |         |
+|7439     | 1M79X8 |   |         |       |        |         |        |         |
+|         | WTANK6 |   |         |       |        |         |        |         |
+|         | 4QH74W |   |         |       |        |         |        |         |
+|         | 9YMHBG |   |         |       |        |         |        |         |
+|         | 5      |   |         |       |        |         |        |         |
+|grp_401d | mode1  | 3 | 96149.0 | 0.226 | 64849. | 1       | -      | cv      |
+|0bccad10 | @      |   |         |       | 0..101 |         |        |         |
+|8dc4a565 | node_0 |   |         |       | 457.0  |         |        |         |
+|7439     | 1M6GGJ |   |         |       |        |         |        |         |
+|         | P3FW5V |   |         |       |        |         |        |         |
+|         | HBDFKY |   |         |       |        |         |        |         |
+|         | Q6SF31 |   |         |       |        |         |        |         |
+|         | 8      |   |         |       |        |         |        |         |
+|grp_401d | mode1  | 3 | 93824.0 | 0.144 | 73262. | 1       | -      | cv      |
+|0bccad10 | @      |   |         |       | 0..962 |         |        |         |
+|8dc4a565 | node_0 |   |         |       | 56.0   |         |        |         |
+|7439     | 1M6GCK |   |         |       |        |         |        |         |
+|         | N7PYT2 |   |         |       |        |         |        |         |
+|         | J297BT |   |         |       |        |         |        |         |
+|         | 241P43 |   |         |       |        |         |        |         |
+|         | 6      |   |         |       |        |         |        |         |
+|grp_425d | mode1  | 3 | 162531. | 0.223 | 109331 | 1       | -      | cv      |
+|2566236a | @      |   | 0       |       | .0..16 |         |        |         |
+|c9f4a46c | node_0 |   |         |       | 9257.0 |         |        |         |
+|b22d     | 1M79X8 |   |         |       |        |         |        |         |
+|         | WTANK6 |   |         |       |        |         |        |         |
+|         | 4QH74W |   |         |       |        |         |        |         |
+|         | 9YMHBG |   |         |       |        |         |        |         |
+|         | 5      |   |         |       |        |         |        |         |
+|grp_425d | mode1  | 3 | 102936. | 0.218 | 99232. | 1       | -      | cv      |
+|2566236a | @      |   | 0       |       | 0..144 |         |        |         |
+|c9f4a46c | node_0 |   |         |       | 681.0  |         |        |         |
+|b22d     | 1M6GGJ |   |         |       |        |         |        |         |
+|         | P3FW5V |   |         |       |        |         |        |         |
+|         | HBDFKY |   |         |       |        |         |        |         |
+|         | Q6SF31 |   |         |       |        |         |        |         |
+|         | 8      |   |         |       |        |         |        |         |
+|grp_425d | mode1  | 3 | 149379. | 0.178 | 108177 | 1       | -      | cv      |
+|2566236a | @      |   | 0       |       | .0..15 |         |        |         |
+|c9f4a46c | node_0 |   |         |       | 0737.0 |         |        |         |
+|b22d     | 1M6GCK |   |         |       |        |         |        |         |
+|         | N7PYT2 |   |         |       |        |         |        |         |
+|         | J297BT |   |         |       |        |         |        |         |
+|         | 241P43 |   |         |       |        |         |        |         |
+|         | 6      |   |         |       |        |         |        |         |
+|grp_575d | local  | 3 | 29050.0 | 0.878 | 28922. | 1       | comput | cv,missi|
+|e9a7d9c4 | @      |   |         |       | 0..118 |         | e_ns   | ng      |
+|34c009bb | node_0 |   |         |       | 280.0  |         | 3,     |         |
+|bc6b     | 1M6BMF |   |         |       |        |         | comput |         |
+|         | VHJVZX |   |         |       |        |         | e_iter |         |
+|         | C7AET3 |   |         |       |        |         | ations |         |
+|         | CFRE3A |   |         |       |        |         |  3,    |         |
+|         | V      |   |         |       |        |         | bytes_ |         |
+|         |        |   |         |       |        |         | in 3   |         |
+|grp_575d | mode3  | 3 | 34363.0 | 0.028 | 33919. | 0       | comput | missing |
+|e9a7d9c4 | @      |   |         |       | 0..357 |         | e_ns   |         |
+|34c009bb | node_0 |   |         |       | 84.0   |         | 3,     |         |
+|bc6b     | 1M6BMF |   |         |       |        |         | comput |         |
+|         | VHJVZX |   |         |       |        |         | e_iter |         |
+|         | C7AET3 |   |         |       |        |         | ations |         |
+|         | CFRE3A |   |         |       |        |         |  3,    |         |
+|         | V      |   |         |       |        |         | bytes_ |         |
+|         |        |   |         |       |        |         | in 3   |         |
+|grp_575d | mode1  | 3 | 598579. | 0.218 | 591838 | 1       | comput | cv,missi|
+|e9a7d9c4 | @      |   | 0       |       | .0..85 |         | e_ns   | ng      |
+|34c009bb | node_0 |   |         |       | 2744.0 |         | 3,     |         |
+|bc6b     | 1M6GCK |   |         |       |        |         | comput |         |
+|         | N7PYT2 |   |         |       |        |         | e_iter |         |
+|         | J297BT |   |         |       |        |         | ations |         |
+|         | 241P43 |   |         |       |        |         |  3,    |         |
+|         | 6      |   |         |       |        |         | bytes_ |         |
+|         |        |   |         |       |        |         | in 3   |         |
+|grp_575d | mode1  | 3 | 717711. | 0.373 | 422461 | 0       | comput | cv,missi|
+|e9a7d9c4 | @      |   | 0       |       | .0..93 |         | e_ns   | ng      |
+|34c009bb | node_0 |   |         |       | 6243.0 |         | 3,     |         |
+|bc6b     | 1M6GGJ |   |         |       |        |         | comput |         |
+|         | P3FW5V |   |         |       |        |         | e_iter |         |
+|         | HBDFKY |   |         |       |        |         | ations |         |
+|         | Q6SF31 |   |         |       |        |         |  3,    |         |
+|         | 8      |   |         |       |        |         | bytes_ |         |
+|         |        |   |         |       |        |         | in 3   |         |
+|grp_575d | mode1  | 3 | 645312. | 0.190 | 640503 | 1       | comput | cv,missi|
+|e9a7d9c4 | @      |   | 0       |       | .0..87 |         | e_ns   | ng      |
+|34c009bb | node_0 |   |         |       | 9925.0 |         | 3,     |         |
+|bc6b     | 1M79X8 |   |         |       |        |         | comput |         |
+|         | WTANK6 |   |         |       |        |         | e_iter |         |
+|         | 4QH74W |   |         |       |        |         | ations |         |
+|         | 9YMHBG |   |         |       |        |         |  3,    |         |
+|         | 5      |   |         |       |        |         | bytes_ |         |
+|         |        |   |         |       |        |         | in 3   |         |
+|grp_6d5e | mode1  | 3 | 88905.0 | 0.301 | 88652. | 1       | -      | cv      |
+|6acef413 | @      |   |         |       | 0..144 |         |        |         |
+|7031c66f | node_0 |   |         |       | 875.0  |         |        |         |
+|bfa2     | 1M79X8 |   |         |       |        |         |        |         |
+|         | WTANK6 |   |         |       |        |         |        |         |
+|         | 4QH74W |   |         |       |        |         |        |         |
+|         | 9YMHBG |   |         |       |        |         |        |         |
+|         | 5      |   |         |       |        |         |        |         |
+|grp_6d5e | mode1  | 3 | 114925. | 0.191 | 84678. | 0       | -      | cv      |
+|6acef413 | @      |   | 0       |       | 0..123 |         |        |         |
+|7031c66f | node_0 |   |         |       | 984.0  |         |        |         |
+|bfa2     | 1M6GGJ |   |         |       |        |         |        |         |
+|         | P3FW5V |   |         |       |        |         |        |         |
+|         | HBDFKY |   |         |       |        |         |        |         |
+|         | Q6SF31 |   |         |       |        |         |        |         |
+|         | 8      |   |         |       |        |         |        |         |
+|grp_6d5e | mode1  | 3 | 133114. | 0.105 | 111824 | 1       | -      | cv      |
+|6acef413 | @      |   | 0       |       | .0..13 |         |        |         |
+|7031c66f | node_0 |   |         |       | 6253.0 |         |        |         |
+|bfa2     | 1M6GCK |   |         |       |        |         |        |         |
+|         | N7PYT2 |   |         |       |        |         |        |         |
+|         | J297BT |   |         |       |        |         |        |         |
+|         | 241P43 |   |         |       |        |         |        |         |
+|         | 6      |   |         |       |        |         |        |         |
+|grp_79dd | mode1  | 3 | 748497. | 0.182 | 745547 | 1       | comput | cv,missi|
+|4f29aab0 | @      |   | 0       |       | .0..10 |         | e_ns   | ng      |
+|e4f5880b | node_0 |   |         |       | 10550. |         | 3,     |         |
+|af68     | 1M79X8 |   |         |       | 0      |         | comput |         |
+|         | WTANK6 |   |         |       |        |         | e_iter |         |
+|         | 4QH74W |   |         |       |        |         | ations |         |
+|         | 9YMHBG |   |         |       |        |         |  3,    |         |
+|         | 5      |   |         |       |        |         | bytes_ |         |
+|         |        |   |         |       |        |         | in 3   |         |
+|grp_79dd | mode3  | 3 | 38423.0 | 0.050 | 35266. | 1       | comput | missing |
+|4f29aab0 | @      |   |         |       | 0..385 |         | e_ns   |         |
+|e4f5880b | node_0 |   |         |       | 87.0   |         | 3,     |         |
+|af68     | 1M6BMF |   |         |       |        |         | comput |         |
+|         | VHJVZX |   |         |       |        |         | e_iter |         |
+|         | C7AET3 |   |         |       |        |         | ations |         |
+|         | CFRE3A |   |         |       |        |         |  3,    |         |
+|         | V      |   |         |       |        |         | bytes_ |         |
+|         |        |   |         |       |        |         | in 3   |         |
+|grp_79dd | mode1  | 3 | 492232. | 0.526 | 488721 | 1       | comput | cv,missi|
+|4f29aab0 | @      |   | 0       |       | .0..11 |         | e_ns   | ng      |
+|e4f5880b | node_0 |   |         |       | 32435. |         | 3,     |         |
+|af68     | 1M6GGJ |   |         |       | 0      |         | comput |         |
+|         | P3FW5V |   |         |       |        |         | e_iter |         |
+|         | HBDFKY |   |         |       |        |         | ations |         |
+|         | Q6SF31 |   |         |       |        |         |  3,    |         |
+|         | 8      |   |         |       |        |         | bytes_ |         |
+|         |        |   |         |       |        |         | in 3   |         |
+|grp_79dd | mode1  | 3 | 682797. | 0.147 | 682464 | 1       | comput | cv,missi|
+|4f29aab0 | @      |   | 0       |       | .0..87 |         | e_ns   | ng      |
+|e4f5880b | node_0 |   |         |       | 3211.0 |         | 3,     |         |
+|af68     | 1M6GCK |   |         |       |        |         | comput |         |
+|         | N7PYT2 |   |         |       |        |         | e_iter |         |
+|         | J297BT |   |         |       |        |         | ations |         |
+|         | 241P43 |   |         |       |        |         |  3,    |         |
+|         | 6      |   |         |       |        |         | bytes_ |         |
+|         |        |   |         |       |        |         | in 3   |         |
+|grp_79dd | local  | 3 | 34208.0 | 0.881 | 33827. | 1       | comput | cv,missi|
+|4f29aab0 | @      |   |         |       | 0..139 |         | e_ns   | ng      |
+|e4f5880b | node_0 |   |         |       | 738.0  |         | 3,     |         |
+|af68     | 1M6BMF |   |         |       |        |         | comput |         |
+|         | VHJVZX |   |         |       |        |         | e_iter |         |
+|         | C7AET3 |   |         |       |        |         | ations |         |
+|         | CFRE3A |   |         |       |        |         |  3,    |         |
+|         | V      |   |         |       |        |         | bytes_ |         |
+|         |        |   |         |       |        |         | in 3   |         |
+|grp_7cab | mode3  | 3 | 28106.0 | 0.031 | 27033. | 0       | comput | missing |
+|aa1068f7 | @      |   |         |       | 0..287 |         | e_ns   |         |
+|57599878 | node_0 |   |         |       | 35.0   |         | 3,     |         |
+|481e     | 1M6BMF |   |         |       |        |         | comput |         |
+|         | VHJVZX |   |         |       |        |         | e_iter |         |
+|         | C7AET3 |   |         |       |        |         | ations |         |
+|         | CFRE3A |   |         |       |        |         |  3,    |         |
+|         | V      |   |         |       |        |         | bytes_ |         |
+|         |        |   |         |       |        |         | in 3   |         |
+|grp_7cab | mode1  | 3 | 592377. | 0.369 | 366331 | 0       | comput | cv,missi|
+|aa1068f7 | @      |   | 0       |       | .0..79 |         | e_ns   | ng      |
+|57599878 | node_0 |   |         |       | 8336.0 |         | 3,     |         |
+|481e     | 1M6GGJ |   |         |       |        |         | comput |         |
+|         | P3FW5V |   |         |       |        |         | e_iter |         |
+|         | HBDFKY |   |         |       |        |         | ations |         |
+|         | Q6SF31 |   |         |       |        |         |  3,    |         |
+|         | 8      |   |         |       |        |         | bytes_ |         |
+|         |        |   |         |       |        |         | in 3   |         |
+|grp_7cab | mode1  | 3 | 506119. | 0.165 | 499662 | 1       | comput | cv,missi|
+|aa1068f7 | @      |   | 0       |       | .0..66 |         | e_ns   | ng      |
+|57599878 | node_0 |   |         |       | 1180.0 |         | 3,     |         |
+|481e     | 1M6GCK |   |         |       |        |         | comput |         |
+|         | N7PYT2 |   |         |       |        |         | e_iter |         |
+|         | J297BT |   |         |       |        |         | ations |         |
+|         | 241P43 |   |         |       |        |         |  3,    |         |
+|         | 6      |   |         |       |        |         | bytes_ |         |
+|         |        |   |         |       |        |         | in 3   |         |
+|grp_7cab | local  | 3 | 25068.0 | 0.763 | 24243. | 1       | comput | cv,missi|
+|aa1068f7 | @      |   |         |       | 0..828 |         | e_ns   | ng      |
+|57599878 | node_0 |   |         |       | 93.0   |         | 3,     |         |
+|481e     | 1M6BMF |   |         |       |        |         | comput |         |
+|         | VHJVZX |   |         |       |        |         | e_iter |         |
+|         | C7AET3 |   |         |       |        |         | ations |         |
+|         | CFRE3A |   |         |       |        |         |  3,    |         |
+|         | V      |   |         |       |        |         | bytes_ |         |
+|         |        |   |         |       |        |         | in 3   |         |
+|grp_7cab | mode1  | 3 | 551240. | 0.217 | 539024 | 1       | comput | cv,missi|
+|aa1068f7 | @      |   | 0       |       | .0..77 |         | e_ns   | ng      |
+|57599878 | node_0 |   |         |       | 9343.0 |         | 3,     |         |
+|481e     | 1M79X8 |   |         |       |        |         | comput |         |
+|         | WTANK6 |   |         |       |        |         | e_iter |         |
+|         | 4QH74W |   |         |       |        |         | ations |         |
+|         | 9YMHBG |   |         |       |        |         |  3,    |         |
+|         | 5      |   |         |       |        |         | bytes_ |         |
+|         |        |   |         |       |        |         | in 3   |         |
+|grp_7d93 | mode1  | 3 | 1088762 | 0.371 | 671683 | 0       | comput | cv,missi|
+|b0072cdf | @      |   | .0      |       | .0..14 |         | e_ns   | ng      |
+|ea55fd3b | node_0 |   |         |       | 70892. |         | 3,     |         |
+|adcc     | 1M6GGJ |   |         |       | 0      |         | comput |         |
+|         | P3FW5V |   |         |       |        |         | e_iter |         |
+|         | HBDFKY |   |         |       |        |         | ations |         |
+|         | Q6SF31 |   |         |       |        |         |  3,    |         |
+|         | 8      |   |         |       |        |         | bytes_ |         |
+|         |        |   |         |       |        |         | in 3   |         |
+|grp_7d93 | mode1  | 3 | 924607. | 0.141 | 923853 | 1       | comput | cv,missi|
+|b0072cdf | @      |   | 0       |       | .0..11 |         | e_ns   | ng      |
+|ea55fd3b | node_0 |   |         |       | 70134. |         | 3,     |         |
+|adcc     | 1M6GCK |   |         |       | 0      |         | comput |         |
+|         | N7PYT2 |   |         |       |        |         | e_iter |         |
+|         | J297BT |   |         |       |        |         | ations |         |
+|         | 241P43 |   |         |       |        |         |  3,    |         |
+|         | 6      |   |         |       |        |         | bytes_ |         |
+|         |        |   |         |       |        |         | in 3   |         |
+|grp_7d93 | mode1  | 3 | 965637. | 0.198 | 935198 | 1       | comput | cv,missi|
+|b0072cdf | @      |   | 0       |       | .0..13 |         | e_ns   | ng      |
+|ea55fd3b | node_0 |   |         |       | 16366. |         | 3,     |         |
+|adcc     | 1M79X8 |   |         |       | 0      |         | comput |         |
+|         | WTANK6 |   |         |       |        |         | e_iter |         |
+|         | 4QH74W |   |         |       |        |         | ations |         |
+|         | 9YMHBG |   |         |       |        |         |  3,    |         |
+|         | 5      |   |         |       |        |         | bytes_ |         |
+|         |        |   |         |       |        |         | in 3   |         |
+|grp_7d93 | mode3  | 3 | 48288.0 | 0.036 | 46546. | 0       | comput | missing |
+|b0072cdf | @      |   |         |       | 0..500 |         | e_ns   |         |
+|ea55fd3b | node_0 |   |         |       | 04.0   |         | 3,     |         |
+|adcc     | 1M6BMF |   |         |       |        |         | comput |         |
+|         | VHJVZX |   |         |       |        |         | e_iter |         |
+|         | C7AET3 |   |         |       |        |         | ations |         |
+|         | CFRE3A |   |         |       |        |         |  3,    |         |
+|         | V      |   |         |       |        |         | bytes_ |         |
+|         |        |   |         |       |        |         | in 3   |         |
+|grp_7d93 | local  | 3 | 44800.0 | 0.928 | 43338. | 1       | comput | cv,missi|
+|b0072cdf | @      |   |         |       | 0..196 |         | e_ns   | ng      |
+|ea55fd3b | node_0 |   |         |       | 609.0  |         | 3,     |         |
+|adcc     | 1M6BMF |   |         |       |        |         | comput |         |
+|         | VHJVZX |   |         |       |        |         | e_iter |         |
+|         | C7AET3 |   |         |       |        |         | ations |         |
+|         | CFRE3A |   |         |       |        |         |  3,    |         |
+|         | V      |   |         |       |        |         | bytes_ |         |
+|         |        |   |         |       |        |         | in 3   |         |
+|grp_7ea3 | mode1  | 3 | 145179. | 0.229 | 99052. | 0       | -      | cv      |
+|aa5ecceb | @      |   | 0       |       | 0..157 |         |        |         |
+|6c17c57e | node_0 |   |         |       | 159.0  |         |        |         |
+|cf55     | 1M79X8 |   |         |       |        |         |        |         |
+|         | WTANK6 |   |         |       |        |         |        |         |
+|         | 4QH74W |   |         |       |        |         |        |         |
+|         | 9YMHBG |   |         |       |        |         |        |         |
+|         | 5      |   |         |       |        |         |        |         |
+|grp_7ea3 | mode1  | 3 | 88970.0 | 0.195 | 88767. | 1       | -      | cv      |
+|aa5ecceb | @      |   |         |       | 0..122 |         |        |         |
+|6c17c57e | node_0 |   |         |       | 763.0  |         |        |         |
+|cf55     | 1M6GGJ |   |         |       |        |         |        |         |
+|         | P3FW5V |   |         |       |        |         |        |         |
+|         | HBDFKY |   |         |       |        |         |        |         |
+|         | Q6SF31 |   |         |       |        |         |        |         |
+|         | 8      |   |         |       |        |         |        |         |
+|grp_7ea3 | mode1  | 3 | 115990. | 0.203 | 95029. | 0       | -      | cv      |
+|aa5ecceb | @      |   | 0       |       | 0..142 |         |        |         |
+|6c17c57e | node_0 |   |         |       | 774.0  |         |        |         |
+|cf55     | 1M6GCK |   |         |       |        |         |        |         |
+|         | N7PYT2 |   |         |       |        |         |        |         |
+|         | J297BT |   |         |       |        |         |        |         |
+|         | 241P43 |   |         |       |        |         |        |         |
+|         | 6      |   |         |       |        |         |        |         |
+|grp_8214 | mode1  | 3 | 86904.0 | 0.362 | 42856. | 1       | -      | cv      |
+|0a814571 | @      |   |         |       | 0..908 |         |        |         |
+|9ea15c27 | node_0 |   |         |       | 31.0   |         |        |         |
+|c141     | 1M6GCK |   |         |       |        |         |        |         |
+|         | N7PYT2 |   |         |       |        |         |        |         |
+|         | J297BT |   |         |       |        |         |        |         |
+|         | 241P43 |   |         |       |        |         |        |         |
+|         | 6      |   |         |       |        |         |        |         |
+|grp_8214 | mode1  | 3 | 41493.0 | 0.427 | 38749. | 1       | -      | cv      |
+|0a814571 | @      |   |         |       | 0..793 |         |        |         |
+|9ea15c27 | node_0 |   |         |       | 61.0   |         |        |         |
+|c141     | 1M6GGJ |   |         |       |        |         |        |         |
+|         | P3FW5V |   |         |       |        |         |        |         |
+|         | HBDFKY |   |         |       |        |         |        |         |
+|         | Q6SF31 |   |         |       |        |         |        |         |
+|         | 8      |   |         |       |        |         |        |         |
+|grp_82fc | mode3  | 3 | 31302.0 | 0.013 | 30797. | 0       | comput | missing |
+|6392a560 | @      |   |         |       | 0..315 |         | e_ns   |         |
+|91aafaa3 | node_0 |   |         |       | 92.0   |         | 3,     |         |
+|8661     | 1M6BMF |   |         |       |        |         | comput |         |
+|         | VHJVZX |   |         |       |        |         | e_iter |         |
+|         | C7AET3 |   |         |       |        |         | ations |         |
+|         | CFRE3A |   |         |       |        |         |  3,    |         |
+|         | V      |   |         |       |        |         | bytes_ |         |
+|         |        |   |         |       |        |         | in 3   |         |
+|grp_82fc | mode1  | 3 | 395888. | 0.308 | 391442 | 1       | comput | cv,missi|
+|6392a560 | @      |   | 0       |       | .0..64 |         | e_ns   | ng      |
+|91aafaa3 | node_0 |   |         |       | 9389.0 |         | 3,     |         |
+|8661     | 1M6GGJ |   |         |       |        |         | comput |         |
+|         | P3FW5V |   |         |       |        |         | e_iter |         |
+|         | HBDFKY |   |         |       |        |         | ations |         |
+|         | Q6SF31 |   |         |       |        |         |  3,    |         |
+|         | 8      |   |         |       |        |         | bytes_ |         |
+|         |        |   |         |       |        |         | in 3   |         |
+|grp_82fc | local  | 3 | 28598.0 | 1.003 | 27938. | 1       | comput | cv,missi|
+|6392a560 | @      |   |         |       | 0..145 |         | e_ns   | ng      |
+|91aafaa3 | node_0 |   |         |       | 019.0  |         | 3,     |         |
+|8661     | 1M6BMF |   |         |       |        |         | comput |         |
+|         | VHJVZX |   |         |       |        |         | e_iter |         |
+|         | C7AET3 |   |         |       |        |         | ations |         |
+|         | CFRE3A |   |         |       |        |         |  3,    |         |
+|         | V      |   |         |       |        |         | bytes_ |         |
+|         |        |   |         |       |        |         | in 3   |         |
+|grp_82fc | mode1  | 3 | 539234. | 0.015 | 538714 | 1       | comput | missing |
+|6392a560 | @      |   | 0       |       | .0..55 |         | e_ns   |         |
+|91aafaa3 | node_0 |   |         |       | 3468.0 |         | 3,     |         |
+|8661     | 1M6GCK |   |         |       |        |         | comput |         |
+|         | N7PYT2 |   |         |       |        |         | e_iter |         |
+|         | J297BT |   |         |       |        |         | ations |         |
+|         | 241P43 |   |         |       |        |         |  3,    |         |
+|         | 6      |   |         |       |        |         | bytes_ |         |
+|         |        |   |         |       |        |         | in 3   |         |
+|grp_82fc | mode1  | 3 | 621665. | 0.187 | 618303 | 1       | comput | cv,missi|
+|6392a560 | @      |   | 0       |       | .0..84 |         | e_ns   | ng      |
+|91aafaa3 | node_0 |   |         |       | 5649.0 |         | 3,     |         |
+|8661     | 1M79X8 |   |         |       |        |         | comput |         |
+|         | WTANK6 |   |         |       |        |         | e_iter |         |
+|         | 4QH74W |   |         |       |        |         | ations |         |
+|         | 9YMHBG |   |         |       |        |         |  3,    |         |
+|         | 5      |   |         |       |        |         | bytes_ |         |
+|         |        |   |         |       |        |         | in 3   |         |
+|grp_ab92 | mode1  | 3 | 114046. | 0.197 | 84206. | 0       | -      | cv      |
+|a621c141 | @      |   | 0       |       | 0..125 |         |        |         |
+|9ddd2db5 | node_0 |   |         |       | 230.0  |         |        |         |
+|2737     | 1M6GCK |   |         |       |        |         |        |         |
+|         | N7PYT2 |   |         |       |        |         |        |         |
+|         | J297BT |   |         |       |        |         |        |         |
+|         | 241P43 |   |         |       |        |         |        |         |
+|         | 6      |   |         |       |        |         |        |         |
+|grp_ab92 | mode1  | 3 | 130318. | 0.256 | 81662. | 1       | -      | cv      |
+|a621c141 | @      |   | 0       |       | 0..135 |         |        |         |
+|9ddd2db5 | node_0 |   |         |       | 241.0  |         |        |         |
+|2737     | 1M79X8 |   |         |       |        |         |        |         |
+|         | WTANK6 |   |         |       |        |         |        |         |
+|         | 4QH74W |   |         |       |        |         |        |         |
+|         | 9YMHBG |   |         |       |        |         |        |         |
+|         | 5      |   |         |       |        |         |        |         |
+|grp_ab92 | mode1  | 3 | 134702. | 0.282 | 81319. | 1       | -      | cv      |
+|a621c141 | @      |   | 0       |       | 0..143 |         |        |         |
+|9ddd2db5 | node_0 |   |         |       | 872.0  |         |        |         |
+|2737     | 1M6GGJ |   |         |       |        |         |        |         |
+|         | P3FW5V |   |         |       |        |         |        |         |
+|         | HBDFKY |   |         |       |        |         |        |         |
+|         | Q6SF31 |   |         |       |        |         |        |         |
+|         | 8      |   |         |       |        |         |        |         |
+|grp_b287 | mode1  | 3 | 104503. | 0.299 | 100789 | 1       | -      | cv      |
+|d23d3b9e | @      |   | 0       |       | .0..16 |         |        |         |
+|8453a1c1 | node_0 |   |         |       | 6839.0 |         |        |         |
+|6ea2     | 1M79X8 |   |         |       |        |         |        |         |
+|         | WTANK6 |   |         |       |        |         |        |         |
+|         | 4QH74W |   |         |       |        |         |        |         |
+|         | 9YMHBG |   |         |       |        |         |        |         |
+|         | 5      |   |         |       |        |         |        |         |
+|grp_b287 | mode1  | 3 | 147515. | 0.174 | 110058 | 1       | -      | cv      |
+|d23d3b9e | @      |   | 0       |       | .0..15 |         |        |         |
+|8453a1c1 | node_0 |   |         |       | 4404.0 |         |        |         |
+|6ea2     | 1M6GCK |   |         |       |        |         |        |         |
+|         | N7PYT2 |   |         |       |        |         |        |         |
+|         | J297BT |   |         |       |        |         |        |         |
+|         | 241P43 |   |         |       |        |         |        |         |
+|         | 6      |   |         |       |        |         |        |         |
+|grp_baa9 | mode3  | 3 | 25849.0 | 0.006 | 25810. | 1       | comput | missing |
+|ce59225a | @      |   |         |       | 0..260 |         | e_ns   |         |
+|e340c889 | node_0 |   |         |       | 94.0   |         | 3,     |         |
+|86ad     | 1M6BMF |   |         |       |        |         | comput |         |
+|         | VHJVZX |   |         |       |        |         | e_iter |         |
+|         | C7AET3 |   |         |       |        |         | ations |         |
+|         | CFRE3A |   |         |       |        |         |  3,    |         |
+|         | V      |   |         |       |        |         | bytes_ |         |
+|         |        |   |         |       |        |         | in 3   |         |
+|grp_baa9 | mode1  | 3 | 334623. | 0.496 | 332663 | 1       | comput | cv,missi|
+|ce59225a | @      |   | 0       |       | .0..73 |         | e_ns   | ng      |
+|e340c889 | node_0 |   |         |       | 5384.0 |         | 3,     |         |
+|86ad     | 1M6GGJ |   |         |       |        |         | comput |         |
+|         | P3FW5V |   |         |       |        |         | e_iter |         |
+|         | HBDFKY |   |         |       |        |         | ations |         |
+|         | Q6SF31 |   |         |       |        |         |  3,    |         |
+|         | 8      |   |         |       |        |         | bytes_ |         |
+|         |        |   |         |       |        |         | in 3   |         |
+|grp_baa9 | mode1  | 3 | 478732. | 0.210 | 460006 | 1       | comput | cv,missi|
+|ce59225a | @      |   | 0       |       | .0..66 |         | e_ns   | ng      |
+|e340c889 | node_0 |   |         |       | 2952.0 |         | 3,     |         |
+|86ad     | 1M79X8 |   |         |       |        |         | comput |         |
+|         | WTANK6 |   |         |       |        |         | e_iter |         |
+|         | 4QH74W |   |         |       |        |         | ations |         |
+|         | 9YMHBG |   |         |       |        |         |  3,    |         |
+|         | 5      |   |         |       |        |         | bytes_ |         |
+|         |        |   |         |       |        |         | in 3   |         |
+|grp_baa9 | local  | 3 | 23804.0 | 0.816 | 22928. | 1       | comput | cv,missi|
+|ce59225a | @      |   |         |       | 0..857 |         | e_ns   | ng      |
+|e340c889 | node_0 |   |         |       | 75.0   |         | 3,     |         |
+|86ad     | 1M6BMF |   |         |       |        |         | comput |         |
+|         | VHJVZX |   |         |       |        |         | e_iter |         |
+|         | C7AET3 |   |         |       |        |         | ations |         |
+|         | CFRE3A |   |         |       |        |         |  3,    |         |
+|         | V      |   |         |       |        |         | bytes_ |         |
+|         |        |   |         |       |        |         | in 3   |         |
+|grp_baa9 | mode1  | 3 | 445181. | 0.131 | 354738 | 1       | comput | cv,missi|
+|ce59225a | @      |   | 0       |       | .0..45 |         | e_ns   | ng      |
+|e340c889 | node_0 |   |         |       | 3058.0 |         | 3,     |         |
+|86ad     | 1M6GCK |   |         |       |        |         | comput |         |
+|         | N7PYT2 |   |         |       |        |         | e_iter |         |
+|         | J297BT |   |         |       |        |         | ations |         |
+|         | 241P43 |   |         |       |        |         |  3,    |         |
+|         | 6      |   |         |       |        |         | bytes_ |         |
+|         |        |   |         |       |        |         | in 3   |         |
+|grp_bac2 | mode1  | 3 | 404933. | 0.171 | 400058 | 1       | comput | cv,missi|
+|66e7d4ff | @      |   | 0       |       | .0..53 |         | e_ns   | ng      |
+|84e200ad | node_0 |   |         |       | 4972.0 |         | 3,     |         |
+|b159     | 1M6GCK |   |         |       |        |         | comput |         |
+|         | N7PYT2 |   |         |       |        |         | e_iter |         |
+|         | J297BT |   |         |       |        |         | ations |         |
+|         | 241P43 |   |         |       |        |         |  3,    |         |
+|         | 6      |   |         |       |        |         | bytes_ |         |
+|         |        |   |         |       |        |         | in 3   |         |
+|grp_bac2 | mode1  | 3 | 499479. | 0.380 | 294004 | 0       | comput | cv,missi|
+|66e7d4ff | @      |   | 0       |       | .0..66 |         | e_ns   | ng      |
+|84e200ad | node_0 |   |         |       | 1789.0 |         | 3,     |         |
+|b159     | 1M6GGJ |   |         |       |        |         | comput |         |
+|         | P3FW5V |   |         |       |        |         | e_iter |         |
+|         | HBDFKY |   |         |       |        |         | ations |         |
+|         | Q6SF31 |   |         |       |        |         |  3,    |         |
+|         | 8      |   |         |       |        |         | bytes_ |         |
+|         |        |   |         |       |        |         | in 3   |         |
+|grp_bac2 | mode1  | 3 | 452518. | 0.051 | 417217 | 1       | comput | missing |
+|66e7d4ff | @      |   | 0       |       | .0..45 |         | e_ns   |         |
+|84e200ad | node_0 |   |         |       | 9219.0 |         | 3,     |         |
+|b159     | 1M79X8 |   |         |       |        |         | comput |         |
+|         | WTANK6 |   |         |       |        |         | e_iter |         |
+|         | 4QH74W |   |         |       |        |         | ations |         |
+|         | 9YMHBG |   |         |       |        |         |  3,    |         |
+|         | 5      |   |         |       |        |         | bytes_ |         |
+|         |        |   |         |       |        |         | in 3   |         |
+|grp_bac2 | local  | 3 | 20384.0 | 0.715 | 20379. | 1       | comput | cv,missi|
+|66e7d4ff | @      |   |         |       | 0..634 |         | e_ns   | ng      |
+|84e200ad | node_0 |   |         |       | 11.0   |         | 3,     |         |
+|b159     | 1M6BMF |   |         |       |        |         | comput |         |
+|         | VHJVZX |   |         |       |        |         | e_iter |         |
+|         | C7AET3 |   |         |       |        |         | ations |         |
+|         | CFRE3A |   |         |       |        |         |  3,    |         |
+|         | V      |   |         |       |        |         | bytes_ |         |
+|         |        |   |         |       |        |         | in 3   |         |
+|grp_bac2 | mode3  | 3 | 24175.0 | 0.022 | 23297. | 1       | comput | missing |
+|66e7d4ff | @      |   |         |       | 0..242 |         | e_ns   |         |
+|84e200ad | node_0 |   |         |       | 00.0   |         | 3,     |         |
+|b159     | 1M6BMF |   |         |       |        |         | comput |         |
+|         | VHJVZX |   |         |       |        |         | e_iter |         |
+|         | C7AET3 |   |         |       |        |         | ations |         |
+|         | CFRE3A |   |         |       |        |         |  3,    |         |
+|         | V      |   |         |       |        |         | bytes_ |         |
+|         |        |   |         |       |        |         | in 3   |         |
+|grp_be5e | mode1  | 3 | 854757. | 0.185 | 837694 | 1       | comput | cv,missi|
+|7ed62822 | @      |   | 0       |       | .0..11 |         | e_ns   | ng      |
+|96a44667 | node_0 |   |         |       | 49106. |         | 3,     |         |
+|e1b4     | 1M79X8 |   |         |       | 0      |         | comput |         |
+|         | WTANK6 |   |         |       |        |         | e_iter |         |
+|         | 4QH74W |   |         |       |        |         | ations |         |
+|         | 9YMHBG |   |         |       |        |         |  3,    |         |
+|         | 5      |   |         |       |        |         | bytes_ |         |
+|         |        |   |         |       |        |         | in 3   |         |
+|grp_be5e | local  | 3 | 37579.0 | 0.884 | 36948. | 1       | comput | cv,missi|
+|7ed62822 | @      |   |         |       | 0..153 |         | e_ns   | ng      |
+|96a44667 | node_0 |   |         |       | 850.0  |         | 3,     |         |
+|e1b4     | 1M6BMF |   |         |       |        |         | comput |         |
+|         | VHJVZX |   |         |       |        |         | e_iter |         |
+|         | C7AET3 |   |         |       |        |         | ations |         |
+|         | CFRE3A |   |         |       |        |         |  3,    |         |
+|         | V      |   |         |       |        |         | bytes_ |         |
+|         |        |   |         |       |        |         | in 3   |         |
+|grp_be5e | mode1  | 3 | 565171. | 0.320 | 555327 | 1       | comput | cv,missi|
+|7ed62822 | @      |   | 0       |       | .0..94 |         | e_ns   | ng      |
+|96a44667 | node_0 |   |         |       | 1550.0 |         | 3,     |         |
+|e1b4     | 1M6GGJ |   |         |       |        |         | comput |         |
+|         | P3FW5V |   |         |       |        |         | e_iter |         |
+|         | HBDFKY |   |         |       |        |         | ations |         |
+|         | Q6SF31 |   |         |       |        |         |  3,    |         |
+|         | 8      |   |         |       |        |         | bytes_ |         |
+|         |        |   |         |       |        |         | in 3   |         |
+|grp_be5e | mode3  | 3 | 42650.0 | 0.046 | 39578. | 1       | comput | missing |
+|7ed62822 | @      |   |         |       | 0..430 |         | e_ns   |         |
+|96a44667 | node_0 |   |         |       | 61.0   |         | 3,     |         |
+|e1b4     | 1M6BMF |   |         |       |        |         | comput |         |
+|         | VHJVZX |   |         |       |        |         | e_iter |         |
+|         | C7AET3 |   |         |       |        |         | ations |         |
+|         | CFRE3A |   |         |       |        |         |  3,    |         |
+|         | V      |   |         |       |        |         | bytes_ |         |
+|         |        |   |         |       |        |         | in 3   |         |
+|grp_be5e | mode1  | 3 | 802439. | 0.149 | 781748 | 1       | comput | cv,missi|
+|7ed62822 | @      |   | 0       |       | .0..10 |         | e_ns   | ng      |
+|96a44667 | node_0 |   |         |       | 14247. |         | 3,     |         |
+|e1b4     | 1M6GCK |   |         |       | 0      |         | comput |         |
+|         | N7PYT2 |   |         |       |        |         | e_iter |         |
+|         | J297BT |   |         |       |        |         | ations |         |
+|         | 241P43 |   |         |       |        |         |  3,    |         |
+|         | 6      |   |         |       |        |         | bytes_ |         |
+|         |        |   |         |       |        |         | in 3   |         |
+|grp_bebf | mode1  | 3 | 55558.0 | 0.347 | 54718. | 1       | -      | cv      |
+|8a8829fd | @      |   |         |       | 0..965 |         |        |         |
+|37c54fbb | node_0 |   |         |       | 06.0   |         |        |         |
+|c8b0     | 1M6GCK |   |         |       |        |         |        |         |
+|         | N7PYT2 |   |         |       |        |         |        |         |
+|         | J297BT |   |         |       |        |         |        |         |
+|         | 241P43 |   |         |       |        |         |        |         |
+|         | 6      |   |         |       |        |         |        |         |
+|grp_bebf | mode1  | 3 | 62728.0 | 0.432 | 56639. | 1       | -      | cv      |
+|8a8829fd | @      |   |         |       | 0..118 |         |        |         |
+|37c54fbb | node_0 |   |         |       | 823.0  |         |        |         |
+|c8b0     | 1M79X8 |   |         |       |        |         |        |         |
+|         | WTANK6 |   |         |       |        |         |        |         |
+|         | 4QH74W |   |         |       |        |         |        |         |
+|         | 9YMHBG |   |         |       |        |         |        |         |
+|         | 5      |   |         |       |        |         |        |         |
+|grp_c90a | mode1  | 3 | 71924.0 | 0.558 | 71519. | 1       | -      | cv      |
+|e0d383e3 | @      |   |         |       | 0..174 |         |        |         |
+|b84c3713 | node_0 |   |         |       | 043.0  |         |        |         |
+|3054     | 1M79X8 |   |         |       |        |         |        |         |
+|         | WTANK6 |   |         |       |        |         |        |         |
+|         | 4QH74W |   |         |       |        |         |        |         |
+|         | 9YMHBG |   |         |       |        |         |        |         |
+|         | 5      |   |         |       |        |         |        |         |
+|grp_c90a | mode1  | 3 | 73117.0 | 0.246 | 71756. | 1       | -      | cv      |
+|e0d383e3 | @      |   |         |       | 0..108 |         |        |         |
+|b84c3713 | node_0 |   |         |       | 348.0  |         |        |         |
+|3054     | 1M6GCK |   |         |       |        |         |        |         |
+|         | N7PYT2 |   |         |       |        |         |        |         |
+|         | J297BT |   |         |       |        |         |        |         |
+|         | 241P43 |   |         |       |        |         |        |         |
+|         | 6      |   |         |       |        |         |        |         |
+|grp_c90a | mode1  | 3 | 113386. | 0.284 | 67050. | 1       | -      | cv      |
+|e0d383e3 | @      |   | 0       |       | 0..118 |         |        |         |
+|b84c3713 | node_0 |   |         |       | 441.0  |         |        |         |
+|3054     | 1M6GGJ |   |         |       |        |         |        |         |
+|         | P3FW5V |   |         |       |        |         |        |         |
+|         | HBDFKY |   |         |       |        |         |        |         |
+|         | Q6SF31 |   |         |       |        |         |        |         |
+|         | 8      |   |         |       |        |         |        |         |
+|grp_e7eb | mode1  | 3 | 104348. | 0.374 | 53504. | 0       | -      | cv      |
+|a4ae39d5 | @      |   | 0       |       | 0..119 |         |        |         |
+|eccfe866 | node_0 |   |         |       | 646.0  |         |        |         |
+|5bc0     | 1M6GGJ |   |         |       |        |         |        |         |
+|         | P3FW5V |   |         |       |        |         |        |         |
+|         | HBDFKY |   |         |       |        |         |        |         |
+|         | Q6SF31 |   |         |       |        |         |        |         |
+|         | 8      |   |         |       |        |         |        |         |
+|grp_e7eb | mode1  | 3 | 72668.0 | 0.224 | 63493. | 0       | -      | cv      |
+|a4ae39d5 | @      |   |         |       | 0..971 |         |        |         |
+|eccfe866 | node_0 |   |         |       | 38.0   |         |        |         |
+|5bc0     | 1M79X8 |   |         |       |        |         |        |         |
+|         | WTANK6 |   |         |       |        |         |        |         |
+|         | 4QH74W |   |         |       |        |         |        |         |
+|         | 9YMHBG |   |         |       |        |         |        |         |
+|         | 5      |   |         |       |        |         |        |         |
+|grp_e7eb | mode1  | 3 | 61553.0 | 0.185 | 60278. | 1       | -      | cv      |
+|a4ae39d5 | @      |   |         |       | 0..828 |         |        |         |
+|eccfe866 | node_0 |   |         |       | 00.0   |         |        |         |
+|5bc0     | 1M6GCK |   |         |       |        |         |        |         |
+|         | N7PYT2 |   |         |       |        |         |        |         |
+|         | J297BT |   |         |       |        |         |        |         |
+|         | 241P43 |   |         |       |        |         |        |         |
+|         | 6      |   |         |       |        |         |        |         |
+|grp_eba9 | mode3  | 3 | 43779.0 | 0.052 | 41520. | 0       | comput | missing |
+|f9d54f38 | @      |   |         |       | 0..460 |         | e_ns   |         |
+|c8feb943 | node_0 |   |         |       | 87.0   |         | 3,     |         |
+|d94c     | 1M6BMF |   |         |       |        |         | comput |         |
+|         | VHJVZX |   |         |       |        |         | e_iter |         |
+|         | C7AET3 |   |         |       |        |         | ations |         |
+|         | CFRE3A |   |         |       |        |         |  3,    |         |
+|         | V      |   |         |       |        |         | bytes_ |         |
+|         |        |   |         |       |        |         | in 3   |         |
+|grp_eba9 | mode1  | 3 | 943199. | 0.218 | 899974 | 1       | comput | cv,missi|
+|f9d54f38 | @      |   | 0       |       | .0..13 |         | e_ns   | ng      |
+|c8feb943 | node_0 |   |         |       | 18065. |         | 3,     |         |
+|d94c     | 1M79X8 |   |         |       | 0      |         | comput |         |
+|         | WTANK6 |   |         |       |        |         | e_iter |         |
+|         | 4QH74W |   |         |       |        |         | ations |         |
+|         | 9YMHBG |   |         |       |        |         |  3,    |         |
+|         | 5      |   |         |       |        |         | bytes_ |         |
+|         |        |   |         |       |        |         | in 3   |         |
+|grp_eba9 | mode1  | 3 | 882588. | 0.139 | 868243 | 1       | comput | cv,missi|
+|f9d54f38 | @      |   | 0       |       | .0..11 |         | e_ns   | ng      |
+|c8feb943 | node_0 |   |         |       | 04855. |         | 3,     |         |
+|d94c     | 1M6GCK |   |         |       | 0      |         | comput |         |
+|         | N7PYT2 |   |         |       |        |         | e_iter |         |
+|         | J297BT |   |         |       |        |         | ations |         |
+|         | 241P43 |   |         |       |        |         |  3,    |         |
+|         | 6      |   |         |       |        |         | bytes_ |         |
+|         |        |   |         |       |        |         | in 3   |         |
+|grp_eba9 | mode1  | 3 | 1036286 | 0.400 | 621991 | 0       | comput | cv,missi|
+|f9d54f38 | @      |   | .0      |       | .0..14 |         | e_ns   | ng      |
+|c8feb943 | node_0 |   |         |       | 49812. |         | 3,     |         |
+|d94c     | 1M6GGJ |   |         |       | 0      |         | comput |         |
+|         | P3FW5V |   |         |       |        |         | e_iter |         |
+|         | HBDFKY |   |         |       |        |         | ations |         |
+|         | Q6SF31 |   |         |       |        |         |  3,    |         |
+|         | 8      |   |         |       |        |         | bytes_ |         |
+|         |        |   |         |       |        |         | in 3   |         |
+|grp_eba9 | local  | 3 | 42695.0 | 0.811 | 41445. | 1       | comput | cv,missi|
+|f9d54f38 | @      |   |         |       | 0..153 |         | e_ns   | ng      |
+|c8feb943 | node_0 |   |         |       | 179.0  |         | 3,     |         |
+|d94c     | 1M6BMF |   |         |       |        |         | comput |         |
+|         | VHJVZX |   |         |       |        |         | e_iter |         |
+|         | C7AET3 |   |         |       |        |         | ations |         |
+|         | CFRE3A |   |         |       |        |         |  3,    |         |
+|         | V      |   |         |       |        |         | bytes_ |         |
+|         |        |   |         |       |        |         | in 3   |         |
+|grp_f954 | mode3  | 3 | 35355.0 | 0.066 | 34947. | 1       | comput | missing |
+|b5918adc | @      |   |         |       | 0..393 |         | e_ns   |         |
+|e24b5800 | node_0 |   |         |       | 32.0   |         | 3,     |         |
+|7535     | 1M6BMF |   |         |       |        |         | comput |         |
+|         | VHJVZX |   |         |       |        |         | e_iter |         |
+|         | C7AET3 |   |         |       |        |         | ations |         |
+|         | CFRE3A |   |         |       |        |         |  3,    |         |
+|         | V      |   |         |       |        |         | bytes_ |         |
+|         |        |   |         |       |        |         | in 3   |         |
+|grp_f954 | mode1  | 3 | 654725. | 0.165 | 654706 | 1       | comput | cv,missi|
+|b5918adc | @      |   | 0       |       | .0..86 |         | e_ns   | ng      |
+|e24b5800 | node_0 |   |         |       | 0895.0 |         | 3,     |         |
+|7535     | 1M6GCK |   |         |       |        |         | comput |         |
+|         | N7PYT2 |   |         |       |        |         | e_iter |         |
+|         | J297BT |   |         |       |        |         | ations |         |
+|         | 241P43 |   |         |       |        |         |  3,    |         |
+|         | 6      |   |         |       |        |         | bytes_ |         |
+|         |        |   |         |       |        |         | in 3   |         |
+|grp_f954 | mode1  | 3 | 734421. | 0.178 | 722149 | 1       | comput | cv,missi|
+|b5918adc | @      |   | 0       |       | .0..97 |         | e_ns   | ng      |
+|e24b5800 | node_0 |   |         |       | 9021.0 |         | 3,     |         |
+|7535     | 1M79X8 |   |         |       |        |         | comput |         |
+|         | WTANK6 |   |         |       |        |         | e_iter |         |
+|         | 4QH74W |   |         |       |        |         | ations |         |
+|         | 9YMHBG |   |         |       |        |         |  3,    |         |
+|         | 5      |   |         |       |        |         | bytes_ |         |
+|         |        |   |         |       |        |         | in 3   |         |
+|grp_f954 | local  | 3 | 31457.0 | 0.775 | 30386. | 1       | comput | cv,missi|
+|b5918adc | @      |   |         |       | 0..105 |         | e_ns   | ng      |
+|e24b5800 | node_0 |   |         |       | 987.0  |         | 3,     |         |
+|7535     | 1M6BMF |   |         |       |        |         | comput |         |
+|         | VHJVZX |   |         |       |        |         | e_iter |         |
+|         | C7AET3 |   |         |       |        |         | ations |         |
+|         | CFRE3A |   |         |       |        |         |  3,    |         |
+|         | V      |   |         |       |        |         | bytes_ |         |
+|         |        |   |         |       |        |         | in 3   |         |
+|grp_f954 | mode1  | 3 | 470364. | 0.531 | 461977 | 1       | comput | cv,missi|
+|b5918adc | @      |   | 0       |       | .0..10 |         | e_ns   | ng      |
+|e24b5800 | node_0 |   |         |       | 83677. |         | 3,     |         |
+|7535     | 1M6GGJ |   |         |       | 0      |         | comput |         |
+|         | P3FW5V |   |         |       |        |         | e_iter |         |
+|         | HBDFKY |   |         |       |        |         | ations |         |
+|         | Q6SF31 |   |         |       |        |         |  3,    |         |
+|         | 8      |   |         |       |        |         | bytes_ |         |
+|         |        |   |         |       |        |         | in 3   |         |
+|grp_ff9c | mode1  | 3 | 131813. | 0.279 | 78815. | 1       | -      | cv      |
+|75bd00a1 | @      |   | 0       |       | 0..137 |         |        |         |
+|7677d4b7 | node_0 |   |         |       | 306.0  |         |        |         |
+|3d6e     | 1M79X8 |   |         |       |        |         |        |         |
+|         | WTANK6 |   |         |       |        |         |        |         |
+|         | 4QH74W |   |         |       |        |         |        |         |
+|         | 9YMHBG |   |         |       |        |         |        |         |
+|         | 5      |   |         |       |        |         |        |         |
+|grp_ff9c | mode1  | 3 | 119583. | 0.316 | 71529. | 0       | -      | cv      |
+|75bd00a1 | @      |   | 0       |       | 0..139 |         |        |         |
+|7677d4b7 | node_0 |   |         |       | 045.0  |         |        |         |
+|3d6e     | 1M6GGJ |   |         |       |        |         |        |         |
+|         | P3FW5V |   |         |       |        |         |        |         |
+|         | HBDFKY |   |         |       |        |         |        |         |
+|         | Q6SF31 |   |         |       |        |         |        |         |
+|         | 8      |   |         |       |        |         |        |         |
+|grp_ff9c | mode1  | 3 | 106150. | 0.142 | 82188. | 1       | -      | cv      |
+|75bd00a1 | @      |   | 0       |       | 0..106 |         |        |         |
+|7677d4b7 | node_0 |   |         |       | 573.0  |         |        |         |
+|3d6e     | 1M6GCK |   |         |       |        |         |        |         |
+|         | N7PYT2 |   |         |       |        |         |        |         |
+|         | J297BT |   |         |       |        |         |        |         |
+|         | 241P43 |   |         |       |        |         |        |         |
+|         | 6      |   |         |       |        |         |        |         |
+|grp_2514 | mode1  | 3 | 47495.0 | 0.028 | 46483. | 0       | -      | -       |
+|d9f1f127 | @      |   |         |       | 0..490 |         |        |         |
+|decc69db | node_0 |   |         |       | 93.0   |         |        |         |
+|db50     | 1M6GGJ |   |         |       |        |         |        |         |
+|         | P3FW5V |   |         |       |        |         |        |         |
+|         | HBDFKY |   |         |       |        |         |        |         |
+|         | Q6SF31 |   |         |       |        |         |        |         |
+|         | 8      |   |         |       |        |         |        |         |
+|grp_2514 | local  | 3 | 16664.0 | 0.016 | 16561. | 0       | -      | -       |
+|d9f1f127 | @      |   |         |       | 0..170 |         |        |         |
+|decc69db | node_0 |   |         |       | 74.0   |         |        |         |
+|db50     | 1M6BMF |   |         |       |        |         |        |         |
+|         | VHJVZX |   |         |       |        |         |        |         |
+|         | C7AET3 |   |         |       |        |         |        |         |
+|         | CFRE3A |   |         |       |        |         |        |         |
+|         | V      |   |         |       |        |         |        |         |
+|grp_401d | local  | 3 | 22666.0 | 0.058 | 22217. | 0       | -      | -       |
+|0bccad10 | @      |   |         |       | 0..247 |         |        |         |
+|8dc4a565 | node_0 |   |         |       | 21.0   |         |        |         |
+|7439     | 1M6BMF |   |         |       |        |         |        |         |
+|         | VHJVZX |   |         |       |        |         |        |         |
+|         | C7AET3 |   |         |       |        |         |        |         |
+|         | CFRE3A |   |         |       |        |         |        |         |
+|         | V      |   |         |       |        |         |        |         |
+|grp_425d | local  | 3 | 35147.0 | 0.010 | 34928. | 0       | -      | -       |
+|2566236a | @      |   |         |       | 0..356 |         |        |         |
+|c9f4a46c | node_0 |   |         |       | 14.0   |         |        |         |
+|b22d     | 1M6BMF |   |         |       |        |         |        |         |
+|         | VHJVZX |   |         |       |        |         |        |         |
+|         | C7AET3 |   |         |       |        |         |        |         |
+|         | CFRE3A |   |         |       |        |         |        |         |
+|         | V      |   |         |       |        |         |        |         |
+|grp_6d5e | local  | 3 | 30675.0 | 0.087 | 29888. | 1       | -      | -       |
+|6acef413 | @      |   |         |       | 0..350 |         |        |         |
+|7031c66f | node_0 |   |         |       | 61.0   |         |        |         |
+|bfa2     | 1M6BMF |   |         |       |        |         |        |         |
+|         | VHJVZX |   |         |       |        |         |        |         |
+|         | C7AET3 |   |         |       |        |         |        |         |
+|         | CFRE3A |   |         |       |        |         |        |         |
+|         | V      |   |         |       |        |         |        |         |
+|grp_7ea3 | local  | 3 | 31419.0 | 0.002 | 31311. | 1       | -      | -       |
+|aa5ecceb | @      |   |         |       | 0..314 |         |        |         |
+|6c17c57e | node_0 |   |         |       | 26.0   |         |        |         |
+|cf55     | 1M6BMF |   |         |       |        |         |        |         |
+|         | VHJVZX |   |         |       |        |         |        |         |
+|         | C7AET3 |   |         |       |        |         |        |         |
+|         | CFRE3A |   |         |       |        |         |        |         |
+|         | V      |   |         |       |        |         |        |         |
+|grp_8214 | mode1  | 3 | 45809.0 | 0.006 | 45791. | 1       | -      | -       |
+|0a814571 | @      |   |         |       | 0..462 |         |        |         |
+|9ea15c27 | node_0 |   |         |       | 48.0   |         |        |         |
+|c141     | 1M79X8 |   |         |       |        |         |        |         |
+|         | WTANK6 |   |         |       |        |         |        |         |
+|         | 4QH74W |   |         |       |        |         |        |         |
+|         | 9YMHBG |   |         |       |        |         |        |         |
+|         | 5      |   |         |       |        |         |        |         |
+|grp_8214 | local  | 3 | 14915.0 | 0.098 | 14893. | 1       | -      | -       |
+|0a814571 | @      |   |         |       | 0..175 |         |        |         |
+|9ea15c27 | node_0 |   |         |       | 99.0   |         |        |         |
+|c141     | 1M6BMF |   |         |       |        |         |        |         |
+|         | VHJVZX |   |         |       |        |         |        |         |
+|         | C7AET3 |   |         |       |        |         |        |         |
+|         | CFRE3A |   |         |       |        |         |        |         |
+|         | V      |   |         |       |        |         |        |         |
+|grp_ab92 | local  | 3 | 27522.0 | 0.019 | 27163. | 0       | -      | -       |
+|a621c141 | @      |   |         |       | 0..282 |         |        |         |
+|9ddd2db5 | node_0 |   |         |       | 10.0   |         |        |         |
+|2737     | 1M6BMF |   |         |       |        |         |        |         |
+|         | VHJVZX |   |         |       |        |         |        |         |
+|         | C7AET3 |   |         |       |        |         |        |         |
+|         | CFRE3A |   |         |       |        |         |        |         |
+|         | V      |   |         |       |        |         |        |         |
+|grp_b287 | mode1  | 3 | 95129.0 | 0.091 | 95128. | 1       | -      | -       |
+|d23d3b9e | @      |   |         |       | 0..111 |         |        |         |
+|8453a1c1 | node_0 |   |         |       | 035.0  |         |        |         |
+|6ea2     | 1M6GGJ |   |         |       |        |         |        |         |
+|         | P3FW5V |   |         |       |        |         |        |         |
+|         | HBDFKY |   |         |       |        |         |        |         |
+|         | Q6SF31 |   |         |       |        |         |        |         |
+|         | 8      |   |         |       |        |         |        |         |
+|grp_b287 | local  | 3 | 33673.0 | 0.019 | 32969. | 0       | -      | -       |
+|d23d3b9e | @      |   |         |       | 0..342 |         |        |         |
+|8453a1c1 | node_0 |   |         |       | 29.0   |         |        |         |
+|6ea2     | 1M6BMF |   |         |       |        |         |        |         |
+|         | VHJVZX |   |         |       |        |         |        |         |
+|         | C7AET3 |   |         |       |        |         |        |         |
+|         | CFRE3A |   |         |       |        |         |        |         |
+|         | V      |   |         |       |        |         |        |         |
+|grp_bebf | mode1  | 3 | 53469.0 | 0.008 | 53236. | 0       | -      | -       |
+|8a8829fd | @      |   |         |       | 0..540 |         |        |         |
+|37c54fbb | node_0 |   |         |       | 56.0   |         |        |         |
+|c8b0     | 1M6GGJ |   |         |       |        |         |        |         |
+|         | P3FW5V |   |         |       |        |         |        |         |
+|         | HBDFKY |   |         |       |        |         |        |         |
+|         | Q6SF31 |   |         |       |        |         |        |         |
+|         | 8      |   |         |       |        |         |        |         |
+|grp_bebf | local  | 3 | 18374.0 | 0.007 | 18172. | 1       | -      | -       |
+|8a8829fd | @      |   |         |       | 0..184 |         |        |         |
+|37c54fbb | node_0 |   |         |       | 10.0   |         |        |         |
+|c8b0     | 1M6BMF |   |         |       |        |         |        |         |
+|         | VHJVZX |   |         |       |        |         |        |         |
+|         | C7AET3 |   |         |       |        |         |        |         |
+|         | CFRE3A |   |         |       |        |         |        |         |
+|         | V      |   |         |       |        |         |        |         |
+|grp_c90a | local  | 3 | 23804.0 | 0.021 | 23535. | 0       | -      | -       |
+|e0d383e3 | @      |   |         |       | 0..245 |         |        |         |
+|b84c3713 | node_0 |   |         |       | 15.0   |         |        |         |
+|3054     | 1M6BMF |   |         |       |        |         |        |         |
+|         | VHJVZX |   |         |       |        |         |        |         |
+|         | C7AET3 |   |         |       |        |         |        |         |
+|         | CFRE3A |   |         |       |        |         |        |         |
+|         | V      |   |         |       |        |         |        |         |
+|grp_e7eb | local  | 3 | 22751.0 | 0.085 | 20432. | 0       | -      | -       |
+|a4ae39d5 | @      |   |         |       | 0..241 |         |        |         |
+|eccfe866 | node_0 |   |         |       | 98.0   |         |        |         |
+|5bc0     | 1M6BMF |   |         |       |        |         |        |         |
+|         | VHJVZX |   |         |       |        |         |        |         |
+|         | C7AET3 |   |         |       |        |         |        |         |
+|         | CFRE3A |   |         |       |        |         |        |         |
+|         | V      |   |         |       |        |         |        |         |
+|grp_ff9c | local  | 3 | 25941.0 | 0.023 | 25893. | 1       | -      | -       |
+|75bd00a1 | @      |   |         |       | 0..269 |         |        |         |
+|7677d4b7 | node_0 |   |         |       | 44.0   |         |        |         |
+|3d6e     | 1M6BMF |   |         |       |        |         |        |         |
+|         | VHJVZX |   |         |       |        |         |        |         |
+|         | C7AET3 |   |         |       |        |         |        |         |
+|         | CFRE3A |   |         |       |        |         |        |         |
+|         | V      |   |         |       |        |         |        |         |
++------------------------------------------------------------------------------+

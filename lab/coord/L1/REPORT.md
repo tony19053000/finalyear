@@ -1321,3 +1321,14 @@ Earlier today: campaigns camp_01M79Z60H7TNQ674ZS2MMKCQAG (small jobs, 14 runs) a
 ### 2026-11-13 18:12:54 - Run 1 (planner exam, CPU) STARTED: camp_01M7AEXBBYM270PZBM2P3PVZZ4
 spec raw/2026-11-13-G12/run1h.yaml: cpu.primes 180M-400M (local+mode1) + split.image_classify 9k-20k (local+mode1+mode3), 12 sizes, 3 reps;
     324 runs, 24 groups, 5.58 h ref. 1 min after start: 0 skipped/failed.
+
+### 2026-11-14 ~04:05 - Run 1 (planner exam data, CPU) DONE: camp_01M7AEXBBYM270PZBM2P3PVZZ4
+status: done (complete), 324/324 runs, failed 0, skipped 0, infra failures 0.0 % (0 of 616 attempts), 4 stopped by the owner guard (re-run).
+report: criterion 1 (infra < 2 %) met; criterion 3 (>= 3 reps with CV) met; 108 configs, 92 flagged CV > 0.1; "ok but rejected by the label
+    filter: no_workload_status 288" (to understand). labels: 24 groups - best 12, tie 12, insufficient 0.
+    cpu.primes: best = local @ L1 every size. split.image_classify: tie local L1 / mode3 (split not faster).
+median submit->end times (s): image 9k: L1 20, L2 438, L4 560, L3 460, all4 26; image 20k: L1 45, L2 956, L4 1089, L3 986, all4 92;
+    primes 200M: L1 17, L2 52, L4 48, L3 57; 400M: L1 35, L2 149, L4 103, L3 163.
+FINDING (for LEAD later, human: after Run 1): Windows nodes 15-25x slower than L1 on the image job (CPU score ratio only ~1.3-2x) -> large
+    per-job overhead on Windows (input/env setup per job?); the main blocker for CPU Mode 3 speedups in this lab.
+Next: checklist A1 calibrate, B eval, C latency, D explain (L1 only), then Part E. evidence: raw/2026-11-14-run1/

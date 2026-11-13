@@ -1,0 +1,150 @@
+                Campaign camp_01M7AEXBBYM270PZBM2P3PVZZ4: labels                
++------------------------------------------------------------------------------+
+|GROUP          | FAMILY         | CONDITION | LABEL | BEST          | MARGIN %|
+|---------------+----------------+-----------+-------+---------------+---------|
+|grp_21c6863304 | split.image_cl | none      | tie   | tie: local @  | 5.9     |
+|33017e47ef6fb4 | assify         |           |       | node_01M6BMFV |         |
+|               |                |           |       | HJVZXC7AET3CF |         |
+|               |                |           |       | RE3AV, mode3  |         |
+|               |                |           |       | @             |         |
+|               |                |           |       | node_01M6BMFV |         |
+|               |                |           |       | HJVZXC7AET3CF |         |
+|               |                |           |       | RE3AV         |         |
+|grp_2514d9f1f1 | cpu.primes     | none      | best  | local @       | 185.0   |
+|27decc69dbdb50 |                |           |       | node_01M6BMFV |         |
+|               |                |           |       | HJVZXC7AET3CF |         |
+|               |                |           |       | RE3AV         |         |
+|grp_2fb35c44a8 | split.image_cl | none      | tie   | tie: local @  | 7.1     |
+|d004e224ab86a3 | assify         |           |       | node_01M6BMFV |         |
+|               |                |           |       | HJVZXC7AET3CF |         |
+|               |                |           |       | RE3AV, mode3  |         |
+|               |                |           |       | @             |         |
+|               |                |           |       | node_01M6BMFV |         |
+|               |                |           |       | HJVZXC7AET3CF |         |
+|               |                |           |       | RE3AV         |         |
+|grp_401d0bccad | cpu.primes     | none      | best  | local @       | 313.9   |
+|108dc4a5657439 |                |           |       | node_01M6BMFV |         |
+|               |                |           |       | HJVZXC7AET3CF |         |
+|               |                |           |       | RE3AV         |         |
+|grp_425d256623 | cpu.primes     | none      | best  | local @       | 192.9   |
+|6ac9f4a46cb22d |                |           |       | node_01M6BMFV |         |
+|               |                |           |       | HJVZXC7AET3CF |         |
+|               |                |           |       | RE3AV         |         |
+|grp_575de9a7d9 | split.image_cl | none      | tie   | tie: local @  | 18.3    |
+|c434c009bbbc6b | assify         |           |       | node_01M6BMFV |         |
+|               |                |           |       | HJVZXC7AET3CF |         |
+|               |                |           |       | RE3AV, mode3  |         |
+|               |                |           |       | @             |         |
+|               |                |           |       | node_01M6BMFV |         |
+|               |                |           |       | HJVZXC7AET3CF |         |
+|               |                |           |       | RE3AV         |         |
+|grp_6d5e6acef4 | cpu.primes     | none      | best  | local @       | 189.8   |
+|137031c66fbfa2 |                |           |       | node_01M6BMFV |         |
+|               |                |           |       | HJVZXC7AET3CF |         |
+|               |                |           |       | RE3AV         |         |
+|grp_79dd4f29aa | split.image_cl | none      | tie   | tie: mode3 @  | 12.3    |
+|b0e4f5880baf68 | assify         |           |       | node_01M6BMFV |         |
+|               |                |           |       | HJVZXC7AET3CF |         |
+|               |                |           |       | RE3AV, local  |         |
+|               |                |           |       | @             |         |
+|               |                |           |       | node_01M6BMFV |         |
+|               |                |           |       | HJVZXC7AET3CF |         |
+|               |                |           |       | RE3AV         |         |
+|grp_7cabaa1068 | split.image_cl | none      | tie   | tie: mode3 @  | 12.1    |
+|f757599878481e | assify         |           |       | node_01M6BMFV |         |
+|               |                |           |       | HJVZXC7AET3CF |         |
+|               |                |           |       | RE3AV, local  |         |
+|               |                |           |       | @             |         |
+|               |                |           |       | node_01M6BMFV |         |
+|               |                |           |       | HJVZXC7AET3CF |         |
+|               |                |           |       | RE3AV         |         |
+|grp_7d93b0072c | split.image_cl | none      | tie   | tie: mode3 @  | 7.8     |
+|dfea55fd3badcc | assify         |           |       | node_01M6BMFV |         |
+|               |                |           |       | HJVZXC7AET3CF |         |
+|               |                |           |       | RE3AV, local  |         |
+|               |                |           |       | @             |         |
+|               |                |           |       | node_01M6BMFV |         |
+|               |                |           |       | HJVZXC7AET3CF |         |
+|               |                |           |       | RE3AV         |         |
+|grp_7ea3aa5ecc | cpu.primes     | none      | best  | local @       | 183.2   |
+|eb6c17c57ecf55 |                |           |       | node_01M6BMFV |         |
+|               |                |           |       | HJVZXC7AET3CF |         |
+|               |                |           |       | RE3AV         |         |
+|grp_82140a8145 | cpu.primes     | none      | best  | local @       | 178.2   |
+|719ea15c27c141 |                |           |       | node_01M6BMFV |         |
+|               |                |           |       | HJVZXC7AET3CF |         |
+|               |                |           |       | RE3AV         |         |
+|grp_82fc6392a5 | split.image_cl | none      | tie   | tie: mode3 @  | 9.5     |
+|6091aafaa38661 | assify         |           |       | node_01M6BMFV |         |
+|               |                |           |       | HJVZXC7AET3CF |         |
+|               |                |           |       | RE3AV, local  |         |
+|               |                |           |       | @             |         |
+|               |                |           |       | node_01M6BMFV |         |
+|               |                |           |       | HJVZXC7AET3CF |         |
+|               |                |           |       | RE3AV         |         |
+|grp_ab92a621c1 | cpu.primes     | none      | best  | local @       | 314.4   |
+|419ddd2db52737 |                |           |       | node_01M6BMFV |         |
+|               |                |           |       | HJVZXC7AET3CF |         |
+|               |                |           |       | RE3AV         |         |
+|grp_b287d23d3b | cpu.primes     | none      | best  | local @       | 182.5   |
+|9e8453a1c16ea2 |                |           |       | node_01M6BMFV |         |
+|               |                |           |       | HJVZXC7AET3CF |         |
+|               |                |           |       | RE3AV         |         |
+|grp_baa9ce5922 | split.image_cl | none      | tie   | tie: mode3 @  | 8.6     |
+|5ae340c88986ad | assify         |           |       | node_01M6BMFV |         |
+|               |                |           |       | HJVZXC7AET3CF |         |
+|               |                |           |       | RE3AV, local  |         |
+|               |                |           |       | @             |         |
+|               |                |           |       | node_01M6BMFV |         |
+|               |                |           |       | HJVZXC7AET3CF |         |
+|               |                |           |       | RE3AV         |         |
+|grp_bac266e7d4 | split.image_cl | none      | tie   | tie: local @  | 18.6    |
+|ff84e200adb159 | assify         |           |       | node_01M6BMFV |         |
+|               |                |           |       | HJVZXC7AET3CF |         |
+|               |                |           |       | RE3AV, mode3  |         |
+|               |                |           |       | @             |         |
+|               |                |           |       | node_01M6BMFV |         |
+|               |                |           |       | HJVZXC7AET3CF |         |
+|               |                |           |       | RE3AV         |         |
+|grp_be5e7ed628 | split.image_cl | none      | tie   | tie: local @  | 13.5    |
+|2296a44667e1b4 | assify         |           |       | node_01M6BMFV |         |
+|               |                |           |       | HJVZXC7AET3CF |         |
+|               |                |           |       | RE3AV, mode3  |         |
+|               |                |           |       | @             |         |
+|               |                |           |       | node_01M6BMFV |         |
+|               |                |           |       | HJVZXC7AET3CF |         |
+|               |                |           |       | RE3AV         |         |
+|grp_bebf8a8829 | cpu.primes     | none      | best  | local @       | 191.0   |
+|fd37c54fbbc8b0 |                |           |       | node_01M6BMFV |         |
+|               |                |           |       | HJVZXC7AET3CF |         |
+|               |                |           |       | RE3AV         |         |
+|grp_c90ae0d383 | cpu.primes     | none      | best  | local @       | 202.2   |
+|e3b84c37133054 |                |           |       | node_01M6BMFV |         |
+|               |                |           |       | HJVZXC7AET3CF |         |
+|               |                |           |       | RE3AV         |         |
+|grp_e7eba4ae39 | cpu.primes     | none      | best  | local @       | 170.6   |
+|d5eccfe8665bc0 |                |           |       | node_01M6BMFV |         |
+|               |                |           |       | HJVZXC7AET3CF |         |
+|               |                |           |       | RE3AV         |         |
+|grp_eba9f9d54f | split.image_cl | none      | tie   | tie: mode3 @  | 2.5     |
+|38c8feb943d94c | assify         |           |       | node_01M6BMFV |         |
+|               |                |           |       | HJVZXC7AET3CF |         |
+|               |                |           |       | RE3AV, local  |         |
+|               |                |           |       | @             |         |
+|               |                |           |       | node_01M6BMFV |         |
+|               |                |           |       | HJVZXC7AET3CF |         |
+|               |                |           |       | RE3AV         |         |
+|grp_f954b5918a | split.image_cl | none      | tie   | tie: mode3 @  | 12.4    |
+|dce24b58007535 | assify         |           |       | node_01M6BMFV |         |
+|               |                |           |       | HJVZXC7AET3CF |         |
+|               |                |           |       | RE3AV, local  |         |
+|               |                |           |       | @             |         |
+|               |                |           |       | node_01M6BMFV |         |
+|               |                |           |       | HJVZXC7AET3CF |         |
+|               |                |           |       | RE3AV         |         |
+|grp_ff9c75bd00 | cpu.primes     | none      | best  | local @       | 309.2   |
+|a17677d4b73d6e |                |           |       | node_01M6BMFV |         |
+|               |                |           |       | HJVZXC7AET3CF |         |
+|               |                |           |       | RE3AV         |         |
++------------------------------------------------------------------------------+
+24 groups: best 12, tie 12, insufficient 0, pending 0 (from 324 run records)
