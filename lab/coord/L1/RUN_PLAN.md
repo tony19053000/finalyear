@@ -57,9 +57,9 @@ Words: "size" = how big one job is (e.g. 120 ... 960 items); every size is run e
 
 | Run | Runs | Time |
 |---|---|---|
-| Run 2B (GPU Mode 3) - first | 360 | ~9-12 h (rough; timed before start) |
+| Run 2B (GPU Mode 3) - second | 360 | ~9-12 h (rough; timed before start) |
 | Run 2A (CPU Mode 3) | 360 | ~6-8 h |
-| Run 1 (single laptop, CPU + GPU) | 288 | ~5-6 h |
+| Run 1 (single laptop, CPU + GPU) - first | 288 | ~5-6 h |
 | Preparation (write + test the 2B GPU jobs, time them) | - | ~2-3 h |
 | **Total** | **1008** | **~22-29 h (about 2-3 days of lab time)** |
 
