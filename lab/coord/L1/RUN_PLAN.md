@@ -9,23 +9,29 @@ runs count as **ML training data** for the AI planner (V0.15, needs >= 2000 runs
 
 Words: "size" = how big one job is (e.g. 120 ... 960 items); every size is run each way, 3 repeats.
 
-## Run 2B - GPU Mode 3 (main, the X factor) - 8 sizes x 3 repeats, all-4 doubled (human: keep sizes + doubling)
+## Run 2B - GPU Mode 3 (main, the X factor) - FINAL (human approved 2026-11-13)
 
 | Job type | L1 alone (L1 GPU) | Split on 2 (L1+L4, both RTX 3050) | Split on 3 (L1+L4+L2) | All 4 together (3 GPUs + L3 CPU) | Total |
 |---|---|---|---|---|---|
-| GPU AI training (small image model trained per item on CIFAR-10, different settings) | 24 | 24 | 24 | 48 | 120 |
-| GPU image AI (CNN labels CIFAR-10 photos per item) | 24 | 24 | 24 | 48 | 120 |
-| GPU text AI (transformer over WikiText-2 text per item) | 24 | 24 | 24 | 48 | 120 |
+| GPU AI training | 24 | 24 | 24 | 48 | 120 |
+| GPU image AI | 24 | 24 | 24 | 48 | 120 |
+| GPU text AI | 24 | 24 | 24 | 48 | 120 |
 | **Total** | **72** | **72** | **72** | **144** | **360** |
 
-- Covers the 3 main GPU AI kinds: **training, vision, language** - on **real public data**: CIFAR-10 (~163 MB, cs.toronto.edu)
-  and WikiText-2 (~4 MB), downloaded once to L1 when 2B is prepared (human OK; files named before download); MeshForge ships them.
-- From LEAD review (accepted): split on 2 = two equal GPUs (L1+L4); chunks >= 1-2 min of GPU work (Windows ~10-20 s start per chunk);
-  one untimed warm-up run per job (first chunk after upgrade = venv rebuild); per run record real vs predicted time, chunks per laptop,
-  CUDA really used, output check; health check `compute nodes` every few hours. Kept (human): 8 sizes, all-4 doubled (forced).
-- Not a built-in benchmark family: timed jobs from an L1 script. Whether they count as ML training data / planner records is
-  CHECKED before claiming it (LEAD point 8). Lab test jobs, not product code.
-- Time: ~9-12 h (exact after warm-up timing).
+| Job | One item = | Real data | What we show |
+|---|---|---|---|
+| GPU AI training | train a small image model (CNN) on part of CIFAR-10 with one setting (learning rate, size ...) | CIFAR-10 | "trained N models; best X % accuracy; 4 laptops = Y x faster" |
+| GPU image AI | label a batch of photos with a CNN | CIFAR-10 | "4 laptops labelled 60,000 photos in X min vs Y min on 1" |
+| GPU text AI | run a transformer over a block of text | WikiText-2 | "processed Z text blocks; 4 laptops = W x faster" |
+
+How it runs: 8 sizes per job (small -> large; small ones show "small jobs gain little"), 3 repeats, all-4 doubled (forced);
+each chunk >= 1-2 min of GPU work (Windows ~10-20 s start per chunk); one untimed warm-up run per job first (venv install).
+Recorded per run: real time + planner predicted time, chunks per laptop, CUDA used on each GPU laptop, output check (correct + complete).
+Preparation (~2-3 h): download CIFAR-10 (~163 MB, cs.toronto.edu) + WikiText-2 (~4 MB) to L1 (files named to the human first);
+write the 3 GPU jobs (lab test jobs, not product code) and test each once on L1; time one run of each -> exact total.
+Runs as timed jobs from an L1 script (no built-in GPU split family); whether they count as ML data is checked before claiming it.
+Time ~9-12 h (exact after timing). Proves: AI work (training, vision, language) on real data runs faster when MeshForge uses the
+GPUs of other laptops, 1 -> 2 -> 3 -> 4, with proof each GPU really worked.
 
 ## Run 2A - CPU Mode 3 - 8 sizes x 3 repeats, all-4 doubled (360, same size as 2B)
 
