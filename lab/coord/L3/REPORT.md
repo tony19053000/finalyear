@@ -438,3 +438,7 @@ result: human asked to clear RAM before the run: ChatGPT, codex, Edge, Chrome, B
 - 13:04:34 identity reset OK; join OK -> node_01M79X8WTANK64QH74W9YMHBG5 (cert until 2026-12-13). Code passed by phone, not recorded.
 - Settings saved, service restarted Running, peer rule present, accept_jobs True, allow_unsandboxed True, accept_gpu False.
 - SIGNAL: demo05-joined L3 node_01M79X8WTANK64QH74W9YMHBG5
+
+## 0.14.8 prep - L3 - 2026-11-13 13:31
+- Rebooted 13:28 for RAM. After reboot MeshForgeAgent was Stopped although StartType Automatic (2nd time seen); started manually by human (admin). Possible BUG: agent service not starting at boot on Windows.
+- Closed auto-starting ChatGPT/Codex/WhatsApp/Opera; SQL Server stopped; plugged in, sleep Never. Free RAM 2.50 GiB. SIGNAL: ready-0.14.8 L3
