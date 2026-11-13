@@ -584,3 +584,4 @@ SIGNAL: capture-pushed
 - 12:15 read: LEAD v0.17.4 released -> upgrade (no L2-only re-test rows). Demo 03 (2026-11-12 14:40 auto-stop): stopped/started lines were never pasted back to this session; outcome with L1. L2 now: 0.17.3, service Running, RAM available 1353 MB.
 - v0.17.4: downloaded MeshForge-Agent-Setup-0.17.4-1.exe (57,663,084 B); sha256 1deb478b...979997 matches SHA256SUMS. Waiting for human to run it as admin.
 - 12:20 v0.17.4 installed (human, admin). Service Running; compute 0.17.4 (git 1590d833414d); AILESH online 0.17.4. L1 + L4 also 0.17.4; L3 not listed online (revoked, re-join pending).
+- 12:43 read demo 03 (v0.17.4) cue: L2 agent auto-stop 12:56:00, auto-start 12:57:00 (human, admin script; log C:\Users\Public\demo03-times.txt).
