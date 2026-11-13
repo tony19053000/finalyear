@@ -1,7 +1,7 @@
 # Lab run plan - planner exam + Mode 3 evidence (CPU + GPU) - 2026-11-13
 
 Status: **PLAN agreed 2026-11-13 (human), not started.** Each run starts only after the human says "go"; laptops get the context + start time
-first and reply "ready". All laptops on v0.17.4. Order: **Run 1 (while 2B jobs are written) -> Run 2B -> Run 2A.**
+first and reply "ready". All laptops on v0.17.4. Order: **Run 1 (while 2B jobs are written) -> Part E -> Run 2B -> Run 2A.**
 
 Why: MeshForge is for **long jobs**, and the X factor is **using other laptops' GPUs** (Mode 3 over GPUs).
 Small jobs were dropped (the 13:38 campaign ran ~6 s jobs; cancelled). Every run is also recorded telemetry, so all
@@ -38,33 +38,35 @@ Words: "size" = how big one job is (e.g. 120 ... 960 items); every size is run e
   5.80 h ref) + `run2a-extra.yaml` (all-4 only, 72 runs, 1.45 h ref). Sizes: images 11k-20k, items 12k-30k, rows 35k-80k.
   Validated with `compute bench plan`. Time ~6-8 h.
 
-## Run 1 - local + Mode 1 (best single laptop, planner exam 0.14.8), CPU + GPU - 6 sizes x 3 repeats
+## Run 1 - planner exam 0.14.8 (local + Mode 1 + Mode 3) - 10 sizes x 3 repeats (exam needs >= 10 groups per family)
 
-| Job type | L1 alone (local) | One other laptop (Mode 1) | Total |
-|---|---|---|---|
-| cpu.primes (CPU maths) | 18 | 54 (18 each on L2, L3, L4) | 72 |
-| cpu.zlib (compression) | 18 | 54 (18 each on L2, L3, L4) | 72 |
-| ml.cnn_train (AI training on GPU) | 18 | 54 (18 each on L2, L3, L4) | 72 |
-| gpu.matmul (GPU maths) | 18 | 54 (18 each on L2, L3, L4) | 72 |
-| **Total** | **72** | **216** | **288** |
+| Job type | L1 alone (local) | One other laptop (Mode 1) | All 4 together (Mode 3) | Total |
+|---|---|---|---|---|
+| ml.cnn_train (GPU AI training) | 30 | 90 (30 each on L2, L3, L4) | - | 120 |
+| split.image_classify (CPU image AI) | 30 | 90 (30 each on L2, L3, L4) | 30 | 150 |
+| **Total** | **60** | **180** | **30** | **270** |
 
-- All of L2, L3, L4 kept (human + L1 decision): L2 = different GPU (RTX 2050), L3 = no GPU / weakest (the case to avoid),
-  L4 = same RTX 3050 as L1 but Windows (measured ~4x slower per GPU chunk than L1) - each teaches the planner/ML something.
-- Built-in campaign `run1c.yaml`: primes 200M-380M, zlib 160-250 MB level 9, cnn_train batch 64-256, gpu.matmul n 6144-11264
-  (12288 > 180 s limit). 288 runs, 5.16 h ref, ~5-6 h real. GPU runs on L3 (no GPU) are expected to be infeasible/marked.
+- Changed 2026-11-13 after LEAD review: the 288-run 6-size version could not pass (C1/C2 need >= 10 counted groups per
+  evaluation -> too_few_groups = NOT MET); split.image_classify with mode3 kept (checklist A0); repetitions minimum is 3.
+  CPU-only families (primes, zlib) dropped - Run 2A covers CPU work.
+- Campaign `run1f.yaml`: cnn_train batch 48-256, images 11k-20k. 270 runs, 4.27 h ref, ~5-6 h real (validated).
+- **Part E** (checklist E): 2 families never used before - split.csv_aggregate (CPU split) + split.hash_files (I/O) - 5 planner-choice
+  submissions each + a small 10-group campaign, ~80 runs, ~1-2 h. Must run BEFORE Run 2A (which uses csv_aggregate).
+- Then checklist steps A1 (calibrate), B (eval), C (latency), D (explain) on L1, ~30 min, no laptops needed.
 
 ## Summary
 
 | Run | Runs | Time |
 |---|---|---|
-| Run 2B (GPU Mode 3) - second | 360 | ~9-12 h (rough; timed before start) |
-| Run 2A (CPU Mode 3) | 360 | ~6-8 h |
-| Run 1 (single laptop, CPU + GPU) - first | 288 | ~5-6 h |
+| Run 1 (planner exam) - first | 270 | ~5-6 h |
+| Part E (2 unseen families) - second | ~80 | ~1-2 h |
+| Run 2B (GPU Mode 3) - third | 360 | ~9-12 h (rough; timed before start) |
+| Run 2A (CPU Mode 3) - fourth | 360 | ~6-8 h |
 | Preparation (write + test the 2B GPU jobs, time them) | - | ~2-3 h |
-| **Total** | **1008** | **~22-29 h (about 2-3 days of lab time)** |
+| **Total** | **~1070** | **~23-31 h (about 3 days of lab time)** |
 
 Proposed order: start **Run 1 first** while L1 writes the 2B job scripts (writing only - no GPU test runs during Run 1),
-then test/time the 2B jobs, then Run 2B, then Run 2A. After all three: ML dataset ~970 + 1008 runs -> small top-up to
+then Part E, then test/time the 2B jobs, then Run 2B, then Run 2A. After all: ML dataset ~970 + ~1070 runs -> small top-up to
 >= 2000, train ML, offline comparison (no re-run needed), short live ML check.
 
 Rules during a run: laptops plugged in, sleep Never, Best performance, big apps closed (L2/L3 > 2 GB free RAM),
