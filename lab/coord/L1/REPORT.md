@@ -1298,3 +1298,10 @@ note for evaluation: prediction accuracy is judged on big jobs (480-item +17 %, 
 demo 05: PASS 219.3 s - invite listed pending (code never shown again), L3 re-joined with the code (handed human-to-human by phone),
     new node node_01M79X8WTANK64QH74W9YMHBG5 (Mohit, 0.17.4) online. => all 5 demos PASS (01/02 on v0.17.3, 03/04/05 on v0.17.4).
     L3 back: all 4 nodes online 0.17.4.
+
+### 2026-11-13 13:38 - 0.14.8 A0 campaign STARTED: camp_01M79Z60H7TNQ674ZS2MMKCQAG (lab-v014-planner-r5)
+spec = checklist A0 (cpu.primes x10, cpu.zlib x10, split.image_classify x10; local/mode1/mode3; all 4 nodes; origin L1) with repetitions 5
+    (human: cleaner stats) and budget max_runs 700 / max_hours 10. plan: 650 runs = 130 configurations x 5, ~4.64 h on the reference laptop.
+    `compute bench start --per-node 1 --cooldown 2` at 13:38:01. Pre-check: all 4 online 0.17.4, accept_jobs True, pause_benchmarks False;
+    humans: plugged in, sleep Never, apps closed (L2 ~3.5 GB after closing Claude, L3 2.4 GB after reboot, L4 6.1 GB). spec: raw/2026-11-13-G12/v014.yaml
+FINDING L3: after a reboot 13:28 MeshForgeAgent was Stopped (StartType Automatic), 2nd time - sent to LEAD.
