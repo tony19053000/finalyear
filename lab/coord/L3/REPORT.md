@@ -432,3 +432,9 @@ result: human asked to clear RAM before the run: ChatGPT, codex, Edge, Chrome, B
 - Demo 03 cue (05:36) seen late, no STOP NOW for L3 received; not acted on.
 - Setup-0.17.3-1.exe downloaded, sha256 84a1c2cd...feac35 MATCH SHA256SUMS. Install pending (human, admin).
 - 13:16 installed: current.txt 0.17.3-1, MeshForgeAgent Running, peer firewall rule enabled. SIGNAL: upgraded-0.17.3 L3
+
+## v0.17.4 + demo 05 rejoin - L3 - 2026-11-13
+- Setup-0.17.4-1.exe sha256 1deb478b...979997 MATCH; current.txt 0.17.4-1.
+- 13:04:34 identity reset OK; join OK -> node_01M79X8WTANK64QH74W9YMHBG5 (cert until 2026-12-13). Code passed by phone, not recorded.
+- Settings saved, service restarted Running, peer rule present, accept_jobs True, allow_unsandboxed True, accept_gpu False.
+- SIGNAL: demo05-joined L3 node_01M79X8WTANK64QH74W9YMHBG5
