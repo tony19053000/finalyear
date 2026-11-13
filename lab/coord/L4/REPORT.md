@@ -517,3 +517,11 @@ one big file (same bytes) write+read 0.04s
 Defender: RealTimeProtectionEnabled True, IoavProtectionEnabled True, AMServiceEnabled True
 Reading: Defender costs ~1 ms per new file on first read (10x vs cached), but NOT ~50 ms/file. 20k files x 1 ms = ~20 s, so Defender alone does not explain 16-18 min. Cause is likely elsewhere (per-file work in the job, e.g. process/env startup or per-file network fetch).
 - SIGNAL: defender-test-done L4
+
+## 2026-11-14 05:03 IST - LEAD test 2: numpy int64 matmul
+time: 05:03   step: Windows image slowdown   reply-needed: no
+Run by human in admin PowerShell, every venv under C:\ProgramData\MeshForge\envs\venv that has numpy (newest first):
+- venv 001f0edb...: numpy 2.5.3, Python 3.12.14 -> int64 matmul 0.182s  float64 matmul 0.026s  ratio 7x
+- venv b1f64891...: numpy 2.5.4, Python 3.12.14 -> int64 matmul 0.186s  float64 matmul 0.017s  ratio 11x
+Reading: int64 is 7-11x slower than float64, but only ~0.18 s per 32768x288 @ 288x32 matmul on L4. Compare with L1 Docker numbers to see if Windows numpy is the outlier.
+- SIGNAL: numpy-test-done L4
