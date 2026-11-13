@@ -491,3 +491,6 @@ SIGNAL: ready L4 0.14.8
 
 ## Campaign status (chat 20261113-135225..144216 L1) - 2026-11-13 14:54
 - Big campaign camp_01M7A0BZQB5AN4TBW0CY7M4DZY started 13:58:45, CANCELLED by L1 at 15 runs. New plan Run 2B/2A/1 (L1 RUN_PLAN.md), not started; L4 waits for a start time.
+
+## Run 1 prep (chat 20261113-152300 L1) - 2026-11-13 15:24
+- Ready sent, free RAM 6.4 GB.
