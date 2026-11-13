@@ -84,10 +84,20 @@ then Part E, then test/time the 2B jobs, then Run 2B, then Run 2A. After all: ML
 >= 2000, train ML, offline comparison (no re-run needed), short live ML check.
 
 ## Run 3 - GPU offload (Run 1's GPU part) + showcase - AFTER all planned runs (human, 2026-11-13)
-- **GPU offload (Mode 1 on GPUs):** our own 2B GPU jobs (venv runtime, work on Windows): the same job on L1's GPU vs sent to L4's GPU
-  (same RTX 3050, plenty of RAM) vs sent to L2's GPU - several sizes x 3 repeats. Shows "your job runs on another laptop's GPU".
-- **Showcase:** one really big GPU AI training job, once alone on one laptop (~2-3 h) and once split on all 4 (~30-45 min).
-- Timed jobs from the L1 script (not exam-scored); ~4-6 h; exact sizes from the 2B timings; humans get context + start time first.
+
+Part A - GPU offload (Mode 1 on GPUs), the same job on one laptop's GPU at a time, 6 sizes x 3 repeats:
+
+| Job type | L1 GPU (local) | Sent to L4 GPU (Mode 1) | Sent to L2 GPU (Mode 1) | Total |
+|---|---|---|---|---|
+| GPU AI training (Tiny ImageNet) | 18 | 18 | 18 | 54 |
+| GPU image AI (Tiny ImageNet) | 18 | 18 | 18 | 54 |
+| GPU text AI (IMDB) | 18 | 18 | 18 | 54 |
+| **Total** | **54** | **54** | **54** | **162** |
+
+Part B - showcase: one really big GPU AI training job, once alone (L2 or L1, ~2-3 h) and once split on all 4 (~30-45 min).
+
+- Our own venv GPU jobs (same as 2B; no Docker needed on Windows). L3 not in Part A (no GPU). Timed jobs from the L1 script
+  (not exam-scored; ML data checked). ~164 runs, ~6-8 h (exact from the 2B timings). Humans get context + start time first.
 
 Rules during a run: laptops plugged in, sleep Never, Best performance, big apps closed (L2/L3 > 2 GB free RAM),
 agent never stopped, Windows Update paused; light use only; pause/resume possible (`compute bench pause/resume`).
