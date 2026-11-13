@@ -588,3 +588,4 @@ SIGNAL: capture-pushed
 - demo 03 (v0.17.4): L2 agent stopped 12:56:05, started 12:57:06 (scheduled admin script). Service Running after. Job outcome with L1.
 - 13:27 0.14.8 prep: sleep AC = Never, MySQL80/MSSQLSERVER set Manual (stopped), RAM 1.8 GB without reboot. Rebooting L2 (human OK, L1 said reboot OK).
 - 13:31 after reboot: agent Running (auto-start ~13:30:42), node AILESH online 0.17.4; MySQL/MSSQL stay stopped. RAM available 1.85 GB (Claude app ~2 GB is the main user; reboot did not raise it above 2 GB).
+- 13:33 sent L1 'ready' for 0.14.8 (lab/chat/20261113-133310-L2-to-L1.md).
