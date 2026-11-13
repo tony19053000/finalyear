@@ -525,3 +525,11 @@ Run by human in admin PowerShell, every venv under C:\ProgramData\MeshForge\envs
 - venv b1f64891...: numpy 2.5.4, Python 3.12.14 -> int64 matmul 0.186s  float64 matmul 0.017s  ratio 11x
 Reading: int64 is 7-11x slower than float64, but only ~0.18 s per 32768x288 @ 288x32 matmul on L4. Compare with L1 Docker numbers to see if Windows numpy is the outlier.
 - SIGNAL: numpy-test-done L4
+
+## 2026-11-14 05:12 IST - LEAD test 3: CNN maths outside MeshForge
+time: 05:12   step: Windows image slowdown   reply-needed: no
+Human ran t3.py in admin PowerShell with venv 001f0edb... python (numpy 2.5.3), outside MeshForge, folder removed after:
+- normal priority:       20000 images CNN: 51.6 s
+- BELOW_NORMAL priority: 20000 images CNN: 50.7 s
+Reading: the maths is fine on Windows (~51 s vs L1 real job ~45 s), and low priority makes no difference. So the 16-18 min comes from HOW MeshForge runs the job on Windows (data fetch/unpack, per-file staging, chunk overhead), not the CNN maths.
+- SIGNAL: test3-done L4
