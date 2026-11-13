@@ -480,3 +480,8 @@ SIGNAL: upgraded L4 0.17.3
 - node-id.json (read as non-admin): agent_version 0.17.4, node_01M6GGJP3FW5VHBDFKYQ6SF318, written 06:49:08Z.
 - Next: D458 (needs the first Mode 3 GPU chunk on L4 + admin log/pyvenv.cfg check), D457 part 2 (needs fabric fingerprint from L1 for `compute login`).
 SIGNAL: upgraded L4 0.17.4
+
+## 0.14.8 prep (chat 20261113-131320 L1) - 2026-11-13 13:23
+- Plugged in; sleep on AC = Never (powercfg); big apps closed earlier; free RAM 6.1 GB. Power mode Best performance: set by human. Agent running 0.17.4.
+- D457 part 2 / D458 checks (chat 20261113-130657) postponed until after 0.14.8 (human decision).
+SIGNAL: ready L4 0.14.8
