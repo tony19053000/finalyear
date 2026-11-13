@@ -33,18 +33,22 @@ Runs as timed jobs from an L1 script (no built-in GPU split family); whether the
 Time ~9-12 h (exact after timing). Proves: AI work (training, vision, language) on real data runs faster when MeshForge uses the
 GPUs of other laptops, 1 -> 2 -> 3 -> 4, with proof each GPU really worked.
 
-## Run 2A - CPU Mode 3 - 8 sizes x 3 repeats, all-4 doubled (360, same size as 2B)
+## Run 2A - CPU Mode 3 - FINAL (human approved 2026-11-13) - 8 sizes x 3 repeats, all-4 doubled
 
-| Job type | L1 alone (local) | Split on 2 (L1+L2) | Split on 3 (L1+L2+L4) | All 4 together | Total |
+| Job type | L1 alone (local) | Split on 2 (L1+L4) | Split on 3 (L1+L4+L2) | All 4 together | Total |
 |---|---|---|---|---|---|
 | split.image_classify (CPU CNN on images) | 24 | 24 | 24 | 48 | 120 |
 | split.montecarlo_range (scientific simulation) | 24 | 24 | 24 | 48 | 120 |
 | split.csv_aggregate (data processing) | 24 | 24 | 24 | 48 | 120 |
 | **Total** | **72** | **72** | **72** | **144** | **360** |
 
-- Two built-in campaigns back to back (a campaign repeats every way equally): `run2a.yaml` (local + 3 sets, 288 runs,
-  5.80 h ref) + `run2a-extra.yaml` (all-4 only, 72 runs, 1.45 h ref). Sizes: images 11k-20k, items 12k-30k, rows 35k-80k.
-  Validated with `compute bench plan`. Time ~6-8 h.
+- From LEAD review (accepted): split on 2 = L1+L4 (strongest CPUs), split on 3 = +L2, same order as 2B; record which laptop finished
+  last per run (L3 may straggle); chunks >= 1 min; **+ 1 kill run** (one laptop's agent stopped mid-split at a fixed time, humans cued
+  first + "ready"; job must finish) -> closes 0.10.10. Expectation: csv_aggregate (much data over Wi-Fi) may gain little; montecarlo best.
+- "Planner chooses" column DROPPED for now (human): forced runs still record the planner's shadow choice; a planner-choice run is done
+  after ML training (with ML on).
+- Two built-in campaigns: `run2a.yaml` (local + 3 sets, 288 runs, 5.80 h ref) + `run2a-extra.yaml` (all-4 only, 72 runs, 1.45 h ref).
+  Must run AFTER Part E (csv_aggregate is a Part E "unseen" family). Time ~6-8 h + kill run ~10 min.
 
 ## Run 1 - planner exam 0.14.8 (local + Mode 1 + Mode 3) - 10 sizes x 3 repeats (exam needs >= 10 groups per family)
 
