@@ -1286,3 +1286,12 @@ D459 new workload d459-new-1232 (24 items, chunk 2, item_seconds 6) job_01M79VEX
 D460 same workload 4x back to back (15 s idle between): run1-4 job_01M79VH9W5J6FPW8QX3S3TGPQS / ...K3GFKB7TEGASXS4WXA80 / ...MX5D8CEFVTFNHJYD7HK1 /
     ...PPSG8X77KV3CH5MHD0ZG: all mode3 L1+L4+L2, real 44 s each; runs 1-3 margin "kept previous mode mode3 (new best local 60.66s within 10% of
     56.73s)". PASS. (pred ~57 s vs 44 s real: +30 %, history now pulls toward real.) kept explain: raw/2026-11-13-G12/d460-kept-explain.json
+
+### 2026-11-13 12:4x-12:57 - demos on v0.17.4: 04 PASS, 03 PASS
+demo 04: PASS 131.4 s (job C split Mode 3 with the 4M-round job).
+demo 03: PASS 101.3 s. job_01M79WRFTN90P3WJWMA0NT594A split over 3 nodes (111.62 s <= 0.9 x 199.03 s); victim L2 picked at 7.4 s; L2 human pre-armed
+    a timed Stop-Service at 12:56:00 (+ Start at 12:57:00), demo started 12:55:40, kill hook waited for L2 offline. Job still succeeded, L2 lane not
+    done, all 48 results in order and correct, < 300 s. (Process: context + fixed time sent first, started only after L2 "armed".)
+demo status v0.17.4: 01 PASS (v0.17.3), 02 PASS (v0.17.3), 03 PASS, 04 PASS, 05 pending (= L3 re-join).
+note for evaluation: prediction accuracy is judged on big jobs (480-item +17 %, yesterday 0.2 %); small 24-item jobs over-predict 30-41 % from the
+    declared item_seconds 6 (real ~2.4 s) - fixed costs dominate small jobs.

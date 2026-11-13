@@ -1,0 +1,28 @@
+DEMO 03-mode3-split - work folder /tmp/meshforge-demo/03-mode3-split
+
+== Reset 03-mode3-split  [  0.0 s]
+   clean: no demo job running, no demo invite open, outputs removed
+
+== Mode 3: 48 items in pieces of 4; the planner decides  [  0.0 s]
+   $ compute run /tmp/meshforge-demo/03-mode3-split/split
+     job_01M79WRFTN90P3WJWMA0NT594A
+   EXPECTED   the planner split the job
+   why: split over 3 nodes: 111.62s <= (1 - 0.1) x 199.03s (best single node node_01M6BMFVHJVZXC7AET3CFRE3AV), needs <= 179.12s
+   lanes on 3 laptops
+
+== Kill a laptop mid-way: L2 (node_01M6GCKN7PYT2J297BT241P436)  [  7.4 s]
+   $ /home/aayush/mf-eval/demo/wait_offline.sh node_01M6GCKN7PYT2J297BT241P436
+
+== Recovery: the other laptops took over its pieces  [ 63.9 s]
+   EXPECTED   the split job still succeeded
+   lane L1 (node_01M6BMFVHJVZXC7AET3CFRE3AV): done, 10 pieces
+   lane L4 (node_01M6GGJP3FW5VHBDFKYQ6SF318): done, 2 pieces
+   lane L2 (node_01M6GCKN7PYT2J297BT241P436): failed, 0 pieces
+   EXPECTED   the killed laptop's lane did not finish
+   $ compute get job_01M79WRFTN90P3WJWMA0NT594A --dest /tmp/meshforge-demo/03-mode3-split/out-split
+     1 files -> /tmp/meshforge-demo/03-mode3-split/out-split
+   EXPECTED   all 48 results present, in order, each correct
+   start the agent on node_01M6GCKN7PYT2J297BT241P436 again (no --revive-cmd given)
+   EXPECTED   finished within 300 s
+
+DEMO 03-mode3-split: PASS in 101.3 s
