@@ -485,3 +485,6 @@ SIGNAL: upgraded L4 0.17.4
 - Plugged in; sleep on AC = Never (powercfg); big apps closed earlier; free RAM 6.1 GB. Power mode Best performance: set by human. Agent running 0.17.4.
 - D457 part 2 / D458 checks (chat 20261113-130657) postponed until after 0.14.8 (human decision).
 SIGNAL: ready L4 0.14.8
+
+## 0.14.8 BIG-jobs campaign prep (chat 20261113-133358/134658 L1) - 2026-11-13 13:47
+- First small campaign (13:38) cancelled by L1. Ready for big one: AC power, sleep Never, free RAM 6.2 GB, lid open.
