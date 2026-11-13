@@ -589,3 +589,4 @@ SIGNAL: capture-pushed
 - 13:27 0.14.8 prep: sleep AC = Never, MySQL80/MSSQLSERVER set Manual (stopped), RAM 1.8 GB without reboot. Rebooting L2 (human OK, L1 said reboot OK).
 - 13:31 after reboot: agent Running (auto-start ~13:30:42), node AILESH online 0.17.4; MySQL/MSSQL stay stopped. RAM available 1.85 GB (Claude app ~2 GB is the main user; reboot did not raise it above 2 GB).
 - 13:33 sent L1 'ready' for 0.14.8 (lab/chat/20261113-133310-L2-to-L1.md).
+- 13:47 read: 13:38 small campaign cancelled (14 runs); new BIG campaign 0.14.8 (~9-12 h, 390 runs) asks ready. Lid close on AC = do nothing set; sleep AC Never.
