@@ -1,7 +1,7 @@
 # Lab run plan - planner exam + Mode 3 evidence (CPU + GPU) - 2026-11-13
 
-Status: **PLAN agreed 2026-11-13 (human), not started.** Each run starts only after the human says "go"; laptops get the context + start time
-first and reply "ready". All laptops on v0.17.4. Order: **Run 1 (while 2B jobs are written) -> Part E -> Run 2B -> Run 2A.**
+Status: **FINAL PLAN agreed 2026-11-13 (human), not started.** Each run starts only after the human says "go"; laptops get the context + start time
+first and reply "ready". All laptops on v0.17.4. Order: **Run 1 (while 2B jobs are written) -> Part E -> Run 2B -> Run 2A.** GPU-split runs (2B) are not a built-in campaign, so they are graphs + ML data, not 0.14.8-scored (testing-tool gap, not a product gap).
 
 Why: MeshForge is for **long jobs**, and the X factor is **using other laptops' GPUs** (Mode 3 over GPUs).
 Small jobs were dropped (the 13:38 campaign ran ~6 s jobs; cancelled). Every run is also recorded telemetry, so all
@@ -50,32 +50,32 @@ GPUs of other laptops, 1 -> 2 -> 3 -> 4, with proof each GPU really worked.
 - Two built-in campaigns: `run2a.yaml` (local + 3 sets, 288 runs, 5.80 h ref) + `run2a-extra.yaml` (all-4 only, 72 runs, 1.45 h ref).
   Must run AFTER Part E (csv_aggregate is a Part E "unseen" family). Time ~6-8 h + kill run ~10 min.
 
-## Run 1 - planner exam 0.14.8 (local + Mode 1 + Mode 3) - 10 sizes x 3 repeats (exam needs >= 10 groups per family)
+## Run 1 - planner exam 0.14.8 - FINAL (human approved 2026-11-13) - 12 sizes x 3 repeats
 
 | Job type | L1 alone (local) | One other laptop (Mode 1) | All 4 together (Mode 3) | Total |
 |---|---|---|---|---|
-| ml.cnn_train (GPU AI training) | 30 | 90 (30 each on L2, L3, L4) | - | 120 |
-| split.image_classify (CPU image AI) | 30 | 90 (30 each on L2, L3, L4) | 30 | 150 |
-| **Total** | **60** | **180** | **30** | **270** |
+| ml.cnn_train (GPU AI training) | 36 | 108 (36 each on L2, L3, L4) | - | 144 |
+| split.image_classify (CPU image AI) | 36 | 108 (36 each on L2, L3, L4) | 36 | 180 |
+| **Total** | **72** | **216** | **36** | **324** |
 
-- Changed 2026-11-13 after LEAD review: the 288-run 6-size version could not pass (C1/C2 need >= 10 counted groups per
-  evaluation -> too_few_groups = NOT MET); split.image_classify with mode3 kept (checklist A0); repetitions minimum is 3.
-  CPU-only families (primes, zlib) dropped - Run 2A covers CPU work.
-- Campaign `run1f.yaml`: cnn_train batch 48-256, images 11k-20k. 270 runs, 4.27 h ref, ~5-6 h real (validated).
-- **Part E** (checklist E): 2 families never used before - split.csv_aggregate (CPU split) + split.hash_files (I/O) - 5 planner-choice
-  submissions each + a small 10-group campaign, ~80 runs, ~1-2 h. Must run BEFORE Run 2A (which uses csv_aggregate).
-- Then checklist steps A1 (calibrate), B (eval), C (latency), D (explain) on L1, ~30 min, no laptops needed.
+- LEAD recommendation: 12 sizes = 2 spare groups over the >= 10 groups rule (one failed group must not make C1/C2 NOT MET).
+  split.image_classify keeps its mode3 config so split decisions are scored (2A at 8 sizes is graphs-only, not exam-scored).
+- Campaign `run1g.yaml`: cnn_train batch 40-256, images 9k-20k; `compute bench plan`: 324 runs, 24 groups, 4.88 h ref (~6-7 h real).
+- L3 has no GPU: its cnn_train configs are expected to fail/skip - check right after start that those groups still count.
+- **Part E** (checklist E, core of 0.14.8 "fresh workloads"): split.csv_aggregate (CPU split) + split.hash_files (I/O), never used
+  before - 5 planner-choice submissions each + a small 10-group campaign, ~80 runs, ~1-2 h. BEFORE Run 2A (2A uses csv_aggregate).
+- Then checklist A1 (calibrate), B (eval), C (latency), D (explain) on L1, ~30 min, no laptops.
 
-## Summary
+## Summary - FINAL PLAN
 
-| Run | Runs | Time |
-|---|---|---|
-| Run 1 (planner exam) - first | 270 | ~5-6 h |
-| Part E (2 unseen families) - second | ~80 | ~1-2 h |
-| Run 2B (GPU Mode 3) - third | 360 | ~9-12 h (rough; timed before start) |
-| Run 2A (CPU Mode 3) - fourth | 360 | ~6-8 h |
-| Preparation (write + test the 2B GPU jobs, time them) | - | ~2-3 h |
-| **Total** | **~1070** | **~23-31 h (about 3 days of lab time)** |
+| Run | Sizes | Runs | Time |
+|---|---|---|---|
+| Run 1 (planner exam 0.14.8, incl. small Mode 3 part) - first | 12 | 324 | ~6-7 h |
+| Part E (2 never-seen families) - second | - | ~80 | ~1-2 h |
+| Run 2B (GPU Mode 3, real data) - third | 8 | 360 | ~9-12 h |
+| Run 2A (CPU Mode 3) + 1 kill run - fourth | 8 | 360 (+1) | ~6-8 h |
+| Preparation (datasets, write + test + time the 2B GPU jobs) | - | - | ~2-3 h |
+| **Total** | | **~1124** | **~24-32 h (about 3 days of lab time)** |
 
 Proposed order: start **Run 1 first** while L1 writes the 2B job scripts (writing only - no GPU test runs during Run 1),
 then Part E, then test/time the 2B jobs, then Run 2B, then Run 2A. After all: ML dataset ~970 + ~1070 runs -> small top-up to
