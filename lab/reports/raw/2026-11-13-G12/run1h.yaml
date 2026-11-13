@@ -1,0 +1,13 @@
+name: lab-run1-exam-cpu-12s
+seed: 1501
+families:
+  - family: cpu.primes
+    params: {limit: [180000000, 200000000, 220000000, 240000000, 260000000, 280000000, 300000000, 320000000, 340000000, 360000000, 380000000, 400000000], repeats: 10}
+  - family: split.image_classify
+    params: {images: [9000, 10000, 11000, 12000, 13000, 14000, 15000, 16000, 17000, 18000, 19000, 20000]}
+strategies: [local, mode1, mode3]
+nodes: all
+origin: node_01M6BMFVHJVZXC7AET3CFRE3AV
+repetitions: 3
+session_label: wifi
+budget: {max_runs: 500, max_hours: 24}

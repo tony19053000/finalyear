@@ -1,7 +1,7 @@
 # Lab run plan - planner exam + Mode 3 evidence (CPU + GPU) - 2026-11-13
 
 Status: **FINAL PLAN agreed 2026-11-13 (human) + approved by LEAD 17:13, not started.** Each run starts only after the human says "go"; laptops get the context + start time
-first and reply "ready". All laptops on v0.17.4. Order: **Run 1 (while 2B jobs are written) -> Part E -> Run 2B -> Run 2A.** GPU-split runs (2B) are not a built-in campaign, so they are graphs + ML data, not 0.14.8-scored (testing-tool gap, not a product gap).
+first and reply "ready". All laptops on v0.17.4. Order: **Run 1 (while 2B jobs are written) -> Part E -> Run 2B -> Run 2A -> Run 3.** GPU-split runs (2B) are not a built-in campaign, so they are graphs + ML data, not 0.14.8-scored (testing-tool gap, not a product gap).
 
 Why: MeshForge is for **long jobs**, and the X factor is **using other laptops' GPUs** (Mode 3 over GPUs).
 Small jobs were dropped (the 13:38 campaign ran ~6 s jobs; cancelled). Every run is also recorded telemetry, so all
@@ -54,14 +54,16 @@ GPUs of other laptops, 1 -> 2 -> 3 -> 4, with proof each GPU really worked.
 
 | Job type | L1 alone (local) | One other laptop (Mode 1) | All 4 together (Mode 3) | Total |
 |---|---|---|---|---|
-| ml.cnn_train (GPU AI training) | 36 | 108 (36 each on L2, L3, L4) | - | 144 |
+| cpu.primes (CPU maths) | 36 | 108 (36 each on L2, L3, L4) | - | 144 |
 | split.image_classify (CPU image AI) | 36 | 108 (36 each on L2, L3, L4) | 36 | 180 |
 | **Total** | **72** | **216** | **36** | **324** |
 
 - LEAD recommendation: 12 sizes = 2 spare groups over the >= 10 groups rule (one failed group must not make C1/C2 NOT MET).
   split.image_classify keeps its mode3 config so split decisions are scored (2A at 8 sizes is graphs-only, not exam-scored).
-- Campaign `run1g.yaml`: cnn_train batch 40-256, images 9k-20k; `compute bench plan`: 324 runs, 24 groups, 4.88 h ref (~6-7 h real).
-- L3 has no GPU: its cnn_train configs are expected to fail/skip - check right after start that those groups still count.
+- Campaign `run1h.yaml`: cpu.primes 180M-400M, images 9k-20k; 324 runs, 24 groups, 5.58 h ref (~6-7 h real).
+- 2026-11-13 18:0x: first Run 1 (camp_01M7AE2T3K7AMXP5EAEEZHFKMB, with ml.cnn_train) cancelled after 3 min: built-in ml.cnn_train uses
+  env.base cuda-pytorch = Docker only; L2/L3/L4 (Windows, no Docker) skip it (no_runtime_for_base) -> 108 Mode 1 runs lost. Swapped for cpu.primes.
+  GPU single-laptop offload moves to Run 3 with our own venv GPU jobs. Product follow-up: built-in GPU families should run on the venv runtime.
 - **Part E** (checklist E, core of 0.14.8 "fresh workloads"): split.csv_aggregate (CPU split) + split.hash_files (I/O), never used
   before - 5 planner-choice submissions each + a small 12-group campaign (LEAD: 12 not 10, spare groups), ~80-90 runs, ~1-2 h. BEFORE Run 2A (2A uses csv_aggregate).
 - Then checklist A1 (calibrate), B (eval), C (latency), D (explain) on L1, ~30 min, no laptops.
@@ -81,10 +83,11 @@ Proposed order: start **Run 1 first** while L1 writes the 2B job scripts (writin
 then Part E, then test/time the 2B jobs, then Run 2B, then Run 2A. After all: ML dataset ~970 + ~1070 runs -> small top-up to
 >= 2000, train ML, offline comparison (no re-run needed), short live ML check.
 
-## Run 3 (optional showcase) - AFTER all planned runs (human, 2026-11-13)
-One really big GPU AI training job (real data), run ONCE alone on one laptop (e.g. L2 alone, target ~2-3 h) and ONCE split on
-all 4 (expected ~30-45 min): a single measured before/after headline for the presentation. ~3-4 h lab time, best overnight.
-Exact size chosen from the Run 2B timings. Humans get the context + start time first.
+## Run 3 - GPU offload (Run 1's GPU part) + showcase - AFTER all planned runs (human, 2026-11-13)
+- **GPU offload (Mode 1 on GPUs):** our own 2B GPU jobs (venv runtime, work on Windows): the same job on L1's GPU vs sent to L4's GPU
+  (same RTX 3050, plenty of RAM) vs sent to L2's GPU - several sizes x 3 repeats. Shows "your job runs on another laptop's GPU".
+- **Showcase:** one really big GPU AI training job, once alone on one laptop (~2-3 h) and once split on all 4 (~30-45 min).
+- Timed jobs from the L1 script (not exam-scored); ~4-6 h; exact sizes from the 2B timings; humans get context + start time first.
 
 Rules during a run: laptops plugged in, sleep Never, Best performance, big apps closed (L2/L3 > 2 GB free RAM),
 agent never stopped, Windows Update paused; light use only; pause/resume possible (`compute bench pause/resume`).
