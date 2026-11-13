@@ -473,3 +473,10 @@ SIGNAL: bug4a-done L4
 - D457 part 2 (`compute run --local`) NOT RUN: non-admin `compute nodes` -> exit 4 "no fabric CA certificate to verify the controller with: run `compute login --fingerprint FP` ... on a laptop with an enrolled agent it is found automatically". The CA is NOT found automatically for a non-admin user on Windows (the system agent's CA is in the private ProgramData dir). Needs a human `compute login` (password typed by the human) - or L2 does this row.
 - D458: pending - needs the first Mode 3 GPU job on L4 (venv rebuild ~2.5 GB first).
 SIGNAL: upgraded L4 0.17.3
+
+## v0.17.4 upgrade (chat 20261112-184744/225957 LEAD) - 2026-11-13
+- MeshForge-Agent-Setup-0.17.4-1.exe, SHA256 1deb478b...9997 matches SHA256SUMS. Human installed.
+- current.txt 0.17.4-1, MeshForgeAgent Running, TCP Established 192.168.31.13:47100.
+- node-id.json (read as non-admin): agent_version 0.17.4, node_01M6GGJP3FW5VHBDFKYQ6SF318, written 06:49:08Z.
+- Next: D458 (needs the first Mode 3 GPU chunk on L4 + admin log/pyvenv.cfg check), D457 part 2 (needs fabric fingerprint from L1 for `compute login`).
+SIGNAL: upgraded L4 0.17.4
