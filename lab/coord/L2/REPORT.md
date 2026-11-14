@@ -615,3 +615,4 @@ SIGNAL: capture-pushed
     tiny  run_chunk.py: import torch 2.0/1.9 s, cuda init 0.3/0.4 s, chunk work 25.9 / 24.5 s, total 28.1 / 26.9 s
     heavy run_heavy.py: import torch 1.9/2.1 s, cuda init 0.1/0.3 s, chunk work 20.0 / 20.0 s, total 21.9 / 22.3 s
     compare: L1 tiny 14.0 / heavy 13.8 s; L4 tiny 25-27 / heavy 13.3 s.
+- 22:39 sent L1 by-hand results (lab/chat/20261114-223917-L2-to-L1.md).
