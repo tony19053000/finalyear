@@ -1440,3 +1440,14 @@ image 20k re-run (after exclusion): L1 alone 47 s (job_01M7DZH2Z70EHSJHTX7JSHMZY
 209.8 s = stale pre-fix history), planner with L1+L4: kept on L1 48 s ("best set 54.26 s > 0.9 x 46.71 s"). Forced split via bench campaign
 camp_01M7DZV4BM0AW00YPH2AHY3M8N (mode3_sets [[L1,L4]], 3 reps): 104.8 s (first: new data to L4) / 41.1 s / 41.3 s; chunks L1 5 x 6.3 s, L4 3 x 12.4 s.
 => forced split 41 s vs L1 alone 47 s = 1.14x (ideal ~31 s): job only 8 chunks + fixed job setup; planner's "don't split" was close to right.
+
+### 2026-11-15 03:20-04:10 - 2B TRAINING slowness on Windows: ROOT CAUSE FOUND + FIXED (in the 2B lab job code only)
+profile (300 steps, SmallCNN bs128): L1 compute 48.5-50.4 s; L4 compute 214.4-214.7 s; CPU batch prep/h2d tiny on both (not CPU).
+diag (job_01M7E4VVRK4FR08DSWYRBSE8NN L1 / job_01M7E4X0SGN21XK444P1PW4ERG L4): versions L1 torch 2.14.0+cu130 cuDNN 9.24; L4 torch 2.14.0+cu126
+    cuDNN 9.10. micro-benchmarks equal (conv/bn/linear, SmallCNN step L1 165 / L4 150 ms); channels_last+benchmark L1 149 / L4 703 ms.
+    90 s time series: L4 constant ~150 ms/step (no throttling). nvidia-smi inside a MeshForge job on L4: "Failed to initialize NVML" (service ctx).
+isolation (job_01M7E5BCSHEZPVYQV50YCAC23D L4): random batch 150 ms; REAL Tiny ImageNet batch 724 ms even fixed on GPU.
+cause: to_tensor_images() does from_numpy(NHWC).permute(0,3,1,2) -> channels-last strides; cuDNN 9.10 (Windows cu126 wheel) runs those convs ~5x
+    slower; L1's cuDNN 9.24 does not. fix: .contiguous() after permute (job_01M7E5G6BX9TKXWNCZMGRGG8XE: L4 723.8 -> 150.7 / 152.6 ms).
+applied to ~/mf-eval/run2b/common/models.py (+ copies in train/image/text) - lab job code only, no MeshForge/laptop change.
+verify real 2B train job (4 models): L4 18.7-19.0 s/model (was ~94), L1 20.2-20.6 s/model; same accuracies (0.05-0.11).
