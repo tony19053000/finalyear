@@ -541,3 +541,9 @@ T1 (B) on L4, admin PowerShell, env stripped to PATH, SYSTEMROOT, TEMP, TMP + LA
 Reading: T1 is FAST (49 s, same as 51 s with the full env) -> the stripped environment (B) is NOT the cause. Ready for T2 (L1 submits t3 job pinned to L4); the L4 human will look at Task Manager during it.
 - SIGNAL: t1-done L4
 - 05:31 sent READY for T2 + t3.py path to L1.
+
+## 2026-11-14 05:53 IST - T2 187.5 s, T4 295 s, T5a 87.7 s (L1). Idle finding:
+time: 05:53   step: Windows slowdown (T2 CPU %% / candidate E)   reply-needed: no
+- T2 CPU %%: human could not catch it in Task Manager. From now on the L4 agent logs python CPU every 3 s itself (perf counters, %% of ONE core, 12 logical cores) for the next 90 min, so T3b/T5b are covered.
+- Finding while IDLE (no job, 05:52): agent service = python.exe pid 1440 (0.17.4-1, winservice host) ~0%%; its CHILD python.exe pid 2276 (started 13-11 12:19:06, parent 1440) uses 0-99%% of a core continuously (samples 66, 0, 43, 99, 74). Possible candidate (E): an agent sub-process busy all the time, competing with jobs under the 50%% cap.
+- T2/T4/T5a agent.log lines and the cap decision: waiting for the L4 human (admin).
