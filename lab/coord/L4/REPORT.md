@@ -684,3 +684,6 @@ Job dir C:\ProgramData\MeshForge\worktt_01M7DWG3WNVW3592Z8YQNKPDBX\data\img. 00
 
 ## 2026-11-15 02:41 T19
 read1 per file: T18 job 5.2 ms | T19a user 6.7 ms | T19b SYSTEM 8.2 ms | T19c SYSTEM in MeshForge\work 7.4 ms. Slow first read is outside MeshForge too, so the cause is Windows/Defender real-time (no exclusions, RTP on, tamper protected). Options: T20 temp exclusion (human) or pack small files. Sent to LEAD+L1.
+
+## 2026-11-15 02:50 Defender exclusion
+The human added the Defender ExclusionPath C:\ProgramData\MeshForge at 02:50 (verified with Get-MpPreference). Undo: Remove-MpPreference -ExclusionPath "C:\ProgramData\MeshForge". Told L1+LEAD to re-run T18 and image_classify 20k.
