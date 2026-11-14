@@ -1350,3 +1350,7 @@ pinned L4 job_01M7BP4XVYRGNC35PQN2BFBBPQ 1 chunk 294.7 s | T5a GPU 16-chunk cap 
 05:55 (owner) | T3b t3.py cap OFF job_01M7BQ4Z0KEY1Q4J7P7E432EG5 167.6 s | T5b GPU cap OFF job_01M7BQA5SEV3YYJJH0PNR20AEZ 88.0 s.
 L4 agent.log: staging/env/upload < 7 s; ~all extra time inside the running job process. Ruled out: Defender (~1 ms/file), numpy, priority,
 env (B), staging/chunks (D), cap (A). Left: service session 0 / job object (C), busy idle agent child pid 2276 (E). Sent to LEAD.
+T6 (L4, SYSTEM session 0 outside agent): Balanced 154.1 s (clock 56-62 %) -> High performance 84.9 s (127-151 %); by hand 49-51 s.
+T7a t3.py via MeshForge, Balanced: 163.7 s (job_01M7BRBV2JMF8B0NPW44HJETKW). T9 via MeshForge, High performance: t3.py 78.0 s
+(job_01M7BS9RD3RPXJ665N979VMAN4), GPU 16-chunk 53.5 s (job_01M7BSC68C766N5V2H3EG5DDA9) vs 88 s Balanced.
+=> main cause (C): Windows does not boost CPU clock for service/session-0 work on Balanced. Power plan fixes ~2x; ~1.6x session-0 gap remains.
