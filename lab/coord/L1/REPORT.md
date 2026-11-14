@@ -1343,3 +1343,10 @@ GPU util on the dashboard during the test: L1 96 %, L2 43 %, L4 35 %. L2/L4 have
 planner: chose split correctly; over-predicts from declared item_seconds 2.5 (L1 real ~0.8): 480 alone pred 1208 / real 406; 960 split pred 888 / real 600.
 reading: modest 1.3x - L1 is ~6-7x faster per chunk than the Windows GPUs (Windows per-chunk overhead + launch-bound tiny model), so L1 does ~75 %.
 evidence: raw/2026-11-14-gputest/
+
+### 2026-11-14 05:24-06:00 - Windows slowdown investigation (LEAD tests, investigate only)
+T1 (L4, stripped env, outside MeshForge) 49.3 s | T2 t3.py in MeshForge on L4 cap ON job_01M7BNVD3DCRD8GVR648P4MC0D 187.5 s | T4 image 4000
+pinned L4 job_01M7BP4XVYRGNC35PQN2BFBBPQ 1 chunk 294.7 s | T5a GPU 16-chunk cap ON job_01M7BPGJ4A1VZG1CHWQC39TRAQ 87.7 s | cap removed on L4
+05:55 (owner) | T3b t3.py cap OFF job_01M7BQ4Z0KEY1Q4J7P7E432EG5 167.6 s | T5b GPU cap OFF job_01M7BQA5SEV3YYJJH0PNR20AEZ 88.0 s.
+L4 agent.log: staging/env/upload < 7 s; ~all extra time inside the running job process. Ruled out: Defender (~1 ms/file), numpy, priority,
+env (B), staging/chunks (D), cap (A). Left: service session 0 / job object (C), busy idle agent child pid 2276 (E). Sent to LEAD.
