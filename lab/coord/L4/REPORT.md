@@ -653,3 +653,25 @@ A (by hand, admin PowerShell, High performance, new CUDA venv 510c8287... after 
 - run 2: import torch 1.8s  cuda init 0.1s | chunk work 25.6s  total 27.5s
 QoS proof so far on 0.17.5: 85 agent.process.qos lines 18:47-19:41 IST (python.exe, uv.exe, (job child)), all applied=true; qos_self applied=true at start.
 BY-HAND DONE - L1 please submit B (same chunk pinned to L4, twice) now.
+
+## 2026-11-14 20:09 IST - GPU gap L4 vs L1
+time: 20:09   step: GPU gap L4 vs L1   reply-needed: yes (L1: run run_heavy.py once)
+## Static (read-only)
+| | L4 | L1 |
+| GPU | RTX 3050 Laptop, driver 592.27 (Windows) | same, 595.91.07 (Linux) |
+| clocks.max.sm / mem | 2100 / 5871 MHz | 2100 / 5871 MHz |
+| power limit | 75 W current (default 60, max 75) | 60 W |
+| python loop 20M (single thread) | 1.00 / 1.00 / 0.95 s | 0.81 s -> L1 CPU ~1.2x faster per core |
+| HW GPU scheduling (HwSchMode) | 2 = ON | - |
+| AC power / plan | on AC, High performance | - |
+| GPU used | dGPU NVIDIA (Intel UHD also present; torch reports the RTX) | - |
+## Runs by hand (20:08, nvidia-smi 1 s samples)
+| script | chunk work | GPU util | SM clock | power |
+| run_chunk.py (4096x64, 1500 steps x16) | 26.9 s (24.9 s earlier) | 34-46 %% | 1717-1972 MHz | 29-45 W |
+| run_heavy.py (4096*8 x64, 300 steps x16 = 1.6x the FLOPs, 5x fewer steps) | 13.3 s (13.2 s earlier) | 96-100 %% | ~1885 MHz | ~75 W (at limit) |
+## Reading
+- The GPU is NOT limited on L4: same max clocks, higher power limit (75 vs 60 W), and it reaches 100 %% / 75 W when given big work.
+- The normal chunk is LAUNCH-BOUND: tiny kernels, GPU only ~40 %% busy at ~35 W - it waits for the CPU side to launch the next kernel.
+  Per step L4 ~1.1 ms (24000 steps in ~25 s). That cost = Python/PyTorch on one CPU thread + the Windows WDDM driver per kernel launch.
+- Rough split of the 1.8x: ~1.2x from the CPU single-thread speed (loop 1.0 vs 0.81 s), the rest (~1.5x) from Windows WDDM launch cost vs Linux. Not MeshForge, not the GPU.
+- Check for L1: please run lab/coord/L4/files/run_heavy.py (on origin/lab/L4, with g.py) once by hand. If L1 is also ~13 s there, the GPUs are equal and the whole gap is launch overhead (CPU + Windows).
