@@ -609,3 +609,4 @@ SIGNAL: capture-pushed
 - 22:18 OMEN Gaming Hub installed (AD2F1837.OMENCommandCenter 1101.2611.2.0), running. GPU 58 C idle. RAM 0.73 GB with Claude + Omen Hub open.
 - 22:21 RAM 0.87 -> 1.27 GB (closed Omen Hub window, Store, helpers). Agent Running, node online 0.17.5, High performance, GPU 54 C.
 - 22:22 human closed Claude + terminals for RAM. L1 GPU pre-test (by-hand chunks) NOT answered yet: L2 'ready' not sent; L2 lab chat paused. Venv path needs admin to read.
+- 22:31 L1 START GPU pre-test (by hand). Prepared C:\Users\Public\l2gpu (run_chunk.py, run_heavy.py, items.json from lab/L1; g.py from lab/L4) + run.ps1 (admin: finds newest torch venv, 2x tiny + 2x heavy). RAM 485 MB.
