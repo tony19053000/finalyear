@@ -442,3 +442,6 @@ result: human asked to clear RAM before the run: ChatGPT, codex, Edge, Chrome, B
 ## 0.14.8 prep - L3 - 2026-11-13 13:31
 - Rebooted 13:28 for RAM. After reboot MeshForgeAgent was Stopped although StartType Automatic (2nd time seen); started manually by human (admin). Possible BUG: agent service not starting at boot on Windows.
 - Closed auto-starting ChatGPT/Codex/WhatsApp/Opera; SQL Server stopped; plugged in, sleep Never. Free RAM 2.50 GiB. SIGNAL: ready-0.14.8 L3
+
+## v0.17.5 upgrade - L3 - 2026-11-14 18:45
+- Run 1 ran overnight on L3 (no action). Setup-0.17.5-1.exe sha256 eabff0a8... checked vs SHA256SUMS. Install pending (human, admin).
