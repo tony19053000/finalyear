@@ -1381,3 +1381,6 @@ jobs: mc ...D4D1QD5HWFH5DEZXD01VAS / ...D4J7ATGZ6D415WSSJP664A / ...D4SGWT4SX276
     ...D5691E0GSHPPBY3K618DJB; gpu ...D57P38DY4WSM3WZZ059EWD / ...D5HH48YCNST67WVQT3KSGC / ...D668K4W2R2PTGXYXCMBM2C. raw: raw/2026-11-14-realtest/results-v0175.txt
 GPU chunk by hand vs MeshForge (v0.17.5, 16 trainings): L1 by hand 15.3/15.5 s, MF 16.2/16.2 s; L4 by hand 27.3/27.5 s, MF 31.2/30.0 s.
 MF overhead ~0.8 s (L1) / ~3 s (L4); L4 itself 1.8x L1 by hand. L4: 85 agent.process.qos lines all applied=true.
+GPU gap L4 vs L1 (L4 investigation + L1 check): run_heavy.py (GPU-heavy) by hand L1 13.8 s, L4 13.2-13.3 s (L4 GPU 96-100 %, 75 W limit vs
+L1 60 W) -> GPUs equal. Tiny run_chunk.py: L1 14 s, L4 25-27 s (L4 GPU 34-46 % busy) = launch-bound: ~1.2x CPU single-thread (loop 1.0 vs
+0.81 s) x ~1.5x Windows WDDM launch cost. Not MeshForge, not the GPU.
