@@ -1410,6 +1410,6 @@ L2 warm-up (venv rebuild on 0.17.5) job_01M7DFTQVB9M9NZGE4YYAAMRBY 93.6 s, untim
 | L1+L4 | 114, 114 | 1.44 | 94 % | 88, 87 | 1.87 | 96 % |
 | L2+L4 | 155, 152 | 1.07 | 99 % | 104, 104 | 1.58 | 96 % |
 | L1+L2+L4 | 88, 88 | 1.86 | 89 % | 72, 72 | 2.28 | 86 % |
-* L1+L2 heavy run 2 during L2 free RAM 0.2 GB (memory pressure). 3-GPU heavy: L1 4 / L2 3 / L4 3 chunks; L2's 3 x 23.6 s = 71 s is the
+* L1+L2 heavy run 2 during L2 free RAM 0.2 GB (memory pressure). Re-run 00:24 (L2 1.8 GB free) job_01M7DPFMVYPC7HPD101REV83ZY = 98 s (L1 6 / L2 4 chunks) -> L1+L2 heavy = 98 s, 1.67x, 99 % of ideal (97 s). 3-GPU heavy: L1 4 / L2 3 / L4 3 chunks; L2's 3 x 23.6 s = 71 s is the
 critical path -> only 10 chunks for 3 laptops limits balance (more/smaller chunks would approach the ideal 62 s). L2 free RAM swung 0.2-2.8 GB.
 raw: raw/2026-11-14-gputest/combo.txt
