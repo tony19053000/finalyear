@@ -1394,3 +1394,9 @@ Heavy GPU job through MeshForge (run_heavy.py, 160 items, chunk 16): L1 164 s (1
 Spread tiny: L1 +-0.5 s, L4 +-3 s, split 114-124 s; heavy: L1 159-164, L4 172-177, split 85-89. One round-5 tiny job started before the stop
 (not counted). Conclusion: heavy GPU -> L4 ~= L1 (1.07x) and a 2-laptop split ~1.86x (96 % of ideal); tiny GPU -> L4 1.88x slower (launch-bound),
 split 1.39x. raw: raw/2026-11-14-gputest/gpu5x.txt
+
+### 2026-11-14 22:25-22:45 - GPU pre-test with L2 (by hand vs MeshForge, 16-training chunk)
+| chunk | L1 hand | L1 MF | L2 hand | L2 MF |
+| tiny | 15.5 | 16.2 | 28.1 / 26.9 | 30.2 / 28.0 |
+| heavy | 15.4 | 16.1 | 21.9 / 22.3 | 23.5 / 23.6 |
+L2 warm-up (venv rebuild on 0.17.5) job_01M7DFTQVB9M9NZGE4YYAAMRBY 93.6 s, untimed. MeshForge overhead on L2 ~1-3 s. RTX 2050 ~1.5x slower on heavy work.
