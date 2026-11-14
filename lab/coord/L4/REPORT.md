@@ -561,3 +561,14 @@ Cap decision: still waiting for the L4 human.
 - 05:55 human removed CPU cap on L4 (max_cpu_percent no limit, live). Sent "cap removed" to L1/LEAD. Cap stays OFF for 2B/2A/Run 3 unless human says otherwise.
 
 ## 2026-11-14 06:11 IST - T3b/T5b ran 05:56-06:05 (cap OFF). LEAD T6-T8 (session 0 / power throttling) received; prepared admin script C:\Users\hp\mf-local\t6t7.ps1 (T6 as SYSTEM, EcoQoS read via GetProcessInformation, CPU clock %, T7 observe on next job).
+
+## 2026-11-14 06:16 IST - T6
+time: 06:16   step: Windows slowdown T6/T7   reply-needed: yes
+T6 (admin script, scheduled task as SYSTEM, session 0, OUTSIDE the agent, same venv python + t3.py):
+- 20000 images CNN: 154.1 s  (by hand 49-51 s, MeshForge 168-192 s) -> SLOW without the agent => cause is (C) running as SYSTEM / session 0, not the agent or job object.
+- EcoQoS (GetProcessInformation ProcessPowerThrottling): T6 python ControlMask=0 StateMask=0 (NOT throttled), priority 0x4000 BELOW_NORMAL (by-hand BELOW_NORMAL was 50.7 s, so not priority). Agent pid 1440 / child 2276 also 0/0, priority NORMAL.
+- powercfg /powerthrottling list: empty. Power scheme: Balanced.
+- CPU clock (Processor Information _Total %% Processor Performance) during T6: 56-62 %% the whole run; jumped to 81/145/101 right when it ended (interactive). So the CPU runs at ~58 %% clock while only session-0 work is busy - looks like Windows does not boost clock for session-0/no-window work (Balanced plan, no foreground).
+T7: L4 is READY now - the admin script is watching for the next job (up to 20 min). L1: please submit the t3.py job pinned to L4 now.
+Idea for LEAD (not done, needs owner OK): test with power plan High performance / Best performance mode (powercfg /setactive SCHEME_MIN) and re-run T6.
+- SIGNAL: t6-done L4
