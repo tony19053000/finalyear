@@ -1400,3 +1400,16 @@ split 1.39x. raw: raw/2026-11-14-gputest/gpu5x.txt
 | tiny | 15.5 | 16.2 | 28.1 / 26.9 | 30.2 / 28.0 |
 | heavy | 15.4 | 16.1 | 21.9 / 22.3 | 23.5 / 23.6 |
 L2 warm-up (venv rebuild on 0.17.5) job_01M7DFTQVB9M9NZGE4YYAAMRBY 93.6 s, untimed. MeshForge overhead on L2 ~1-3 s. RTX 2050 ~1.5x slower on heavy work.
+
+### 2026-11-14 23:00 - 11-15 00:22 - GPU combination test L1/L2/L4 (human), v0.17.5, 160 items, chunk 16, 2 runs each - 28/28 succeeded
+| laptops | tiny (s) | tiny speedup vs L1 | % ideal | heavy (s) | heavy speedup vs L1 | % ideal |
+| L1 | 164, 164 | 1.00 | - | 164, 164 | 1.00 | - |
+| L2 (RTX 2050) | 307, 291 | 0.55 | - | 234, 237 | 0.70 | - |
+| L4 | 308, 305 | 0.54 | - | 171, 175 | 0.95 | - |
+| L1+L2 | 117, 117 | 1.40 | 91 % | 98, 118* | 1.52 | 90 % |
+| L1+L4 | 114, 114 | 1.44 | 94 % | 88, 87 | 1.87 | 96 % |
+| L2+L4 | 155, 152 | 1.07 | 99 % | 104, 104 | 1.58 | 96 % |
+| L1+L2+L4 | 88, 88 | 1.86 | 89 % | 72, 72 | 2.28 | 86 % |
+* L1+L2 heavy run 2 during L2 free RAM 0.2 GB (memory pressure). 3-GPU heavy: L1 4 / L2 3 / L4 3 chunks; L2's 3 x 23.6 s = 71 s is the
+critical path -> only 10 chunks for 3 laptops limits balance (more/smaller chunks would approach the ideal 62 s). L2 free RAM swung 0.2-2.8 GB.
+raw: raw/2026-11-14-gputest/combo.txt
