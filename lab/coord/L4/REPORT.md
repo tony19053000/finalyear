@@ -560,4 +560,4 @@ Cap decision: still waiting for the L4 human.
 - SIGNAL: t2-t4-t5a-logs L4
 - 05:55 human removed CPU cap on L4 (max_cpu_percent no limit, live). Sent "cap removed" to L1/LEAD. Cap stays OFF for 2B/2A/Run 3 unless human says otherwise.
 
-## 2026-11-14 06:11 IST - T3b/T5b ran 05:56-06:05 (cap OFF). LEAD T6-T8 (session 0 / power throttling) received; prepared admin script C:\Users\hp\mf-local	6t7.ps1 (T6 as SYSTEM, EcoQoS read via GetProcessInformation, CPU clock %, T7 observe on next job).
+## 2026-11-14 06:11 IST - T3b/T5b ran 05:56-06:05 (cap OFF). LEAD T6-T8 (session 0 / power throttling) received; prepared admin script C:\Users\hp\mf-local\t6t7.ps1 (T6 as SYSTEM, EcoQoS read via GetProcessInformation, CPU clock %, T7 observe on next job).
