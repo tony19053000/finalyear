@@ -445,3 +445,4 @@ result: human asked to clear RAM before the run: ChatGPT, codex, Edge, Chrome, B
 
 ## v0.17.5 upgrade - L3 - 2026-11-14 18:45
 - Run 1 ran overnight on L3 (no action). Setup-0.17.5-1.exe sha256 eabff0a8... checked vs SHA256SUMS. Install pending (human, admin).
+- 21:47 installed: current.txt 0.17.5-1, MeshForgeAgent Running. SIGNAL: upgraded-0.17.5 L3
