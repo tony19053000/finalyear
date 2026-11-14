@@ -1436,3 +1436,7 @@ the service context (by hand as user ~1 ms). Next: T19 (SYSTEM outside agent) / 
 T18 read1 104.1 -> 1.2 s (read_copy in %TEMP% unchanged 103.1 s = control). image 20k pinned L4 220 -> 97.5 s (job_01M7DZ4MCVMA6Y82X3KX5SCR6H; L1 45 s).
 planner L1+L4 allowed: kept on L1 47 s (split 90.7 s > 0.9 x 85.4 s). t3.py on L4 50.3 s; heavy GPU chunk on L4 18.0 s (no regression).
 T19 (L4): first read 5-8 ms/file even by hand -> Defender on L4, not MeshForge.
+image 20k re-run (after exclusion): L1 alone 47 s (job_01M7DZH2Z70EHSJHTX7JSHMZY7), L4 alone 96 s (job_01M7DZJK6XBHV8QT6MSKJCS91P; planner predicted
+209.8 s = stale pre-fix history), planner with L1+L4: kept on L1 48 s ("best set 54.26 s > 0.9 x 46.71 s"). Forced split via bench campaign
+camp_01M7DZV4BM0AW00YPH2AHY3M8N (mode3_sets [[L1,L4]], 3 reps): 104.8 s (first: new data to L4) / 41.1 s / 41.3 s; chunks L1 5 x 6.3 s, L4 3 x 12.4 s.
+=> forced split 41 s vs L1 alone 47 s = 1.14x (ideal ~31 s): job only 8 chunks + fixed job setup; planner's "don't split" was close to right.
