@@ -1,6 +1,6 @@
 # Lab run plan - planner exam + Mode 3 evidence (CPU + GPU) - 2026-11-13
 
-Status: **FINAL PLAN agreed 2026-11-13 (human) + approved by LEAD 17:13, not started.** Each run starts only after the human says "go"; laptops get the context + start time
+Status: **ON HOLD (human, 2026-11-14): no further runs until the Windows slowness is fixed.** Run 1 done; FINAL PLAN agreed 2026-11-13, approved by LEAD. Each run starts only after the human says "go"; laptops get the context + start time
 first and reply "ready". All laptops on v0.17.4. Order: **Run 1 (while 2B jobs are written) -> Part E -> Run 2B -> Run 2A -> Run 3.** GPU-split runs (2B) are not a built-in campaign, so they are graphs + ML data, not 0.14.8-scored (testing-tool gap, not a product gap).
 
 Why: MeshForge is for **long jobs**, and the X factor is **using other laptops' GPUs** (Mode 3 over GPUs).
