@@ -609,3 +609,13 @@ ROOT CAUSE + FIX FOUND. Re-run 14:03-14:07 as SYSTEM (session 0), High performan
 Reading: HighQoS alone (SetProcessInformation ProcessPowerThrottling, ControlMask=EXECUTION_SPEED, StateMask=0) makes a session-0 process as fast as by hand (48.6 s vs 48.0 s), incl. file writes. Priority NORMAL alone does nothing. So the agent should set HighQoS on each job process (or on itself, inherited) on Windows hybrid CPUs. Combined with High performance plan (154 -> 85 s) that is the full fix.
 Script note: ctypes needs GetCurrentProcess.restype = c_void_p on 64-bit, otherwise the pseudo-handle is truncated and the calls fail silently (return 0).
 - SIGNAL: t13-done L4
+
+## 2026-11-14 14:17 IST - T14
+time: 14:17   step: Windows slowness T14   reply-needed: no
+T14 on BALANCED plan (14:12-14:16), as SYSTEM via scheduled task, t10.py (fixed):
+| run | cnn | write5000 | read5000 | cpus_used |
+| SYSTEM plain, Balanced | 164.2 s | 5.0 s | 8.7 s | 0-11 (all, incl. E-cores 8-11) |
+| SYSTEM qos, Balanced | 48.4 s | 1.7 s | 7.5 s | 0-7 (P-cores only) |
+Reading: HighQoS alone fixes it on Balanced too (164 -> 48 s = by-hand speed, stays on P-cores 0-7). Users need NO power-plan change once the agent sets HighQoS.
+L4 switched back to High performance at 14:16:43 for the coming runs.
+- SIGNAL: t14-done L4
