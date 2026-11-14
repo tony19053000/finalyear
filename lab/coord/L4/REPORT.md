@@ -678,3 +678,6 @@ time: 20:09   step: GPU gap L4 vs L1   reply-needed: yes (L1: run run_heavy.py o
 
 ## 2026-11-15 01:55 T18 ready
 Read L1 GPU results: heavy GPU L4=L1 (13.3 vs 13.8 s by hand; via MeshForge 173 vs 164 s; L1+L4 85 s = 1.93x). GPU combination test: 3 GPUs 2.28x. 2B demo stopped by the human. T18 file-heavy: sent ready; auto-capture script t18.ps1 (icacls/attrib/job dir) runs as Admin.
+
+## 2026-11-15 02:10 T18 permissions
+Job dir C:\ProgramData\MeshForge\worktt_01M7DWG3WNVW3592Z8YQNKPDBX\data\img. 00000/00001.ppm: icacls inherited only (MeshForgeAgent M, Administrators F, SYSTEM F); attrib A I. Normal, no placeholder or reparse point. Sent to L1.
