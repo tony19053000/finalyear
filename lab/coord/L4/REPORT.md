@@ -636,3 +636,10 @@ Reading:
 2. Even by hand L4 is ~2x slower than L1 (28.5 s vs 15.5 s; work 26.5 vs 14.0 s). Start cost is small (import 2 s warm / 7 s cold, cuda init 0.1 s) -> remaining gap is in the training loop itself (Windows WDDM kernel-launch cost / driver), not per-chunk start. Warm worker would save only ~2-3 s per chunk.
 GPU %%: nvidia-smi sampler gave no lines (script issue), not measured.
 - SIGNAL: t15-t17-done L4
+
+## 2026-11-14 18:53 IST - v0.17.5 upgrade
+time: 18:52   step: v0.17.5   reply-needed: no
+L4 upgraded to 0.17.5-1 (installer sha256 eabff0a8...6882 = SHA256SUMS). current.txt 0.17.5-1, MeshForgeAgent Running, node-id.json agent_version 0.17.5 (written 18:47:28 IST), same node_01M6GGJP3FW5VHBDFKYQ6SF318.
+Setup wizard settings chosen by the human: jobs ON, max CPU empty (no limit), memory no limit, 1 CPU job, GPU jobs ON, remote GPU sharing OFF, unsandboxed ON, network OFF. Power plan High performance.
+Ready for the re-tests (t3.py High perf, then Balanced; GPU chunk; image 20k). qos log lines follow after each job.
+- SIGNAL: upgraded L4 0.17.5
