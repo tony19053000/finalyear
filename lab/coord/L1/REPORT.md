@@ -1354,3 +1354,16 @@ T6 (L4, SYSTEM session 0 outside agent): Balanced 154.1 s (clock 56-62 %) -> Hig
 T7a t3.py via MeshForge, Balanced: 163.7 s (job_01M7BRBV2JMF8B0NPW44HJETKW). T9 via MeshForge, High performance: t3.py 78.0 s
 (job_01M7BS9RD3RPXJ665N979VMAN4), GPU 16-chunk 53.5 s (job_01M7BSC68C766N5V2H3EG5DDA9) vs 88 s Balanced.
 => main cause (C): Windows does not boost CPU clock for service/session-0 work on Balanced. Power plan fixes ~2x; ~1.6x session-0 gap remains.
+
+### 2026-11-14 06:40-07:37 - real test (human): CPU + GPU jobs on L1, L4, L1+L4 (L4 on High performance power plan)
+| job | L1 alone | L4 alone | L1+L4 (min/max 2) | speedup vs L1 | ideal combined |
+| montecarlo 20k x 400k (CPU) | 169 s (pred 174) | 241 s (pred 222) | 97 s (L1 5 / L4 4 chunks; pred 129) | 1.74x | ~99 s |
+| image_classify 20k (CPU, file-heavy) | 53 s unpinned (pinned --node: 189 s!) | 628 s | 47 s (L1 7 / L4 1 chunk) | 1.13x | ~49 s |
+| GPU training 320 (chunk 16) | 322 s (pred 806) | 987 s (pred 480) | 240 s (L1 15 / L4 5 chunks; pred 442) | 1.34x | ~243 s |
+jobs: mc ...BSPXQE15TEAQ99KWZ581RT / ...BSW381QR0WSBZNM86DBMKB / ...BT3EJHN7GERC3FFGQJVW82; img pinned ...BTC7Y835F56PK6ZS1K10Z5, L4 ...BTJ3E3HAN4SHGVENB1AY6G,
+unpinned ...BWQ1D3GZ6CT4TN7MXW6QSJ, split ...BWVE7R12EG5RPPNYM7XWFJ (first split try ...BV5C7NGGM40T72SPPDTMSR ran local: L4 lane not free yet);
+gpu ...BV6SQT7Q3703XWA7EFCBRR / ...BVGN83QAVQJYZ03JMXA07Q / ...BWESYPEQAKPVHXSTDFCH9H.
+reading: every split hit ~the ideal combined time (fabric overhead ~0). With High performance, L4 CPU is only 1.4x slower than L1 (CPU score
+ratio 1.3) -> power plan fixed the CPU-clock part. L4 still slow on file-heavy image (628 s vs 53 s) and GPU chunks (~49 s vs ~16 s).
+FINDINGS: (1) same image job on L1: pinned --node 189 s vs placed by planner 46-53 s (4x) - pinned path slower? (2) a split submitted right
+after a job on L4 ran local ("only 1 node can take a lane now") - lane not free yet after the previous job.
