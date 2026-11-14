@@ -1379,3 +1379,5 @@ reading: CPU slowness FIXED (L4 = L1 speed on pure compute; 2 laptops = 1.97x). 
     L1 is Windows/driver, by-hand too). File-heavy image job improved 628 -> 220 s but still ~5x L1 (open). Planner choices all right.
 jobs: mc ...D4D1QD5HWFH5DEZXD01VAS / ...D4J7ATGZ6D415WSSJP664A / ...D4SGWT4SX276YKKTT4F4PP; img ...D4W7GD7QSGA00WNMCRNG45 / ...D4XP1QY8M1X35W8E5YTXQZ /
     ...D5691E0GSHPPBY3K618DJB; gpu ...D57P38DY4WSM3WZZ059EWD / ...D5HH48YCNST67WVQT3KSGC / ...D668K4W2R2PTGXYXCMBM2C. raw: raw/2026-11-14-realtest/results-v0175.txt
+GPU chunk by hand vs MeshForge (v0.17.5, 16 trainings): L1 by hand 15.3/15.5 s, MF 16.2/16.2 s; L4 by hand 27.3/27.5 s, MF 31.2/30.0 s.
+MF overhead ~0.8 s (L1) / ~3 s (L4); L4 itself 1.8x L1 by hand. L4: 85 agent.process.qos lines all applied=true.
