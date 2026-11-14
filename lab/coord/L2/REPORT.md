@@ -610,3 +610,4 @@ SIGNAL: capture-pushed
 - 22:21 RAM 0.87 -> 1.27 GB (closed Omen Hub window, Store, helpers). Agent Running, node online 0.17.5, High performance, GPU 54 C.
 - 22:22 human closed Claude + terminals for RAM. L1 GPU pre-test (by-hand chunks) NOT answered yet: L2 'ready' not sent; L2 lab chat paused. Venv path needs admin to read.
 - 22:31 L1 START GPU pre-test (by hand). Prepared C:\Users\Public\l2gpu (run_chunk.py, run_heavy.py, items.json from lab/L1; g.py from lab/L4) + run.ps1 (admin: finds newest torch venv, 2x tiny + 2x heavy). RAM 485 MB.
+- 22:34 pre-test attempt 1 FAIL (my error, not MeshForge): files written with UTF-8 BOM -> json JSONDecodeError in all 4 runs; import torch 1.8-3.8 s, cuda init 0.1-0.3 s. Venv 510c8287... Files rewritten without BOM; re-run.
