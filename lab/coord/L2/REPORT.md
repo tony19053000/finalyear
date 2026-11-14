@@ -603,3 +603,4 @@ SIGNAL: capture-pushed
 ## 2026-11-14
 - 18:45 read 12 msgs: Run 1 ran overnight; Windows slowdown root cause = HighQoS/E-cores (L4 tests); v0.17.5 released with the fix. L2 rows: upgrade + t3.py + GPU chunk on L2. RAM available only 250 MB (Claude app open).
 - v0.17.5: downloaded MeshForge-Agent-Setup-0.17.5-1.exe (57,664,383 B); sha256 eabff0a8...0af6882 matches SHA256SUMS. Waiting for human to run it as admin.
+- 22:03 v0.17.5 installed (compute 0.17.5 git 56bdecd5d311), service Running. Read L1 GPU results + GPU test L1/L2/L4 prep. Power plan: was 'Power Scheme GUID: 381b4222-f694-41f0-9685-ff5bb260df2e  (Balanced)' -> High performance (SCHEME_MIN).
