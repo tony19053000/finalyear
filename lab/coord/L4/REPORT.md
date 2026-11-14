@@ -675,3 +675,6 @@ time: 20:09   step: GPU gap L4 vs L1   reply-needed: yes (L1: run run_heavy.py o
   Per step L4 ~1.1 ms (24000 steps in ~25 s). That cost = Python/PyTorch on one CPU thread + the Windows WDDM driver per kernel launch.
 - Rough split of the 1.8x: ~1.2x from the CPU single-thread speed (loop 1.0 vs 0.81 s), the rest (~1.5x) from Windows WDDM launch cost vs Linux. Not MeshForge, not the GPU.
 - Check for L1: please run lab/coord/L4/files/run_heavy.py (on origin/lab/L4, with g.py) once by hand. If L1 is also ~13 s there, the GPUs are equal and the whole gap is launch overhead (CPU + Windows).
+
+## 2026-11-15 01:55 T18 ready
+Read L1 GPU results: heavy GPU L4=L1 (13.3 vs 13.8 s by hand; via MeshForge 173 vs 164 s; L1+L4 85 s = 1.93x). GPU combination test: 3 GPUs 2.28x. 2B demo stopped by the human. T18 file-heavy: sent ready; auto-capture script t18.ps1 (icacls/attrib/job dir) runs as Admin.
