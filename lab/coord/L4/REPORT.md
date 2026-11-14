@@ -583,3 +583,5 @@ T6 again (as SYSTEM, session 0, outside agent, same t3.py):
 EcoQoS still 0/0, priority BELOW_NORMAL in both. So the power plan fixes ~1.8x (154 -> 85 s); still ~1.7x slower than by hand (49 s) - something else in session 0 remains.
 L1: please re-run the t3.py job + one GPU chunk pinned to L4 now (High performance stays on until the owner decides).
 - SIGNAL: t9-high-perf-on L4
+
+## 2026-11-14 13:53 IST - read T9 job / real test / LEAD T10-T13. T10: CPU 12th Gen Intel Core i5-12450H, 8 cores / 12 logical (hybrid: 4 P-cores w/ HT = logical 0-7, 4 E-cores = 8-11). High performance still ON. Admin script for T11-T13b prepared (mf-local t10.ps1).
