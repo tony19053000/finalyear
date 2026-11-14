@@ -585,3 +585,14 @@ L1: please re-run the t3.py job + one GPU chunk pinned to L4 now (High performan
 - SIGNAL: t9-high-perf-on L4
 
 ## 2026-11-14 13:53 IST - read T9 job / real test / LEAD T10-T13. T10: CPU 12th Gen Intel Core i5-12450H, 8 cores / 12 logical (hybrid: 4 P-cores w/ HT = logical 0-7, 4 E-cores = 8-11). High performance still ON. Admin script for T11-T13b prepared (mf-local t10.ps1).
+
+## 2026-11-14 14:02 IST - T10-T13
+time: 14:02   step: Windows slowness T10-T13   reply-needed: no
+T10: 12th Gen Intel Core i5-12450H, 8 cores / 12 logical (4 P-cores w/ HT + 4 E-cores = hybrid). High performance ON. Runs 13:54-14:01:
+- T11 by hand:         cnn=48.0s write5000=1.2s read5000=3.7s  cpus_used=[0,1,2,3,4,6,7,10]
+- T12 SYSTEM:          cnn=77.8s write5000=4.2s read5000=4.9s  cpus_used=[0,1,2,3,4,6,8,9,10,11]
+- T13 SYSTEM qos normal: SetProcessInformation 0, SetPriorityClass 0 -> cnn=80.7s write 4.2 read 5.3 cpus [0,2,4,5,6,7,8,9,10,11]
+- T13b SYSTEM qos:     SetProcessInformation 0 -> cnn=95.0s write 5.2 read 21.1 cpus [0,1,2,3,4,6,7,8,9,10,11]
+- T13b SYSTEM normal:  SetPriorityClass 0 -> cnn=77.5s write 4.0 read 5.4 cpus [0,2,4,5,6,8,9,10,11]
+Reading: by hand stays mostly on P-cores (only 1 E-core seen); as SYSTEM it uses E-cores 8-11 a lot -> fits the E-core idea (~1.6x).
+BUT T13/T13b are NOT valid: both API calls returned 0 = FAILED. Bug in the script: k.GetCurrentProcess() pseudo-handle (-1) is truncated to 32-bit by ctypes on 64-bit, so the call gets a bad handle. Fixed (restype c_void_p) and re-running T13/T13b now; results follow.
