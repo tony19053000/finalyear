@@ -151,3 +151,70 @@ def test_high_qos_self_sets_the_agent_process() -> None:
     assert process.high_qos_self() == 0
     state: Any = power_throttling(os.getpid())
     assert state == (1, 0)
+
+
+# ------------------------------------------- review additions (tester pass)
+
+
+@pytest.mark.asyncio
+async def test_qos_targets_the_spawned_pid_for_every_spawn_flavour(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """lower_priority (env builds, benchmarks) and plain spawns both get it."""
+    seen: list[int] = []
+    monkeypatch.setattr(process, "high_qos", lambda pid: seen.append(pid) or 0)
+    pids = []
+    for lower in (False, True):
+        handle = await spawn(
+            [sys.executable, "-c", "pass"],
+            env=_env(),
+            die_with_parent=False,
+            lower_priority=lower,
+        )
+        pids.append(handle.pid)
+        await handle.wait(30)
+        await handle.reap()
+    assert seen == pids
+
+
+def test_an_oserror_from_the_api_is_logged_not_raised(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def boom(pid: int) -> int:
+        raise OSError("invalid handle")
+
+    monkeypatch.setattr(process, "high_qos", boom)
+    with structlog.testing.capture_logs() as logs:
+        process._apply_high_qos(7, ["python"])
+    (line,) = [e for e in logs if e["event"] == "agent.process.qos"]
+    assert line["applied"] is False and line["error"] == "OSError"
+
+
+@windows_only
+def test_power_throttling_struct_is_three_ulongs() -> None:
+    import ctypes
+
+    assert ctypes.sizeof(process._PowerThrottling) == 12  # type: ignore[attr-defined]
+
+
+@windows_only
+def test_high_qos_on_a_dead_pid_reports_an_error_not_an_exception() -> None:
+    error = process.high_qos(0x7FFFFFF0)
+    assert isinstance(error, int) and error != 0
+    assert power_throttling(0x7FFFFFF0) is None
+
+
+@windows_only
+@pytest.mark.asyncio
+async def test_lower_priority_child_with_limits_still_has_high_qos() -> None:
+    handle = await spawn(
+        [sys.executable, "-c", "import time; time.sleep(30)"],
+        env=_env(),
+        lower_priority=True,
+        limits=process.ProcessLimits(cpus=1.0),
+    )
+    try:
+        assert power_throttling(handle.pid) == (1, 0)
+    finally:
+        handle.kill_now()
+        await handle.reap()
