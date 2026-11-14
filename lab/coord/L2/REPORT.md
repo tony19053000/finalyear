@@ -617,3 +617,6 @@ SIGNAL: capture-pushed
     compare: L1 tiny 14.0 / heavy 13.8 s; L4 tiny 25-27 / heavy 13.3 s.
 - 22:39 sent L1 by-hand results (lab/chat/20261114-223917-L2-to-L1.md).
 - 23:11 during L1 MeshForge GPU test: helpers closed, Claude app closed; agent Running.
+
+## 2026-11-15
+- 01:23 read: GPU combination test 28/28 OK (L2 free RAM swung 0.2-2.8 GB; L1+L2 heavy run 2 hit 0.2 GB). 2B demo: L2 training chunk ~419 s vs L1 44 s -> L1 stopped L2 (likely RAM swapping, 8 GB laptop). RAM now 0.67 GB with Claude open.
