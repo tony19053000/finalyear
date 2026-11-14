@@ -619,3 +619,20 @@ T14 on BALANCED plan (14:12-14:16), as SYSTEM via scheduled task, t10.py (fixed)
 Reading: HighQoS alone fixes it on Balanced too (164 -> 48 s = by-hand speed, stays on P-cores 0-7). Users need NO power-plan change once the agent sets HighQoS.
 L4 switched back to High performance at 14:16:43 for the coming runs.
 - SIGNAL: t14-done L4
+
+## 2026-11-14 14:46 IST - T15-T17 GPU
+time: 14:45   step: Windows slowness GPU part T15-T17   reply-needed: no
+L4, High performance, venv b1f64891... (torch 2.14 cu126), L1's run_chunk.py items.json 0 (16 trainings) via LEAD's g.py, 14:41-14:45:
+| run | import torch | cuda init | chunk work | total |
+| T15a by hand | 2.0 s | 0.1 s | 26.3 s | 28.4 s |
+| T15b by hand | 2.0 s | 0.1 s | 26.6 s | 28.7 s |
+| T16a SYSTEM | 2.5 s | 0.1 s | 74.7 s | 77.3 s |
+| T16b SYSTEM | 4.3 s | 0.1 s | 40.6 s | 45.0 s |
+| T17a SYSTEM + qos | 2.5 s | 0.1 s | 27.0 s | 29.6 s |
+| T17b SYSTEM + qos | 2.8 s | 0.1 s | 27.9 s | 30.8 s |
+(qos set: 1 both times. First try at 14:36 had script errors; one valid number from it: cold import torch 7.0 s by hand.)
+Reading:
+1. HighQoS fixes the GPU chunk too: SYSTEM 45-77 s -> 30 s = by-hand speed. One fix for CPU + GPU.
+2. Even by hand L4 is ~2x slower than L1 (28.5 s vs 15.5 s; work 26.5 vs 14.0 s). Start cost is small (import 2 s warm / 7 s cold, cuda init 0.1 s) -> remaining gap is in the training loop itself (Windows WDDM kernel-launch cost / driver), not per-chunk start. Warm worker would save only ~2-3 s per chunk.
+GPU %%: nvidia-smi sampler gave no lines (script issue), not measured.
+- SIGNAL: t15-t17-done L4
