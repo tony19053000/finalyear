@@ -643,3 +643,4 @@ L4 upgraded to 0.17.5-1 (installer sha256 eabff0a8...6882 = SHA256SUMS). current
 Setup wizard settings chosen by the human: jobs ON, max CPU empty (no limit), memory no limit, 1 CPU job, GPU jobs ON, remote GPU sharing OFF, unsandboxed ON, network OFF. Power plan High performance.
 Ready for the re-tests (t3.py High perf, then Balanced; GPU chunk; image 20k). qos log lines follow after each job.
 - SIGNAL: upgraded L4 0.17.5
+- 18:53 policy after upgrade = same as before (accept_jobs True, accept_gpu_sessions False, max_cpu no limit, max_cpu_jobs 1). agent.log: agent.process.qos_self applied=true 18:47:28.705; agent.process.qos pid 5600 uv.exe applied=true 18:47:30 (env build). PASS proof line present.
