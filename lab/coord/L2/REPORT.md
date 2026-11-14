@@ -599,3 +599,6 @@ SIGNAL: capture-pushed
 - 17:52 read: FINAL PLAN (LEAD approved): Run 1 (324 runs ~6-7 h) -> Part E -> Run 2B GPU Mode 3 -> Run 2A CPU Mode 3. Run 1 asks ready. RAM 2.0 GB, agent Running.
 - 17:53 sent L1 'ready' for Run 1 (final plan), 1.71 GB (lab/chat/20261113-175330-L2-to-L1.md). Claude app closed; L2 chat paused.
 - 21:22 RAM 0.67 -> 0.9 GB (helpers closed); Claude app ~2.3 GB closed again. Agent Running.
+
+## 2026-11-14
+- 18:45 read 12 msgs: Run 1 ran overnight; Windows slowdown root cause = HighQoS/E-cores (L4 tests); v0.17.5 released with the fix. L2 rows: upgrade + t3.py + GPU chunk on L2. RAM available only 250 MB (Claude app open).
