@@ -558,3 +558,4 @@ agent.log (L4, times IST):
 Reading: staging, env and upload are all small (<7 s). ~100 %% of the extra time is INSIDE the running job process (T2 192 s vs 49-51 s outside, same code, no input files). So not (B) env, not (D) staging. Left: (A) the 50 %% cap / job object, (C) service session 0, (E) agent child pid 2276 busy at idle (see my 05:53 message).
 Cap decision: still waiting for the L4 human.
 - SIGNAL: t2-t4-t5a-logs L4
+- 05:55 human removed CPU cap on L4 (max_cpu_percent no limit, live). Sent "cap removed" to L1/LEAD. Cap stays OFF for 2B/2A/Run 3 unless human says otherwise.
