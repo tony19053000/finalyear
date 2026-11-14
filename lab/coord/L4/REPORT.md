@@ -596,3 +596,16 @@ T10: 12th Gen Intel Core i5-12450H, 8 cores / 12 logical (4 P-cores w/ HT + 4 E-
 - T13b SYSTEM normal:  SetPriorityClass 0 -> cnn=77.5s write 4.0 read 5.4 cpus [0,2,4,5,6,8,9,10,11]
 Reading: by hand stays mostly on P-cores (only 1 E-core seen); as SYSTEM it uses E-cores 8-11 a lot -> fits the E-core idea (~1.6x).
 BUT T13/T13b are NOT valid: both API calls returned 0 = FAILED. Bug in the script: k.GetCurrentProcess() pseudo-handle (-1) is truncated to 32-bit by ctypes on 64-bit, so the call gets a bad handle. Fixed (restype c_void_p) and re-running T13/T13b now; results follow.
+
+## 2026-11-14 14:08 IST - T13 rerun
+time: 14:07   step: Windows slowness T13 (fixed script)   reply-needed: no
+ROOT CAUSE + FIX FOUND. Re-run 14:03-14:07 as SYSTEM (session 0), High performance, script bug fixed (both calls now return 1):
+| run | cnn | write5000 | read5000 | cpus_used |
+| T11 by hand (earlier) | 48.0 s | 1.2 s | 3.7 s | 0,1,2,3,4,6,7,10 |
+| T12 SYSTEM, nothing set | 77.8 s | 4.2 s | 4.9 s | 0-4,6,8-11 |
+| T13 SYSTEM qos+normal | 48.9 s | 1.3 s | 4.5 s | 0,2,3,4,6,9 |
+| T13b SYSTEM qos only | 48.6 s | 1.4 s | 4.1 s | 0,2,4,5,6,9,10 |
+| T13b SYSTEM normal only | 74.6 s | 3.0 s | 5.0 s | 0,2-4,6-11 |
+Reading: HighQoS alone (SetProcessInformation ProcessPowerThrottling, ControlMask=EXECUTION_SPEED, StateMask=0) makes a session-0 process as fast as by hand (48.6 s vs 48.0 s), incl. file writes. Priority NORMAL alone does nothing. So the agent should set HighQoS on each job process (or on itself, inherited) on Windows hybrid CPUs. Combined with High performance plan (154 -> 85 s) that is the full fix.
+Script note: ctypes needs GetCurrentProcess.restype = c_void_p on 64-bit, otherwise the pseudo-handle is truncated and the calls fail silently (return 0).
+- SIGNAL: t13-done L4
