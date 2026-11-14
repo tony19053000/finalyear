@@ -106,14 +106,14 @@ jobs:
           ref: refs/tags/${{ env.TAG }}
           persist-credentials: false
           fetch-depth: 0
-      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           version: ${{ env.UV_VERSION }}
           python-version: ${{ env.UV_PYTHON }}
           enable-cache: true
           cache-dependency-glob: uv.lock
       - run: uv sync --locked --extra controller --extra agent
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
       - name: build the dashboard
@@ -137,7 +137,7 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq lintian
           lintian --fail-on error --tag-display-limit 0 release/*.deb
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-linux
           path: release/*.deb
@@ -158,7 +158,7 @@ jobs:
           ref: refs/tags/${{ env.TAG }}
           persist-credentials: false
           fetch-depth: 0
-      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           version: ${{ env.UV_VERSION }}
           python-version: ${{ env.UV_PYTHON }}
@@ -172,7 +172,7 @@ jobs:
           $bundle = (Get-ChildItem dist -Directory -Filter 'meshforge-*-windows-x86_64').FullName
           uv run python scripts/build_windows_installer.py --bundle $bundle --out release/ --cache "$env:LOCALAPPDATA\meshforge-bundle"
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-windows
           path: release/*.exe
@@ -187,7 +187,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: release-*
           path: release
