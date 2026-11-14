@@ -951,6 +951,19 @@ Lab message posted: lab/chat/20261106-120000-LEAD-to-ALL.md (upgrade, remove F4/
 Next: collect lab replies; open follow-ups: D441 r1 notes (ends.py:276 stale older entry; speculation test comment),
 sample_interval_s < 0.25 s, ML an_src_declared flag, lab checklist V0.10 mentions split.item_seconds, Mode 2/4 deferred.
 
+## v0.17.5 released (2026-11-14, BUG-FIX session) - read this first
+
+* D461 shipped in v0.17.5 (CI run 43585355182 green, release run 43594520373 green, assets up), ADR-0025:
+  `agent/process.spawn()` sets HighQoS (power throttling off) on every suspended Windows child before resume;
+  the agent sets it on itself at start. Windows CI PROVED HighQoS is NOT inherited (grandchild `(0, 0)`), so
+  `ProcessHandle.start_qos_sweep()` lists the job object every 1 s and sets it on new processes. One
+  `agent.process.qos` log line per process; never fatal.
+* CI flake budgets widened: container-leak deadline 45 s; Windows loop-stall test tolerates one hiccup.
+* Lab post: `lab/chat/20261114-175214-LEAD-to-ALL.md` (upgrade + L4/L2 re-tests, then resume held runs).
+* Trap: a tag push can be rejected transiently (`remote rejected (failed)`) - check `git ls-remote --tags` and retry.
+* Trap: a failed-but-still-running old CI run blocks the new one in the concurrency queue - cancel it.
+* Nothing unpushed.
+
 ## G13 Windows slowness -> HighQoS fix (2026-11-14, LEAD) - read this first
 
 * Lab on v0.17.4 found Windows jobs 3-25x slower than the hardware allows (image 20k: L4 1089 s vs 45 s by hand-equivalent; GPU chunk
