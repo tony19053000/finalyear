@@ -645,3 +645,11 @@ Ready for the re-tests (t3.py High perf, then Balanced; GPU chunk; image 20k). q
 - SIGNAL: upgraded L4 0.17.5
 - 18:53 policy after upgrade = same as before (accept_jobs True, accept_gpu_sessions False, max_cpu no limit, max_cpu_jobs 1). agent.log: agent.process.qos_self applied=true 18:47:28.705; agent.process.qos pid 5600 uv.exe applied=true 18:47:30 (env build). PASS proof line present.
 - 19:56 v0.17.5 QoS proof: agent.log 13:17Z-14:11Z has 85 agent.process.qos lines (python.exe, uv.exe env builds, "(job child)" sweep), all applied=true, 0 failures; qos_self applied=true at start. GPU by-hand attempt 19:56 failed: old CUDA venv b1f64891 gone after upgrade (D458 rebuild) - script now finds the new torch venv.
+
+## 2026-11-14 19:59 IST - GPU by hand (v0.17.5)
+time: 19:59   step: GPU by-hand vs MeshForge (v0.17.5)   reply-needed: yes
+A (by hand, admin PowerShell, High performance, new CUDA venv 510c8287... after the 0.17.5 rebuild; g.py run_chunk.py items.json 0):
+- run 1: import torch 1.9s  cuda init 0.1s | chunk work 25.2s  total 27.3s
+- run 2: import torch 1.8s  cuda init 0.1s | chunk work 25.6s  total 27.5s
+QoS proof so far on 0.17.5: 85 agent.process.qos lines 18:47-19:41 IST (python.exe, uv.exe, (job child)), all applied=true; qos_self applied=true at start.
+BY-HAND DONE - L1 please submit B (same chunk pinned to L4, twice) now.
