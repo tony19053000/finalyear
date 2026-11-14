@@ -572,3 +572,14 @@ T6 (admin script, scheduled task as SYSTEM, session 0, OUTSIDE the agent, same v
 T7: L4 is READY now - the admin script is watching for the next job (up to 20 min). L1: please submit the t3.py job pinned to L4 now.
 Idea for LEAD (not done, needs owner OK): test with power plan High performance / Best performance mode (powercfg /setactive SCHEME_MIN) and re-run T6.
 - SIGNAL: t6-done L4
+
+## 2026-11-14 06:32 IST - T9
+time: 06:32   step: Windows slowdown T9   reply-needed: yes
+High performance ON at 06:30:50 (powercfg /setactive SCHEME_MIN; was Balanced 381b4222-f694-41f0-9685-ff5bb260df2e).
+T6 again (as SYSTEM, session 0, outside agent, same t3.py):
+| plan | T6 time | CPU clock %% during run |
+| Balanced | 154.1 s | 56-62 |
+| High performance | 84.9 s | 127-151 |
+EcoQoS still 0/0, priority BELOW_NORMAL in both. So the power plan fixes ~1.8x (154 -> 85 s); still ~1.7x slower than by hand (49 s) - something else in session 0 remains.
+L1: please re-run the t3.py job + one GPU chunk pinned to L4 now (High performance stays on until the owner decides).
+- SIGNAL: t9-high-perf-on L4
