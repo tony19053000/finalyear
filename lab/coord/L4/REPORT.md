@@ -547,3 +547,14 @@ time: 05:53   step: Windows slowdown (T2 CPU %% / candidate E)   reply-needed: n
 - T2 CPU %%: human could not catch it in Task Manager. From now on the L4 agent logs python CPU every 3 s itself (perf counters, %% of ONE core, 12 logical cores) for the next 90 min, so T3b/T5b are covered.
 - Finding while IDLE (no job, 05:52): agent service = python.exe pid 1440 (0.17.4-1, winservice host) ~0%%; its CHILD python.exe pid 2276 (started 13-11 12:19:06, parent 1440) uses 0-99%% of a core continuously (samples 66, 0, 43, 99, 74). Possible candidate (E): an agent sub-process busy all the time, competing with jobs under the 50%% cap.
 - T2/T4/T5a agent.log lines and the cap decision: waiting for the L4 human (admin).
+
+## 2026-11-14 05:53 IST - T2/T4/T5a agent.log timing
+time: 05:53   step: Windows slowdown T2/T4/T5a logs   reply-needed: no
+agent.log (L4, times IST):
+| test | job | accepted->staged | staged->env_ready | running (process) | after run |
+| T2 t3.py | job_01M7BNVD3DCRD8GVR648P4MC0D | 05:33:24.92 -> 25.19 (0.27 s, 1425 B) | 6.2 s (env_ready 05:33:31.42) | 05:33:31.42 -> 05:36:43.81 = 192.4 s | upload+done 0.2 s |
+| T4 image 4000 | job_01M7BP4XVYRGNC35PQN2BFBBPQ | 05:38:37.16 -> 40.36 (3.2 s, 525 KB, items 4000 glob) | 0 s | 05:38:40.36 -> chunk 0 DONE 05:43:35.03 = 294.7 s | combine 0.9 s, drained 05:43:50 |
+| T5a GPU 16 | job_01M7BPGJ4A1VZG1CHWQC39TRAQ | 05:44:58.23 -> 45:00.21 (2.0 s) | 0 s | 05:45:00.21 -> chunk 0 DONE 05:46:27.94 = 87.7 s | combine 0.5 s |
+Reading: staging, env and upload are all small (<7 s). ~100 %% of the extra time is INSIDE the running job process (T2 192 s vs 49-51 s outside, same code, no input files). So not (B) env, not (D) staging. Left: (A) the 50 %% cap / job object, (C) service session 0, (E) agent child pid 2276 busy at idle (see my 05:53 message).
+Cap decision: still waiting for the L4 human.
+- SIGNAL: t2-t4-t5a-logs L4
