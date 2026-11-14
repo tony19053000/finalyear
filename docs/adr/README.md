@@ -34,6 +34,7 @@ team may move it (agents create ADRs as Proposed and never accept them).
 | [0022](0022-productization-install-services.md) | Productization: bundled runtime, machine-wide services, managed PostgreSQL, agent local console | Proposed | current |
 | [0023](0023-release-acceptance-and-evaluation.md) | Release acceptance: one manifest, one check, evidence tied to the release build | Proposed | current (V1.0) |
 | [0024](0024-warm-lane-worker.md) | Warm lane worker: env checked once per lane, opt-in warm worker, per-node chunk cost | Proposed | current (V1.0 G11) |
+| [0025](0025-windows-job-high-qos.md) | Windows job processes run with HighQoS (power throttling off) | Proposed | current (V1.0 G13) |
 
 ## Needs team acceptance before v1.0.0
 
@@ -54,6 +55,7 @@ ADR's `**Status:**` line and this table together. What is recorded today:
 | [0022](0022-productization-install-services.md) | Proposed 2026-10-24, "brief approved by the team 2026-10-24; ADR pending formal acceptance" | installers and services |
 | [0023](0023-release-acceptance-and-evaluation.md) | Proposed 2026-10-27, "V1.0 brief approved by the team 2026-10-27; ADR pending formal acceptance" | the release rule (`release_check.py`, the acceptance manifest) |
 | [0024](0024-warm-lane-worker.md) | Proposed 2026-11-12, build deferred (scope cut for time, future work) | the lane runtime and the planner's per-node chunk cost |
+| [0025](0025-windows-job-high-qos.md) | Proposed 2026-11-14, lab-proven root cause (G13) | Windows spawn path (agent/process.py) |
 
 ## How to write an ADR
 

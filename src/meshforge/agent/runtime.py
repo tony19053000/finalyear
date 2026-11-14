@@ -120,6 +120,7 @@ from meshforge.agent.policy import (
     not_enforced_caps,
     policy_path,
 )
+from meshforge.agent.process import high_qos_self
 from meshforge.agent.public_node import publish_if_system
 from meshforge.agent.resources import ResourceMonitor, ResourceSampler
 from meshforge.agent.session.client import AgentSessionClient
@@ -393,6 +394,12 @@ async def serve(
     # V1.0 G10 BUG-4 (D451): no invisible error dialog may block a workload
     # (inherited by every child; a no-op off Windows).
     quiet_error_mode()
+    # V1.0 G13 (D461): the agent service itself runs with HighQoS too, so any
+    # process it starts outside spawn() inherits it (spawn() also sets it on
+    # every child explicitly). A no-op off Windows; never fatal.
+    qos_error = high_qos_self()
+    if qos_error is not None:
+        log.info("agent.process.qos_self", applied=qos_error == 0, error=qos_error)
     if settings.security.insecure:
         # D139: every start, loud - this mode must never go unnoticed.
         log.warning(
