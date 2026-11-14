@@ -966,6 +966,9 @@ sample_interval_s < 0.25 s, ML an_src_declared flag, lab checklist V0.10 mention
 * Still to re-measure after the fix: file-heavy job (T4: ~74 ms/image inside a job, ~1 ms/file outside), GPU chunk (also new python per
   chunk; warm worker ADR-0024 deferred), L1 pinned --node 189 s vs planner 53 s, split -> local when a lane is still busy, busy agent child
   python at idle (L4 pid 2276). L4 now on High performance + no CPU cap; L2 still Balanced + max_cpu_percent 50.
+* GPU proven too (T15-T17, L4 chat 20261114-144559): one 16-training chunk by hand 28.5 s; as SYSTEM 45-77 s; as SYSTEM + HighQoS 30 s.
+  So D461 fixes CPU + GPU. Remaining gap by hand vs L1 (28.5 vs 15.5 s) is in the training loop (Windows WDDM launch cost / laptop GPU power
+  limit / CPU), not per-chunk start (import torch 2 s warm, CUDA init 0.1 s) - not a MeshForge bug; warm worker would save only ~2-3 s/chunk.
 * Raw: origin/lab/L1 lab/reports/raw/2026-11-14-{run1,gputest,realtest}/, origin/lab/L4 REPORT 2026-11-14.
 
 ## v0.17.4 -> lab re-run (2026-11-12, LEAD account switch) - read this first
