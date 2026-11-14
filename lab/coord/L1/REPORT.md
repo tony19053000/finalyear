@@ -1431,3 +1431,8 @@ L4 job_01M7DWG3V9K1W8GFS0094GG33S: stat 0.5 s, read1 104.1 s (5.2 ms/file), read
 L1 job_01M7DWXTG72BCHE7P6QKWVS55Y: stat 0.0, read1 0.1, read2 0.1, copy 0.5, read_copy 0.1 s. L4 inputs: 3 inherited ACEs, attrib A+I (normal).
 => not ACL/materialisation: the FIRST read of any new file in the job process costs ~5 ms on L4 (2nd read 0.07 ms) - on-access scan / filter in
 the service context (by hand as user ~1 ms). Next: T19 (SYSTEM outside agent) / T20 (Defender exclusion, human decision). Sent to LEAD.
+
+### 2026-11-15 02:50-03:05 - after L4 Defender exclusion (C:\ProgramData\MeshForge, owner/human) - re-tests
+T18 read1 104.1 -> 1.2 s (read_copy in %TEMP% unchanged 103.1 s = control). image 20k pinned L4 220 -> 97.5 s (job_01M7DZ4MCVMA6Y82X3KX5SCR6H; L1 45 s).
+planner L1+L4 allowed: kept on L1 47 s (split 90.7 s > 0.9 x 85.4 s). t3.py on L4 50.3 s; heavy GPU chunk on L4 18.0 s (no regression).
+T19 (L4): first read 5-8 ms/file even by hand -> Defender on L4, not MeshForge.
