@@ -397,9 +397,13 @@ async def serve(
     # V1.0 G13 (D461): the agent service itself runs with HighQoS too, so any
     # process it starts outside spawn() inherits it (spawn() also sets it on
     # every child explicitly). A no-op off Windows; never fatal.
-    qos_error = high_qos_self()
-    if qos_error is not None:
-        log.info("agent.process.qos_self", applied=qos_error == 0, error=qos_error)
+    try:
+        qos_error = high_qos_self()
+    except Exception as exc:  # noqa: BLE001 - never fatal
+        log.warning("agent.process.qos_self", applied=False, error=type(exc).__name__)
+    else:
+        if qos_error is not None:
+            log.info("agent.process.qos_self", applied=qos_error == 0, error=qos_error)
     if settings.security.insecure:
         # D139: every start, loud - this mode must never go unnoticed.
         log.warning(

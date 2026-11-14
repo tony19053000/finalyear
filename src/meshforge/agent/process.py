@@ -342,6 +342,7 @@ if sys.platform == "win32":  # pragma: no cover - exercised on Windows CI only
     _CREATE_SUSPENDED: Final = 0x00000004
     _PROCESS_SET_INFORMATION: Final = 0x0200
     _PROCESS_QUERY_LIMITED_INFORMATION: Final = 0x1000
+    _PROCESS_QUERY_INFORMATION: Final = 0x0400
     _PROCESS_POWER_THROTTLING_INFO_CLASS: Final = 4  # ProcessPowerThrottling
     _PROCESS_POWER_THROTTLING_CURRENT_VERSION: Final = 1
     _PROCESS_POWER_THROTTLING_EXECUTION_SPEED: Final = 0x1
@@ -448,7 +449,9 @@ if sys.platform == "win32":  # pragma: no cover - exercised on Windows CI only
 
     def power_throttling(pid: int) -> tuple[int, int] | None:
         """``(ControlMask, StateMask)`` of ``pid``, or None (tests, doctor)."""
-        handle = _kernel32.OpenProcess(_PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+        handle = _kernel32.OpenProcess(
+            _PROCESS_QUERY_LIMITED_INFORMATION, False, pid
+        ) or _kernel32.OpenProcess(_PROCESS_QUERY_INFORMATION, False, pid)
         if not handle:
             return None
         try:
