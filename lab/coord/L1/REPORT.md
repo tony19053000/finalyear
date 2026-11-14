@@ -1425,3 +1425,9 @@ demo: train L1 alone job_01M7DREYMZ1CD7CRAQ3D96QGG5 458 s (first chunk 43.6 s, r
 FINDING: the 2B TRAINING job is 4-7x slower on L4 and ~10x on L2 than L1 although CUDA is used (heavy GPU test showed L4 = L1). Suspects:
     per-step CPU work (random fancy-index batch from 235 MB array + uint8->float) on one Windows core, Windows launch cost for CNN+BatchNorm
     kernels, per-chunk np.load of ~350 MB; L2 additionally RAM swapping. Needs a by-hand check on L4 (like the GPU gap test). Not yet done.
+
+### 2026-11-15 02:08-02:16 - T18 file-heavy step test (LEAD spec)
+L4 job_01M7DWG3V9K1W8GFS0094GG33S: stat 0.5 s, read1 104.1 s (5.2 ms/file), read2 1.3 s, copy_to_temp 11.7 s, read_copy 102.9 s (5.1 ms/file).
+L1 job_01M7DWXTG72BCHE7P6QKWVS55Y: stat 0.0, read1 0.1, read2 0.1, copy 0.5, read_copy 0.1 s. L4 inputs: 3 inherited ACEs, attrib A+I (normal).
+=> not ACL/materialisation: the FIRST read of any new file in the job process costs ~5 ms on L4 (2nd read 0.07 ms) - on-access scan / filter in
+the service context (by hand as user ~1 ms). Next: T19 (SYSTEM outside agent) / T20 (Defender exclusion, human decision). Sent to LEAD.
