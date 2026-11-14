@@ -1386,3 +1386,11 @@ L1 60 W) -> GPUs equal. Tiny run_chunk.py: L1 14 s, L4 25-27 s (L4 GPU 34-46 % b
 0.81 s) x ~1.5x Windows WDDM launch cost. Not MeshForge, not the GPU.
 Heavy GPU job through MeshForge (run_heavy.py, 160 items, chunk 16): L1 164 s (16.2 s/chunk) | L4 173 s (16.8 s/chunk) | L1+L4 85 s (5+5 chunks)
 = 1.93x (ideal ~84 s). jobs ...D8MAFB2Q4GY5982WT0HNS4 / ...D8SAXEBYY3J59EEP8J65K6 / ...D90EFFH9PHSCG4D3RQ0RAZ. GPU part closed.
+
+### 2026-11-14 20:44-21:55 - GPU repeat test (human): tiny vs heavy GPU job, L1 / L4 / L1+L4, 4 rounds (stopped after round 4 by human), v0.17.5
+| job (160 items, chunk 16) | L1 alone (s) | L4 alone (s) | L1+L4 (s) | speedup | ideal pair | % of ideal |
+| tiny (gpu-big MLP) | 163,162,163,163 -> 163 | 306,303,308,310 -> 307 | 115,116,124,114 -> 117 | 1.39x | 106 s | 91 % |
+| heavy (run_heavy.py) | 164,163,159,164 -> 162 | 172,172,175,177 -> 174 | 88,88,89,85 -> 88 | 1.86x | 84 s | 96 % |
+Spread tiny: L1 +-0.5 s, L4 +-3 s, split 114-124 s; heavy: L1 159-164, L4 172-177, split 85-89. One round-5 tiny job started before the stop
+(not counted). Conclusion: heavy GPU -> L4 ~= L1 (1.07x) and a 2-laptop split ~1.86x (96 % of ideal); tiny GPU -> L4 1.88x slower (launch-bound),
+split 1.39x. raw: raw/2026-11-14-gputest/gpu5x.txt
