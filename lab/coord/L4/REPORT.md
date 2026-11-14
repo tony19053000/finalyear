@@ -540,3 +540,4 @@ T1 (B) on L4, admin PowerShell, env stripped to PATH, SYSTEMROOT, TEMP, TMP + LA
 - 20000 images CNN: 49.3 s
 Reading: T1 is FAST (49 s, same as 51 s with the full env) -> the stripped environment (B) is NOT the cause. Ready for T2 (L1 submits t3 job pinned to L4); the L4 human will look at Task Manager during it.
 - SIGNAL: t1-done L4
+- 05:31 sent READY for T2 + t3.py path to L1.
