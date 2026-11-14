@@ -10562,7 +10562,7 @@
   "info": {
     "summary": "The compute fabric's REST surface. Every call but /healthz and POST /v1/auth/login needs a user's API token (`compute login`).",
     "title": "MeshForge controller",
-    "version": "0.17.4"
+    "version": "0.17.5"
   },
   "openapi": "3.1.0",
   "paths": {

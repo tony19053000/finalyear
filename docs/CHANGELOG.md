@@ -81,6 +81,19 @@ for Linux and Windows.
 - ADRs still marked *Proposed* need the team's acceptance before the tag
   ([adr/README.md](adr/README.md#needs-team-acceptance-before-v100)).
 
+## [0.17.5] - 2026-11-14
+
+Lab fix release (lab fix group G13, [ADR-0025](adr/0025-windows-job-high-qos.md)).
+
+### Fixed
+
+- Windows jobs ran 1.5-3x slower than the hardware allows: as children of the agent service (session 0) they
+  were treated as background work (efficiency cores, no clock boost). Every job process, split chunk and env
+  build now runs with **HighQoS** (power throttling off), set before the process starts; the agent sets it on
+  itself too and child processes inherit it. One `agent.process.qos` log line per spawn; a failure is logged,
+  never fatal. Measured on L4 by hand-equivalent: CPU CNN 164 s -> 48 s (Balanced plan), GPU chunk 45-77 s ->
+  30 s (D461).
+
 ## [0.17.4] - 2026-11-12
 
 Lab fix release (lab fix group G12, `docs/briefs/progress/V1.0-G12-planner.md`).
