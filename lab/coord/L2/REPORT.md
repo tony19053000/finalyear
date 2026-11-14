@@ -608,3 +608,4 @@ SIGNAL: capture-pushed
 - 22:16 human request: Omen key did nothing. Cause 1: my earlier startup cleanup disabled HP System Event Utility (handles HP hotkeys) -> re-enabled + started. Cause 2: OMEN Gaming Hub not installed -> installed from MS Store (human OK). Fans: GPU 56 C idle, normal.
 - 22:18 OMEN Gaming Hub installed (AD2F1837.OMENCommandCenter 1101.2611.2.0), running. GPU 58 C idle. RAM 0.73 GB with Claude + Omen Hub open.
 - 22:21 RAM 0.87 -> 1.27 GB (closed Omen Hub window, Store, helpers). Agent Running, node online 0.17.5, High performance, GPU 54 C.
+- 22:22 human closed Claude + terminals for RAM. L1 GPU pre-test (by-hand chunks) NOT answered yet: L2 'ready' not sent; L2 lab chat paused. Venv path needs admin to read.
