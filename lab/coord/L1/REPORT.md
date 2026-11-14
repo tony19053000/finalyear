@@ -1367,3 +1367,15 @@ reading: every split hit ~the ideal combined time (fabric overhead ~0). With Hig
 ratio 1.3) -> power plan fixed the CPU-clock part. L4 still slow on file-heavy image (628 s vs 53 s) and GPU chunks (~49 s vs ~16 s).
 FINDINGS: (1) same image job on L1: pinned --node 189 s vs placed by planner 46-53 s (4x) - pinned path slower? (2) a split submitted right
 after a job on L4 ran local ("only 1 node can take a lane now") - lane not free yet after the previous job.
+
+### 2026-11-14 19:07-19:42 - real test on v0.17.5 (HighQoS fix), L4 High performance, no cap - all succeeded
+| job | L1 alone | L4 alone | L1+L4 | speedup | before fix (v0.17.4 + High perf) |
+| montecarlo 20k x 400k (CPU) | 169 s | 178 s | 86 s (L1 5 / L4 4 chunks) | 1.97x (ideal ~87 s) | L4 241 s, split 97 s (1.74x) |
+| image_classify 20k (CPU, files) | 45 s | 220 s | 45 s - planner kept it on L1 ("best set 55.6 s > 0.9 x 47 s") | - | L4 628 s |
+| GPU training 320 (chunk 16) | 322 s (16 s/chunk) | 618 s (30 s/chunk) | 220 s (L1 13 / L4 7 chunks) | 1.46x (ideal ~212 s) | L4 987 s (49 s/chunk), split 240 s (1.34x) |
+earlier v0.17.5 re-tests on L4: t3.py job 54.6 s (was 164-188 s; by hand 49 s) - job_01M7D3T5R9WKVF8FZJ4HABBD9P; image 20k 359 s
+    (first after upgrade); GPU chunk 88.2 s (first GPU job after upgrade = venv rebuild).
+reading: CPU slowness FIXED (L4 = L1 speed on pure compute; 2 laptops = 1.97x). GPU per chunk 49 -> 30 s (= by hand on L4; the remaining 2x vs
+    L1 is Windows/driver, by-hand too). File-heavy image job improved 628 -> 220 s but still ~5x L1 (open). Planner choices all right.
+jobs: mc ...D4D1QD5HWFH5DEZXD01VAS / ...D4J7ATGZ6D415WSSJP664A / ...D4SGWT4SX276YKKTT4F4PP; img ...D4W7GD7QSGA00WNMCRNG45 / ...D4XP1QY8M1X35W8E5YTXQZ /
+    ...D5691E0GSHPPBY3K618DJB; gpu ...D57P38DY4WSM3WZZ059EWD / ...D5HH48YCNST67WVQT3KSGC / ...D668K4W2R2PTGXYXCMBM2C. raw: raw/2026-11-14-realtest/results-v0175.txt

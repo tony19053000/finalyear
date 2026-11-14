@@ -1,0 +1,38 @@
+== mc L1 job_01M7D4D1QD5HWFH5DEZXD01VAS start 19:06:57
+mode local nodes ['L1'] predicted_s 174.1 | margin: not split: only 1 node(s) can take a lane now; split.min_nodes is 2
+real_s 169 |state | succeeded |
+L1: 1 chunks | 1st 165.3 s | rest avg 0.0 s | max 165.3
+== mc L4 job_01M7D4J7ATGZ6D415WSSJP664A start 19:09:47
+mode offload nodes ['L4'] predicted_s 219.9 | margin: not split: only 1 node(s) can take a lane now; split.min_nodes is 2
+real_s 178 |state | succeeded |
+L4: 1 chunks | 1st 175.7 s | rest avg 0.0 s | max 175.7
+== mc L1+L4 job_01M7D4SGWT4SX276YKKTT4F4PP start 19:13:46
+mode split nodes ['L1', 'L4'] predicted_s 119.1 | margin: split over 2 nodes: 119.12s <= (1 - 0.1) x 174.02s (best single node node_01M6BMFVHJVZXC7AET3CFRE3AV), needs <= 156.62s
+real_s 86 |state | succeeded |
+L1: 5 chunks | 1st 18.2 s | rest avg 15.8 s | max 18.2
+L4: 4 chunks | 1st 19.8 s | rest avg 20.1 s | max 20.2
+== img L1 job_01M7D4W7GD7QSGA00WNMCRNG45 start 19:15:15
+mode local nodes ['L1'] predicted_s 211.6 | margin: not split: only 1 node(s) can take a lane now; split.min_nodes is 2
+real_s 45 |state | succeeded |
+L1: 1 chunks | 1st 43.6 s | rest avg 0.0 s | max 43.6
+== img L4 job_01M7D4XP1QY8M1X35W8E5YTXQZ start 19:16:02
+mode offload nodes ['L4'] predicted_s 339.3 | margin: not split: only 1 node(s) can take a lane now; split.min_nodes is 2
+real_s 220 |state | succeeded |
+L4: 1 chunks | 1st 207.8 s | rest avg 0.0 s | max 207.8
+== img L1+L4 job_01M7D5691E0GSHPPBY3K618DJB start 19:20:44
+mode local nodes ['L1'] predicted_s 47.0 | margin: not split: the best set 55.60s is above 42.29s = (1 - 0.1) x 46.98s (best single node node_01M6BMFVHJVZXC7AET3CFRE3AV)
+real_s 45 |state | succeeded |
+L1: 1 chunks | 1st 43.9 s | rest avg 0.0 s | max 43.9
+== gpu L1 job_01M7D57P38DY4WSM3WZZ059EWD start 19:21:30
+mode local nodes ['L1'] predicted_s 806.6 | margin: not split: only 1 node(s) can take a lane now; split.min_nodes is 2
+real_s 322 |state | succeeded |
+L1: 20 chunks | 1st 16.8 s | rest avg 16.0 s | max 16.8
+== gpu L4 job_01M7D5HH48YCNST67WVQT3KSGC start 19:26:53
+mode offload nodes ['L4'] predicted_s 366.5 | margin: not split: only 1 node(s) can take a lane now; split.min_nodes is 2
+real_s 618 |state | succeeded |
+L4: 20 chunks | 1st 32.0 s | rest avg 30.4 s | max 32.1
+== gpu L1+L4 job_01M7D668K4W2R2PTGXYXCMBM2C start 19:38:12
+mode split nodes ['L1', 'L4'] predicted_s 431.2 | margin: split over 2 nodes: 431.23s <= (1 - 0.1) x 806.63s (best single node node_01M6BMFVHJVZXC7AET3CFRE3AV), needs <= 725.97s
+real_s 220 |state | succeeded |
+L1: 13 chunks | 1st 15.9 s | rest avg 15.9 s | max 16.1
+L4: 7 chunks | 1st 30.7 s | rest avg 30.4 s | max 30.7
