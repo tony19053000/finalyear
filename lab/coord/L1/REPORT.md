@@ -1413,3 +1413,15 @@ L2 warm-up (venv rebuild on 0.17.5) job_01M7DFTQVB9M9NZGE4YYAAMRBY 93.6 s, untim
 * L1+L2 heavy run 2 during L2 free RAM 0.2 GB (memory pressure). Re-run 00:24 (L2 1.8 GB free) job_01M7DPFMVYPC7HPD101REV83ZY = 98 s (L1 6 / L2 4 chunks) -> L1+L2 heavy = 98 s, 1.67x, 99 % of ideal (97 s). 3-GPU heavy: L1 4 / L2 3 / L4 3 chunks; L2's 3 x 23.6 s = 71 s is the
 critical path -> only 10 chunks for 3 laptops limits balance (more/smaller chunks would approach the ideal 62 s). L2 free RAM swung 0.2-2.8 GB.
 raw: raw/2026-11-14-gputest/combo.txt
+
+### 2026-11-15 00:28-01:45 - Run 2B prep + DEMO (stopped by human)
+prep: data (Tiny ImageNet 20k train + 10k val -> npy 352 MB; IMDB 50k x 256 ids) 34 s; reference models on L1 GPU (docker env): cnn_ref val acc
+    0.198 (200 classes) in 211 s, tf_ref held-out acc 0.853 in 262 s. Named inputs tin20k@1 (363.7 MiB), imdb50k@1 (80.7 MiB).
+L1 sizing tests: train 20.8 s/model (acc 0.07-0.10), image 3.3 s per 2000 photos (acc 0.29-0.35), text 0.57 s per 1000 reviews (acc 0.81-0.85).
+warm-ups (untimed): L2 train 431 s / image 59 / text 55; L4 train 212 / image 46 / text 42 (first = dataset copy + venv).
+demo: train L1 alone job_01M7DREYMZ1CD7CRAQ3D96QGG5 458 s (first chunk 43.6 s, rest 82-105 s - L1 likely shared with human CPU tests);
+    train L2 alone job_01M7DRWY22SHMRHEAG527FNB9V: ~419 s per 2-model chunk (L1 44 s), L2 free RAM 0.2-2 GB (swapping) -> cancelled (human);
+    train L4 alone job_01M7DSXCPB92R6WV21NXS6BZ76: 195-326 s per chunk (warm-up 94 s/model vs L1 21 s), L4 3.5 GB free, CPU 11 % -> cancelled.
+FINDING: the 2B TRAINING job is 4-7x slower on L4 and ~10x on L2 than L1 although CUDA is used (heavy GPU test showed L4 = L1). Suspects:
+    per-step CPU work (random fancy-index batch from 235 MB array + uint8->float) on one Windows core, Windows launch cost for CNN+BatchNorm
+    kernels, per-chunk np.load of ~350 MB; L2 additionally RAM swapping. Needs a by-hand check on L4 (like the GPU gap test). Not yet done.
