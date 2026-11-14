@@ -951,6 +951,23 @@ Lab message posted: lab/chat/20261106-120000-LEAD-to-ALL.md (upgrade, remove F4/
 Next: collect lab replies; open follow-ups: D441 r1 notes (ends.py:276 stale older entry; speculation test comment),
 sample_interval_s < 0.25 s, ML an_src_declared flag, lab checklist V0.10 mentions split.item_seconds, Mode 2/4 deferred.
 
+## G13 Windows slowness -> HighQoS fix (2026-11-14, LEAD) - read this first
+
+* Lab on v0.17.4 found Windows jobs 3-25x slower than the hardware allows (image 20k: L4 1089 s vs 45 s by hand-equivalent; GPU chunk
+  L4 88 s vs L1 13 s, same RTX 3050). Lab runs (Run 1 scoring, Part E, 2B, 2A, Run 3) ON HOLD by the human until fixed.
+* Root cause PROVEN on L4 (i5-12450H hybrid P+E cores): every job runs as a child of the agent SERVICE (session 0, no window) with no
+  power-throttling QoS set, so Windows treats it as background: E-cores + no clock boost. Evidence (chat 2026-11-14 L4-to-LEAD T6, T13, T14):
+  same t3.py CNN by hand 48 s; as SYSTEM plain 78 s (High perf) / 164 s (Balanced); as SYSTEM + HighQoS 48.6 s (High perf) / 48.4 s (Balanced).
+  Priority NORMAL alone does nothing. Ruled out: Defender, numpy, env, staging, CPU cap, priority.
+* FIX (to build, D461): agent sets HighQoS = SetProcessInformation(ProcessPowerThrottling, Version 1, ControlMask=EXECUTION_SPEED,
+  StateMask=0) on every Windows job process (agent/process.py spawn: child created suspended -> set before resume), lane chunk processes,
+  env builds; check child processes of the job inherit it (else apply via job object / document). ctypes trap: GetCurrentProcess and
+  handles need restype c_void_p on 64-bit. Optionally also the agent service itself. ADR for the decision.
+* Still to re-measure after the fix: file-heavy job (T4: ~74 ms/image inside a job, ~1 ms/file outside), GPU chunk (also new python per
+  chunk; warm worker ADR-0024 deferred), L1 pinned --node 189 s vs planner 53 s, split -> local when a lane is still busy, busy agent child
+  python at idle (L4 pid 2276). L4 now on High performance + no CPU cap; L2 still Balanced + max_cpu_percent 50.
+* Raw: origin/lab/L1 lab/reports/raw/2026-11-14-{run1,gputest,realtest}/, origin/lab/L4 REPORT 2026-11-14.
+
 ## v0.17.4 -> lab re-run (2026-11-12, LEAD account switch) - read this first
 
 * v0.17.4 verified by LEAD: tag, release assets (.exe, 2 .deb, SHA256SUMS), main pushed, nothing local. BUG-FIX session done.
