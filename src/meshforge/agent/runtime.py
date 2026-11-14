@@ -394,9 +394,9 @@ async def serve(
     # V1.0 G10 BUG-4 (D451): no invisible error dialog may block a workload
     # (inherited by every child; a no-op off Windows).
     quiet_error_mode()
-    # V1.0 G13 (D461): the agent service itself runs with HighQoS too, so any
-    # process it starts outside spawn() inherits it (spawn() also sets it on
-    # every child explicitly). A no-op off Windows; never fatal.
+    # V1.0 G13 (D461): the agent service itself runs with HighQoS too (its own
+    # work: staging, hashing). Not inherited by children - spawn() sets it on
+    # every job process and sweeps the job object. No-op off Windows; never fatal.
     try:
         qos_error = high_qos_self()
     except Exception as exc:  # noqa: BLE001 - never fatal

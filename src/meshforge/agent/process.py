@@ -55,7 +55,8 @@ crashed:
   the child gets **HighQoS** (power throttling off, D461, ADR-0025): a child of
   the session-0 agent service is otherwise treated as background work and run
   on efficiency cores without clock boost (3x slower on a hybrid CPU). Failing
-  to set it is logged, never fatal; processes the child starts inherit it.
+  to set it is logged, never fatal. It is not inherited, so while the job runs
+  the agent gives every new process in the job object HighQoS within a second.
 * **macOS / other POSIX:** no parent-death signal exists; only the process group
   is used (``DEATH_SIGNAL_SUPPORTED`` says so).
 
@@ -467,6 +468,35 @@ if sys.platform == "win32":  # pragma: no cover - exercised on Windows CI only
         finally:
             _kernel32.CloseHandle(handle)
 
+    _JOB_OBJECT_BASIC_PROCESS_ID_LIST_CLASS: Final = 3
+    _JOB_PID_SLOTS: Final = 256
+    _kernel32.QueryInformationJobObject.restype = wintypes.BOOL
+    _kernel32.QueryInformationJobObject.argtypes = [
+        wintypes.HANDLE, ctypes.c_int, wintypes.LPVOID, wintypes.DWORD,
+        ctypes.POINTER(wintypes.DWORD),
+    ]  # fmt: skip
+
+    class _PidList(ctypes.Structure):
+        _fields_ = [
+            ("NumberOfAssignedProcesses", wintypes.DWORD),
+            ("NumberOfProcessIdsInList", wintypes.DWORD),
+            ("ProcessIdList", ctypes.c_size_t * _JOB_PID_SLOTS),
+        ]
+
+    def job_pids(job: int) -> list[int]:
+        """The process ids in ``job`` (first 256), [] when unreadable."""
+        info = _PidList()
+        if not _kernel32.QueryInformationJobObject(
+            job,
+            _JOB_OBJECT_BASIC_PROCESS_ID_LIST_CLASS,
+            ctypes.byref(info),
+            ctypes.sizeof(info),
+            None,
+        ):
+            return []
+        count = min(info.NumberOfProcessIdsInList, _JOB_PID_SLOTS)
+        return [int(info.ProcessIdList[i]) for i in range(count)]
+
     def _resume(pid: int) -> bool:
         """Resume every thread of a child created ``CREATE_SUSPENDED``."""
         handle = _kernel32.OpenProcess(_PROCESS_SUSPEND_RESUME, False, pid)
@@ -544,6 +574,9 @@ else:
     def power_throttling(pid: int) -> tuple[int, int] | None:
         return None
 
+    def job_pids(job: int) -> list[int]:
+        return []
+
     def _job_for(pid: int, limits: ProcessLimits | None = None) -> int | None:
         return None
 
@@ -588,6 +621,10 @@ def kill_tree(proc: asyncio.subprocess.Process) -> None:
         proc.kill()
 
 
+QOS_SWEEP_S: Final = 1.0
+"""How often a running Windows job's new processes get HighQoS (D461)."""
+
+
 class ProcessHandle:
     """A spawned child and everything needed to end its whole tree. One owner task.
 
@@ -599,6 +636,7 @@ class ProcessHandle:
         self.proc = proc
         self._job = job
         self._fallback: asyncio.Task[None] | None = None
+        self._qos_sweep: asyncio.Task[None] | None = None
         self._released = False
         self.killed = False
         """Set once :meth:`kill_now` ran - the exit was forced, not the workload's own."""
@@ -702,9 +740,35 @@ class ProcessHandle:
         reused); call :meth:`kill_now` first to end leftover descendants.
         """
         self._released = True
+        if self._qos_sweep is not None:
+            self._qos_sweep.cancel()
+            self._qos_sweep = None
         job, self._job = self._job, None
         if job is not None:  # pragma: no cover - Windows only
             _close_job(job)
+
+    def start_qos_sweep(self, interval_s: float = QOS_SWEEP_S) -> None:
+        """D461: HighQoS is not inherited on Windows (CI proved a grandchild
+        reports ``(0, 0)``), so while the job runs every new process in its job
+        object gets it within ``interval_s``. No-op without a job object."""
+        if self._job is None or self._qos_sweep is not None:
+            return
+        self._qos_sweep = asyncio.get_running_loop().create_task(
+            self._sweep_qos(self._job, interval_s)
+        )
+
+    async def _sweep_qos(self, job: int, interval_s: float) -> None:
+        done = {self.pid}
+        while self.proc.returncode is None and not self._released:
+            await asyncio.sleep(interval_s)
+            try:
+                pids = job_pids(job)
+            except Exception:  # noqa: BLE001 - never fatal
+                return
+            for pid in pids:
+                if pid not in done:
+                    done.add(pid)
+                    _apply_high_qos(pid, ["(job child)"])
 
 
 # ------------------------------------------------------------------- spawn
@@ -844,6 +908,7 @@ async def spawn(
             "not be resumed",
             reason="spawn_failed",
         )
+    handle.start_qos_sweep()
     if on_spawn is not None:
         on_spawn(proc.pid)
     return handle

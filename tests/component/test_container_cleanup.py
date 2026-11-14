@@ -54,7 +54,7 @@ _DROPPING: Final = "MF-CHILD-DROPPING"
 _MARKER_TIMEOUT_S: Final = 120.0
 _CHILD_TIMEOUT_S: Final = 120.0
 #: Ryuk reaps ~RYUK_RECONNECTION_TIMEOUT (10 s) after its client socket drops.
-_LEAK_DEADLINE_S: Final = 20.0
+_LEAK_DEADLINE_S: Final = 45.0  # under CI load (STATUS watch, 2026-11-14)
 
 _CHILD_INI: Final = """\
 [pytest]

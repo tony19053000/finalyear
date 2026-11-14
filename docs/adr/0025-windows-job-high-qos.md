@@ -15,9 +15,10 @@ staging and the CPU cap were ruled out (L4 chat 2026-11-14 T6, T13–T17).
 `agent/process.spawn()` — the one path for jobs, split lane chunks and env builds — sets **HighQoS** on the
 child while it is still suspended (after the job object, before `NtResumeProcess`):
 `SetProcessInformation(ProcessPowerThrottling, PROCESS_POWER_THROTTLING_STATE{Version=1,
-ControlMask=EXECUTION_SPEED, StateMask=0})`. The agent also sets it on its own process at start, so anything
-it starts outside `spawn()` inherits it. Processes a job starts inherit the setting (checked on Windows CI
-with a grandchild). One structured line `agent.process.qos` per spawn (`applied`, Win32 `error`); a failure
+ControlMask=EXECUTION_SPEED, StateMask=0})`. The agent also sets it on its own process at start. The setting is **not inherited** (Windows CI: a
+grandchild reports `(0, 0)`), so while a job runs the agent lists its job object's processes every second
+(`JobObjectBasicProcessIdList`) and sets HighQoS on each new one (DataLoader workers, a venv launcher's
+interpreter, subprocesses). One structured line `agent.process.qos` per spawn (`applied`, Win32 `error`); a failure
 is logged and the job runs anyway (only slower). HANDLE arguments/results are `c_void_p` (64-bit trap).
 The owner's controls are unchanged: `BELOW_NORMAL` priority and the job object's CPU-rate cap still apply.
 
@@ -36,5 +37,5 @@ the laptop, and the owner keeps the CPU cap, BELOW_NORMAL priority, owner-activi
 
 ## Consequences
 - Windows CPU and GPU jobs run near hand speed (expected L4: CNN ~48–55 s, GPU chunk ~30 s).
-- New log events `agent.process.qos` / `agent.process.qos_self`; Windows CI checks child + grandchild state.
+- New log events `agent.process.qos` / `agent.process.qos_self`; Windows CI checks the child, and the grandchild after the job sweep.
 - Lab re-run of the slow cases on L4 and L2 decides acceptance.

@@ -138,7 +138,12 @@ async def test_a_spawned_child_and_its_own_child_report_high_qos() -> None:
         grandchild = int(json.loads(line)["grandchild"])
         # ControlMask = EXECUTION_SPEED (0x1), StateMask = 0: never throttled
         assert power_throttling(handle.pid) == (1, 0)
-        assert power_throttling(grandchild) == (1, 0), "child processes inherit it"
+        # not inherited (Windows CI: (0, 0)): the agent's job sweep sets it
+        for _ in range(50):
+            if power_throttling(grandchild) == (1, 0):
+                break
+            await asyncio.sleep(0.1)
+        assert power_throttling(grandchild) == (1, 0), "job sweep gave it HighQoS"
     finally:
         handle.kill_now()
         await handle.reap()
@@ -218,3 +223,38 @@ async def test_lower_priority_child_with_limits_still_has_high_qos() -> None:
     finally:
         handle.kill_now()
         await handle.reap()
+
+
+@pytest.mark.asyncio
+async def test_the_job_sweep_gives_new_job_processes_high_qos(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Mocked: the sweep applies QoS once to each new pid in the job, never to
+    the root (already set), and stops when the process exits."""
+    seen: list[int] = []
+    monkeypatch.setattr(process, "job_pids", lambda job: [7, 100, 101])
+    monkeypatch.setattr(process, "_apply_high_qos", lambda pid, argv: seen.append(pid))
+
+    class _Proc:
+        pid = 7
+        returncode: int | None = None
+
+    proc = _Proc()
+    handle = process.ProcessHandle(proc, job=1)  # type: ignore[arg-type]
+    handle.start_qos_sweep(interval_s=0.01)
+    await asyncio.sleep(0.08)
+    proc.returncode = 0
+    await asyncio.sleep(0.03)
+    assert seen == [100, 101]
+    handle._job = None  # nothing real to close
+    handle.release()
+
+
+def test_no_job_object_means_no_sweep() -> None:
+    class _Proc:
+        pid = 7
+        returncode = None
+
+    handle = process.ProcessHandle(_Proc(), job=None)  # type: ignore[arg-type]
+    handle.start_qos_sweep()
+    assert handle._qos_sweep is None
