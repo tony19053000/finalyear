@@ -622,3 +622,4 @@ SIGNAL: capture-pushed
 - 01:23 read: GPU combination test 28/28 OK (L2 free RAM swung 0.2-2.8 GB; L1+L2 heavy run 2 hit 0.2 GB). 2B demo: L2 training chunk ~419 s vs L1 44 s -> L1 stopped L2 (likely RAM swapping, 8 GB laptop). RAM now 0.67 GB with Claude open.
 - 01:39 sent LEAD plan: replace AILESH (8 GB RAM limit, 2B swap 419 s) with friend's i7 + RTX 3050 16 GB laptop as new L2 in a few hours; AILESH CPU work only until then (lab/chat/20261115-013943-L2-to-LEAD.md).
 - 15:25 sent LEAD: laptop change NOW - friend's i7 + RTX 3050 16 GB laptop becomes new L2; AILESH retires (lab/chat/20261115-152537-L2-to-LEAD.md).
+- 15:29 sent L3 the L4 Windows setup recipe (policy, High performance, Defender exclusion, firewall-sync) (lab/chat/20261115-152957-L2-to-L3.md).
