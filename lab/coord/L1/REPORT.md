@@ -1496,3 +1496,26 @@ Chunks: L1 ~21 s each, L3 ~26 s each, both used; planner predicted 84-116 s.
 | image_classify 20k | 230 s (!) | 47 s |
 | mc20k L1+L2 normal submit | planner SPLIT itself: 87 s (1.99x), predicted 102 s | |
 L2 image 5x slower = file-read pattern of missing Defender exclusion (as L4 before fix) - check on L2.
+
+## 2026-11-15 night: all laptops (new L2), v0.17.5 - CPU campaign camp_01M7FVZJCW1BK5BHTWKTZFKRYJ (48/48 done) + GPU 2B (12/12 ok)
+CPU (median of 3; image = warm runs, 1st run includes the image copy):
+| Set | montecarlo 20k | image_classify 20k |
+|---|---|---|
+| L1 | 153 s | 43 s |
+| L2 | 167 s | 90 s |
+| L4 | 172 s | 97 s |
+| L3 | 210 s | 106 s |
+| L1+L2 | 86 s (1.78x) | 38 s |
+| L2+L4 | 90 s | 55 s |
+| L1+L2+L4 | 58 s (2.64x) | 28 s |
+| all 4 | 47 s (3.26x) | 24 s (1.8x) |
+GPU (1 run, 2B real data):
+| Set | train 12 (Tiny ImageNet CNN training) | image AI 72 |
+|---|---|---|
+| L1 | 477 s | 257 s |
+| L2 | 508 s | 293 s |
+| L4 | 446 s | 242 s |
+| L1+L2 | 257 s (1.86x) | 147 s (1.75x) |
+| L2+L4 | 257 s | 147 s |
+| L1+L2+L4 | 179 s (2.66x, 88% of ideal 158 s) | 100 s (2.57x) |
+All outputs correct (same accuracy every set: train ~0.083, image 0.2631); every GPU lane used CUDA on its RTX 3050.
