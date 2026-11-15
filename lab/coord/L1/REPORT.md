@@ -1472,3 +1472,11 @@ jobs: train ...E5WE8YX9XCW4MVHYC7BMMH / ...E6B3YWMBEZKW161G0BV4GG / ...E6SYVEWGS
 | R3 | GPU train 12 models | 490 s (L1 GPU) | 441 s (sent to L4 GPU) | - |
 All 15 succeeded. L4 now ~= L1 on CPU primes (37 vs 34 s) and faster on GPU training. raw: raw/2026-11-14-gputest/smoke-L1L4.txt
 R2A L4 alone (added, human): montecarlo 170 s (job_01M7EZ7JV1G63ZYEJBWE8XZKWG), image 20k 102 s (job_01M7EZCV1FPG8SDSHKQNR36X42) - both succeeded.
+
+## 2026-11-15 L3 CPU speed check (v0.17.5, L2/L4 offline)
+| Job | L1 alone | L3 alone | L1+L3 (forced 2) |
+|---|---|---|---|
+| cpu.primes 300M | 35 s | 63 s | - |
+| montecarlo 5k items | 45 s | 53 s | planner refused split, ran L1 44 s |
+| image_classify 5k | 51 s | 148 s | refused, ran L1 15 s (warm) |
+Planner L3 predictions are stale/pessimistic (mc predicted 288 s vs real 53 s), so the margin test blocked the split. L3 image is slow (no Defender exclusion, likely).
