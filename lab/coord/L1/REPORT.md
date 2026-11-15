@@ -1461,3 +1461,13 @@ L4 now equal/faster than L1 on all 2B jobs. Training chunks: first 43 s then 79-
 slowdown. Planner predictions mostly within ~10-25 % (train over-predicts L4 513 vs 441 s, split under-predicts 153 vs 237 s).
 jobs: train ...E5WE8YX9XCW4MVHYC7BMMH / ...E6B3YWMBEZKW161G0BV4GG / ...E6SYVEWGSE4Z78TH4FN7K5; image ...E716MCXKWHS9JWK4V7BFNC / ...E794FDSMBPRHBCXM18HM1K /
 ...E7HVK1F59QKWA5ZRFH136K; text ...E7NQX10XWB4V581WH80FJN / ...E7XS6ZGW1J8WV4ERW1TG4M / ...E866DH2G22B7WHXASBNJGB. raw: raw/2026-11-14-gputest/2b-demo-L1L4.txt
+
+### 2026-11-15 05:10-06:05 - smoke test (human): one run each of R1 / R2A / R2B / R3 on L1 + L4 (Part E skipped to keep its families unseen)
+| run | job | L1 | L4 | L1+L4 |
+| R1 | cpu.primes 300M | 34 s | 37 s | - |
+| R1 | image_classify 20k | 49 s | 95 s | 51 s (planner kept L1) |
+| R2A | montecarlo 20k x 400k | 168 s | - | 89 s (4+4 chunks) = 1.89x |
+| R2A | image_classify 20k | 46 s | - | 46 s (planner kept L1) |
+| R2B | GPU train 12 / image 72 / text 400 | - | - | 241 s / 131 s / 128 s |
+| R3 | GPU train 12 models | 490 s (L1 GPU) | 441 s (sent to L4 GPU) | - |
+All 15 succeeded. L4 now ~= L1 on CPU primes (37 vs 34 s) and faster on GPU training. raw: raw/2026-11-14-gputest/smoke-L1L4.txt

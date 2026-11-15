@@ -1,0 +1,14 @@
+R1 primes L1 job_01M7EK9BMWRCCQQW23YK29MCVM | real_s=34 | 
+R1 primes L4 job_01M7EKACRVSS6752K6TD2XZWA0 | real_s=37 | 
+R1 image L1 job_01M7EKBJD5KBK6YPHXGSWN65TA | real_s=49 | L1: 1 chunks | 1st 45.6 s | rest avg 0.0 s | max 45.6 
+R1 image L4 job_01M7EKD4N0N3Y1W6G8TS4BKFZP | real_s=95 | L4: 1 chunks | 1st 93.0 s | rest avg 0.0 s | max 93.0 
+R1 image L1+L4 job_01M7EKHFD1KDY3NKMSHJQZ1T2T | real_s=51 | L1: 1 chunks | 1st 47.5 s | rest avg 0.0 s | max 47.5 
+R2A mc L1 job_01M7EKK0VGE5QSGKJ3XTVMY22W | real_s=168 | L1: 1 chunks | 1st 166.5 s | rest avg 0.0 s | max 166.5 
+R2A mc L1+L4 job_01M7EKS250VGPP4367JG91DXQG | real_s=89 | L1: 4 chunks | 1st 21.4 s | rest avg 21.1 s | max 21.4 L4: 4 chunks | 1st 21.3 s | rest avg 21.1 s | max 21.3 
+R2A image L1 job_01M7EKVTXGPNMXFVX66ZPAA5N6 | real_s=46 | L1: 1 chunks | 1st 45.0 s | rest avg 0.0 s | max 45.0 
+R2A image L1+L4 job_01M7EKY773BMKGWEGWT3RJRQ8J | real_s=46 | L1: 1 chunks | 1st 45.0 s | rest avg 0.0 s | max 45.0 
+R2B train L1+L4 job_01M7EM0J2ZR989WK0B7NVVK77M | real_s=241 | L1: 3 chunks | 1st 44.5 s | rest avg 97.5 s | max 110.5 L4: 3 chunks | 1st 42.4 s | rest avg 87.5 s | max 98.2 
+R2B image L1+L4 job_01M7EM8VQXVPAZBNEFG1BH00N0 | real_s=131 | L1: 3 chunks | 1st 42.7 s | rest avg 43.1 s | max 43.4 L4: 3 chunks | 1st 39.5 s | rest avg 39.8 s | max 39.8 
+R2B text L1+L4 job_01M7EMDS98HV4B1TQGVG0CMQE2 | real_s=128 | L1: 3 chunks | 1st 41.2 s | rest avg 41.5 s | max 41.9 L4: 4 chunks | 1st 36.3 s | rest avg 27.8 s | max 36.3 
+R3 train on L1 GPU job_01M7EMHPH3EHBJCFB5GBH9R7MP | real_s=490 | L1: 6 chunks | 1st 44.8 s | rest avg 88.4 s | max 112.2 
+R3 train sent to L4 GPU job_01M7EN0NEGKKGP1B9MXQYFQW82 | real_s=441 | L4: 6 chunks | 1st 42.8 s | rest avg 78.8 s | max 98.3 
