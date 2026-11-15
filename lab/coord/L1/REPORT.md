@@ -1485,3 +1485,14 @@ Planner L3 predictions are stale/pessimistic (mc predicted 288 s vs real 53 s), 
 L1 alone 173 s; L3 alone 250 s; L1+L3 by normal submit = planner refused (stale L3 estimate 924 s), ran L1 176 s.
 Forced L1+L3 via campaign mode3_sets (camp_01M7FGJX3B7RYG09AF7XDYQ1JD, 3 reps): **106 / 107 / 104 s** = 1.65x vs L1, ideal 102 s -> 97% of ideal.
 Chunks: L1 ~21 s each, L3 ~26 s each, both used; planner predicted 84-116 s.
+
+## 2026-11-15 new L2 (LAPTOP-GGJ7F9EM) quick tests, v0.17.5
+| Test | L2 | L1 |
+|---|---|---|
+| t3 CPU CNN | 69 s | ~45-55 s |
+| montecarlo 20k | 181 s | 173 s |
+| heavy GPU 16 | 25 s | 18 s |
+| 2B train 12 | 504 s | 482 s |
+| image_classify 20k | 230 s (!) | 47 s |
+| mc20k L1+L2 normal submit | planner SPLIT itself: 87 s (1.99x), predicted 102 s | |
+L2 image 5x slower = file-read pattern of missing Defender exclusion (as L4 before fix) - check on L2.
