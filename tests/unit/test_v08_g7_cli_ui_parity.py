@@ -159,6 +159,8 @@ def test_cli_only_is_the_exception() -> None:
         "bench plan",  # previews a local spec file
         "bench submit",  # the manual driver; the browser starts the runner
         "bench workloads",  # this laptop's library, no controller call
+        # V1.0 G11 (D454): admin disk sweep; the Data page's Delete frees blobs
+        "data gc",
         "data push",
         "fabric join",
         "node gc",

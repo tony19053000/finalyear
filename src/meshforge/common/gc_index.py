@@ -406,6 +406,16 @@ class GcIndex:
             ).fetchone()
         return int(row[0])
 
+    def items(self, kind: str) -> list[tuple[str, int, float]]:
+        """Every ``(key, size, last_use)`` of ``kind`` (V1.0 G11, D454: the
+        controller's sweep of unreferenced blobs walks all of them)."""
+        with self.tx() as db:
+            rows = db.execute(
+                "SELECT key, size, last_use FROM item WHERE kind = ? ORDER BY key",
+                (kind,),
+            ).fetchall()
+        return [(str(k), int(s), float(u)) for k, s, u in rows]
+
     def last_use(self, kind: str, key: str) -> float | None:
         with self.tx() as db:
             row = db.execute(
@@ -429,6 +439,28 @@ class GcIndex:
             db.execute("INSERT INTO tree_known VALUES (?)", (tree,))
             if _tree_protected(db, tree):
                 _protect(db, "tree", tree)
+
+    def members_of(self, trees: Iterable[str]) -> tuple[set[str], set[str]]:
+        """``(members, known)``: the recorded member blobs of the ``trees``
+        whose member list is known, and which of them were known (V1.0 G11,
+        D454). A tree not recorded yet is not in ``known``; the caller reads
+        its manifest instead."""
+        members: set[str] = set()
+        known: set[str] = set()
+        with self.tx() as db:
+            for tree in dict.fromkeys(trees):
+                if not db.execute(
+                    "SELECT 1 FROM tree_known WHERE tree = ?", (tree,)
+                ).fetchone():
+                    continue
+                known.add(tree)
+                members.update(
+                    str(b)
+                    for (b,) in db.execute(
+                        "SELECT blob FROM tree_member WHERE tree = ?", (tree,)
+                    )
+                )
+        return members, known
 
     def tree_known(self, tree: str) -> bool:
         with self.tx() as db:

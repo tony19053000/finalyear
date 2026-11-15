@@ -81,7 +81,9 @@ class Profile:
     join_wait_s: float
 
 
-LIVE: Final = Profile(3_000_000, 30.0, 48, 4, 400_000, 600.0)
+# split_rounds 4M (V1.0 G12): 48 items ~2 min on L1, so splitting beats local even with
+# the Windows first-chunk cost (~12-17 s) once the workload has history.
+LIVE: Final = Profile(3_000_000, 30.0, 48, 4, 4_000_000, 600.0)
 DRY: Final = Profile(200_000, 8.0, 36, 2, 500_000, 120.0)
 
 

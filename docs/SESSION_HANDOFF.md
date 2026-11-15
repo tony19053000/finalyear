@@ -951,6 +951,99 @@ Lab message posted: lab/chat/20261106-120000-LEAD-to-ALL.md (upgrade, remove F4/
 Next: collect lab replies; open follow-ups: D441 r1 notes (ends.py:276 stale older entry; speculation test comment),
 sample_interval_s < 0.25 s, ML an_src_declared flag, lab checklist V0.10 mentions split.item_seconds, Mode 2/4 deferred.
 
+## v0.17.5 released (2026-11-14, BUG-FIX session) - read this first
+
+* D461 shipped in v0.17.5 (CI run 43585355182 green, release run 43594520373 green, assets up), ADR-0025:
+  `agent/process.spawn()` sets HighQoS (power throttling off) on every suspended Windows child before resume;
+  the agent sets it on itself at start. Windows CI PROVED HighQoS is NOT inherited (grandchild `(0, 0)`), so
+  `ProcessHandle.start_qos_sweep()` lists the job object every 1 s and sets it on new processes. One
+  `agent.process.qos` log line per process; never fatal.
+* CI flake budgets widened: container-leak deadline 45 s; Windows loop-stall test tolerates one hiccup.
+* Lab post: `lab/chat/20261114-175214-LEAD-to-ALL.md` (upgrade + L4/L2 re-tests, then resume held runs).
+* Trap: a tag push can be rejected transiently (`remote rejected (failed)`) - check `git ls-remote --tags` and retry.
+* Trap: a failed-but-still-running old CI run blocks the new one in the concurrency queue - cancel it.
+* Nothing unpushed.
+
+## After v0.17.5 - Windows slowness CLOSED (2026-11-15, LEAD)
+* v0.17.5 (D461 HighQoS, ADR-0025) released + verified in lab: L4 t3 CPU 54.6 s (by hand 49), Monte Carlo L1+L4 1.97x, heavy GPU L1+L4 1.93x.
+* File-heavy: first read of every new file 5-8 ms on L4 even by hand (Defender real-time scan, T19) - not MeshForge. Human chose the fastest
+  fix: Defender exclusion C:\ProgramData\MeshForge on L4 (owner, 02:50). T18 read1 104 -> 1.2 s; image 20k L4 220 -> 97 s (L1 47 s; a ~2x
+  gap on this short job remains, accepted for now). Product follow-up: optional installer exclusion (opt-in, ADR) + docs.
+* 2B GPU training slowness = lab job code: NHWC permute -> channels-last -> cuDNN 9.10 (Windows cu126) ~5x slower; .contiguous() fixes.
+  2B demo L1+L4: train 2.03x, image AI 2.05x, text AI 2.10x; L4 >= L1 on all. Notes: docs tip (contiguous NCHW), consider cu13x torch for
+  Windows, NVML fails inside Windows service jobs.
+* L2 AILESH (8 GB, swaps) to be replaced by a 16 GB i7 + RTX 3050 laptop (new L2). Held runs can resume on the human's go.
+
+## G13 Windows slowness -> HighQoS fix (2026-11-14, LEAD) - read this first
+
+* Lab on v0.17.4 found Windows jobs 3-25x slower than the hardware allows (image 20k: L4 1089 s vs 45 s by hand-equivalent; GPU chunk
+  L4 88 s vs L1 13 s, same RTX 3050). Lab runs (Run 1 scoring, Part E, 2B, 2A, Run 3) ON HOLD by the human until fixed.
+* Root cause PROVEN on L4 (i5-12450H hybrid P+E cores): every job runs as a child of the agent SERVICE (session 0, no window) with no
+  power-throttling QoS set, so Windows treats it as background: E-cores + no clock boost. Evidence (chat 2026-11-14 L4-to-LEAD T6, T13, T14):
+  same t3.py CNN by hand 48 s; as SYSTEM plain 78 s (High perf) / 164 s (Balanced); as SYSTEM + HighQoS 48.6 s (High perf) / 48.4 s (Balanced).
+  Priority NORMAL alone does nothing. Ruled out: Defender, numpy, env, staging, CPU cap, priority.
+* FIX (to build, D461): agent sets HighQoS = SetProcessInformation(ProcessPowerThrottling, Version 1, ControlMask=EXECUTION_SPEED,
+  StateMask=0) on every Windows job process (agent/process.py spawn: child created suspended -> set before resume), lane chunk processes,
+  env builds; check child processes of the job inherit it (else apply via job object / document). ctypes trap: GetCurrentProcess and
+  handles need restype c_void_p on 64-bit. Optionally also the agent service itself. ADR for the decision.
+* Still to re-measure after the fix: file-heavy job (T4: ~74 ms/image inside a job, ~1 ms/file outside), GPU chunk (also new python per
+  chunk; warm worker ADR-0024 deferred), L1 pinned --node 189 s vs planner 53 s, split -> local when a lane is still busy, busy agent child
+  python at idle (L4 pid 2276). L4 now on High performance + no CPU cap; L2 still Balanced + max_cpu_percent 50.
+* GPU proven too (T15-T17, L4 chat 20261114-144559): one 16-training chunk by hand 28.5 s; as SYSTEM 45-77 s; as SYSTEM + HighQoS 30 s.
+  So D461 fixes CPU + GPU. Remaining gap by hand vs L1 (28.5 vs 15.5 s) is in the training loop (Windows WDDM launch cost / laptop GPU power
+  limit / CPU), not per-chunk start (import torch 2 s warm, CUDA init 0.1 s) - not a MeshForge bug; warm worker would save only ~2-3 s/chunk.
+* Raw: origin/lab/L1 lab/reports/raw/2026-11-14-{run1,gputest,realtest}/, origin/lab/L4 REPORT 2026-11-14.
+
+## v0.17.4 -> lab re-run (2026-11-12, LEAD account switch) - read this first
+
+* v0.17.4 verified by LEAD: tag, release assets (.exe, 2 .deb, SHA256SUMS), main pushed, nothing local. BUG-FIX session done.
+* Lab: NO report since v0.17.4 yet (last REPORTs 13:16-14:40 on 0.17.3). Lab post 20261112-184744-LEAD-to-ALL = upgrade + re-runs.
+* Waiting on lab: all upgrade 0.17.4; L3 re-join (revoked; human join code); L1 re-runs D459 (small split pred vs real), D460
+  (same job twice keeps mode), demo 03, 04, then 05 (needs L3); L4 D457 part 2 + D458; L1 owes 2 flapping explain outputs; then 0.14.8.
+* LEAD to-do: tick v0.17.1-v0.17.4 roadmap boxes + status bar only with REPORT evidence. Reviewer follow-ups (non-blocking) above.
+* Next BUG-FIX session only if the lab finds a bug.
+
+## v0.17.4 released (2026-11-12, BUG-FIX session) - read this first
+
+* G12 shipped in v0.17.4 (tag pushed after CI ci-ok green run 43214950825): D459 node_history chunk cost, D460 mode
+  hysteresis (margin 0.10), demo LIVE split_rounds 4M (demo 03 / 04 job C). Reviewer APPROVE; non-blocking notes:
+  log when a split is kept below the split margin; document that 8 pinned/excluded decisions turn hysteresis off;
+  EXPLAIN the node_chunk_history EXISTS subquery on a large history.
+* Decision log rows D459 D460 in the roadmap. Lab post: `lab/chat/20261112-184744-LEAD-to-ALL.md`.
+* Check release.yml for v0.17.4 finished green with .deb/.exe assets. Roadmap boxes stay `[~]` until lab evidence.
+* Nothing unpushed (except this handoff commit, pushed with it).
+
+## G12 -> v0.17.4 state (2026-11-12, account switch: LEAD + BUG-FIX) - read this first
+
+* Lab: all 4 laptops on **v0.17.3**. G11 lab: D452 D453 D454 D457(L1) PASS; D456 big split 557 s pred vs 558 s real PASS,
+  small split 38 vs 52 s PARTIAL (-> D459). L4: D457 part 2 (non-admin `compute login --fingerprint`) + D458 log proof pending.
+  L3 revoked for D453, re-join pending (human join code). Demos 01, 02, 04 PASS on v0.17.3; 05 waits for L3.
+* Demo fix a69266bb (item_seconds) pushed. **Demo 03 still FAILS**: now has history, 48 items x 400k rounds = ~13 s on L1, so
+  the planner correctly runs it local (Windows first-chunk cost 12-17 s). Needs a bigger LIVE split job (e.g. split_rounds 4_000_000
+  ~2 min on L1, within the 5 min budget); demo 04 job C same risk. Chat 20261112-144039-L1-to-LEAD. NOT yet sent to BUG-FIX.
+* **G12 (team GO): D459** node_history cost fallback for a new fingerprint (same runtime kind, median, explain source) and
+  **D460** mode hysteresis (keep previous mode for same fingerprint unless new best >= 10% faster). Brief
+  `docs/briefs/progress/V1.0-G12-planner.md`. WIP commit **136e3d7c (unpushed, stopped before final gates)**: code + tests written.
+  Next: run its tests, tester+reviewer, add demo 03/04 size fix, full gates, push, CI, bump 0.17.4 (+uv.lock, CHANGELOG,
+  `cd frontend && npm run gen:api`), tag, LEAD-to-ALL re-run list (D459/D460 + demo 03/04 + 0.14.8 next).
+* L1 still owes 2 `compute explain --json` outputs of a flapping identical pair (helps confirm D460).
+* Roadmap: v0.17.1/2/3 lab PASS results NOT yet ticked (LEAD job, evidence in origin/lab/L1 REPORT + chat).
+* Plan to v1.0: origin/lab/L1 `lab/coord/L1/TEST_PLAN.md`. User has time limits: prefer must-fix only; cut candidates 1.0.2 soak,
+  1.0.1 full re-run, 1.0.3 tuning. Deferred: ADR-0024 warm worker, phase times, gpus list, idle-lane delay.
+* BUG-FIX session id was local_3c7481b5-...; new sessions find each other with ccd list_sessions.
+
+## v0.17.3 released (2026-11-12, BUG-FIX session) - read this first
+
+* G11 shipped in v0.17.3 (tag pushed, release run 43172547817 green, assets up): D452 names skip revoked,
+  D453 failure cause in job view, D454 `data rm` frees + `compute data gc`, D456 planner per-node fixed +
+  first-chunk cost, D457 `run --local` via public node-id file, D458 venv key names the base interpreter.
+  Briefs: `docs/briefs/progress/V1.0-G11-lab-fixes.md`, `V1.0-G11-D457.md`, `V1.0-G11-D458.md`.
+* Scope cut by the team: ADR-0024 warm lane worker stays Proposed, build deferred; per-chunk phase times,
+  `gpus` list for L2/L4, idle-lane +2-4 s deferred.
+* Lab post: `lab/chat/20261112-123426-LEAD-to-ALL.md`. Roadmap boxes stay `[~]` until lab evidence.
+* Lesson: a version bump also needs `cd frontend && npm run gen:api` (openapi.json carries the version).
+* Nothing unpushed.
+
 ## v0.17.2 released (2026-11-11, BUG-FIX session) - read this first, older G10 sections below are history
 
 * D451 finished: tester+reviewer PASS/APPROVE; D451-R1 (refused lease could plant stall marks) fixed.

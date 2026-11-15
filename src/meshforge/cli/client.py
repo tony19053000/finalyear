@@ -356,6 +356,12 @@ class ControllerClient:
     def remove_input(self, name: str, version: int) -> Mapping[str, Any]:
         return self._request("DELETE", f"/v1/data/{name}/{version}")
 
+    def data_gc(self, *, dry_run: bool) -> Mapping[str, Any]:
+        """V1.0 G11 (D454): ``POST /v1/data/gc`` (admin)."""
+        return self._request(
+            "POST", "/v1/data/gc", params={"dry_run": "true" if dry_run else "false"}
+        )
+
     def jobs(self, *, state: str | None = None, limit: int = 50) -> Mapping[str, Any]:
         params = {"limit": str(limit)}
         if state:

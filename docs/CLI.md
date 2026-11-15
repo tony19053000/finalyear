@@ -55,7 +55,8 @@ codes and shell completion. Unit tests keep it in step with the code (`tests/uni
 | `compute login` / `logout` | log in (API token kept privately) / revoke it | no |
 | `compute tokens revoke ID` | revoke a token | no |
 | `compute secret set NAME` / `delete NAME` | store (value from stdin or `--from-file`) / delete | no |
-| `compute data push NAME DIR` / `pin REF` / `rm REF` | register / pin / remove a named input | no |
+| `compute data push NAME DIR` / `pin REF` / `rm REF` | register / pin / remove a named input; `rm` deletes the blobs nothing else references from the controller at once and prints what it freed (V1.0 G11, D454) | no |
+| `compute data gc [--dry-run]` | admin: delete every blob of the controller's store that no job, named input or model references, now (blobs used within `[controller.gc] sweep_min_age_s` are kept); prints count and bytes freed (V1.0 G11, D454) | yes |
 | `compute node prepare|gc [NODE_ID / --all]` | pre-pull images and envs / run a cache GC pass | no |
 | `compute node revoke NODE_ID` | revoke a node for good | yes |
 | `compute fabric invite [--ttl] [--replace NODE_ID]` | make a single-use join code | yes |
@@ -107,6 +108,7 @@ Guaranteed fields per command (`a[].b` = field `b` of every item of list `a`; `a
 | `compute secret list` | `GET /v1/secrets` | `secrets`, `count`, `secrets[].name`, `secrets[].created_at`, `secrets[].updated_at` |
 | `compute data ls` | `GET /v1/data` | `inputs`, `count`, `inputs[].ref`, `inputs[].name`, `inputs[].version`, `inputs[].tree_id`, `inputs[].size`, `inputs[].files`, `inputs[].pinned` |
 | `compute data show NAME` | `GET /v1/data/{name}` | `name`, `versions`, `versions[].ref`, `versions[].tree_id`, `versions[].pinned` |
+| `compute data gc` | `POST /v1/data/gc` | `dry_run`, `removed_blobs`, `removed_bytes`, `kept_recent_blobs`, `kept_recent_bytes`, `failed_blobs`, `duration_s` |
 | `compute fabric invites` | `GET /v1/fabric/invites` | `invites`, `invites[].id`, `invites[].state`, `invites[].expires_at`, `invites[].used_by_node` |
 | `compute fabric invites --revoke ID` | `POST /v1/fabric/invites/{invite_id}/revoke` | `id`, `state`, `revoked_at` |
 | `compute fabric invite` | `POST /v1/fabric/invites` | `code`, `invite_id`, `address`, `ca_pin`, `expires_at` |

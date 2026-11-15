@@ -8,6 +8,7 @@
 #   program   /opt/meshforge/current -> <version>  (read-only)
 #   logs      journalctl -u meshforge-agent
 #   console   http://127.0.0.1:47130 (loopback only; token in /run/meshforge-console)
+#   public    /var/lib/meshforge-public/node-id.json (node id only, world-readable)
 #
 # Docker: `meshforge` is NOT in the `docker` group (that group is root-equivalent,
 # Q12). Until the owner opts in, the agent reports "docker: no access" and runs
@@ -54,7 +55,9 @@ StandardError=journal
 ProtectSystem=strict
 # /run/meshforge-console: the console's access token (tmpfiles.d, 2750
 # meshforge:meshforge-admin); "-": a missing folder only disables the console.
-ReadWritePaths=/var/lib/meshforge -/run/meshforge-console
+# /var/lib/meshforge-public (V1.0 G11, D457): the world-readable node-id.json
+# that `compute run --local` reads; "-": missing only costs --local here.
+ReadWritePaths=/var/lib/meshforge -/run/meshforge-console -/var/lib/meshforge-public
 ProtectHome=yes
 PrivateTmp=yes
 NoNewPrivileges=yes

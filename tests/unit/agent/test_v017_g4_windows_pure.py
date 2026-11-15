@@ -243,6 +243,7 @@ def test_layout_folders_include_the_console_token_folder_in_order() -> None:
         layout.cache_dir,
         layout.logs_dir,
         layout.console_dir,
+        layout.public_dir,  # V1.0 G11 (D457)
     }
 
 

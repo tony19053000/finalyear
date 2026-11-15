@@ -51,7 +51,12 @@ crashed:
   (``NtResumeProcess``, as psutil does), so nothing it starts escapes the job or
   its CPU / memory caps - a venv's ``python.exe`` is a launcher that starts the
   real interpreter at once (V0.17 CI). A child that cannot be resumed is killed
-  (:class:`SpawnError` ``spawn_failed``), never left frozen.
+  (:class:`SpawnError` ``spawn_failed``), never left frozen. Before the resume
+  the child gets **HighQoS** (power throttling off, D461, ADR-0025): a child of
+  the session-0 agent service is otherwise treated as background work and run
+  on efficiency cores without clock boost (3x slower on a hybrid CPU). Failing
+  to set it is logged, never fatal. It is not inherited, so while the job runs
+  the agent gives every new process in the job object HighQoS within a second.
 * **macOS / other POSIX:** no parent-death signal exists; only the process group
   is used (``DEATH_SIGNAL_SUPPORTED`` says so).
 
@@ -336,6 +341,19 @@ if sys.platform == "win32":  # pragma: no cover - exercised on Windows CI only
     _PROCESS_TERMINATE: Final = 0x0001
     _PROCESS_SUSPEND_RESUME: Final = 0x0800
     _CREATE_SUSPENDED: Final = 0x00000004
+    _PROCESS_SET_INFORMATION: Final = 0x0200
+    _PROCESS_QUERY_LIMITED_INFORMATION: Final = 0x1000
+    _PROCESS_QUERY_INFORMATION: Final = 0x0400
+    _PROCESS_POWER_THROTTLING_INFO_CLASS: Final = 4  # ProcessPowerThrottling
+    _PROCESS_POWER_THROTTLING_CURRENT_VERSION: Final = 1
+    _PROCESS_POWER_THROTTLING_EXECUTION_SPEED: Final = 0x1
+
+    class _PowerThrottling(ctypes.Structure):
+        _fields_ = [
+            ("Version", wintypes.ULONG),
+            ("ControlMask", wintypes.ULONG),
+            ("StateMask", wintypes.ULONG),
+        ]
 
     class _IoCounters(ctypes.Structure):
         _fields_ = [(name, ctypes.c_ulonglong) for name in (
@@ -384,9 +402,100 @@ if sys.platform == "win32":  # pragma: no cover - exercised on Windows CI only
     _kernel32.TerminateJobObject.argtypes = [wintypes.HANDLE, wintypes.UINT]
     _kernel32.CloseHandle.restype = wintypes.BOOL
     _kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    # HANDLE arguments and results as c_void_p: a default int restype would
+    # truncate a 64-bit handle (GetCurrentProcess returns -1 as a pointer).
+    _kernel32.GetCurrentProcess.restype = ctypes.c_void_p
+    _kernel32.GetCurrentProcess.argtypes = []
+    _kernel32.SetProcessInformation.restype = wintypes.BOOL
+    _kernel32.SetProcessInformation.argtypes = [
+        ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD,
+    ]  # fmt: skip
+    _kernel32.GetProcessInformation.restype = wintypes.BOOL
+    _kernel32.GetProcessInformation.argtypes = [
+        ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD,
+    ]  # fmt: skip
     _ntdll = ctypes.WinDLL("ntdll")
     _ntdll.NtResumeProcess.restype = ctypes.c_long  # NTSTATUS
     _ntdll.NtResumeProcess.argtypes = [wintypes.HANDLE]
+
+    def _set_high_qos(handle: int | None) -> int:
+        """HighQoS on ``handle`` (D461): power throttling of execution speed
+        explicitly off. 0 on success, else the Win32 error code."""
+        state = _PowerThrottling(
+            _PROCESS_POWER_THROTTLING_CURRENT_VERSION,
+            _PROCESS_POWER_THROTTLING_EXECUTION_SPEED,
+            0,  # StateMask 0 = never throttle (HighQoS)
+        )
+        ok = _kernel32.SetProcessInformation(
+            handle,
+            _PROCESS_POWER_THROTTLING_INFO_CLASS,
+            ctypes.byref(state),
+            ctypes.sizeof(state),
+        )
+        return 0 if ok else (ctypes.get_last_error() or -1)
+
+    def high_qos(pid: int) -> int | None:
+        """Set HighQoS on process ``pid``: 0 on success, else the Win32 error."""
+        handle = _kernel32.OpenProcess(_PROCESS_SET_INFORMATION, False, pid)
+        if not handle:
+            return ctypes.get_last_error() or -1
+        try:
+            return _set_high_qos(handle)
+        finally:
+            _kernel32.CloseHandle(handle)
+
+    def high_qos_self() -> int | None:
+        """Set HighQoS on the agent's own process (inherited by children)."""
+        return _set_high_qos(_kernel32.GetCurrentProcess())
+
+    def power_throttling(pid: int) -> tuple[int, int] | None:
+        """``(ControlMask, StateMask)`` of ``pid``, or None (tests, doctor)."""
+        handle = _kernel32.OpenProcess(
+            _PROCESS_QUERY_LIMITED_INFORMATION, False, pid
+        ) or _kernel32.OpenProcess(_PROCESS_QUERY_INFORMATION, False, pid)
+        if not handle:
+            return None
+        try:
+            state = _PowerThrottling(_PROCESS_POWER_THROTTLING_CURRENT_VERSION, 0, 0)
+            if not _kernel32.GetProcessInformation(
+                handle,
+                _PROCESS_POWER_THROTTLING_INFO_CLASS,
+                ctypes.byref(state),
+                ctypes.sizeof(state),
+            ):
+                return None
+            return int(state.ControlMask), int(state.StateMask)
+        finally:
+            _kernel32.CloseHandle(handle)
+
+    _JOB_OBJECT_BASIC_PROCESS_ID_LIST_CLASS: Final = 3
+    _JOB_PID_SLOTS: Final = 256
+    _kernel32.QueryInformationJobObject.restype = wintypes.BOOL
+    _kernel32.QueryInformationJobObject.argtypes = [
+        wintypes.HANDLE, ctypes.c_int, wintypes.LPVOID, wintypes.DWORD,
+        ctypes.POINTER(wintypes.DWORD),
+    ]  # fmt: skip
+
+    class _PidList(ctypes.Structure):
+        _fields_ = [
+            ("NumberOfAssignedProcesses", wintypes.DWORD),
+            ("NumberOfProcessIdsInList", wintypes.DWORD),
+            ("ProcessIdList", ctypes.c_size_t * _JOB_PID_SLOTS),
+        ]
+
+    def job_pids(job: int) -> list[int]:
+        """The process ids in ``job`` (first 256), [] when unreadable."""
+        info = _PidList()
+        if not _kernel32.QueryInformationJobObject(
+            job,
+            _JOB_OBJECT_BASIC_PROCESS_ID_LIST_CLASS,
+            ctypes.byref(info),
+            ctypes.sizeof(info),
+            None,
+        ):
+            return []
+        count = min(info.NumberOfProcessIdsInList, _JOB_PID_SLOTS)
+        return [int(info.ProcessIdList[i]) for i in range(count)]
 
     def _resume(pid: int) -> bool:
         """Resume every thread of a child created ``CREATE_SUSPENDED``."""
@@ -455,6 +564,19 @@ if sys.platform == "win32":  # pragma: no cover - exercised on Windows CI only
 
 else:
 
+    def high_qos(pid: int) -> int | None:
+        """Windows only (D461): None = not applicable here."""
+        return None
+
+    def high_qos_self() -> int | None:
+        return None
+
+    def power_throttling(pid: int) -> tuple[int, int] | None:
+        return None
+
+    def job_pids(job: int) -> list[int]:
+        return []
+
     def _job_for(pid: int, limits: ProcessLimits | None = None) -> int | None:
         return None
 
@@ -499,6 +621,10 @@ def kill_tree(proc: asyncio.subprocess.Process) -> None:
         proc.kill()
 
 
+QOS_SWEEP_S: Final = 1.0
+"""How often a running Windows job's new processes get HighQoS (D461)."""
+
+
 class ProcessHandle:
     """A spawned child and everything needed to end its whole tree. One owner task.
 
@@ -510,6 +636,7 @@ class ProcessHandle:
         self.proc = proc
         self._job = job
         self._fallback: asyncio.Task[None] | None = None
+        self._qos_sweep: asyncio.Task[None] | None = None
         self._released = False
         self.killed = False
         """Set once :meth:`kill_now` ran - the exit was forced, not the workload's own."""
@@ -613,9 +740,35 @@ class ProcessHandle:
         reused); call :meth:`kill_now` first to end leftover descendants.
         """
         self._released = True
+        if self._qos_sweep is not None:
+            self._qos_sweep.cancel()
+            self._qos_sweep = None
         job, self._job = self._job, None
         if job is not None:  # pragma: no cover - Windows only
             _close_job(job)
+
+    def start_qos_sweep(self, interval_s: float = QOS_SWEEP_S) -> None:
+        """D461: HighQoS is not inherited on Windows (CI proved a grandchild
+        reports ``(0, 0)``), so while the job runs every new process in its job
+        object gets it within ``interval_s``. No-op without a job object."""
+        if self._job is None or self._qos_sweep is not None:
+            return
+        self._qos_sweep = asyncio.get_running_loop().create_task(
+            self._sweep_qos(self._job, interval_s)
+        )
+
+    async def _sweep_qos(self, job: int, interval_s: float) -> None:
+        done = {self.pid}
+        while self.proc.returncode is None and not self._released:
+            await asyncio.sleep(interval_s)
+            try:
+                pids = job_pids(job)
+            except Exception:  # noqa: BLE001 - never fatal
+                return
+            for pid in pids:
+                if pid not in done:
+                    done.add(pid)
+                    _apply_high_qos(pid, ["(job child)"])
 
 
 # ------------------------------------------------------------------- spawn
@@ -746,6 +899,7 @@ async def spawn(
             "cannot apply the owner's resource limits (Windows job object)",
             reason="limits_not_applied",
         )
+    _apply_high_qos(proc.pid, argv)
     if not _resume(proc.pid):  # pragma: no cover - Windows only
         handle.kill_now()
         await handle.reap()
@@ -754,9 +908,31 @@ async def spawn(
             "not be resumed",
             reason="spawn_failed",
         )
+    handle.start_qos_sweep()
     if on_spawn is not None:
         on_spawn(proc.pid)
     return handle
+
+
+def _apply_high_qos(pid: int, argv: Sequence[str]) -> None:
+    """D461: HighQoS on a fresh (still suspended) Windows child; one log line
+    per spawn with the result. Never fatal - a job only runs slower without it.
+    Off Windows :func:`high_qos` returns None and nothing is logged."""
+    exe = Path(argv[0]).name
+    try:
+        error = high_qos(pid)
+    except Exception as exc:  # noqa: BLE001 - a missing API must not fail a job
+        log.warning(
+            "agent.process.qos", pid=pid, exe=exe, applied=False,
+            error=type(exc).__name__,
+        )  # fmt: skip
+        return
+    if error is None:
+        return
+    if error == 0:
+        log.info("agent.process.qos", pid=pid, exe=exe, applied=True)
+    else:
+        log.warning("agent.process.qos", pid=pid, exe=exe, applied=False, error=error)
 
 
 async def _abandon(creating: asyncio.Future[asyncio.subprocess.Process]) -> None:

@@ -25,8 +25,9 @@ esac
 
 case "${1:-}" in
 purge)
-	# the console token folder (V0.17 G3) is the agent's alone
-	rm -rf /run/meshforge-console
+	# the console token folder (V0.17 G3) and the public node record folder
+	# (V1.0 G11, D457) are the agent's alone
+	rm -rf /run/meshforge-console /var/lib/meshforge-public
 	if controller_known; then
 		for entry in /var/lib/meshforge/* /var/lib/meshforge/.[!.]*; do
 			case "${entry##*/}" in

@@ -14,12 +14,21 @@
 ``source``         sha256 of the node's package sources (``[agent.envs]``
                    ``index_url``, ``no_index`` and the file names + sizes of a
                    ``find_links`` wheelhouse); ``""`` = the default index
+``interpreter``    venv only (V1.0 G11, D458): sha256 of the base interpreter's
+                   identity - its resolved real path, full ``sys.version`` and
+                   platform (:func:`~.base_python.interpreter_identity`);
+                   ``""`` = not given, and then left out of the hashed form
 =================  ==========================================================
 
 The canonical form is JSON with sorted keys, no whitespace, ASCII only, plus a
 format version (:data:`ENV_HASH_VERSION`): it holds no path, timestamp, user or
 OS-specific separator, so a fixed input gives a fixed hash everywhere (golden
-tests pin it).
+tests pin it). The one node-local input is ``interpreter`` (a digest, never the
+path itself): a venv runs *on* its base interpreter, so the venv of an upgraded
+bundle (same ``cpython-3.12.x``, another folder) must be another env (lab L4,
+D458). It is added only when set, so Docker and ``--target`` hashes are
+unchanged; the controller keeps env hashes per node, so nothing compares them
+across nodes.
 
 **Requirements normalisation.** V0.5 hashes *what the user wrote*, never a network
 resolution: the text is decoded as UTF-8 (a BOM is dropped), newlines unified,
@@ -145,10 +154,15 @@ class EnvInputs:
     """sha256 hex of the node's package sources (``[agent.envs]`` index_url /
     find_links contents / no_index, :meth:`EnvsConfig.source_digest`); ``""`` =
     the default index. Same requirements from another wheelhouse are another env."""
+    interpreter: str = ""
+    """V1.0 G11 (D458): sha256 hex of the base interpreter's identity (venv
+    runtime); ``""`` = not an input (left out of :func:`canonical_bytes`)."""
 
     def __post_init__(self) -> None:
         if self.source and not _HEX64.fullmatch(self.source):
             raise ValueError("source must be empty or 64 lowercase hex characters")
+        if self.interpreter and not _HEX64.fullmatch(self.interpreter):
+            raise ValueError("interpreter must be empty or 64 lowercase hex characters")
         if self.runtime_kind not in RUNTIME_KINDS:
             raise ValueError(f"runtime_kind must be one of {sorted(RUNTIME_KINDS)}")
         for name in ("base", "python", "platform"):
@@ -172,6 +186,9 @@ def canonical_bytes(inputs: EnvInputs) -> bytes:
         "platform": inputs.platform,
         "source": inputs.source,
     }
+    if inputs.interpreter:
+        # D458: only when set, so every Docker / --target hash is unchanged
+        document["interpreter"] = inputs.interpreter
     return json.dumps(
         document, sort_keys=True, separators=(",", ":"), ensure_ascii=True
     ).encode("ascii")

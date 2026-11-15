@@ -65,6 +65,19 @@ planner before G9-E, which let assumed per-item rates pass the margin test),
 so every older replay decodes to the planner that made its decision and
 reproduces unchanged. ``REPLAY_VERSION`` stays 2.
 
+**V1.0 G11 optional keys (D456).** ``request.history``'s per-node chunk costs
+(``chunk_fixed_s_by_node``, ``chunk_first_s_by_node`` and their sample counts)
+are written only when not empty; absent = none learned (the shared
+``chunk_overhead`` for every lane), so every older replay decodes unchanged.
+
+**V1.0 G12 optional keys (D459, D460).** ``request.history``'s node-history
+chunk costs (``node_chunk_fixed_s_by_node``, ``node_chunk_first_s_by_node``,
+their sample counts and ``node_chunk_runtime_by_node``) are written only when
+not empty; ``request.previous_mode`` only when known; the configuration's
+``mode_switch_margin`` only when above 0. Absent = no node history, no
+previous mode, no hysteresis - every older replay decodes to the planner
+that made it and reproduces unchanged. ``REPLAY_VERSION`` stays 2.
+
 **V0.15 G4 optional key (D364).** A decision planned with an ML model adds
 ``ml: {version}`` (the model set's version) and, when its predictor failed
 and it fell back to calibration (D363), ``ml.fallback`` (the error) - absent
@@ -183,6 +196,7 @@ REPLAY_FIELDS: Final[Mapping[type, frozenset[str]]] = {
             "node_set",
             "objective",  # V0.14 G3 (D307: optional - absent = min_time)
             "exclude_nodes",  # V1.0 G9-B: optional - absent = none
+            "previous_mode",  # V1.0 G12 (D460): optional - absent = none
         }
     ),
     History: frozenset(
@@ -196,6 +210,17 @@ REPLAY_FIELDS: Final[Mapping[type, frozenset[str]]] = {
             "item_rate_samples_by_node",
             "chunk_overhead_s",
             "chunk_overhead_samples",
+            # V1.0 G11 (D456: optional, written only when not empty)
+            "chunk_fixed_s_by_node",
+            "chunk_fixed_samples_by_node",
+            "chunk_first_s_by_node",
+            "chunk_first_samples_by_node",
+            # V1.0 G12 (D459: optional, written only when not empty)
+            "node_chunk_fixed_s_by_node",
+            "node_chunk_fixed_samples_by_node",
+            "node_chunk_first_s_by_node",
+            "node_chunk_first_samples_by_node",
+            "node_chunk_runtime_by_node",
         }
     ),
     SplitInfo: frozenset(
@@ -268,6 +293,8 @@ REPLAY_FIELDS: Final[Mapping[type, frozenset[str]]] = {
             "prune_dominated",
             # V1.0 G2 (D418: optional, written only when not empty)
             "disabled_modes",
+            # V1.0 G12 (D460: optional, written only when > 0)
+            "mode_switch_margin",
         }
     ),
     SplitConfig: frozenset(
@@ -412,6 +439,33 @@ def _history(history: History) -> dict[str, Any]:
         "item_rate_samples_by_node": _nums(history.item_rate_samples_by_node),
         "chunk_overhead_s": _num(history.chunk_overhead_s),
         "chunk_overhead_samples": history.chunk_overhead_samples,
+        # V1.0 G11 (D456): only when learned, so older replays stay byte-identical
+        **{
+            name: _nums(values)
+            for name, values in (
+                ("chunk_fixed_s_by_node", history.chunk_fixed_s_by_node),
+                ("chunk_fixed_samples_by_node", history.chunk_fixed_samples_by_node),
+                ("chunk_first_s_by_node", history.chunk_first_s_by_node),
+                ("chunk_first_samples_by_node", history.chunk_first_samples_by_node),
+                # V1.0 G12 (D459): node history, likewise
+                ("node_chunk_fixed_s_by_node", history.node_chunk_fixed_s_by_node),
+                (
+                    "node_chunk_fixed_samples_by_node",
+                    history.node_chunk_fixed_samples_by_node,
+                ),
+                ("node_chunk_first_s_by_node", history.node_chunk_first_s_by_node),
+                (
+                    "node_chunk_first_samples_by_node",
+                    history.node_chunk_first_samples_by_node,
+                ),
+            )
+            if values
+        },
+        **(
+            {"node_chunk_runtime_by_node": dict(history.node_chunk_runtime_by_node)}
+            if history.node_chunk_runtime_by_node
+            else {}
+        ),
     }
 
 
@@ -458,6 +512,12 @@ def _request(request: PlanRequest) -> dict[str, Any]:
         "node_set": list(request.node_set),
         "objective": request.objective,  # V0.14 G3
         "exclude_nodes": list(request.exclude_nodes),  # V1.0 G9-B
+        # V1.0 G12 (D460): only when known, so older replays stay byte-identical
+        **(
+            {}
+            if request.previous_mode is None
+            else {"previous_mode": request.previous_mode}
+        ),
     }
 
 
@@ -542,6 +602,8 @@ def _config(config: PlannerConfig) -> dict[str, Any]:
     }
     if config.disabled_modes:  # V1.0 G2: absent = every mode (older replays too)
         out["disabled_modes"] = sorted(config.disabled_modes)
+    if config.mode_switch_margin > 0.0:  # V1.0 G12: absent = no hysteresis
+        out["mode_switch_margin"] = _num(config.mode_switch_margin)
     return out
 
 
@@ -732,6 +794,24 @@ def _from_history(data: Mapping[str, Any]) -> History:
         item_rate_samples_by_node=_dnums(data["item_rate_samples_by_node"]),
         chunk_overhead_s=_dnum(data["chunk_overhead_s"]),
         chunk_overhead_samples=_int(data["chunk_overhead_samples"]),
+        # V1.0 G11 (D456): optional - absent = no per-node chunk cost
+        chunk_fixed_s_by_node=_dnums(data.get("chunk_fixed_s_by_node", {})),
+        chunk_fixed_samples_by_node=_dnums(data.get("chunk_fixed_samples_by_node", {})),
+        chunk_first_s_by_node=_dnums(data.get("chunk_first_s_by_node", {})),
+        chunk_first_samples_by_node=_dnums(data.get("chunk_first_samples_by_node", {})),
+        # V1.0 G12 (D459): optional - absent = no node history
+        node_chunk_fixed_s_by_node=_dnums(data.get("node_chunk_fixed_s_by_node", {})),
+        node_chunk_fixed_samples_by_node=_dnums(
+            data.get("node_chunk_fixed_samples_by_node", {})
+        ),
+        node_chunk_first_s_by_node=_dnums(data.get("node_chunk_first_s_by_node", {})),
+        node_chunk_first_samples_by_node=_dnums(
+            data.get("node_chunk_first_samples_by_node", {})
+        ),
+        node_chunk_runtime_by_node={
+            str(k): str(v)
+            for k, v in dict(data.get("node_chunk_runtime_by_node", {})).items()
+        },
     )
 
 
@@ -774,7 +854,21 @@ def _from_request(data: Mapping[str, Any]) -> PlanRequest:
         objective=_objective(data.get("objective")),  # V0.14 G3: optional
         # V1.0 G9-B: optional - a replay stored before it excluded nobody
         exclude_nodes=tuple(str(n) for n in data.get("exclude_nodes") or ()),
+        previous_mode=_previous_mode(data.get("previous_mode")),  # V1.0 G12
     )
+
+
+_MODES: Final = frozenset({"local", "offload", "split"})
+
+
+def _previous_mode(value: Any) -> Any:
+    """V1.0 G12 (D460): absent = none; anything but a stored mode is a
+    corrupt replay."""
+    if value is None:
+        return None
+    if value not in _MODES:
+        raise ReplayError("the replay's previous_mode is not a mode")
+    return value
 
 
 def _from_policy(data: Mapping[str, Any] | None) -> OwnerPolicy | None:
@@ -836,6 +930,8 @@ def _g3_config(data: Mapping[str, Any]) -> dict[str, Any]:
         out["min_useful_bytes"] = _int(data["min_useful_bytes"])
     if "prune_dominated" in data:
         out["prune_dominated"] = _bool(data["prune_dominated"])
+    if "mode_switch_margin" in data:  # V1.0 G12 (D460)
+        out["mode_switch_margin"] = _dnum(data["mode_switch_margin"])
     if "disabled_modes" in data:  # V1.0 G2 (D418)
         modes = data["disabled_modes"]
         # kept as stored: a name the planner does not know disables nothing

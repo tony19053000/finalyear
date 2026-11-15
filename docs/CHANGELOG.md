@@ -81,6 +81,65 @@ for Linux and Windows.
 - ADRs still marked *Proposed* need the team's acceptance before the tag
   ([adr/README.md](adr/README.md#needs-team-acceptance-before-v100)).
 
+## [0.17.5] - 2026-11-14
+
+Lab fix release (lab fix group G13, [ADR-0025](adr/0025-windows-job-high-qos.md)).
+
+### Fixed
+
+- Windows jobs ran 1.5-3x slower than the hardware allows: as children of the agent service (session 0) they
+  were treated as background work (efficiency cores, no clock boost). Every job process, split chunk and env
+  build now runs with **HighQoS** (power throttling off), set before the process starts; it is not inherited, so
+  the agent gives every new process of a running job HighQoS within a second (job object sweep). One `agent.process.qos` log line per spawn; a failure is logged,
+  never fatal. Measured on L4 by hand-equivalent: CPU CNN 164 s -> 48 s (Balanced plan), GPU chunk 45-77 s ->
+  30 s (D461).
+
+## [0.17.4] - 2026-11-12
+
+Lab fix release (lab fix group G12, `docs/briefs/progress/V1.0-G12-planner.md`).
+
+### Changed
+
+- A new workload's split lanes use the node's learned chunk cost from recent chunks of any workload with the same
+  runtime kind, instead of the shared ~0 overhead; `compute explain` labels it `node_history <runtime> n=..` (D459).
+- Mode hysteresis: the planner keeps a workload's previous mode unless the new best is at least
+  `[controller.planner] mode_switch_margin` (default 0.10, 0 = off) faster; explain shows `kept previous mode` (D460).
+
+### Fixed
+
+- Demo 03 and demo 04 job C use 4M rounds per item so they still split once the workload has history.
+
+## [0.17.3] - 2026-11-12
+
+Lab fix release (lab fix group G11, `docs/briefs/progress/V1.0-G11-lab-fixes.md`, `V1.0-G11-D457.md`,
+`V1.0-G11-D458.md`).
+
+### Added
+
+- `compute data gc [--dry-run] [--json]` (admin) and `POST /v1/data/gc`: free every unreferenced input blob now
+  (D454).
+- `compute run --node` accepts a node name or hostname (D452).
+
+### Changed
+
+- The planner learns a per-node fixed chunk cost and a lane's first-chunk cost from `chunk_record`, so slow-start
+  nodes (Windows venv lanes) get fewer, larger chunks or none, and the prediction is closer to the real time
+  (D456).
+
+### Fixed
+
+- `--exclude-node <name>` no longer matches revoked nodes with the same name (D452).
+- `compute jobs <id>` and `run -f` show the last attempt's failure cause (e.g. `node_lost: node_revoked`) (D453).
+- `compute data rm` frees the removed input's blobs at once and prints the bytes freed (D454).
+- `compute run --local` works with the packaged (system) agent: the agent publishes a public `node-id.json`
+  (`/var/lib/meshforge-public`, `%ProgramData%\MeshForge\public`); the private identity stays locked (D457).
+- Cached venvs no longer keep the old bundled Python after an agent upgrade: the env key names the base
+  interpreter, and the agent GC removes venvs of old bundles (D458; every upgrade rebuilds venvs once).
+
+### Deferred
+
+- Warm lane worker and per-chunk phase times (ADR-0024, future work).
+
 ## [0.17.2] - 2026-11-11
 
 Lab fix release from the real-laptop campaign (lab fix group G10, `docs/briefs/progress/V1.0-G10-lab-fixes.md`).

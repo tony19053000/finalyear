@@ -416,6 +416,7 @@ def test_service_unit_is_the_hardened_system_service() -> None:
         SYSTEM_LINUX_DATA_DIR,
     )
     from meshforge.common.exit_codes import ExitCode
+    from meshforge.common.local_node import SYSTEM_LINUX_PUBLIC_DIR
 
     unit = _unit("meshforge-agent.service")
     assert unit["User"] == [SERVICE_USER] and unit["Group"] == [SERVICE_USER]
@@ -427,9 +428,11 @@ def test_service_unit_is_the_hardened_system_service() -> None:
         str(int(ExitCode.CONFLICT)),
     }
     assert unit["ProtectSystem"] == ["strict"]
-    # V0.17 G3: + the console token folder ("-": optional)
+    # V0.17 G3: + the console token folder ("-": optional); V1.0 G11 (D457):
+    # + the public node record folder ("-": optional)
     assert unit["ReadWritePaths"] == [
         f"{SYSTEM_LINUX_DATA_DIR.as_posix()} -{SYSTEM_CONSOLE_TOKEN_DIR.as_posix()}"
+        f" -{SYSTEM_LINUX_PUBLIC_DIR.as_posix()}"
     ]
     for key in ("ProtectHome", "PrivateTmp", "NoNewPrivileges", "Delegate"):
         assert unit[key] == ["yes"], key

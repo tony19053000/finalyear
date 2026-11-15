@@ -221,6 +221,28 @@ class InputRegistered(InputOut):
 
 class InputRemoved(InputOut):
     removed: bool
+    swept: bool = False
+    """V1.0 G11 (D454): the controller swept the removed tree's blobs that
+    nothing else references (false: GC is off or the sweep failed - the
+    periodic GC frees them later)."""
+    freed_blobs: int = 0
+    freed_bytes: int = 0
+    kept_recent_blobs: int = 0
+    """Unreferenced blobs kept because they were used within
+    ``[controller.gc] sweep_min_age_s`` (``compute data gc`` frees them later)."""
+
+
+class DataGcOut(ApiModel):
+    """V1.0 G11 (D454): ``POST /v1/data/gc`` - one sweep of unreferenced blobs."""
+
+    dry_run: bool
+    removed_blobs: int
+    """Unlinked (``dry_run``: would be unlinked)."""
+    removed_bytes: int
+    kept_recent_blobs: int
+    kept_recent_bytes: int
+    failed_blobs: int
+    duration_s: float
 
 
 class InputList(ApiModel):

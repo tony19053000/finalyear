@@ -103,6 +103,9 @@ from meshforge.controller.planner import (
 
 # V0.14 G2 (D293): the tick's calibration
 from meshforge.controller.planner.calibration import Calibration, project_calibration
+
+# V1.0 G12 (D459): node history for a new workload's lanes
+from meshforge.controller.planner.chunk_cost import with_node_history
 from meshforge.controller.planner.decision_json import candidates_json
 from meshforge.controller.planner.inputs import node_snapshot, plan_request, split_info
 
@@ -116,6 +119,7 @@ from meshforge.controller.planner.replay import (
 )
 from meshforge.controller.planner.types import (
     MlUse,
+    Mode,
     Objective,
     Reliability,
     RiskConfig,
@@ -186,6 +190,17 @@ def forced_set(job: JobRecord) -> tuple[str, ...]:
     if not all(isinstance(n, str) and n for n in raw):
         return ()
     return tuple(sorted(set(raw)))
+
+
+def _stored_mode(value: str | None) -> Mode | None:
+    """V1.0 G12 (D460): a stored candidate mode, None for anything else."""
+    if value == "local":
+        return "local"
+    if value == "offload":
+        return "offload"
+    if value == "split":
+        return "split"
+    return None
 
 
 MAX_EXCLUDE_NODES: Final = 16
@@ -388,6 +403,8 @@ class DispatchPlanner:
             prune_dominated=True,
             # V1.0 G2 (D418 A5/A6): evaluation ablation switches
             disabled_modes=frozenset(planner.disabled_modes),
+            # V1.0 G12 (D460): mode hysteresis
+            mode_switch_margin=planner.mode_switch_margin,
         )
 
     # ------------------------------------------------------------ snapshot
@@ -658,6 +675,8 @@ class DispatchPlanner:
             job.manifest, tree_id=job.tree_id, bundle_digest=job.bundle_digest
         )
         trees = self._trees(job, fabric)
+        cluster = self.snapshot(fabric)
+        fingerprint = job.scheduling.fingerprint or ""
         plan_job = plan_request(
             manifest,
             job_id=job.id,
@@ -668,7 +687,7 @@ class DispatchPlanner:
             submitter_node_id=job.scheduling.submitter_node_id,
             seeded=job.scheduling.submitter_seeded,
             fingerprint=job.scheduling.fingerprint,
-            history=fabric.history.get(job.scheduling.fingerprint or "", History()),
+            history=fabric.history.get(fingerprint, History()),
             owner_name=None
             if job.owner_user_id is None
             else fabric.owner_names.get(job.owner_user_id),
@@ -694,8 +713,22 @@ class DispatchPlanner:
         plan_job = dataclasses.replace(
             plan_job,
             objective=job_objective(job, manifest, self._planner.default_objective),
+            # V1.0 G12 (D460): the mode this workload's latest decision chose
+            previous_mode=_stored_mode(fabric.previous_mode.get(fingerprint)),
         )
-        snapshot = self._for_job(self.snapshot(fabric), key)
+        if plan_job.split is not None:
+            # V1.0 G12 (D459): a node without this workload's own chunk cost
+            # uses its cost over any workload on the same runtime kind
+            plan_job = dataclasses.replace(
+                plan_job,
+                history=with_node_history(
+                    plan_job.history,
+                    fabric.node_chunk_costs,
+                    cluster.nodes,
+                    plan_job.base,
+                ),
+            )
+        snapshot = self._for_job(cluster, key)
         past = fabric.past_failures.get(job.id, ())
         if past and pinned is None:
             # D110: a retry of an auto job avoids where it failed (soft, plan.py)

@@ -44,6 +44,16 @@ Windows laptop). The path given to ``uv venv`` is the version-independent one
 so a venv's ``pyvenv.cfg`` survives an upgrade that deletes the old version's
 folder; and a venv whose interpreter link dangles anyway is ``damaged`` (rebuilt),
 never ``ready``.
+
+**The base interpreter is part of a venv's identity (V1.0 G11, D458).** Windows
+keeps no ``current`` pointer and keeps the old version folder, so venvs built by
+0.17.1-1 ran its ``python.exe`` after the upgrade to 0.17.2-1 (lab L4). The venv
+hash now includes the base interpreter's identity (resolved real path, full
+``sys.version``, platform; probed once per process, so a cache hit costs no
+process); the marker records the resolved ``pyvenv.cfg`` ``home``, and a venv
+whose ``home`` is gone or now resolves elsewhere is ``damaged`` (rebuilt). The
+agent GC removes venvs of an old or vanished base
+(:mod:`~meshforge.agent.envs.base_python`).
 """
 
 from __future__ import annotations
@@ -69,6 +79,12 @@ from meshforge.agent.envs._tool import (
     run_tool,
     tool_env,
     venv_python,
+)
+from meshforge.agent.envs.base_python import (
+    BASE_HOME_KEY,
+    interpreter_identity,
+    pyvenv_home,
+    resolved_home,
 )
 from meshforge.agent.envs.errors import EnvError
 from meshforge.agent.envs.fsutil import (
@@ -110,9 +126,12 @@ MARKER_NAME: Final = ".meshforge-env.json"
 _MIB: Final = 1024 * 1024
 _QUERY_TIMEOUT_S: Final = 30.0
 _PROBE_SCRIPT: Final = (
-    "import json, sys, sysconfig; print(json.dumps([sys.implementation.name, "
-    "'%d.%d.%d' % sys.version_info[:3], sysconfig.get_platform()]))"
+    "import json, os, sys, sysconfig; print(json.dumps([sys.implementation.name, "
+    "'%d.%d.%d' % sys.version_info[:3], sysconfig.get_platform(), sys.version, "
+    "os.path.realpath(getattr(sys, '_base_executable', '') or sys.executable)]))"
 )
+"""``[implementation, x.y.z, platform, sys.version, real base executable]``
+(the last two: the D458 interpreter identity)."""
 CacheState = Literal["hit", "waited", "built"]
 EnvState = Literal["ready", "damaged", "missing"]
 _DISK_FULL_ERRNOS: Final = DISK_FULL_ERRNOS
@@ -148,16 +167,18 @@ def venv_home_missing(venv: Path) -> bool:
     """``pyvenv.cfg`` names a ``home`` (the base interpreter's folder) that no
     longer exists. Unreadable or no ``home`` key: ``False`` (the summary check
     already covers a damaged tree)."""
-    try:
-        text = (venv / "pyvenv.cfg").read_text(encoding="utf-8", errors="replace")
-    except OSError:
+    home = pyvenv_home(venv)
+    return home is not None and not home.is_dir()
+
+
+def venv_base_moved(venv: Path, recorded: object) -> bool:
+    """V1.0 G11 (D458): the marker recorded the resolved ``home`` at build time
+    (``recorded``) and ``pyvenv.cfg``'s ``home`` now resolves elsewhere (a
+    re-pointed ``current`` link): the venv would run another interpreter than
+    the one its hash names. No recorded value (an older marker): ``False``."""
+    if not isinstance(recorded, str) or not recorded:
         return False
-    for line in text.splitlines():
-        key, sep, value = line.partition("=")
-        if sep and key.strip().lower() == "home":
-            home = value.strip()
-            return bool(home) and not Path(home).is_dir()
-    return False
+    return resolved_home(venv) != recorded
 
 
 ONLY_BINARY_OPTIONS: Final = ("--only-binary", ":all:")
@@ -274,6 +295,9 @@ class Interpreter:
     implementation: str
     version: str
     platform: str
+    identity: str = ""
+    """V1.0 G11 (D458): :func:`~.base_python.interpreter_identity` (sha256 hex)
+    - the env hash ``interpreter`` input."""
 
     @property
     def base(self) -> str:
@@ -451,6 +475,11 @@ class EnvBuilder:
             # is a launcher that reads `home` from pyvenv.cfg, and the versioned
             # bundle folder it names is gone after an upgrade removed it.
             return "damaged"
+        if kind == "venv" and venv_base_moved(final, data.get(BASE_HOME_KEY)):
+            # V1.0 G11 (D458): home resolves to another interpreter than the
+            # one this venv was built (and hashed) for.
+            log.warning("agent.envs.base_moved", env_hash=digest, kind=kind)
+            return "damaged"
         return "ready"
 
     def is_ready(self, kind: str, digest: str) -> bool:
@@ -588,7 +617,7 @@ class EnvBuilder:
     def _seal(
         self, building: Path, final: Path, kind: str, digest: str, size: int
     ) -> None:
-        marker = {
+        marker: dict[str, object] = {
             "v": 2,
             "env_hash": digest,
             "kind": kind,
@@ -596,6 +625,11 @@ class EnvBuilder:
             "summary": tree_summary(building, skip_root_names=(MARKER_NAME,)).as_dict(),
             "built_at": datetime.now(UTC).isoformat(timespec="seconds"),
         }
+        home = resolved_home(building) if kind == "venv" else None
+        if home is not None:
+            # D458: what the venv runs on, resolved now (a `current` link
+            # re-pointed later, or a removed version folder, is then caught)
+            marker[BASE_HOME_KEY] = home
         atomic_write_bytes(
             building / MARKER_NAME,
             json.dumps(marker, sort_keys=True).encode("ascii"),
@@ -676,8 +710,7 @@ class EnvBuilder:
             source = "uv_find"
         code, probe = await self._query([str(path), "-I", "-c", _PROBE_SCRIPT], env)
         try:
-            impl, version, platform = json.loads(probe)
-            interpreter = Interpreter(path, str(impl), str(version), str(platform))
+            interpreter = _described(path, json.loads(probe))
         except (ValueError, TypeError):
             raise EnvError(
                 f"the Python {wanted} interpreter did not describe itself",
@@ -693,6 +726,7 @@ class EnvBuilder:
             source=source,
             python=interpreter.base,
             interpreter=str(interpreter.path),
+            identity=interpreter.identity[:12],
         )
         self._interpreters[wanted] = interpreter
         return interpreter
@@ -789,6 +823,7 @@ class EnvBuilder:
                 requirements=requirements,
                 platform=interpreter.platform,
                 source=await _to_thread(self.config.source_digest),
+                interpreter=interpreter.identity,
             )
         )
 
@@ -886,6 +921,20 @@ class EnvBuilder:
         return await self.ensure_dir_env(
             "subprocess", digest, build, deadline=deadline, log_fields=log_fields
         )
+
+
+def _described(path: Path, fields: object) -> Interpreter:
+    """The probe's answer as an :class:`Interpreter` (``ValueError`` if it is
+    not one). Five fields carry the D458 identity; an answer of three (an older
+    probe) gets it from ``path`` and the short version."""
+    if not isinstance(fields, list) or len(fields) not in (3, 5):
+        raise ValueError("unexpected interpreter description")
+    impl, version, platform = (str(f) for f in fields[:3])
+    full, executable = (
+        (str(fields[3]), str(fields[4])) if len(fields) == 5 else (version, str(path))
+    )
+    identity = interpreter_identity(impl, executable, full, platform)
+    return Interpreter(path, impl, version, platform, identity)
 
 
 def _io_error(exc: OSError) -> EnvError:

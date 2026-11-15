@@ -34,7 +34,10 @@ starts the base interpreter directly with that variable (CPython ``getpath``:
 same ``sys.prefix``, same site-packages, :func:`direct_python`). One process -
 the one the job object, the CPU sampler and the stall watch see. Anything
 unusual (no ``pyvenv.cfg``, no ``home``, a missing interpreter) keeps the
-launcher.
+launcher. The ``home`` read here is the venv's own base interpreter: since
+V1.0 G11 (D458) the env hash names that interpreter and a venv whose ``home`` is
+gone or moved is rebuilt before it gets here, so an upgraded agent never starts
+the previous version's ``python.exe``.
 """
 
 from __future__ import annotations
@@ -47,6 +50,7 @@ from pathlib import Path
 from typing import ClassVar, Final
 
 from meshforge.agent.envs._tool import capture_tool, tool_env, venv_bin
+from meshforge.agent.envs.base_python import pyvenv_home
 from meshforge.agent.envs.builder import EnvBuilder
 from meshforge.agent.envs.errors import EnvError
 from meshforge.agent.execution._pump import OutputPump
@@ -66,18 +70,6 @@ PYVENV_LAUNCHER_VAR: Final = "__PYVENV_LAUNCHER__"
 _PROBE_TIMEOUT_S: Final = 15.0
 
 
-def _pyvenv_home(venv: Path) -> Path | None:
-    try:
-        text = (venv / "pyvenv.cfg").read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return None
-    for line in text.splitlines():
-        key, sep, value = line.partition("=")
-        if sep and key.strip().lower() == "home" and value.strip():
-            return Path(value.strip())
-    return None
-
-
 def direct_python(
     venv: Path, *, platform: str = sys.platform
 ) -> tuple[Path, dict[str, str]] | None:
@@ -87,7 +79,7 @@ def direct_python(
     if platform != "win32":
         return None
     launcher = venv / "Scripts" / "python.exe"
-    home = _pyvenv_home(venv)
+    home = pyvenv_home(venv)
     if home is None or not launcher.is_file():
         return None
     base = home / "python.exe"

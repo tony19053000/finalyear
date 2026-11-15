@@ -73,7 +73,10 @@ def _recorded_argv(tmp_path: Path, *, only_binary: bool, kind: str) -> list[str]
         from types import SimpleNamespace
 
         return SimpleNamespace(
-            path=Path("/usr/bin/python3"), base="cpython-3.12", platform="x"
+            path=Path("/usr/bin/python3"),
+            base="cpython-3.12",
+            platform="x",
+            identity="",
         )
 
     builder.find_interpreter = interpreter  # type: ignore[method-assign]

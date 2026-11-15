@@ -8,7 +8,7 @@ Every command's own `--help`, at a fixed width. The scripting contract (stdout/s
 
 The user's tool: talks only to the controller's REST API. Output rules, `--json` and exit codes: [../CLI.md](../CLI.md).
 
-65 commands and groups.
+66 commands and groups.
 
 ### `compute`
 
@@ -322,6 +322,22 @@ Commands:
   show  One input's versions.
   pin   Pin (or with --off unpin) one version.
   rm    Remove one version (refused while an unfinished job uses it).
+  gc    Free controller disk now: delete every stored blob that no job, named input or model...
+```
+
+### `compute data gc`
+
+```text
+Usage: compute data gc [OPTIONS]
+
+  Free controller disk now: delete every stored blob that no job, named input or model references
+  (admin). Blobs used in the last few minutes ([controller.gc] sweep_min_age_s) are kept.
+
+Options:
+  --dry-run  Only count what would be freed.
+  --json     Print the answer as one line of JSON with a schema_version (for scripts; see
+             docs/CLI.md).
+  --help     Show this message and exit.
 ```
 
 ### `compute data ls`
@@ -923,7 +939,8 @@ Arguments:
   path  The project folder (default: the current folder).  [default: .]
 
 Options:
-  --node <str>             Pin the job to this node (Mode 1).
+  --node <str>             Pin the job to this node (Mode 1): a node id, or a laptop's name or
+                           hostname as `compute nodes` shows it (revoked nodes never match a name).
   --local                  Pin the job to this laptop's own agent.
   --exclude-node <str>     Never run this job on this node: a node id, or a laptop's name or
                            hostname as `compute nodes` shows it (repeatable, at most 16; kept for

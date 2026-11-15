@@ -120,6 +120,8 @@ from meshforge.agent.policy import (
     not_enforced_caps,
     policy_path,
 )
+from meshforge.agent.process import high_qos_self
+from meshforge.agent.public_node import publish_if_system
 from meshforge.agent.resources import ResourceMonitor, ResourceSampler
 from meshforge.agent.session.client import AgentSessionClient
 from meshforge.agent.session.errors import NodeRevokedError
@@ -392,6 +394,16 @@ async def serve(
     # V1.0 G10 BUG-4 (D451): no invisible error dialog may block a workload
     # (inherited by every child; a no-op off Windows).
     quiet_error_mode()
+    # V1.0 G13 (D461): the agent service itself runs with HighQoS too (its own
+    # work: staging, hashing). Not inherited by children - spawn() sets it on
+    # every job process and sweeps the job object. No-op off Windows; never fatal.
+    try:
+        qos_error = high_qos_self()
+    except Exception as exc:  # noqa: BLE001 - never fatal
+        log.warning("agent.process.qos_self", applied=False, error=type(exc).__name__)
+    else:
+        if qos_error is not None:
+            log.info("agent.process.qos_self", applied=qos_error == 0, error=qos_error)
     if settings.security.insecure:
         # D139: every start, loud - this mode must never go unnoticed.
         log.warning(
@@ -404,6 +416,9 @@ async def serve(
             lock_timeout_s=settings.agent.identity_lock_timeout_s,
         )
     node_id = str(identity.node_id)
+    # V1.0 G11 (D457): the installed service tells `compute run --local` which
+    # node this laptop is - public facts only, its identity stays owner-only
+    await asyncio.to_thread(publish_if_system, identity)
     # V0.7 G3 (D139): HTTPS with the node certificate for blobs and probes, TLS
     # on the peer server; refuses to start unenrolled (the exact remedy).
     http_tls = (
@@ -740,6 +755,12 @@ def start_renewer(
     if settings.security.insecure:
         return None
     renewer = CertRenewer(settings, client)
+
+    # D457: a rotated key changes the public record's fingerprint
+    def republish(identity: NodeIdentity) -> None:
+        publish_if_system(identity)
+
+    renewer.on_renewed.append(republish)
     if http_tls is not None:
         renewer.on_renewed.append(http_tls.reload)
     peer_tls = peer.tls if peer is not None else None
