@@ -624,3 +624,4 @@ SIGNAL: capture-pushed
 - 15:25 sent LEAD: laptop change NOW - friend's i7 + RTX 3050 16 GB laptop becomes new L2; AILESH retires (lab/chat/20261115-152537-L2-to-LEAD.md).
 - 15:29 sent L3 the L4 Windows setup recipe (policy, High performance, Defender exclusion, firewall-sync) (lab/chat/20261115-152957-L2-to-L3.md).
 - 15:34 sent LEAD full knowledge handoff (lab/chat/20261115-153413-L2-to-LEAD.md).
+- 15:35 power plan back to Balanced; sent LEAD sign-off (lab/chat/20261115-153521-L2-to-LEAD.md). L2 (AILESH) lab session ended.
