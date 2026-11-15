@@ -19,3 +19,11 @@ commands:
     Get-NetConnectionProfile; Test-Connection 192.168.31.13; nvidia-smi; Get-PSDrive C
     HUMAN (Admin): Set-NetConnectionProfile -InterfaceAlias "Wi-Fi" -NetworkCategory Private
 result: Wi-Fi JARVIS now Private (was Public); ping L1 ok; RTX 3050 driver 592.82; 279 GB free.
+
+### N3 - Agent install + join - OK
+when: 2026-11-15 18:19 (local)
+commands:
+    gh release download v0.17.5 -p "*.exe" -p SHA256SUMS; Get-FileHash (sha256 matches SHA256SUMS)
+    HUMAN (Admin): install MeshForge-Agent-Setup-0.17.5-1.exe, join with code from L1 (by voice)
+result: service MeshForgeAgent Running; LEAD sees node_01M7FJY2AK0XVZZ9EDEV4CM0W7 online on 0.17.5, CPU score 508 GF; GPU column "-" (known display gap).
+    Console check: Docker not installed (not needed - LEAD), GPU OK, CUDA 13.1 OK, disk 278 GiB, Firewall "could not be checked", peer sharing Off.
