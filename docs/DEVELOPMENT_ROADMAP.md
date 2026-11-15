@@ -761,9 +761,9 @@ A version is **complete** only when all apply:
 **Objective:** everything re-verified on the release build; the system proven stable, secure, and measurably intelligent.
 
 **Tasks**
-- [ ] **1.0.1** Full acceptance re-run of V0.3–V0.17 success criteria on release build
-- [ ] **1.0.2** 72 h soak + chaos campaign
-- [ ] **1.0.3** Performance profiling & tuning pass
+- [ ] **1.0.1** Full acceptance re-run of V0.3–V0.17 success criteria on release build — **DEFERRED (2026-11-15, team decision, time): out of scope for the 7th-semester evaluation version; resumes after the semester.**
+- [ ] **1.0.2** 72 h soak + chaos campaign — **DEFERRED (2026-11-15, team decision, time): out of scope for the 7th-semester evaluation version; resumes after the semester.**
+- [ ] **1.0.3** Performance profiling & tuning pass — **DEFERRED (2026-11-15, team decision, time): out of scope for the 7th-semester evaluation version; resumes after the semester.**
 - [ ] **1.0.4** Final security review
 - [~] **1.0.5** Documentation complete (user guide, architecture, API reference, ADRs) — *G5 implemented (docs/briefs/progress/V1.0-G5.md): generated `docs/api/` + CI `api-docs` drift job, ADR index 0001–0023, ARCHITECTURE current/deferred; open: team acceptance of Proposed ADRs, Windows screenshots (🧑 0.17.8), measured numbers in PROJECT_SUMMARY (G6)*
 - [ ] **1.0.6** Final evaluation: research question with all baselines, CIs, ablations (report/paper-ready)
