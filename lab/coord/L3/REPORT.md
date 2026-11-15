@@ -446,3 +446,9 @@ result: human asked to clear RAM before the run: ChatGPT, codex, Edge, Chrome, B
 ## v0.17.5 upgrade - L3 - 2026-11-14 18:45
 - Run 1 ran overnight on L3 (no action). Setup-0.17.5-1.exe sha256 eabff0a8... checked vs SHA256SUMS. Install pending (human, admin).
 - 21:47 installed: current.txt 0.17.5-1, MeshForgeAgent Running. SIGNAL: upgraded-0.17.5 L3
+
+## L3 = L4 setup (L2 msg 20261115-152957) - 2026-11-15 16:35
+- Owner OK. Power plan High performance (SCHEME_MIN). Defender ExclusionPath C:\ProgramData\MeshForge added (human, admin). firewall-sync: peer rule present.
+- policy: accept_jobs True, accept_gpu_sessions False, max_ram/cpu/vram no limit, allow_unsandboxed True, allow_network False, max_cpu_jobs 1, max_gpu_jobs 0.
+- agent.process.qos_self applied=true (2026-11-14T16:13:09Z, after 0.17.5 upgrade). GPU items skipped (no GPU).
+- Note: first 2 tries failed (window not elevated); 3rd via Win+X Terminal (Admin) OK.
