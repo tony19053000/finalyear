@@ -38,3 +38,15 @@ commands: (HUMAN, Admin)
 result: peer rule removed (peer off), no MeshForge firewall rules; config created (none existed), service Running; exclusion listed;
     policy accept_jobs True, accept_gpu_sessions False, no ram/cpu/vram limits, unsandboxed True, max_cpu_jobs 1, max_gpu_jobs one per GPU.
 QUESTIONS: accept_gpu_sessions False - asked L1/LEAD whether to turn it ON.
+
+### N5 - Setup steps 5-7 (score, power, HighQoS) - OK
+when: 2026-11-15 18:59 (local)
+commands: (HUMAN, Admin)
+    meshforge-agent hardware score   (cached, not --force)
+    powercfg /change standby-timeout-ac 0; /change hibernate-timeout-ac 0; /setacvalueindex SCHEME_CURRENT SUB_BUTTONS LIDACTION 0
+    Select-String C:\ProgramData\MeshForge\logs\*.log qos_self
+    (agent) NVML check with agent python; nvidia-smi
+result: score score_01M7FJYPNTXCR15JBXR6ESD2QF (2026-11-15 12:29Z, on AC, load 11 %): cpu fp32 1t 95.1, all 508 GF, fp64 238 GF, mem triad 10.4 GB/s;
+    GPU score unavailable (torch_not_installed in agent python - expected, ADR-0011). NVML in agent python sees RTX 3050 A Laptop GPU 4.0 GiB, driver 592.82.
+    Power: Balanced plan, sleep AC Never, hibernate AC Never, plugged in; lid action set to 0 (could not read back - hidden setting).
+    qos_self applied=true at 12:29:24Z and 12:55:18Z (after restart).
