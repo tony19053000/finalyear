@@ -12,3 +12,5 @@ R2B image L1+L4 job_01M7EM8VQXVPAZBNEFG1BH00N0 | real_s=131 | L1: 3 chunks | 1st
 R2B text L1+L4 job_01M7EMDS98HV4B1TQGVG0CMQE2 | real_s=128 | L1: 3 chunks | 1st 41.2 s | rest avg 41.5 s | max 41.9 L4: 4 chunks | 1st 36.3 s | rest avg 27.8 s | max 36.3 
 R3 train on L1 GPU job_01M7EMHPH3EHBJCFB5GBH9R7MP | real_s=490 | L1: 6 chunks | 1st 44.8 s | rest avg 88.4 s | max 112.2 
 R3 train sent to L4 GPU job_01M7EN0NEGKKGP1B9MXQYFQW82 | real_s=441 | L4: 6 chunks | 1st 42.8 s | rest avg 78.8 s | max 98.3 
+R2A mc L4 job_01M7EZ7JV1G63ZYEJBWE8XZKWG real_s=170 succeeded
+R2A img L4 job_01M7EZCV1FPG8SDSHKQNR36X42 real_s=102 succeeded

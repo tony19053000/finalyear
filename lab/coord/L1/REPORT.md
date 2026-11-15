@@ -1471,3 +1471,4 @@ jobs: train ...E5WE8YX9XCW4MVHYC7BMMH / ...E6B3YWMBEZKW161G0BV4GG / ...E6SYVEWGS
 | R2B | GPU train 12 / image 72 / text 400 | - | - | 241 s / 131 s / 128 s |
 | R3 | GPU train 12 models | 490 s (L1 GPU) | 441 s (sent to L4 GPU) | - |
 All 15 succeeded. L4 now ~= L1 on CPU primes (37 vs 34 s) and faster on GPU training. raw: raw/2026-11-14-gputest/smoke-L1L4.txt
+R2A L4 alone (added, human): montecarlo 170 s (job_01M7EZ7JV1G63ZYEJBWE8XZKWG), image 20k 102 s (job_01M7EZCV1FPG8SDSHKQNR36X42) - both succeeded.
