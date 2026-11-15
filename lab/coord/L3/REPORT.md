@@ -452,3 +452,8 @@ result: human asked to clear RAM before the run: ChatGPT, codex, Edge, Chrome, B
 - policy: accept_jobs True, accept_gpu_sessions False, max_ram/cpu/vram no limit, allow_unsandboxed True, allow_network False, max_cpu_jobs 1, max_gpu_jobs 0.
 - agent.process.qos_self applied=true (2026-11-14T16:13:09Z, after 0.17.5 upgrade). GPU items skipped (no GPU).
 - Note: first 2 tries failed (window not elevated); 3rd via Win+X Terminal (Admin) OK.
+
+## L3 hardware re-score (L1 20261115-201221) - 2026-11-15 20:15
+- Defender exclusion C:\ProgramData\MeshForge present. Plain `hardware score` returned the CACHED 2026-11-10 score (75.7 GF) - needed `--force` (UX note: L1/LEAD instructions omit --force).
+- score_01M7FTP6Y3MM492MT1QZSDV4HT (0.17.5, High perf, AC, load 13 %): fp32_1t 66.0 GF, fp32_all 150 GF (was 75.7), fp64_all 65.6 GF, mem_triad 5.77 GB/s (was 3.01).
+- Restart-Service: ~6 'waiting to stop' warnings (~30 s), then Running.
