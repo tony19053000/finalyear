@@ -12,3 +12,10 @@ commands:
 result: CPU 12th Gen Intel Core i7-12650H (10 cores / 16 threads); RAM 15.6 GB; GPU NVIDIA GeForce RTX 3050 A Laptop GPU 4 GB (driver 592.82) + Intel UHD;
     disk C: 279.3 GB free of 475.8 GB. Wi-Fi IP 192.168.31.42, SSID JARVIS, 5 GHz ch 157, 802.11ax, signal 99%; ping L1 avg 47.5 ms (max 182 ms).
     Network profile: Public (needs Private - HUMAN Admin step pending).
+
+### N2 - Prerequisites - OK
+when: 2026-11-15 17:27 (local)
+commands:
+    Get-NetConnectionProfile; Test-Connection 192.168.31.13; nvidia-smi; Get-PSDrive C
+    HUMAN (Admin): Set-NetConnectionProfile -InterfaceAlias "Wi-Fi" -NetworkCategory Private
+result: Wi-Fi JARVIS now Private (was Public); ping L1 ok; RTX 3050 driver 592.82; 279 GB free.
