@@ -1451,3 +1451,13 @@ cause: to_tensor_images() does from_numpy(NHWC).permute(0,3,1,2) -> channels-las
     slower; L1's cuDNN 9.24 does not. fix: .contiguous() after permute (job_01M7E5G6BX9TKXWNCZMGRGG8XE: L4 723.8 -> 150.7 / 152.6 ms).
 applied to ~/mf-eval/run2b/common/models.py (+ copies in train/image/text) - lab job code only, no MeshForge/laptop change.
 verify real 2B train job (4 models): L4 18.7-19.0 s/model (was ~94), L1 20.2-20.6 s/model; same accuracies (0.05-0.11).
+
+### 2026-11-15 04:15-05:00 - Run 2B demo on L1 + L4 (after the .contiguous() fix) - all 9 succeeded
+| job (real data) | L1 alone | L4 alone | L1+L4 | speedup vs L1 | accuracy |
+| GPU training 12 models (Tiny ImageNet) | 480 s | 441 s | 237 s (3+3 chunks) | 2.03x | 0.083 |
+| GPU image AI 72 x 2000 photos (cnn_ref) | 260 s | 241 s | 127 s (3+3) | 2.05x | 0.263 |
+| GPU text AI 400 x 1000 reviews (tf_ref) | 263 s | 230 s | 125 s (3+4) | 2.10x | 0.876 |
+L4 now equal/faster than L1 on all 2B jobs. Training chunks: first 43 s then 79-96 s on BOTH laptops = items 4-11 use wider models (width 48/64), not a
+slowdown. Planner predictions mostly within ~10-25 % (train over-predicts L4 513 vs 441 s, split under-predicts 153 vs 237 s).
+jobs: train ...E5WE8YX9XCW4MVHYC7BMMH / ...E6B3YWMBEZKW161G0BV4GG / ...E6SYVEWGSE4Z78TH4FN7K5; image ...E716MCXKWHS9JWK4V7BFNC / ...E794FDSMBPRHBCXM18HM1K /
+...E7HVK1F59QKWA5ZRFH136K; text ...E7NQX10XWB4V581WH80FJN / ...E7XS6ZGW1J8WV4ERW1TG4M / ...E866DH2G22B7WHXASBNJGB. raw: raw/2026-11-14-gputest/2b-demo-L1L4.txt
