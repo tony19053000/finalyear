@@ -27,3 +27,14 @@ commands:
     HUMAN (Admin): install MeshForge-Agent-Setup-0.17.5-1.exe, join with code from L1 (by voice)
 result: service MeshForgeAgent Running; LEAD sees node_01M7FJY2AK0XVZZ9EDEV4CM0W7 online on 0.17.5, CPU score 508 GF; GPU column "-" (known display gap).
     Console check: Docker not installed (not needed - LEAD), GPU OK, CUDA 13.1 OK, disk 278 GiB, Firewall "could not be checked", peer sharing Off.
+
+### N4 - Setup steps 1-4 (firewall, config, Defender, policy) - OK
+when: 2026-11-15 18:46 (local)
+commands: (HUMAN, Admin)
+    python -I -m meshforge.agent.winservice firewall-sync; Get-NetFirewallRule -DisplayName "MeshForge*"
+    create C:\ProgramData\MeshForge\config\config.toml with [agent.envs] extra_index_urls = [cu126]; Restart-Service MeshForgeAgent
+    Add-MpPreference -ExclusionPath "C:\ProgramData\MeshForge"
+    meshforge-agent policy show
+result: peer rule removed (peer off), no MeshForge firewall rules; config created (none existed), service Running; exclusion listed;
+    policy accept_jobs True, accept_gpu_sessions False, no ram/cpu/vram limits, unsandboxed True, max_cpu_jobs 1, max_gpu_jobs one per GPU.
+QUESTIONS: accept_gpu_sessions False - asked L1/LEAD whether to turn it ON.
