@@ -964,6 +964,16 @@ sample_interval_s < 0.25 s, ML an_src_declared flag, lab checklist V0.10 mention
 * Trap: a failed-but-still-running old CI run blocks the new one in the concurrency queue - cancel it.
 * Nothing unpushed.
 
+## After v0.17.5 - Windows slowness CLOSED (2026-11-15, LEAD)
+* v0.17.5 (D461 HighQoS, ADR-0025) released + verified in lab: L4 t3 CPU 54.6 s (by hand 49), Monte Carlo L1+L4 1.97x, heavy GPU L1+L4 1.93x.
+* File-heavy: first read of every new file 5-8 ms on L4 even by hand (Defender real-time scan, T19) - not MeshForge. Human chose the fastest
+  fix: Defender exclusion C:\ProgramData\MeshForge on L4 (owner, 02:50). T18 read1 104 -> 1.2 s; image 20k L4 220 -> 97 s (L1 47 s; a ~2x
+  gap on this short job remains, accepted for now). Product follow-up: optional installer exclusion (opt-in, ADR) + docs.
+* 2B GPU training slowness = lab job code: NHWC permute -> channels-last -> cuDNN 9.10 (Windows cu126) ~5x slower; .contiguous() fixes.
+  2B demo L1+L4: train 2.03x, image AI 2.05x, text AI 2.10x; L4 >= L1 on all. Notes: docs tip (contiguous NCHW), consider cu13x torch for
+  Windows, NVML fails inside Windows service jobs.
+* L2 AILESH (8 GB, swaps) to be replaced by a 16 GB i7 + RTX 3050 laptop (new L2). Held runs can resume on the human's go.
+
 ## G13 Windows slowness -> HighQoS fix (2026-11-14, LEAD) - read this first
 
 * Lab on v0.17.4 found Windows jobs 3-25x slower than the hardware allows (image 20k: L4 1089 s vs 45 s by hand-equivalent; GPU chunk
