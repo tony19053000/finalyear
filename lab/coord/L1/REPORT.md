@@ -1480,3 +1480,8 @@ R2A L4 alone (added, human): montecarlo 170 s (job_01M7EZ7JV1G63ZYEJBWE8XZKWG), 
 | montecarlo 5k items | 45 s | 53 s | planner refused split, ran L1 44 s |
 | image_classify 5k | 51 s | 148 s | refused, ran L1 15 s (warm) |
 Planner L3 predictions are stale/pessimistic (mc predicted 288 s vs real 53 s), so the margin test blocked the split. L3 image is slow (no Defender exclusion, likely).
+
+## 2026-11-15 L1 vs L3 vs L1+L3 - montecarlo 20k items x 400k samples
+L1 alone 173 s; L3 alone 250 s; L1+L3 by normal submit = planner refused (stale L3 estimate 924 s), ran L1 176 s.
+Forced L1+L3 via campaign mode3_sets (camp_01M7FGJX3B7RYG09AF7XDYQ1JD, 3 reps): **106 / 107 / 104 s** = 1.65x vs L1, ideal 102 s -> 97% of ideal.
+Chunks: L1 ~21 s each, L3 ~26 s each, both used; planner predicted 84-116 s.
