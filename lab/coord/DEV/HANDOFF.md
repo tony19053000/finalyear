@@ -9,6 +9,9 @@ You are the MeshForge DEV workstation agent (chat name DEV). Work only in "UI Me
 `git fetch origin dev/ui` · `git log --oneline origin/main..origin/dev/ui` · `git diff origin/main...origin/dev/ui`.
 Files: this folder (HANDOFF, STATUS, NOTES), `docs/briefs/UI-redesign.md`, `docs/briefs/progress/UI-G*.md`, `frontend/`.
 
+## Reporting to LEAD
+After every finished step: `send LEAD` a "UI progress update N" (done, commit, what is next, what LEAD should reply).
+
 ## In flight
 - Brief DRAFT written; waiting for team discussion. Nothing built.
 
