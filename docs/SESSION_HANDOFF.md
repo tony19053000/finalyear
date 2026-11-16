@@ -964,6 +964,21 @@ sample_interval_s < 0.25 s, ML an_src_declared flag, lab checklist V0.10 mention
 * Trap: a failed-but-still-running old CI run blocks the new one in the concurrency queue - cancel it.
 * Nothing unpushed.
 
+## G14 planner new-laptop calibration fix -> v0.17.6 (2026-11-16, LEAD) - read this first
+* Problem (lab, L1 REPORT 2026-11-15): a new/changed laptop got a badly wrong speed estimate (L3 predicted 924 s vs real 250 s), so normal
+  submits never split onto it (forced split 1.65x, 97 % of ideal). Causes: join hardware scores measured while throttled (pre-v0.17.5) and
+  history = median of last 20 runs per (workload, node) still pre-fix. Lab workaround done: re-scores (L3 75.7->150, L4 404->492, new L2 508)
+  + calibration campaigns -> normal L1+L2 submit split 1.99x. But `compute planner calibrate` gave NO held-out gain (1.0532 vs 1.0532): it learns
+  per-node compute mainly from single-node runs; Mode 3 runs barely used. Also min_nodes=3 on a 2-chunk job ran unsplit.
+* Team GO (human lifted "no fixes"): build now, release v0.17.6 while lab Run 2B runs. Items:
+  (1) join/upgrade calibration probe: short per-family probe seeds per-node rates instead of the GF score (rerun after agent version change or
+      policy/hardware change; also re-score hardware after an upgrade that changes scoring conditions);
+  (2) recent runs weigh more (recency weighting / decay) so stale history fades without lowering history_runs;
+  (3) calibrate also learns from Mode 3 (split) runs: per-node chunk rates from chunk records;
+  (4) min_nodes > available-but-splittable: use the nodes that exist (or explain clearly) instead of running unsplit;
+  (5) optional explore share for high-uncertainty nodes (skip if time).
+* Lab plan after release: upgrade all to v0.17.6 (= the 0.17.6 upgrade/uninstall test) -> short re-calibration -> Run 1 exam, Part E, ML.
+
 ## After v0.17.5 - Windows slowness CLOSED (2026-11-15, LEAD)
 * v0.17.5 (D461 HighQoS, ADR-0025) released + verified in lab: L4 t3 CPU 54.6 s (by hand 49), Monte Carlo L1+L4 1.97x, heavy GPU L1+L4 1.93x.
 * File-heavy: first read of every new file 5-8 ms on L4 even by hand (Defender real-time scan, T19) - not MeshForge. Human chose the fastest
