@@ -1584,3 +1584,7 @@ Median times:
 | Maths ×33 | 110 s | 127 s | 137 s | 222 s | - | - | - |
 | Maths ×35 | 116 s | 132 s | 144 s | 255 s | - | - | - |
 L3 image times jumpy (80-237 s): low RAM (~1.8 GB free, 17% idle CPU).
+
+## 2026-11-17 PART E (unseen csv_aggregate + hash_files) - E2a camp_01M7JZTGR7VNZ68DCCX6RK0ZQ3 72/72 + E2b camp_01M7JZTH0PDQ61CRYP5ZYW84CW 36/36, 0 failed; warm-up camp_01M7JYKHD1V4NZ49MVSAMXSDD1 (12 all-4, same seeds); first attempt camp_01M7JYKHNRY6T0AEPQ7V4VCHQ9 stopped by human after 15 runs.
+Eval (partE_eval.md): C1 PASS 100% of 12 groups; C2 not_separable; C3 PASS p99 5.95 ms; ML crit 2 PASS both families.
+E1 (planner choice, normal submit, NEW cold data): all 10 -> split L1+L2+L4 (L3 left out). csv 16-24 s vs L1 alone 25-36 s (good); hash 13-20 s vs L1 5-10 s (slower: cold first-time data send + split overhead on 5-10 s jobs; warm all-4 split in E2b = 5-9 s).
