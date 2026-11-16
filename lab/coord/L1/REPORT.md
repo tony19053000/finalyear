@@ -1552,3 +1552,35 @@ MeshForge does not see battery % / plugged-in / power mode (only `on_battery` at
 Idea (~3-4 days): agent reports battery %, AC and power plan in resource updates; planner penalises / owner policy "no jobs on battery";
 quick re-score on power change; ML features on_battery / battery_pct / power_plan (needs some on-battery runs to learn).
 Mode 3 already self-balances (laptops pull chunks), Mode 1 does not. For the lab runs: all laptops plugged in.
+
+## 2026-11-16/17 RUN 1 (planner exam, FINAL v2) - camp_01M7JF80H6759V5SZ8KKW6VM6T: 324/324 done, 0 failed, 21:28-01:1x
+Warm-up (untimed): camp_01M7JF8CD7JCCTXXDE1WXYGQMG 12 all-4 image splits (same seeds) + 4 primes jobs, 20:53-21:27.
+Labels: 24 groups, best 24 (primes: local L1 x12; image: mode3 all 4 x12). Eval (run1_eval.md): C1 PASS 100% of 24 within 15% of oracle; C2 not_separable (rule policies also pick the best: L1/all-4 always win; random +12.5 pts, cache_affinity +11.2 pts worse); C3 PASS p99 5.79 ms. ML: ml_criterion_2 PASS, ml_criterion_1 not_separable.
+Median times:
+| Job | L1 | L2 | L4 | L3 | L1+L2 | L1+L2+L4 | All 4 |
+|---|---|---|---|---|---|---|---|
+| Image AI 9,000 | 21 s | 36 s | 48 s | 69 s | - | - | 16 s (1.33x) |
+| Image AI 10,000 | 23 s | 42 s | 46 s | 88 s | - | - | 16 s (1.46x) |
+| Image AI 11,000 | 26 s | 45 s | 54 s | 80 s | - | - | 15 s (1.74x) |
+| Image AI 12,000 | 27 s | 54 s | 56 s | 74 s | - | - | 16 s (1.67x) |
+| Image AI 13,000 | 31 s | 53 s | 62 s | 84 s | - | - | 17 s (1.79x) |
+| Image AI 14,000 | 33 s | 57 s | 73 s | 88 s | - | - | 19 s (1.75x) |
+| Image AI 15,000 | 36 s | 59 s | 74 s | 110 s | - | - | 33 s (1.11x) |
+| Image AI 16,000 | 36 s | 65 s | 73 s | 131 s | - | - | 20 s (1.83x) |
+| Image AI 17,000 | 39 s | 69 s | 81 s | 151 s | - | - | 21 s (1.90x) |
+| Image AI 18,000 | 41 s | 72 s | 93 s | 123 s | - | - | 28 s (1.45x) |
+| Image AI 19,000 | 43 s | 77 s | 97 s | 120 s | - | - | 25 s (1.71x) |
+| Image AI 20,000 | 46 s | 79 s | 102 s | 126 s | - | - | 34 s (1.32x) |
+| Maths ×13 | 46 s | 52 s | 57 s | 96 s | - | - | - |
+| Maths ×15 | 52 s | 60 s | 65 s | 109 s | - | - | - |
+| Maths ×17 | 57 s | 66 s | 73 s | 130 s | - | - | - |
+| Maths ×19 | 66 s | 76 s | 82 s | 136 s | - | - | - |
+| Maths ×21 | 70 s | 82 s | 89 s | 150 s | - | - | - |
+| Maths ×23 | 77 s | 88 s | 99 s | 169 s | - | - | - |
+| Maths ×25 | 84 s | 95 s | 105 s | 179 s | - | - | - |
+| Maths ×27 | 89 s | 103 s | 113 s | 193 s | - | - | - |
+| Maths ×29 | 97 s | 110 s | 121 s | 200 s | - | - | - |
+| Maths ×31 | 100 s | 118 s | 129 s | 224 s | - | - | - |
+| Maths ×33 | 110 s | 127 s | 137 s | 222 s | - | - | - |
+| Maths ×35 | 116 s | 132 s | 144 s | 255 s | - | - | - |
+L3 image times jumpy (80-237 s): low RAM (~1.8 GB free, 17% idle CPU).
