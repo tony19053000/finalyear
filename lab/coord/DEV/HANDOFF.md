@@ -13,6 +13,8 @@ Files: this folder (HANDOFF, STATUS, NOTES), `docs/briefs/UI-redesign.md`, `docs
 After every finished step: `send LEAD` a "UI progress update N" (done, commit, what is next, what LEAD should reply).
 
 ## In flight
+- 2026-11-17: MeshForge-Agent-Setup-0.17.5-1.exe downloaded to "UI MeshForgedownloads" (checksum OK) and launched; installer NOT finished. Task: screenshot every install + agent-console page into "UI MeshForgescreenshots## In flight1-windows-install" (named 01-..., 02-...). Do NOT join the fabric (no join code). Needs computer use (now enabled in app Settings > Capabilities; requires a new session).
+- Background capture script: "UI MeshForgescreenshotspture.ps1" (frames raw-NNN.png, 2 s, 15 min; earlier frames are mostly Settings screens - drop them).
 - Brief DRAFT written; waiting for team discussion. Nothing built.
 
 ## Traps
