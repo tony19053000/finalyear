@@ -1519,3 +1519,30 @@ GPU (1 run, 2B real data):
 | L2+L4 | 257 s | 147 s |
 | L1+L2+L4 | 179 s (2.66x, 88% of ideal 158 s) | 100 s (2.57x) |
 All outputs correct (same accuracy every set: train ~0.083, image 0.2631); every GPU lane used CUDA on its RTX 3050.
+
+## 2026-11-16 calibration run (v0.17.5, fresh scores, warm): CPU camp_01M7GNFMJSJJ0Y3MXR92DT904P 162/162 + GPU 120/120 (+12 warm-up), all ok; planner calibrate NOT run yet (human will say)
+CPU (median of 3):
+| Job | L1 | L2 | L4 | L3 | L1+L2 | L1+L2+L4 | All 4 |
+|---|---|---|---|---|---|---|---|
+| Image AI 2,000 | 5 s | 9 s | 10 s | 11 s | 6 s (0.89x) | 5 s (1.06x) | 5 s (1.12x) |
+| Image AI 10,000 | 22 s | 42 s | 46 s | 52 s | 18 s (1.24x) | 14 s (1.54x) | 13 s (1.66x) |
+| Image AI 20,000 | 44 s | 84 s | 90 s | 110 s | 35 s (1.25x) | 27 s (1.59x) | 24 s (1.80x) |
+| Simulation 2,000 | 16 s | 17 s | 17 s | 20 s | 10 s (1.59x) | 8 s (2.05x) | 6 s (2.48x) |
+| Simulation 8,000 | 61 s | 65 s | 67 s | 79 s | 33 s (1.81x) | 24 s (2.57x) | 20 s (2.98x) |
+| Simulation 20,000 | 150 s | 162 s | 167 s | 202 s | 82 s (1.81x) | 57 s (2.63x) | 47 s (3.21x) |
+| Maths 60,000,000 | 4 s | 5 s | 6 s | 9 s | - | - | - |
+| Maths 180,000,000 | 15 s | 18 s | 19 s | 30 s | - | - | - |
+| Maths 400,000,000 | 35 s | 45 s | 45 s | 71 s | - | - | - |
+GPU (mean of 2):
+| Job | L1 | L2 | L4 | L1+L2 | L2+L4 | L1+L2+L4 |
+|---|---|---|---|---|---|---|
+| Heavy GPU 160 | 163 s | 210 s | 168 s | 100 s (1.63×) | 100 s (1.63×) | 69 s (2.37×) |
+| AI training 4 | 90 s | 103 s | 89 s | 53 s (1.70×) | 53 s (1.70×) | 90 s (1.00×) |
+| AI training 12 | 486 s | 503 s | 443 s | 252 s (1.93×) | 257 s (1.89×) | 182 s (2.67×) |
+| AI training 32 | 1235 s | 1282 s | 1125 s | 643 s (1.92×) | 602 s (2.05×) | 439 s (2.81×) |
+| Image AI 24 | 90 s | 100 s | 84 s | 53 s (1.70×) | 53 s (1.70×) | 53 s (1.69×) |
+| Image AI 72 | 260 s | 294 s | 242 s | 147 s (1.77×) | 150 s (1.73×) | 100 s (2.60×) |
+| Image AI 168 | 607 s | 679 s | 560 s | 341 s (1.78×) | 322 s (1.88×) | 215 s (2.82×) |
+| Text AI 128 | 87 s | 74 s | 74 s | 42 s (2.05×) | 40 s (2.18×) | 43 s (2.05×) |
+| Text AI 400 | 263 s | 231 s | 231 s | 126 s (2.08×) | 121 s (2.17×) | 87 s (3.01×) |
+| Text AI 896 | 586 s | 508 s | 511 s | 292 s (2.01×) | 260 s (2.25×) | 184 s (3.19×) |
