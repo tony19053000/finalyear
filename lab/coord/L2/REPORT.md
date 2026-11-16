@@ -50,3 +50,17 @@ result: score score_01M7FJYPNTXCR15JBXR6ESD2QF (2026-11-15 12:29Z, on AC, load 1
     GPU score unavailable (torch_not_installed in agent python - expected, ADR-0011). NVML in agent python sees RTX 3050 A Laptop GPU 4.0 GiB, driver 592.82.
     Power: Balanced plan, sleep AC Never, hibernate AC Never, plugged in; lid action set to 0 (could not read back - hidden setting).
     qos_self applied=true at 12:29:24Z and 12:55:18Z (after restart).
+
+### N6 - Session restored + health check - OK
+when: 2026-11-16 18:23 (local)
+laptop: L2 (Windows 11, hostname LAPTOP-GGJ7F9EM)
+commands:
+    git clone / checkout lab/L2 / merge origin/main (repo now in $HOME\mf-lab-L2)
+    Get-Service MeshForgeAgent; nvidia-smi; Win32_OperatingSystem free RAM; Get-PSDrive C; Win32_Battery
+    HUMAN-approved UAC (Admin, read-only): Get-Content C:\ProgramData\MeshForge\config\config.toml; Get-MpPreference ExclusionPath;
+        meshforge-agent policy show; Select-String qos_self in agent logs
+result: previous lab session lost (laptop went offline); restored. Service Running. config.toml has [agent.envs] extra_index_urls = cu126.
+    Defender exclusion C:\ProgramData\MeshForge listed. Policy: accept_jobs True, accept_gpu_sessions False, no RAM/CPU/VRAM limits,
+    unsandboxed True, max_cpu_jobs 1, max_gpu_jobs one per GPU. qos_self applied=true (latest 2026-11-16T12:21:40Z).
+    GPU RTX 3050 A Laptop 4 GB, driver 592.82, idle 44 C. RAM free 5.4 / 15.6 GB (close big apps before runs). Disk C: 272.7 GB free.
+    Power: Win32_Battery status 1 (on battery?) - human asked to check charger.
