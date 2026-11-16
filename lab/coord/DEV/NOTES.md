@@ -14,3 +14,4 @@ Today: Overview, Nodes, Jobs (+ SplitProgressPanel, ChunkGrid), Benchmarks, Plan
 4. Presentation view (/present, read-only, large type, dark): 4 laptop tiles with live progress, current job, running speedup counter; reuses existing hooks/events, no new API.
 5. Keep all existing tests green (npm test, check:api); new components get tests; no API changes, so no controller work.
 Open: confirm with LEAD the final numbers to show (2.28x, ~2x, 1.97x/3.21x) and whether /present ships in main or only the video build.
+- 2026-11-17 Set up project-style tracking: brief docs/briefs/UI-redesign.md (DRAFT), DEV/STATUS.md, DEV/HANDOFF.md. Plan above moved into the brief.
