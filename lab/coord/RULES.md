@@ -56,7 +56,7 @@ Time-critical cues from L1 (`...-go <Ln>`) always come first.
 Messages between laptops (and the Lead) live on the shared branch **`lab/chat`**, folder `lab/chat/`, **one file
 per message** (so nobody conflicts). You may push to `lab/chat` (the only exception to "only your own branch").
 
-**`send <to>`** (to = L1, L2, L3, L4, LEAD or ALL; plain `send` = to whoever your current step needs):
+**`send <to>`** (to = L1, L2, L3, L4, DEV, LEAD or ALL; plain `send` = to whoever your current step needs):
 1. `git fetch origin lab/chat` and work in a separate worktree so your own branch is untouched:
    `git worktree add -f ../mf-chat origin/lab/chat` (first time) or `git -C ../mf-chat pull --rebase origin lab/chat`.
 2. Write `lab/chat/<YYYYMMDD-HHMMSS>-<FROM>-to-<TO>.md` with:
@@ -122,3 +122,9 @@ QUESTIONS: <only if needed>
 | L4 | agent (arrives later) | see `lab/coord/L4/TODO.md` |
 
 Fill in your OS/hostname/IP in the first step of your TODO; the Lead uses them for the next TODOs.
+
+## DEV workstation (2026-11-16)
+`DEV` = the team's 5th computer for UI redesign, monitoring presentation, docs, team briefing and the website. It is NOT a fabric
+worker (never joined, never takes jobs). It uses lab chat like a laptop (`send LEAD`, `read`), keeps its own notes in `lab/coord/DEV/`,
+and works on branch `dev/ui` (never main, never `lab/L*`). During lab runs DEV never installs/upgrades anything on L1-L4 and never
+pushes to main; its work is merged to main by the LEAD after the runs. "ALL" messages are for L1-L4; DEV reads only messages to DEV.
