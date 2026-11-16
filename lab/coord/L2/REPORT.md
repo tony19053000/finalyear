@@ -64,3 +64,9 @@ result: previous lab session lost (laptop went offline); restored. Service Runni
     unsandboxed True, max_cpu_jobs 1, max_gpu_jobs one per GPU. qos_self applied=true (latest 2026-11-16T12:21:40Z).
     GPU RTX 3050 A Laptop 4 GB, driver 592.82, idle 44 C. RAM free 5.4 / 15.6 GB (close big apps before runs). Disk C: 272.7 GB free.
     Power: Win32_Battery status 1 (on battery?) - human asked to check charger.
+
+### N7 - L3 Free RAM tool installed - OK
+when: 2026-11-16 18:26 (local)
+commands:
+    script from lab/chat/20261116-173625-L3-to-L2.md saved as $HOME\mf-tools\Free-RAM.ps1 (unchanged); desktop shortcut "Free RAM.lnk" created
+result: installed, no admin. Not run yet (it also closes the Claude app - human uses it before/during runs).
