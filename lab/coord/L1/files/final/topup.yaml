@@ -1,0 +1,22 @@
+name: lab-ml-topup-cpu
+seed: 1705
+families:
+  - family: cpu.primes
+    params: {limit: [250000000], repeats: [5, 9, 15]}
+  - family: cpu.zlib
+    params: {size_mb: [64, 128, 192], level: [6], repeats: [4]}
+  - family: split.montecarlo_range
+    params: {items: [3000, 6000, 11000], samples: [400000]}
+  - family: split.image_classify
+    params: {images: [3000, 7000, 12000], size: [32], width: [32]}
+  - family: split.csv_aggregate
+    params: {rows: [20000, 30000, 40000]}
+  - family: split.hash_files
+    params: {files: [2200, 2600, 3400], size_kb: [16], rounds: [256]}
+strategies: [local, mode1, mode3]
+mode3_sets: [[node_01M6BMFVHJVZXC7AET3CFRE3AV, node_01M7FJY2AK0XVZZ9EDEV4CM0W7], [node_01M6BMFVHJVZXC7AET3CFRE3AV, node_01M7FJY2AK0XVZZ9EDEV4CM0W7, node_01M6GGJP3FW5VHBDFKYQ6SF318], [node_01M6BMFVHJVZXC7AET3CFRE3AV, node_01M7FJY2AK0XVZZ9EDEV4CM0W7, node_01M6GGJP3FW5VHBDFKYQ6SF318, node_01M79X8WTANK64QH74W9YMHBG5]]
+nodes: all
+origin: node_01M6BMFVHJVZXC7AET3CFRE3AV
+repetitions: 3
+session_label: wifi
+budget: {max_runs: 400, max_hours: 12}

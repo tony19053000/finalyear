@@ -1,0 +1,14 @@
+name: lab-parte-e2b
+seed: 1702
+families:
+  - family: split.csv_aggregate
+    params: {rows: [55000, 60000, 65000, 70000, 75000, 80000]}
+  - family: split.hash_files
+    params: {files: [2048, 2440, 2830, 3220, 3610, 4000], size_kb: [16], rounds: [256]}
+strategies: [mode3]
+nodes: all
+mode3_sets: [[node_01M6BMFVHJVZXC7AET3CFRE3AV, node_01M7FJY2AK0XVZZ9EDEV4CM0W7, node_01M6GGJP3FW5VHBDFKYQ6SF318, node_01M79X8WTANK64QH74W9YMHBG5]]
+origin: node_01M6BMFVHJVZXC7AET3CFRE3AV
+repetitions: 3
+session_label: wifi
+budget: {max_runs: 200, max_hours: 8}

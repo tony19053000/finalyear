@@ -1,0 +1,16 @@
+name: lab-run2a-cpu-medium-all4-extra
+seed: 1704
+families:
+  - family: split.image_classify
+    params: {images: [13000, 14000, 15000, 16000, 17000, 18000, 19000, 20000], size: [32], width: [32]}
+  - family: split.montecarlo_range
+    params: {items: [14000, 15000, 16000, 17000, 18000, 19000, 20000, 21000], samples: [400000]}
+  - family: split.csv_aggregate
+    params: {rows: [45000, 50000, 55000, 60000, 65000, 70000, 75000, 80000]}
+strategies: [mode3]
+mode3_sets: [[node_01M6BMFVHJVZXC7AET3CFRE3AV, node_01M7FJY2AK0XVZZ9EDEV4CM0W7, node_01M6GGJP3FW5VHBDFKYQ6SF318, node_01M79X8WTANK64QH74W9YMHBG5]]
+nodes: all
+origin: node_01M6BMFVHJVZXC7AET3CFRE3AV
+repetitions: 3
+session_label: wifi
+budget: {max_runs: 400, max_hours: 24}
