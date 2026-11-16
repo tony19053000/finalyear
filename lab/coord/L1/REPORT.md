@@ -1546,3 +1546,9 @@ GPU (mean of 2):
 | Text AI 128 | 87 s | 74 s | 74 s | 42 s (2.05×) | 40 s (2.18×) | 43 s (2.05×) |
 | Text AI 400 | 263 s | 231 s | 231 s | 126 s (2.08×) | 121 s (2.17×) | 87 s (3.01×) |
 | Text AI 896 | 586 s | 508 s | 511 s | 292 s (2.01×) | 260 s (2.25×) | 184 s (3.19×) |
+
+## FUTURE WORK (human 2026-11-16): battery / power awareness - not now
+MeshForge does not see battery % / plugged-in / power mode (only `on_battery` at hardware-score time); ML features have no battery facts.
+Idea (~3-4 days): agent reports battery %, AC and power plan in resource updates; planner penalises / owner policy "no jobs on battery";
+quick re-score on power change; ML features on_battery / battery_pct / power_plan (needs some on-battery runs to learn).
+Mode 3 already self-balances (laptops pull chunks), Mode 1 does not. For the lab runs: all laptops plugged in.
