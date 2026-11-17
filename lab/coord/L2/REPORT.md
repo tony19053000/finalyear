@@ -70,3 +70,13 @@ when: 2026-11-16 18:26 (local)
 commands:
     script from lab/chat/20261116-173625-L3-to-L2.md saved as $HOME\mf-tools\Free-RAM.ps1 (unchanged); desktop shortcut "Free RAM.lnk" created
 result: installed, no admin. Not run yet (it also closes the Claude app - human uses it before/during runs).
+
+### R2A-1 - Run 2A stuck L2 lane - agent restarted - OK
+when: 2026-11-18 03:29 (local)
+commands:
+    HUMAN-approved UAC (Admin): tail -80 C:\ProgramData\MeshForge\logs\agent.log; Restart-Service MeshForgeAgent; Get-Service MeshForgeAgent
+result: MeshForgeAgent Running after restart (cue lab/chat/20261118-032647-L1-to-L2.md).
+evidence: lab/coord/L2/evidence/run2a-stuck-chunk-agent.log
+BUG: job_01M7NQBC371DG0E565FBW03W0A att_01M7NQBC7VVP94Z3YDNQ48VNF0: agent logged cancel_chunk -> agent.lane.chunk_cancel item 10313
+    running=true reason=superseded, then no_work -> agent.lane.no_work_now reason=drained stopped_chunk=10313, then NO lane-finished /
+    attempt-done event (only probes after). Slot stayed full, next job queued until restart.
