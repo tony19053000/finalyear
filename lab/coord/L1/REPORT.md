@@ -1588,3 +1588,24 @@ L3 image times jumpy (80-237 s): low RAM (~1.8 GB free, 17% idle CPU).
 ## 2026-11-17 PART E (unseen csv_aggregate + hash_files) - E2a camp_01M7JZTGR7VNZ68DCCX6RK0ZQ3 72/72 + E2b camp_01M7JZTH0PDQ61CRYP5ZYW84CW 36/36, 0 failed; warm-up camp_01M7JYKHD1V4NZ49MVSAMXSDD1 (12 all-4, same seeds); first attempt camp_01M7JYKHNRY6T0AEPQ7V4VCHQ9 stopped by human after 15 runs.
 Eval (partE_eval.md): C1 PASS 100% of 12 groups; C2 not_separable; C3 PASS p99 5.95 ms; ML crit 2 PASS both families.
 E1 (planner choice, normal submit, NEW cold data): all 10 -> split L1+L2+L4 (L3 left out). csv 16-24 s vs L1 alone 25-36 s (good); hash 13-20 s vs L1 5-10 s (slower: cold first-time data send + split overhead on 5-10 s jobs; warm all-4 split in E2b = 5-9 s).
+
+## 2026-11-17 19:01 RUN 2B PAUSED - power cut (router off, L1 moved to 10.86.12.82, laptops lost the controller)
+139/216 timed runs recorded in ~/mf-eval/run2b/final_2b.jsonl (all ok); STOP file set; resume = rm STOP + warm-up + python3 run2b.py run (skips done). 2 image-24 split2 refusals to re-run at the end.
+| Job | L1 | L1+L2 | L1+L2+L4 | runs |
+|---|---|---|---|---|
+| AI training 8 | 263 s | 137 s (1.92×) | 132 s (2.00×) | 9 |
+| AI training 12 | 483 s | 252 s (1.92×) | 200 s (2.42×) | 9 |
+| AI training 16 | 572 s | 300 s (1.91×) | 211 s (2.72×) | 9 |
+| AI training 20 | 745 s | 384 s (1.94×) | 263 s (2.83×) | 9 |
+| AI training 24 | 966 s | 496 s (1.95×) | 362 s (2.67×) | 9 |
+| AI training 32 | 1223 s | 630 s (1.94×) | 438 s (2.79×) | 9 |
+| AI training 40 | 1540 s | 789 s (1.95×) | 520 s (2.96×) | 9 |
+| AI training 48 | 1934 s | 987 s (1.96×) | 677 s (2.86×) | 9 |
+| Image AI 24 | 90 s | 90 s (1.00×) | 53 s (1.69×) | 9 |
+| Image AI 36 | 132 s | 90 s (1.47×) | 53 s (2.47×) | 9 |
+| Image AI 48 | 175 s | 100 s (1.75×) | 85 s (2.07×) | 9 |
+| Image AI 72 | 266 s | 143 s (1.87×) | 100 s (2.66×) | 9 |
+| Image AI 96 | 352 s | 190 s (1.86×) | 132 s (2.68×) | 9 |
+| Image AI 120 | 436 s | 240 s (1.82×) | 163 s (2.68×) | 9 |
+| Image AI 144 | 525 s | 288 s (1.82×) | 192 s (2.73×) | 9 |
+| Image AI 168 | 609 s | 331 s (1.84×) | – | 4 |
