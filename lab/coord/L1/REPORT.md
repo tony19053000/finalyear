@@ -1609,3 +1609,32 @@ E1 (planner choice, normal submit, NEW cold data): all 10 -> split L1+L2+L4 (L3 
 | Image AI 120 | 436 s | 240 s (1.82×) | 163 s (2.68×) | 9 |
 | Image AI 144 | 525 s | 288 s (1.82×) | 192 s (2.73×) | 9 |
 | Image AI 168 | 609 s | 331 s (1.84×) | – | 4 |
+
+## 2026-11-18 RUN 2B (GPU split, Tiny ImageNet / IMDB) DONE 01:19 - 216/216 ok (+2 re-runs of image-24 L1+L2 reps 2-3 that the planner had run unsplit: now split, 53 s)
+Started 02:57 (11-17); paused 19:01-21:06 by 2 power cuts (L1 moved Wi-Fi, controller unreachable; interrupted job cancelled, re-run). Warm-ups before start and both resumes. Median of 3:
+| Job | L1 | L1+L2 | L1+L2+L4 | runs |
+|---|---|---|---|---|
+| AI training 8 | 263 s | 137 s (1.92×) | 132 s (2.00×) | 9 |
+| AI training 12 | 483 s | 252 s (1.92×) | 200 s (2.42×) | 9 |
+| AI training 16 | 572 s | 300 s (1.91×) | 211 s (2.72×) | 9 |
+| AI training 20 | 745 s | 384 s (1.94×) | 263 s (2.83×) | 9 |
+| AI training 24 | 966 s | 496 s (1.95×) | 362 s (2.67×) | 9 |
+| AI training 32 | 1223 s | 630 s (1.94×) | 438 s (2.79×) | 9 |
+| AI training 40 | 1540 s | 789 s (1.95×) | 520 s (2.96×) | 9 |
+| AI training 48 | 1934 s | 987 s (1.96×) | 677 s (2.86×) | 9 |
+| Image AI 24 | 90 s | 53 s (1.68×) | 53 s (1.69×) | 9 |
+| Image AI 36 | 132 s | 90 s (1.47×) | 53 s (2.47×) | 9 |
+| Image AI 48 | 175 s | 100 s (1.75×) | 85 s (2.07×) | 9 |
+| Image AI 72 | 266 s | 143 s (1.87×) | 100 s (2.66×) | 9 |
+| Image AI 96 | 352 s | 190 s (1.86×) | 132 s (2.68×) | 9 |
+| Image AI 120 | 436 s | 240 s (1.82×) | 163 s (2.68×) | 9 |
+| Image AI 144 | 525 s | 288 s (1.82×) | 192 s (2.73×) | 9 |
+| Image AI 168 | 609 s | 331 s (1.84×) | 224 s (2.71×) | 9 |
+| Text AI 128 | 84 s | 42 s (1.98×) | 42 s (1.99×) | 9 |
+| Text AI 192 | 127 s | 74 s (1.71×) | 42 s (2.99×) | 9 |
+| Text AI 256 | 169 s | 84 s (2.00×) | 74 s (2.29×) | 9 |
+| Text AI 400 | 263 s | 128 s (2.06×) | 84 s (3.12×) | 9 |
+| Text AI 512 | 337 s | 168 s (2.00×) | 111 s (3.04×) | 9 |
+| Text AI 640 | 420 s | 212 s (1.98×) | 142 s (2.95×) | 9 |
+| Text AI 768 | 505 s | 252 s (2.00×) | 168 s (3.00×) | 9 |
+| Text AI 896 | 586 s | 283 s (2.07×) | 184 s (3.17×) | 9 |
