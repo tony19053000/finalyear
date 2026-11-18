@@ -1644,3 +1644,25 @@ L4 jobs ~20-25% slower (AI training 4: 110 s vs 89 s in calibration). L4 found G
 was connected. Original charger + OMEN Performance -> 67 W; heavy GPU check 162 s (calibration 168 s). All 54 L4 Run 3 runs re-done from scratch
 (18 capped runs kept only as evidence in final_run3_L4_capped30W.jsonl, not used). FUTURE WORK (with battery awareness): agent reports GPU power
 limit / charger wattage; planner + ML features use it.
+
+## 2026-11-18 RUN 3 (GPU offload, Mode 1) DONE 20:08 - 162/162 ok (L1 local + sent to L2: 108, 11:59-15:18 incl. a 12:23 network blip; sent to L4: 54, re-run 18:46-20:08 after the low-watt-charger fix). Median of 3:
+| Job | L1 (local) | Sent to L2 | Sent to L4 |
+|---|---|---|---|
+| AI training 1 | 27 s | 32 s | 27 s |
+| AI training 2 | 48 s | 53 s | 48 s |
+| AI training 3 | 69 s | 79 s | 68 s |
+| AI training 4 | 84 s | 100 s | 89 s |
+| AI training 5 | 126 s | 147 s | 131 s |
+| AI training 6 | 163 s | 189 s | 168 s |
+| Image AI 12 | 42 s | 53 s | 42 s |
+| Image AI 18 | 63 s | 75 s | 68 s |
+| Image AI 24 | 84 s | 100 s | 84 s |
+| Image AI 30 | 105 s | 121 s | 105 s |
+| Image AI 36 | 121 s | 147 s | 121 s |
+| Image AI 48 | 163 s | 194 s | 162 s |
+| Text AI 64 | 42 s | 37 s | 37 s |
+| Text AI 96 | 58 s | 58 s | 58 s |
+| Text AI 128 | 79 s | 74 s | 74 s |
+| Text AI 160 | 95 s | 89 s | 95 s |
+| Text AI 192 | 116 s | 110 s | 110 s |
+| Text AI 256 | 152 s | 142 s | 147 s |
