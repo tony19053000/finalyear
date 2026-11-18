@@ -690,3 +690,6 @@ The human added the Defender ExclusionPath C:\ProgramData\MeshForge at 02:50 (ve
 
 ## 2026-11-18 17:17 System check (L1 slowdown)
 AC on, High perf, agent running, idle. GPU power limit 30 W (was 75), likely OMEN mode reset after power cuts/sleep. Reboot pending since boot 2026-11-13. Sent to L1; fix = OMEN Performance mode.
+
+## 2026-11-18 17:31 GPU power cap confirmed
+run_heavy by hand 15.7/15.8 s at 30 W (was 13.3 s at 75 W). OMEN Performance did not lift it. Reboot planned.
