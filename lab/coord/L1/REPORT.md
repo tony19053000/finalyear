@@ -1697,3 +1697,10 @@ First attempt camp_01M7NKVWFFSNGD7BTTS3YTJYC1 (62 runs, noisy image AI + L2 stuc
 | Simulation 19,000 | 141 s | 74 s (1.90×) | 54 s (2.62×) | 47 s (3.00×) |
 | Simulation 20,000 | 148 s | 78 s (1.89×) | 58 s (2.54×) | 50 s (2.97×) |
 | Simulation 21,000 | 156 s | 83 s (1.88×) | 61 s (2.56×) | 52 s (2.97×) |
+
+## 2026-11-18 KILL TEST (Run 2A, 0.10.10) - PASS
+montecarlo 60 000 items x 400k samples, forced all 4. Baseline (no kill) job_01M7QXFBW4F74N4P2NW2CH0GBJ: 142 s, pieces L1 7 / L2 7 / L3 5 / L4 7,
+output sha256:517a3f68...870d. Kill job_01M7QY66D35A7S6TT1S9CG6J7J: start 23:50:00, L2 human `Stop-Service MeshForgeAgent -Force` 23:51:00 ->
+controller: L2 session closed, L2 lane failed node_lost, its lease released, L1/L3/L4 took the rest; job SUCCEEDED ~23:52:45 (~165 s, +16%),
+pieces L1 8 / L2 2 (done before the kill) / L3 6 / L4 8, output digest IDENTICAL to baseline (517a3f68...). Note: L4 lane still shows
+"running" after success (same stuck-lane bug as L2 03:29; watch L4 slot).
