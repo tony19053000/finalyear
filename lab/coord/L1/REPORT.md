@@ -1638,3 +1638,9 @@ Started 02:57 (11-17); paused 19:01-21:06 by 2 power cuts (L1 moved Wi-Fi, contr
 | Text AI 640 | 420 s | 212 s (1.98×) | 142 s (2.95×) | 9 |
 | Text AI 768 | 505 s | 252 s (2.00×) | 168 s (3.00×) | 9 |
 | Text AI 896 | 586 s | 283 s (2.07×) | 184 s (3.17×) | 9 |
+
+## 2026-11-18 L4 slow in Run 3 - cause: LOWER-WATT CHARGER (human)
+L4 jobs ~20-25% slower (AI training 4: 110 s vs 89 s in calibration). L4 found GPU power limit 30 W (normal 67-75 W): a lower-watt charger
+was connected. Original charger + OMEN Performance -> 67 W; heavy GPU check 162 s (calibration 168 s). All 54 L4 Run 3 runs re-done from scratch
+(18 capped runs kept only as evidence in final_run3_L4_capped30W.jsonl, not used). FUTURE WORK (with battery awareness): agent reports GPU power
+limit / charger wattage; planner + ML features use it.
