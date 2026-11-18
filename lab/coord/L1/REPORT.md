@@ -1668,3 +1668,32 @@ limit / charger wattage; planner + ML features use it.
 | Text AI 256 | 152 s | 142 s | 147 s |
 
 ## 2026-11-18 L2 GPU power (info): RTX 3050 A Laptop, power limit 49 W (default 40, max 50) - no cap; original charger, High performance. L4 RTX 3050 Laptop 67-75 W. Explains L2 ~15-20% slower on GPU training / image AI in Run 3 (text AI fine).
+
+## 2026-11-18 RUN 2A (CPU split, medium) DONE 23:24 - fresh camp_01M7PDJ0Z06VXFAKG80G01685K 288/288 + extra all-4 camp_01M7NKVWYXHE3VRS1TV6FNKPR7 72/72, 0 failed
+First attempt camp_01M7NKVWFFSNGD7BTTS3YTJYC1 (62 runs, noisy image AI + L2 stuck lane + night power cut) cancelled, not used. Paused 11:34-20:36 (L4 offline, then Run 3). Warm-ups before each start. All 4 = median of 6 (doubled), others median of 3:
+| Job | L1 | L1+L2 | L1+L2+L4 | All 4 |
+|---|---|---|---|---|
+| Data (CSV) rows 45,000 | 20 s | 14 s (1.44×) | 12 s (1.72×) | 10 s (2.01×) |
+| Data (CSV) rows 50,000 | 22 s | 15 s (1.45×) | 13 s (1.75×) | 11 s (2.13×) |
+| Data (CSV) rows 55,000 | 24 s | 17 s (1.46×) | 14 s (1.74×) | 11 s (2.19×) |
+| Data (CSV) rows 60,000 | 27 s | 19 s (1.41×) | 15 s (1.74×) | 12 s (2.21×) |
+| Data (CSV) rows 65,000 | 29 s | 19 s (1.47×) | 17 s (1.72×) | 13 s (2.17×) |
+| Data (CSV) rows 70,000 | 31 s | 21 s (1.48×) | 19 s (1.61×) | 14 s (2.22×) |
+| Data (CSV) rows 75,000 | 33 s | 23 s (1.45×) | 19 s (1.77×) | 15 s (2.23×) |
+| Data (CSV) rows 80,000 | 35 s | 24 s (1.47×) | 20 s (1.78×) | 16 s (2.18×) |
+| Image AI 13,000 | 29 s | 25 s (1.14×) | 22 s (1.32×) | 18 s (1.56×) |
+| Image AI 14,000 | 31 s | 28 s (1.12×) | 24 s (1.29×) | 19 s (1.59×) |
+| Image AI 15,000 | 33 s | 29 s (1.16×) | 32 s (1.06×) | 19 s (1.72×) |
+| Image AI 16,000 | 35 s | 30 s (1.17×) | 26 s (1.35×) | 22 s (1.61×) |
+| Image AI 17,000 | 37 s | 30 s (1.22×) | 33 s (1.13×) | 23 s (1.59×) |
+| Image AI 18,000 | 40 s | 32 s (1.24×) | 31 s (1.29×) | 26 s (1.55×) |
+| Image AI 19,000 | 41 s | 34 s (1.20×) | 33 s (1.27×) | 24 s (1.69×) |
+| Image AI 20,000 | 44 s | 40 s (1.09×) | 40 s (1.08×) | 29 s (1.51×) |
+| Simulation 14,000 | 105 s | 56 s (1.86×) | 40 s (2.61×) | 37 s (2.86×) |
+| Simulation 15,000 | 111 s | 58 s (1.91×) | 44 s (2.54×) | 39 s (2.88×) |
+| Simulation 16,000 | 122 s | 63 s (1.93×) | 46 s (2.67×) | 39 s (3.09×) |
+| Simulation 17,000 | 127 s | 67 s (1.90×) | 48 s (2.64×) | 43 s (2.95×) |
+| Simulation 18,000 | 136 s | 71 s (1.92×) | 51 s (2.68×) | 45 s (3.04×) |
+| Simulation 19,000 | 141 s | 74 s (1.90×) | 54 s (2.62×) | 47 s (3.00×) |
+| Simulation 20,000 | 148 s | 78 s (1.89×) | 58 s (2.54×) | 50 s (2.97×) |
+| Simulation 21,000 | 156 s | 83 s (1.88×) | 61 s (2.56×) | 52 s (2.97×) |
