@@ -1666,3 +1666,5 @@ limit / charger wattage; planner + ML features use it.
 | Text AI 160 | 95 s | 89 s | 95 s |
 | Text AI 192 | 116 s | 110 s | 110 s |
 | Text AI 256 | 152 s | 142 s | 147 s |
+
+## 2026-11-18 L2 GPU power (info): RTX 3050 A Laptop, power limit 49 W (default 40, max 50) - no cap; original charger, High performance. L4 RTX 3050 Laptop 67-75 W. Explains L2 ~15-20% slower on GPU training / image AI in Run 3 (text AI fine).
