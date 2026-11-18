@@ -693,3 +693,6 @@ AC on, High perf, agent running, idle. GPU power limit 30 W (was 75), likely OME
 
 ## 2026-11-18 17:31 GPU power cap confirmed
 run_heavy by hand 15.7/15.8 s at 30 W (was 13.3 s at 75 W). OMEN Performance did not lift it. Reboot planned.
+
+## 2026-11-18 18:35 GPU fixed, READY
+After reboot + OMEN Performance: limit 67 W, heavy chunk 13.4/12.8 s (baseline 13.3). Removed OmenCommandCenterBackground from Free-RAM close list. Sent ready to L1.
