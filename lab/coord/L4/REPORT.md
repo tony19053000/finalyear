@@ -687,3 +687,6 @@ read1 per file: T18 job 5.2 ms | T19a user 6.7 ms | T19b SYSTEM 8.2 ms | T19c SY
 
 ## 2026-11-15 02:50 Defender exclusion
 The human added the Defender ExclusionPath C:\ProgramData\MeshForge at 02:50 (verified with Get-MpPreference). Undo: Remove-MpPreference -ExclusionPath "C:\ProgramData\MeshForge". Told L1+LEAD to re-run T18 and image_classify 20k.
+
+## 2026-11-18 17:17 System check (L1 slowdown)
+AC on, High perf, agent running, idle. GPU power limit 30 W (was 75), likely OMEN mode reset after power cuts/sleep. Reboot pending since boot 2026-11-13. Sent to L1; fix = OMEN Performance mode.
