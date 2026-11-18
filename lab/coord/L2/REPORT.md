@@ -80,3 +80,14 @@ evidence: lab/coord/L2/evidence/run2a-stuck-chunk-agent.log
 BUG: job_01M7NQBC371DG0E565FBW03W0A att_01M7NQBC7VVP94Z3YDNQ48VNF0: agent logged cancel_chunk -> agent.lane.chunk_cancel item 10313
     running=true reason=superseded, then no_work -> agent.lane.no_work_now reason=drained stopped_chunk=10313, then NO lane-finished /
     attempt-done event (only probes after). Slot stayed full, next job queued until restart.
+
+### R3-1 - GPU power limit check (Run 3 L2 ~15-20% slower) - OK
+when: 2026-11-18 20:21 (local)
+commands:
+    nvidia-smi -q -d POWER
+    nvidia-smi --query-gpu=name,power.limit,power.default_limit,power.max_limit,clocks.max.graphics --format=csv
+    Win32_Battery; powercfg /getactivescheme
+result: RTX 3050 A Laptop GPU, driver 592.82: current/requested power limit 48.96 W, default 40 W, min 5 W, max 50 W
+    (query power.limit [N/A], known). clocks.max.graphics 3105 MHz. Idle draw 1-6 W. On AC (BatteryStatus 2, 100%),
+    ORIGINAL HP charger (human confirmed). Power plan High performance. -> no power cap (unlike L4's 30 W).
+    Reading: likely the "3050 A" GPU variant itself (different chip from L1/L4 RTX 3050) - not verified.
