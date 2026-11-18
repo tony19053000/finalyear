@@ -1704,3 +1704,20 @@ output sha256:517a3f68...870d. Kill job_01M7QY66D35A7S6TT1S9CG6J7J: start 23:50:
 controller: L2 session closed, L2 lane failed node_lost, its lease released, L1/L3/L4 took the rest; job SUCCEEDED ~23:52:45 (~165 s, +16%),
 pieces L1 8 / L2 2 (done before the kill) / L3 6 / L4 8, output digest IDENTICAL to baseline (517a3f68...). Note: L4 lane still shows
 "running" after success (same stuck-lane bug as L2 03:29; watch L4 slot).
+
+## 2026-11-19 ML TOP-UP CPU DONE ~01:15 - camp_01M7QYE5WAQG230XWFS868VCM3 324/324, 0 failed (warm-up camp_01M7QYE5MB011K6WC4V3WK8TMF, same seeds). Split families, median of 3:
+| Job | L1 | L1+L2 | L1+L2+L4 | All 4 |
+|---|---|---|---|---|
+| CSV rows 20,000 | 9 s | 8 s (1.2×) | 6 s (1.5×) | 5 s (1.8×) |
+| CSV rows 30,000 | 14 s | 10 s (1.4×) | 9 s (1.5×) | 8 s (1.8×) |
+| CSV rows 40,000 | 18 s | 13 s (1.4×) | 11 s (1.7×) | 9 s (2.0×) |
+| Hash files 2,200 | 6 s | 6 s (1.1×) | 5 s (1.2×) | 5 s (1.3×) |
+| Hash files 2,600 | 7 s | 6 s (1.2×) | 5 s (1.4×) | 5 s (1.5×) |
+| Hash files 3,400 | 8 s | 8 s (1.1×) | 7 s (1.3×) | 6 s (1.3×) |
+| Image AI 3,000 | 7 s | 7 s (1.1×) | 6 s (1.1×) | 6 s (1.3×) |
+| Image AI 7,000 | 16 s | 14 s (1.1×) | 12 s (1.4×) | 11 s (1.5×) |
+| Image AI 12,000 | 27 s | 22 s (1.2×) | 18 s (1.5×) | 17 s (1.6×) |
+| Simulation 3,000 | 24 s | 13 s (1.8×) | 10 s (2.4×) | 9 s (2.8×) |
+| Simulation 6,000 | 45 s | 25 s (1.8×) | 19 s (2.4×) | 16 s (2.8×) |
+| Simulation 11,000 | 83 s | 45 s (1.9×) | 32 s (2.6×) | 28 s (3.0×) |
+GPU top-up (topup_gpu.py, 162 runs) started 01:18 after warm-up 9/9 ok.
