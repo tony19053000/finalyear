@@ -580,7 +580,8 @@ describe("campaign detail", () => {
     renderApp(`/benchmarks/${A}?tab=download`);
     await userEvent.click(await screen.findByRole("button", { name: "Download labels (Parquet)" }));
     expect(await screen.findByText("Could not download the labels")).toBeTruthy();
-    expect(screen.getByText(/ended early \(not a complete Parquet file\); nothing was saved/)).toBeTruthy();
+    // the toast's text can also be in Radix's screen-reader announcement for a moment: 1 or 2 copies
+    expect(screen.getAllByText(/ended early \(not a complete Parquet file\); nothing was saved/).length).toBeGreaterThan(0);
     await userEvent.click(screen.getByRole("button", { name: "Download records (Parquet)" }));
     expect(await screen.findByText("more than 100000 records match (invalid_input)")).toBeTruthy();
     expect(click).not.toHaveBeenCalled();

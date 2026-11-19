@@ -1,5 +1,5 @@
 // Vitest setup: unmount React trees after every test; fill jsdom gaps.
-import { cleanup } from "@testing-library/react";
+import { cleanup, configure } from "@testing-library/react";
 import { afterEach } from "vitest";
 
 import { setSigningOut } from "../api/client";
@@ -18,7 +18,15 @@ await Promise.all([
   import("../pages/settings/SettingsRoutes"),
   import("../pages/benchmarks/BenchmarksPage"),
   import("../pages/benchmarks/CampaignDetailPage"),
+  import("../pages/planner/PlannerPage"),
+  import("../pages/guide/GuidePage"),
+  import("../pages/setup/SetupPage"),
 ]);
+
+// findBy*/waitFor default to 1 s; with ~60 files in parallel a page's first render
+// can take longer on a busy machine (flaky "Unable to find"). 5 s is still far
+// below the per-test limit (vite.config testTimeout), so real hangs still fail.
+configure({ asyncUtilTimeout: 5_000 });
 
 afterEach(() => {
   cleanup();
