@@ -1,0 +1,3 @@
+- [hive bee mascot choice](hive-bee-mascot-choice.md) — chosen: C1 "Buzz" hex-material courier bee (bee-v2/c1.svg)
+- [hive logo direction](hive-logo-direction.md) — keep "hive." wordmark; new symbol must be a premium honeycomb mark
+- [agent team models](agent-team-models.md) — implementer Opus high, reviewer Sonnet 5.5 medium

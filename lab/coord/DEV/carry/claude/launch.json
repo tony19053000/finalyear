@@ -1,0 +1,37 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "ref",
+      "runtimeExecutable": "python",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "8765",
+        "-d",
+        "mf-dev/lab/coord/DEV/carry/ref"
+      ],
+      "port": 8765
+    },
+    {
+      "name": "site",
+      "runtimeExecutable": "python",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "8766",
+        "-d",
+        "mf-dev/website"
+      ],
+      "port": 8766
+    },
+    {
+      "name": "dash",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "mf-dev/lab/coord/DEV/dash-dev.mjs"
+      ],
+      "port": 5173
+    }
+  ]
+}

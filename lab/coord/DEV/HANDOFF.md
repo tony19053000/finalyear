@@ -3,6 +3,7 @@
 Updated 2026-11-19. Cold-start prompt: see bottom of this file.
 
 ## NEWEST (2026-11-19) — moving to another dev laptop; read FIRST (supersedes everything below)
+- **New laptop: follow `NEW-LAPTOP.md` (setup + cold-start prompt).** Work pushed: dev/ui `8f5db33d` + setup commit. References/memory/launch.json in `carry/`.
 - **All dashboard work is UNCOMMITTED on `dev/ui` (~160 files) on the old laptop.** It must reach the new laptop (wip commit + push to `dev/ui` on user's OK, or copy the folder) before anything else.
 - **Done since 2026-11-18 (all user-reviewed):** whole dashboard zoomed to 0.9 (`--mf-zoom` in index.css). Jobs: filter popover, custom ListboxField/DateTimeField, round honey "+" submit, sticky header fading in only on scroll, table now PLAIN (no frosted box, hairlines; `.nl-plain .jb-plain`). Submit-a-job restyled. Benchmarks + Planner (Calibration/Evaluation/Models) restyled with demo data (`src/demo/benchDemoData.ts`, `plannerDemoData.ts`); Evaluation regret bars custom (SVG, value column); Models charts split by a thin line. Settings redesigned as a calm settings page (one column, intro + labelled honey button, plain rows, "⋯" row menu, Account as label/value sections; demo data `settingsDemoData.ts`). Overview: bell on Job progress / Speed-up opens the card like the arrow, showing only short points. Header bell → new **Product guide** page `/guide` (`src/pages/guide/GuidePage.tsx`, `.gd-*` CSS), visible to all users. Nodes list table PLAIN (`.nl-plain`), detail pages untouched.
 - **User taste update:** for tables the user prefers PLAIN (on page background, hairlines) over frosted glass for look/cleanliness. Settings must not look like a dashboard. Demo must mirror the real system "same to same" — only data replaced.
@@ -90,6 +91,8 @@ Public name **hive.** (lowercase + dot). Work = the public website `mf-dev/websi
 - auto-mode blocks `rm` and `pip install`; move files instead of deleting.
 
 ## Cold-start prompt
+See `NEW-LAPTOP.md` §6 (current). The old prompt below is outdated.
+
 ```
 You are the MeshForge DEV workstation agent (chat name DEV). Work in "C:\Users\HP\UI MeshForge" (mf-dev = branch dev/ui). Never push to main or lab/*; never touch L1-L4. Read mf-dev/lab/coord/DEV/HANDOFF.md first, then mf-dev/lab/coord/DEV/STATUS.md, "C:\Users\HP\UI MeshForge\ref\NOTES.md", "C:\Users\HP\UI MeshForge\ref\RESEARCH.md". Read the NEWEST section of HANDOFF.md first: start the WSL controller (keepalive) and the dashboard dev server (http://localhost:5173), sign in (local test creds), open the demo with ?demo=1, ask the user the open question (shrink dashboard ~10–12%?), then continue with the next page (Benchmarks/Planner/Settings) in small, user-reviewed steps. The user reviews; no reviewer agent. Do not commit. Short, point-to-point messages. Implementer agent = Opus high.
 ```
