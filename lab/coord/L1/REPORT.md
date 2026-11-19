@@ -1755,3 +1755,14 @@ Events (IST): L2 offline 18:29:13 -> lane lost + piece released 18:30:13 (60 s g
 online 18:39:08; L4 offline 18:38:10 -> lane lost 18:39:10 -> online 18:45:27. From 18:39 L1 worked alone.
 Findings: every drop detected in ~3 s, work re-queued after 60 s, no work lost, job never failed, all 140 models back.
 GAP (future work): a node that comes back does NOT rejoin a running split (lost lane stays closed) -> L1 finished alone, 2.1x baseline.
+
+## 2026-11-19 TEST 1 - planner decides GPU jobs on its own (no node / no exclude / no min_nodes; L3 allowed)
+| Job | Run | Planner choice | Real |
+|---|---|---|---|
+| train 24 | 1 | split L1+L2+L4 (3 GPUs, L3 left out) | 352 s |
+| train 24 | 2 | split L1+L2+L4 (3 GPUs, L3 left out) | 349 s |
+| image 96 | 1 | split L1+L2+L4 (3 GPUs, L3 left out) | 127 s |
+| image 96 | 2 | split L1+L2+L4 (3 GPUs, L3 left out) | 127 s |
+| text 512 | 1 | split L1+L2+L4 (3 GPUs, L3 left out) | 111 s |
+| text 512 | 2 | split L1+L2+L4 (3 GPUs, L3 left out) | 111 s |
+Forced 3-GPU in 2B: train 24 362 s, image 96 132 s, text 512 111 s -> planner matched or beat them; it never put GPU work on L3 (no GPU).
