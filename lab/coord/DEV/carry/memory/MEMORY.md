@@ -1,3 +1,6 @@
+- [DEV UI taste and rules](dev-ui-taste-and-rules.md) — strict user taste (plain tables, no pills/glow), push/branch rules, small reviewed steps
+- [Commit only when told](commit-only-when-told.md) — never commit/push until the user says so
+- [UI direction from user](ui-direction-from-user.md) — UI choices come from the user, never ask LEAD for them
 - [hive bee mascot choice](hive-bee-mascot-choice.md) — chosen: C1 "Buzz" hex-material courier bee (bee-v2/c1.svg)
-- [hive logo direction](hive-logo-direction.md) — keep "hive." wordmark; new symbol must be a premium honeycomb mark
-- [agent team models](agent-team-models.md) — implementer Opus high, reviewer Sonnet 5.5 medium
+- [hive logo direction](hive-logo-direction.md) — keep "hive." wordmark; symbol = M2 "Stack" honeycomb mark
+- [agent team models](agent-team-models.md) — implementer Opus high, reviewer Sonnet 5.5 medium (reviewer paused; user reviews)

@@ -652,12 +652,14 @@ progress.mf-progress::-moz-progress-bar {
 .ov-table-fit table {
   table-layout: fixed;
 }
-.ov-table-fit th:nth-child(1) { width: 19%; }
-.ov-table-fit th:nth-child(2) { width: 17.5%; }
-.ov-table-fit th:nth-child(3) { width: 12%; }
-.ov-table-fit th:nth-child(4) { width: 17.5%; }
-.ov-table-fit th:nth-child(5) { width: 18%; }
-.ov-table-fit th:nth-child(6) { width: 16%; }
+/* the name column is left-aligned, the rest centred: a narrower first column
+   puts the same gap between every pair of column centres */
+.ov-table-fit th:nth-child(1) { width: 14%; }
+.ov-table-fit th:nth-child(2) { width: 17.2%; }
+.ov-table-fit th:nth-child(3) { width: 17.2%; }
+.ov-table-fit th:nth-child(4) { width: 17.2%; }
+.ov-table-fit th:nth-child(5) { width: 17.2%; }
+.ov-table-fit th:nth-child(6) { width: 17.2%; }
 /* the same space before the first column and after the last as between columns */
 .ov-table-fit th:first-child,
 .ov-table-fit td:first-child {
@@ -945,29 +947,31 @@ progress.mf-progress::-moz-progress-bar {
  * columns, quiet filter fields, the detail's progress figure and options
  * rows, the dark log well. Flat lights, hairlines, calm motion.
  */
-/* Even gaps: each column is its widest content (rem, below) + the cells'
-   1.25rem side paddings + one shared slack `--jb-s`, so every gap between
-   two columns' contents is the same (2.5rem + s), and the space before the
-   first column equals the space after the last (3.25rem + s). The slack is
-   the room left over: the scroller's width (100cqw: it is an inline-size
-   container) minus the 74.75rem the columns need, shared by the 6 gaps and
-   the 2 ends. Lengths only (no %), so the fixed layout honours them; the
-   last column is auto and absorbs any rounding. */
-/* content: job 14.5 · mode 4.75 · nodes 10 · progress 7 · speed 5.75 · submitted 6 · duration 5.25 */
+/* Even gaps (same rule as the Nodes list): one shared gap `--jb-s` between
+   every two columns' contents AND before the first / after the last. Cells
+   have no side padding; each column is its widest content (rem, below) plus
+   the gap. Job is left-aligned (gap before it = its padding); the middle
+   columns are centred (half a gap each side); the last one starts half a gap
+   in and keeps a full gap to the right edge. The gap is the room left over:
+   the scroller's width (100cqw: an inline-size container) minus the 42.75rem
+   of content, shared by the 6 gaps and the 2 ends. The last column is auto. */
+/* content (measured, centred): job 7 (longer names truncate) · mode 4.5 · nodes 10 · progress 7 · speed 4.75 · submitted 5 · duration 4.5 */
 .jb-list {
-  --jb-s: max(0px, calc((100cqw - 74.75rem) / 8));
+  --jb-s: max(1.5rem, calc((100cqw - 42.75rem) / 8));
 }
-.jb-list.ov-table-fit th:nth-child(1) { width: calc(19rem + 2 * var(--jb-s)); }
-.jb-list.ov-table-fit th:nth-child(2) { width: calc(7.25rem + var(--jb-s)); }
-.jb-list.ov-table-fit th:nth-child(3) { width: calc(12.5rem + var(--jb-s)); }
-.jb-list.ov-table-fit th:nth-child(4) { width: calc(9.5rem + var(--jb-s)); }
-.jb-list.ov-table-fit th:nth-child(5) { width: calc(8.25rem + var(--jb-s)); }
-.jb-list.ov-table-fit th:nth-child(6) { width: calc(8.5rem + var(--jb-s)); }
+.jb-list.ov-table-fit th,
+.jb-list.ov-table-fit td { padding-left: 0; padding-right: 0; }
+.jb-list.ov-table-fit th:nth-child(1) { width: calc(7rem + 1.5 * var(--jb-s)); }
+.jb-list.ov-table-fit th:nth-child(2) { width: calc(4.5rem + var(--jb-s)); }
+.jb-list.ov-table-fit th:nth-child(3) { width: calc(10rem + var(--jb-s)); }
+.jb-list.ov-table-fit th:nth-child(4) { width: calc(7rem + var(--jb-s)); }
+.jb-list.ov-table-fit th:nth-child(5) { width: calc(4.75rem + var(--jb-s)); }
+.jb-list.ov-table-fit th:nth-child(6) { width: calc(5rem + var(--jb-s)); }
 .jb-list.ov-table-fit th:nth-child(7) { width: auto; }
 .jb-list.ov-table-fit th:first-child,
-.jb-list.ov-table-fit td:first-child {
-  padding-left: calc(3.25rem + var(--jb-s));
-}
+.jb-list.ov-table-fit td:first-child { padding-left: var(--jb-s); }
+.jb-list.ov-table-fit th:last-child,
+.jb-list.ov-table-fit td:last-child { padding-left: calc(0.5 * var(--jb-s)); text-align: left; }
 /* The list fills the window down to ~24px above its bottom (the header,
    page padding and title row above it take ~12rem; the card's own bottom
    padding and the 24px below it the rest). vh is divided by the page zoom. */
@@ -999,6 +1003,10 @@ progress.mf-progress::-moz-progress-bar {
 }
 .jb-list.ov-table-fit thead tr {
   border-bottom: 0;
+}
+/* same hairline under the headings as Nodes; drawn on the sticky th so it stays put on scroll */
+.jb-list.ov-table-fit th {
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--mf-fg) 7%, transparent);
 }
 .jb-list.ov-table-fit th {
   padding-top: 1.6rem;
@@ -1713,6 +1721,11 @@ html { zoom: var(--mf-zoom); background: var(--mf-bg); }
 .bm-list.ov-table-fit th {
   padding-top: 1.6rem;
   padding-bottom: 1.75rem;
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  color: var(--mf-fg-muted);
 }
 .bm-runs.ov-table-fit th,
 .bm-labels.ov-table-fit th,
@@ -2699,20 +2712,26 @@ html { zoom: var(--mf-zoom); background: var(--mf-bg); }
  * emphasis (the hovered name, the active sort). Layout and columns are
  * unchanged (.ov-table-fit widths still apply).
  */
+/* inset from the page edge: the same space before the first and after the last column */
 .nl-plain th:first-child,
-.nl-plain td:first-child { padding-left: 0; }
+.nl-plain td:first-child { padding-left: 2.5rem; }
 .nl-plain th:last-child,
-.nl-plain td:last-child { padding-right: 0; }
+.nl-plain td:last-child { padding-right: 2.5rem; }
 .nl-plain thead tr { border-bottom: 1px solid color-mix(in srgb, var(--mf-fg) 7%, transparent); }
 .nl-plain th {
   padding-top: 0;
   padding-bottom: 0.875rem;
   font-family: var(--font-mono);
-  font-size: 0.6875rem;
+  font-size: 0.8125rem;
   font-weight: 500;
-  letter-spacing: 0.14em;
-  color: var(--mf-fg-subtle);
+  letter-spacing: 0.12em;
+  color: var(--mf-fg-muted);
 }
+/* even columns: every column after the name is centred in an equal share */
+.nl-plain th:not(:first-child),
+.nl-plain td:not(:first-child) { text-align: center; }
+.nl-plain th:not(:first-child) button { justify-content: center; }
+.nl-plain td:not(:first-child) svg { margin-inline: auto; }
 .nl-plain th button { letter-spacing: inherit; transition: color 0.2s ease; }
 .nl-plain th[aria-sort="ascending"] button,
 .nl-plain th[aria-sort="descending"] button { color: var(--mf-fg); }
@@ -2738,7 +2757,141 @@ html { zoom: var(--mf-zoom); background: var(--mf-bg); }
     color-mix(in srgb, var(--mf-bg) 60%, transparent) 82%, transparent);
 }
 .jb-plain td svg { height: 2px; border-radius: 0; }
-.jb-plain.ov-table-fit th:first-child,
-.jb-plain.ov-table-fit td:first-child { padding-left: 0; }
-.jb-plain.ov-table-fit th:last-child,
-.jb-plain.ov-table-fit td:last-child { padding-right: 0; }
+/* (side paddings: the even-gap rules on .jb-list) */
+
+/*
+ * Nodes list: truly even spacing. Each column is as wide as its content and
+ * the free space is shared out equally - between every two columns AND before
+ * the first / after the last (space-evenly). The table is laid out as a grid
+ * (rows/groups are display: contents); the row hairlines and the hover tint
+ * are drawn by the first cell across the whole row, clipped by the wrapper.
+ */
+.nl-plain.ov-table-big { overflow-x: clip; }
+.nl-plain.ov-table-big > div { overflow: visible; }
+.nl-plain.ov-table-big table {
+  display: grid;
+  grid-template-columns: repeat(6, max-content);
+  justify-content: space-evenly;
+  align-items: center;
+}
+.nl-plain.ov-table-big thead,
+.nl-plain.ov-table-big tbody,
+.nl-plain.ov-table-big tr { display: contents; }
+.nl-plain.ov-table-big th,
+.nl-plain.ov-table-big td {
+  width: auto;
+  height: auto;
+  min-height: 100%;
+  padding-left: 0;
+  padding-right: 0;
+  position: relative;
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+.nl-plain.ov-table-big td:not(:first-child),
+.nl-plain.ov-table-big th:not(:first-child) { align-items: center; }
+.nl-plain.ov-table-big td[colspan] { grid-column: 1 / -1; }
+.nl-plain.ov-table-big th:first-child::after,
+.nl-plain.ov-table-big td:first-child::after {
+  content: "";
+  position: absolute;
+  left: -100vw;
+  width: 200vw;
+  bottom: 0;
+  height: 1px;
+  background: color-mix(in srgb, var(--mf-fg) 7%, transparent);
+  pointer-events: none;
+}
+.nl-plain.ov-table-big tr:hover td:first-child::before {
+  content: "";
+  position: absolute;
+  left: -100vw;
+  width: 200vw;
+  top: 0;
+  bottom: 0;
+  background: color-mix(in srgb, var(--mf-fg) 2.5%, transparent);
+  pointer-events: none;
+}
+/* Jobs: the middle cells' flex contents (progress, speed-up) centred like plain text */
+.jb-list td:not(:first-child):not(:last-child) > .flex { justify-content: center; }
+.jb-list td:not(:first-child):not(:last-child) > .flex-col { align-items: center; }
+
+/*
+ * Benchmarks campaign list: glassmorphism. Glass only reads as glass with
+ * something behind it, so on this page the header's honeycomb (with its
+ * cursor glow, app/HiveBackdrop.tsx) runs down the whole page behind the
+ * card instead of stopping under the title. The card: a light 5px blur (the 1px comb lines stay visible, softened), a faint white
+ * tint and a brightness lift so the dark comb shows through (text stays light on dark), a rim light on the top edge
+ * (one light source, upper left), a faint border and a soft shadow.
+ * No backdrop-filter -> a solid dark card (fallback below).
+ */
+[data-theme="dark"] .mf-app:has(.bm-list) .mf-backdrop {
+  height: 100%;
+  -webkit-mask-image: linear-gradient(to bottom, #000 0%, rgb(0 0 0 / 0.85) 70%, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 0%, rgb(0 0 0 / 0.85) 70%, transparent 100%);
+}
+.ov-card.ov-frost.bm-list {
+  background-color: rgb(255 255 255 / 0.025);
+  background-image: linear-gradient(150deg, rgb(255 255 255 / 0.08), rgb(255 255 255 / 0.015) 45%, rgb(255 255 255 / 0.03));
+  background-size: 100% 100%;
+  backdrop-filter: blur(5px) saturate(1.4) brightness(1.6);
+  -webkit-backdrop-filter: blur(5px) saturate(1.4) brightness(1.6);
+  border: 1px solid rgb(255 255 255 / 0.08);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.14),
+    inset 1px 0 0 rgb(255 255 255 / 0.05),
+    0 20px 50px rgb(0 0 0 / 0.3);
+}
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .ov-card.ov-frost.bm-list { background-color: rgb(26 24 20 / 0.95); }
+}
+.bm-list-scroll[data-scrolled="true"] th {
+  background: rgb(20 18 15 / 0.5);
+  backdrop-filter: blur(5px) saturate(1.3);
+  -webkit-backdrop-filter: blur(5px) saturate(1.3);
+}
+.bm-list tbody tr { border-bottom: 1px solid rgb(255 255 255 / 0.05); }
+.bm-list tbody tr:last-child { border-bottom: 0; }
+
+/* Even gaps (as Nodes / Jobs): one shared gap between every two columns'
+   contents and at both ends. Campaign left-aligned, actions right-aligned,
+   the rest centred; cells have no side padding.
+   content: campaign 14 · state 4.5 · progress 10.5 · runs 5 · speed-up 4.5 ·
+   failures 4.5 · started 7 · actions 7.5 (sum 57.5) */
+.bm-list {
+  --bm-s: max(1.5rem, calc((100cqw - 57.5rem) / 9));
+}
+.bm-list.ov-table-fit th,
+.bm-list.ov-table-fit td { padding-left: 0; padding-right: 0; }
+.bm-list.ov-table-fit th:nth-child(1) { width: calc(14rem + 1.5 * var(--bm-s)); }
+.bm-list.ov-table-fit th:nth-child(2) { width: calc(4.5rem + var(--bm-s)); }
+.bm-list.ov-table-fit th:nth-child(3) { width: calc(10.5rem + var(--bm-s)); }
+.bm-list.ov-table-fit th:nth-child(4) { width: calc(5rem + var(--bm-s)); }
+.bm-list.ov-table-fit th:nth-child(5) { width: calc(4.5rem + var(--bm-s)); }
+.bm-list.ov-table-fit th:nth-child(6) { width: calc(4.5rem + var(--bm-s)); }
+.bm-list.ov-table-fit th:nth-child(7) { width: calc(7rem + var(--bm-s)); }
+.bm-list.ov-table-fit th:nth-child(8) { width: auto; }
+.bm-list.ov-table-fit th:first-child,
+.bm-list.ov-table-fit td:first-child { padding-left: var(--bm-s); text-align: left; }
+.bm-list.ov-table-fit th:last-child,
+.bm-list.ov-table-fit td:last-child { padding-right: var(--bm-s); text-align: right; }
+.bm-list.ov-table-fit th:not(:first-child):not(:last-child),
+.bm-list.ov-table-fit td:not(:first-child):not(:last-child) { text-align: center; }
+.bm-list td:not(:first-child):not(:last-child) > .flex,
+.bm-list td:not(:first-child):not(:last-child) > .inline-flex { justify-content: center; }
+.bm-list td:not(:first-child):not(:last-child) > .flex-col { align-items: center; }
+/* progress: the bar block (10.5rem) centred; a lone percentage centred in it */
+.bm-list td:nth-child(3) > .flex-col { margin-inline: auto; width: 10.5rem; align-items: stretch; }
+.bm-list td:nth-child(3) .justify-between:has(> :only-child) { justify-content: center; }
+
+/* first-column headings (Node / Job / Campaign) sit centred over the column, like the other headings */
+.nl-plain th:first-child,
+.bm-list.ov-table-fit th:first-child { text-align: center; }
+.nl-plain th:first-child button,
+.bm-list.ov-table-fit th:first-child button { justify-content: center; }
+.nl-plain.ov-table-big th:first-child { align-items: center; }
+/* campaign column reserves room for long names; centre the heading over the name and id */
+.bm-list.ov-table-fit th:first-child { padding-right: 3.9rem; }
+.jb-list.ov-table-fit th:first-child { padding-right: 2.5rem; }

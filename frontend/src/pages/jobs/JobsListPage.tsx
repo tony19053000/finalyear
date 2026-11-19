@@ -180,7 +180,7 @@ export function JobsListPage() {
   const more = all.hasNextPage ? "+" : "";
   return (
     <>
-      <div className="mt-3 mb-8 grid grid-cols-[1fr_auto_1fr] items-end gap-x-8">
+      <div className="mt-3 mb-16 grid grid-cols-[1fr_auto_1fr] items-end gap-x-8">
         <h1 className="font-display text-[2.75rem] leading-[1.05] font-bold tracking-[-0.035em] text-fg">Jobs</h1>
         <div role="group" aria-label="Filter by state" className="flex items-end justify-center gap-10 pb-1.5">
           {STATE_TABS.map((t) => {

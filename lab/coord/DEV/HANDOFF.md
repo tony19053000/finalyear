@@ -1,6 +1,32 @@
 # DEV HANDOFF — read this first (any account)
 
-Updated 2026-11-19. Cold-start prompt: see bottom of this file.
+Updated 2026-11-20. Same laptop, new Claude account: use the "ACCOUNT SWITCH 2026-11-20" section below.
+
+## ACCOUNT SWITCH 2026-11-20 — read FIRST (supersedes everything below)
+Laptop: C:\Users\rishu\Documents\UI MeshForge (mf-dev = dev/ui, mf-chat = lab/chat). Setup is DONE here
+(Node 22.23.5 at C:\Program Files\nodejs, uv, gh logged in as tony19053000, Blender 5.3). In Bash add
+`export PATH="/c/Program Files/nodejs:$PATH"`.
+- **Committed + pushed on dev/ui:** e64e23a5 (demo admin back, only DEV + ?demo=1 + localhost), 07a96845 (3b g2 theme
+  test), 9e65ee27 (3c stable full suite, 1007/1007 x3). LEAD was sent each.
+- **UNCOMMITTED (user reviewed, waiting for "commit"):** frontend/src/styles/index.css, pages/nodes/NodesPage.tsx,
+  pages/jobs/JobsListPage.tsx. Backup of this state: mf-dev/frontend-src-backup-v31 (local only, never commit).
+  - Nodes table: headings 0.8125rem mono, muted, 0.12em spacing; CSS-grid table (display:contents rows,
+    justify-content:space-evenly) = equal gaps between all columns and the borders; title row mb-16.
+  - Jobs: same headings; even gaps via `--jb-s` (100cqw) widths; title row mb-16; hairline under headings (inset
+    box-shadow on sticky th).
+  - Benchmarks: same headings; even gaps via `--bm-s`; Apple-style glass card (.ov-card.ov-frost.bm-list: blur 5px,
+    saturate 1.4, brightness 1.6, faint white tint); the cursor-glow honeycomb (HiveBackdrop) runs down the whole page
+    behind it (`.mf-app:has(.bm-list) .mf-backdrop`). User rejected "honey light blobs".
+  - First-column headings (Node/Job/Campaign) centred over the names (end of index.css; Jobs th padding-right 2.5rem,
+    Benchmarks 3.9rem; Nodes plain centring — a 2rem nudge was too far right and was removed).
+- **Rules from the user:** UI decisions come from the USER, never ask LEAD. Never commit/push until the user says
+  "commit"; after a commit, `send LEAD` a short progress note. Small steps, show screenshots, short messages.
+- **Run:** dashboard `node mf-dev/lab/coord/DEV/dash-dev.mjs` (from the UI MeshForge folder, background) -> open
+  http://localhost:5173/<page>?demo=1 (without ?demo=1 you get 502, no controller here). Checks in mf-dev/frontend:
+  `npx tsc -b --noEmit`, `npx eslint src`, `npx vitest run` (Nodes/Jobs/Benchmarks 406/406 last run).
+- **Memory:** copy lab/coord/DEV/carry/memory/*.md into your memory folder (updated 2026-11-20).
+- **Next:** wait for the user's next UI request. When the user says the UI is done: 3d MERGE-NOTES.md, then
+  SCREENSHOTS.md, the website from LEAD's draft (real numbers only), video-ready pages.
 
 ## START HERE ON THE NEW LAPTOP — detailed cold-start prompt (2026-11-19)
 Setup steps: `NEW-LAPTOP.md`. Then paste this whole prompt into a new Claude Code session opened on the folder `UI MeshForge`:

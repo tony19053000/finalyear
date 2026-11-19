@@ -60,9 +60,9 @@ function SortHeader({
 
 function Usage({ percent, text }: { percent: number | null; text: string }) {
   return (
-    <span className="flex min-w-24 flex-col gap-1">
+    <span className="flex min-w-24 flex-col items-center gap-1">
       <span className="tabular-nums">{text}</span>
-      <Meter percent={percent} className="max-w-28" />
+      <Meter percent={percent} className="w-28" />
     </span>
   );
 }
@@ -253,7 +253,7 @@ export function NodesPage() {
 
   return (
     <>
-      <div className="mt-3 mb-7 grid grid-cols-1 items-end gap-y-4 lg:grid-cols-[1fr_auto_1fr]">
+      <div className="mt-3 mb-16 grid grid-cols-1 items-end gap-y-4 lg:grid-cols-[1fr_auto_1fr]">
         <h1 className="font-display text-[2.75rem] leading-[1.05] font-bold tracking-[-0.035em] text-fg">Nodes</h1>
         {tabNodes.length > 0 && (
           <div role="group" aria-label="Filter by status" className="flex items-end justify-center gap-10 pb-1.5">
