@@ -1,34 +1,61 @@
-import { jobTone } from "../../lib/status";
-import { StatusDot } from "../Status";
+import { FrostTable } from "../../pages/nodes/FrostTable";
 import type { TransitionOut } from "../../pages/jobs/jobsApi";
+import { stateLight } from "../../pages/jobs/jobView";
 import { between, formatDuration, formatTime } from "./format";
+
+const TH = "text-left font-mono font-medium tracking-[0.14em] whitespace-nowrap text-fg-subtle uppercase";
 
 /**
  * The job's state history (job_transition rows, oldest first) with the time
- * spent in each state. The last state's time runs until `now`.
+ * spent in each state, in the node page's frosted table. The last state's
+ * time runs until `now`.
  */
 export function JobTimeline({ transitions, terminal, now }: { transitions: readonly TransitionOut[]; terminal: boolean; now: string }) {
   const ordered = [...transitions].sort((a, b) => a.seq - b.seq);
   if (ordered.length === 0) return <p className="text-sm text-fg-muted">No state changes recorded.</p>;
   return (
-    <ol aria-label="State timeline" className="flex flex-col">
-      {ordered.map((t, i) => {
-        const next = ordered[i + 1];
-        const until = next?.at ?? (terminal ? null : now);
-        const spent = until === null ? null : between(t.at, until);
-        return (
-          <li key={t.seq} className="grid grid-cols-[10rem_1fr_auto] items-center gap-3 border-l-2 border-border py-1.5 pl-3">
-            <span className="font-mono text-xs text-fg-muted tabular-nums">{formatTime(t.at)}</span>
-            <span className="text-sm">
-              <StatusDot tone={jobTone(t.to_state)} label={t.to_state} />
-              {t.from_state != null && <span className="ml-2 text-xs text-fg-subtle">from {t.from_state}</span>}
-            </span>
-            <span className="font-mono text-xs text-fg-muted tabular-nums">
-              {spent === null ? (terminal && next === undefined ? "final" : "—") : `${formatDuration(spent)}${next === undefined ? " so far" : ""}`}
-            </span>
-          </li>
-        );
-      })}
-    </ol>
+    <FrostTable className="jb-states" testId="timeline-card">
+      <table className="w-full border-collapse">
+        <caption className="sr-only">State timeline</caption>
+        <thead>
+          <tr>
+            {["At", "State", "From", "Time in state"].map((h) => (
+              <th key={h} scope="col" className={TH}>
+                {h}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {ordered.map((t, i) => {
+            const next = ordered[i + 1];
+            const until = next?.at ?? (terminal ? null : now);
+            const spent = until === null ? null : between(t.at, until);
+            return (
+              <tr key={t.seq}>
+                <td className="font-mono text-[0.8125rem] whitespace-nowrap text-fg-muted tabular-nums">{formatTime(t.at)}</td>
+                <td>
+                  <span className="inline-flex items-center gap-2.5">
+                    <span aria-hidden="true" className={`nd-light ${stateLight(t.to_state)}`} />
+                    {t.to_state}
+                  </span>
+                </td>
+                <td className="text-fg-muted">{t.from_state ?? <span className="text-fg-subtle">—</span>}</td>
+                <td className="font-mono text-[0.8125rem] whitespace-nowrap tabular-nums">
+                  {spent === null ? (
+                    <span className="text-fg-subtle">{terminal && next === undefined ? "final" : "—"}</span>
+                  ) : (
+                    <>
+                      {formatDuration(spent)}
+                      {next === undefined && <span className="text-fg-muted"> so far</span>}
+                    </>
+                  )}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </FrostTable>
   );
 }

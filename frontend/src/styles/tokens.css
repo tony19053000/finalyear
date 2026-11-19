@@ -3,7 +3,7 @@
  *
  * Every colour the dashboard uses is one of these CSS variables. Dark is the
  * default (`<html data-theme="dark">`); the light theme swaps the same names.
- * Neutral grays, ONE accent (blue), five status colours. Components never use
+ * Warm neutrals, ONE accent (honey in dark, blue in light), five status colours. Components never use
  * raw colours - Tailwind utilities map to these names in index.css (@theme).
  * Status is never colour alone: every StatusDot/Badge also prints its label.
  */
@@ -12,40 +12,52 @@
 [data-theme="dark"] {
   color-scheme: dark;
 
-  /* Neutral surfaces, darkest to lightest. */
-  --mf-bg: #0e1116;
-  --mf-surface: #151a21;
-  --mf-surface-raised: #1b212a;
-  --mf-surface-sunken: #0a0d11;
-  --mf-border: #262d37;
-  --mf-border-strong: #36404c;
+  /* Neutral surfaces, darkest to lightest - the hive. landing page's own
+     values (website/assets/css/site.css: --bg, --bg-2, --bg-3, --line, --line-2). */
+  --mf-bg: #0b0a08;
+  --mf-surface: #0b0a08; /* cards sit on the page black, like the Download page; hairline border only */
+  --mf-surface-raised: #16140f;
+  --mf-surface-sunken: #14120e; /* wells (inputs, code, meter tracks) lift slightly off the black cards */
+  --mf-border: #2a251c;
+  --mf-border-strong: #3a3327;
 
-  /* Text. */
-  --mf-fg: #e3e7ec;
-  --mf-fg-muted: #9aa4b1;
-  --mf-fg-subtle: #858f9c;
+  /* Text (landing --text, --muted, --dim). */
+  --mf-fg: #f2ede4;
+  --mf-fg-muted: #a8a091;
+  --mf-fg-subtle: #8a8273;
 
-  /* The one accent: actions, links, the selected nav item, focus. */
-  --mf-accent: #4d8eff;
-  --mf-accent-hover: #6aa1ff;
-  --mf-accent-fg: #071021;
-  --mf-accent-soft: #4d8eff1f;
-  --mf-focus: #79a9ff;
+  /* The one accent, honey (landing --honey / --ink / --honey-soft; the hover
+     is the landing .btn-honey:hover, the deep shade its gradient start). */
+  --mf-accent: #ffc93c;
+  --mf-accent-hover: #ffd35e;
+  --mf-accent-deep: #f5a623;
+  --mf-accent-fg: #0b0a08;
+  --mf-accent-soft: #ffc93c1f;
+  --mf-focus: #ffc93c;
 
-  /* Status: online/ok, busy, degraded, offline/failed, unknown. */
-  --mf-status-ok: #3fb950;
-  --mf-status-busy: #d4a72c;
-  --mf-status-degraded: #e8834a;
-  --mf-status-failed: #f47067;
-  --mf-status-unknown: #97a1ae;
-  --mf-status-ok-soft: #3fb95024;
-  --mf-status-busy-soft: #d4a72c24;
-  --mf-status-degraded-soft: #e8834a24;
-  --mf-status-failed-soft: #f4706724;
-  --mf-status-unknown-soft: #97a1ae24;
+  /* Status: online/ok, busy, degraded, offline/failed, unknown. Warm-tuned
+     to sit with the honey palette (ok = landing --ok sage, busy = wheat,
+     degraded = tangerine, failed = coral, unknown = warm stone) while the
+     five stay apart from each other and from the honey accent. */
+  --mf-status-ok: #8bd48f;
+  --mf-status-busy: #e6c76e;
+  --mf-status-degraded: #f2904e;
+  --mf-status-failed: #f47a68;
+  --mf-status-unknown: #a49b8b;
+  --mf-status-ok-soft: #8bd48f1f;
+  --mf-status-busy-soft: #e6c76e1f;
+  --mf-status-degraded-soft: #f2904e1f;
+  --mf-status-failed-soft: #f47a681f;
+  --mf-status-unknown-soft: #a49b8b1f;
 
-  --mf-shadow: 0 8px 24px #00000066;
-  --mf-backdrop: #05070acc;
+  /* Overview resource series (CPU / RAM / GPU): donut, line graph, legends. */
+  --mf-ov-card: #1d1c1a; /* Overview cards (frame B matte grey) */
+  --mf-series-cpu: #f5a623;
+  --mf-series-ram: #4fd1c5;
+  --mf-series-gpu: #ff7a59;
+
+  --mf-shadow: 0 16px 48px -12px #000000b3;
+  --mf-backdrop: #0b0a08cc;
 }
 
 [data-theme="light"] {
@@ -64,6 +76,7 @@
 
   --mf-accent: #1a5bd0;
   --mf-accent-hover: #1852bd;
+  --mf-accent-deep: #1852bd;
   --mf-accent-fg: #ffffff;
   --mf-accent-soft: #1a5bd014;
   --mf-focus: #1a5bd0;
@@ -78,6 +91,11 @@
   --mf-status-degraded-soft: #a242001a;
   --mf-status-failed-soft: #b91c261a;
   --mf-status-unknown-soft: #545d691a;
+
+  --mf-ov-card: #ffffff;
+  --mf-series-cpu: #c77700;
+  --mf-series-ram: #0f8f84;
+  --mf-series-gpu: #d9482a;
 
   --mf-shadow: 0 8px 24px #1b1f2426;
   --mf-backdrop: #1b1f2466;

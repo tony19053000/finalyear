@@ -187,7 +187,8 @@ describe("API tokens", () => {
       }),
     );
     renderApp("/settings/tokens");
-    await userEvent.click(await screen.findByRole("button", { name: "Revoke laptop (tok_A)" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Actions for laptop (tok_A)" }));
+    await userEvent.click(screen.getByRole("button", { name: "Revoke laptop (tok_A)" }));
     const dialog = await screen.findByRole("dialog");
     expect(fake.count("DELETE /v1/auth/tokens/tok_A")).toBe(0); // nothing before the confirm
     await userEvent.click(within(dialog).getByRole("button", { name: "Revoke" }));
@@ -195,7 +196,7 @@ describe("API tokens", () => {
     const del = fake.calls.find((c) => c.key === "DELETE /v1/auth/tokens/tok_A");
     expect(del && header(del.init, "X-MeshForge-CSRF")).toBe("csrf-g5");
     expect(await screen.findByText("revoked")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Revoke laptop (tok_A)" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Actions for laptop (tok_A)" })).toBeNull(); // a revoked token has no actions
   });
 
   it("a refused revoke is shown in the dialog, which stays open", async () => {
@@ -206,7 +207,8 @@ describe("API tokens", () => {
       }),
     );
     renderApp("/settings/tokens");
-    await userEvent.click(await screen.findByRole("button", { name: "Revoke laptop (tok_A)" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Actions for laptop (tok_A)" }));
+    await userEvent.click(screen.getByRole("button", { name: "Revoke laptop (tok_A)" }));
     const dialog = await screen.findByRole("dialog");
     await userEvent.click(within(dialog).getByRole("button", { name: "Revoke" }));
     expect((await within(dialog).findByRole("alert")).textContent).toContain("no such token");
@@ -288,8 +290,11 @@ describe("Invites", () => {
     expect(await screen.findByText("inv_1")).toBeTruthy();
     await userEvent.click(screen.getByRole("button", { name: "Create invite" }));
     const dialog = await screen.findByRole("dialog");
-    await userEvent.selectOptions(within(dialog).getByRole("combobox", { name: "Code expires after" }), "1 hour");
-    await userEvent.selectOptions(within(dialog).getByRole("combobox", { name: "For" }), "node_A");
+    // hive's own listbox (no native select)
+    await userEvent.click(within(dialog).getByLabelText("Code expires after"));
+    await userEvent.click(within(screen.getByRole("listbox")).getByRole("option", { name: "1 hour" }));
+    await userEvent.click(within(dialog).getByLabelText("For"));
+    await userEvent.click(within(screen.getByRole("listbox")).getByRole("option", { name: /Re-key lab-a/ }));
     await userEvent.click(within(dialog).getByRole("button", { name: "Create invite" }));
 
     const issued = await within(dialog).findByTestId("issued-invite");
@@ -329,15 +334,16 @@ describe("Invites", () => {
     );
     renderApp("/settings/invites");
     expect(await screen.findByText("inv_2")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Revoke invite inv_2" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Actions for invite inv_2" })).toBeNull();
     expect(screen.getByRole("link", { name: "node_A" }).getAttribute("href")).toBe("/nodes/node_A");
+    await userEvent.click(screen.getByRole("button", { name: "Actions for invite inv_1" }));
     await userEvent.click(screen.getByRole("button", { name: "Revoke invite inv_1" }));
     const dialog = await screen.findByRole("dialog");
     await userEvent.click(within(dialog).getByRole("button", { name: "Revoke invite" }));
     expect(await screen.findByText("Invite inv_1 revoked")).toBeTruthy();
     expect(fake.count("POST /v1/fabric/invites/inv_1/revoke")).toBe(1);
     await waitFor(() => {
-      expect(screen.queryByRole("button", { name: "Revoke invite inv_1" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "Actions for invite inv_1" })).toBeNull();
     });
   });
 
@@ -619,7 +625,8 @@ describe("Secrets", () => {
       }),
     );
     renderApp("/settings/secrets");
-    await userEvent.click(await screen.findByRole("button", { name: "Delete secret DB_PASS" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Actions for secret DB_PASS" }));
+    await userEvent.click(screen.getByRole("button", { name: "Delete secret DB_PASS" }));
     expect(fake.count("DELETE /v1/secrets/DB_PASS")).toBe(0);
     const dialog = await screen.findByRole("dialog");
     await userEvent.click(within(dialog).getByRole("button", { name: "Delete secret" }));
@@ -647,10 +654,15 @@ describe("Data", () => {
     const row = within(table).getByText("mnist@2").closest("tr");
     expect(row && within(row).getByText("5.0 MiB")).toBeTruthy();
     expect(row && within(row).getByText("7")).toBeTruthy();
+    await userEvent.click(screen.getByRole("button", { name: "Actions for mnist@1" }));
     await userEvent.click(screen.getByRole("button", { name: "Pin mnist@1" }));
     expect(await screen.findByText("mnist@1 pinned")).toBeTruthy();
     const patch = fake.calls.find((c) => c.key === "PATCH /v1/data/mnist/1");
     expect(JSON.parse(patch?.init.body as string)).toEqual({ pinned: true });
+    await waitFor(() => {
+      expect(screen.getByRole<HTMLButtonElement>("button", { name: "Actions for mnist@1" }).disabled).toBe(false);
+    });
+    await userEvent.click(screen.getByRole("button", { name: "Actions for mnist@1" }));
     expect(await screen.findByRole("button", { name: "Unpin mnist@1" })).toBeTruthy();
   });
 
@@ -662,7 +674,8 @@ describe("Data", () => {
       }),
     );
     renderApp("/settings/data");
-    await userEvent.click(await screen.findByRole("button", { name: "Delete mnist@1" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Actions for mnist@1" }));
+    await userEvent.click(screen.getByRole("button", { name: "Delete mnist@1" }));
     const dialog = await screen.findByRole("dialog");
     await userEvent.click(within(dialog).getByRole("button", { name: "Delete version" }));
     expect((await within(dialog).findByRole("alert")).textContent).toContain("job_X");

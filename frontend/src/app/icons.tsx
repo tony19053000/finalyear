@@ -80,3 +80,70 @@ export const LogoMark = () => (
     <path d="M4 4.5h8L8 12Z" fill="none" stroke="currentColor" strokeWidth="1.1" />
   </svg>
 );
+
+/**
+ * The hive. mark (website/assets/img/hive-mark.svg, the landing page's header
+ * crop): three isometric cells, the top one honey. Inline, so no extra request.
+ */
+export const HiveMark = ({ size = 24 }: { size?: number }) => (
+  <svg aria-hidden="true" viewBox="5.5 5.5 53 53" width={size} height={size} className="shrink-0">
+    <polygon points="18.14,30.4 29.35,36.87 18.14,43.34 6.94,36.87" fill="#F2EDE4" />
+    <polygon points="6.36,37.86 17.57,44.33 17.57,57.27 6.36,50.8" fill="#A59D8F" />
+    <polygon points="18.72,44.33 29.93,37.86 29.93,50.8 18.72,57.27" fill="#5F584C" />
+    <polygon points="45.86,30.4 57.06,36.87 45.86,43.34 34.65,36.87" fill="#F2EDE4" />
+    <polygon points="34.08,37.86 45.28,44.33 45.28,57.27 34.07,50.8" fill="#A59D8F" />
+    <polygon points="46.43,44.33 57.64,37.86 57.64,50.8 46.43,57.27" fill="#5F584C" />
+    <polygon points="32,6.4 43.21,12.87 32,19.34 20.79,12.87" fill="#FFC93C" />
+    <polygon points="20.22,13.86 31.43,20.33 31.43,33.27 20.22,26.8" fill="#D9971F" />
+    <polygon points="32.58,20.33 43.78,13.86 43.78,26.8 32.58,33.27" fill="#8F5F10" />
+  </svg>
+);
+
+export const SunIcon = () => (
+  <Icon>
+    <circle cx="8" cy="8" r="2.75" />
+    <path d="M8 1.5v1.25M8 13.25v1.25M1.5 8h1.25M13.25 8h1.25M3.4 3.4l.9.9M11.7 11.7l.9.9M3.4 12.6l.9-.9M11.7 4.3l.9-.9" />
+  </Icon>
+);
+
+export const MoonIcon = () => (
+  <Icon>
+    <path d="M13.5 9.5A5.5 5.5 0 0 1 6.5 2.5a5.5 5.5 0 1 0 7 7Z" />
+  </Icon>
+);
+
+export const BellIcon = () => (
+  <Icon>
+    <path d="M4 11.5V7a4 4 0 0 1 8 0v4.5l1 1H3l1-1Z" />
+    <path d="M6.75 14a1.4 1.4 0 0 0 2.5 0" />
+  </Icon>
+);
+
+/** Lines narrowing downwards: "filter the list". */
+export const FilterIcon = () => (
+  <Icon>
+    <path d="M2.5 4.5h11M4.5 8h7M6.5 11.5h3" />
+  </Icon>
+);
+
+const CHEVRON = { down: "M4.5 6.5 8 10l3.5-3.5", left: "M9.5 4.5 6 8l3.5 3.5", right: "M6.5 4.5 10 8l-3.5 3.5" } as const;
+
+/** A thin chevron (dropdown, month navigation). */
+export const ChevronIcon = ({ dir = "down" }: { dir?: keyof typeof CHEVRON }) => (
+  <Icon>
+    <path d={CHEVRON[dir]} />
+  </Icon>
+);
+
+export const CheckIcon = () => (
+  <Icon>
+    <path d="m3.5 8.5 3 3 6-7" />
+  </Icon>
+);
+
+export const SignOutIcon = () => (
+  <Icon>
+    <path d="M6.5 2.5h-3a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h3" />
+    <path d="M10.5 11 13.5 8l-3-3M13.5 8H6.5" />
+  </Icon>
+);

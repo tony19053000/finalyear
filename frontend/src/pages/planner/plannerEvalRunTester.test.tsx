@@ -34,6 +34,12 @@ import {
 import type { MlPredictionPointOut } from "./mlApi";
 import { calibrationGapText, plottedText, scatterOf } from "./mlView";
 
+/** The run form is the title row's round button's popover (Evaluation tab). */
+async function openRunForm(): Promise<HTMLElement> {
+  await userEvent.click(await screen.findByRole("button", { name: "New evaluation" }));
+  return screen.findByRole("form", { name: "Run an evaluation" });
+}
+
 beforeEach(() => {
   document.cookie = "mf_csrf=test-csrf";
 });
@@ -80,10 +86,8 @@ describe("Planner page: start-then-poll under races", () => {
           },
         }),
       );
-      renderApp("/planner");
-      const form = await screen.findByRole("form", {
-        name: "Run an evaluation",
-      });
+      renderApp("/planner?tab=evaluation");
+      const form = await openRunForm();
       await userEvent.type(within(form).getByLabelText(/Campaigns/), "camp_a");
       const before = fake.count("GET /v1/planner/eval-reports");
       await userEvent.click(
@@ -114,8 +118,8 @@ describe("Planner page: start-then-poll under races", () => {
         "GET /v1/planner/eval-reports/6": () => json(200, RUNNING_RECORD),
       }),
     );
-    renderApp("/planner");
-    const form = await screen.findByRole("form", { name: "Run an evaluation" });
+    renderApp("/planner?tab=evaluation");
+    const form = await openRunForm();
     await userEvent.type(within(form).getByLabelText(/Campaigns/), "camp_a");
     const button = within(form).getByRole("button", { name: "Run evaluation" });
     const user = userEvent.setup({ delay: 30 }); // a human's double click is not instantaneous
@@ -126,8 +130,8 @@ describe("Planner page: start-then-poll under races", () => {
 
   it("more than 20 campaigns disables the button and Enter sends nothing", async () => {
     const fake = fakeController(routes());
-    renderApp("/planner");
-    const form = await screen.findByRole("form", { name: "Run an evaluation" });
+    renderApp("/planner?tab=evaluation");
+    const form = await openRunForm();
     const ids = Array.from({ length: 21 }, (_, i) => `c${String(i)}`).join(" ");
     await userEvent.type(
       within(form).getByLabelText(/Campaigns/),

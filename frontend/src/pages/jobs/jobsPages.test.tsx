@@ -128,18 +128,30 @@ describe("Jobs list (0.8.5, D174)", () => {
     const rows = within(table).getAllByRole("row").slice(1);
     expect(rows).toHaveLength(2);
     expect(within(rows[0] as HTMLElement).getByRole("link", { name: "train-0003" }).getAttribute("href")).toBe("/jobs/job_01J0003");
-    expect(rows[0]?.textContent).toContain("running");
-    expect(rows[0]?.textContent).toContain("offload · node_A");
-    expect(rows[0]?.textContent).toContain("7");
+    expect(rows[0]?.textContent).toContain("running"); // the state light's text
+    expect(rows[0]?.querySelector('[data-state="running"]')).not.toBeNull();
+    expect(rows[0]?.textContent).toContain("job_01J0003"); // the id under the name
+    // a pinned offload: mode and node from the placement (no planner decision here)
+    expect(within(rows[0] as HTMLElement).getByTestId("job-mode").textContent).toBe("Sent away");
+    expect(rows[0]?.textContent).toContain("laptop-a"); // node_A's name from GET /v1/nodes
+    expect(rows[1]?.textContent).toContain("100%"); // succeeded
     expect(screen.getByRole("status").textContent).toMatch(/2 jobs loaded; more on the server/);
     expect(calls.find((c) => c.url.pathname === "/v1/jobs")?.url.searchParams.get("limit")).toBe("50");
+    // every state tab is always shown, with its count ("+": more on the server)
+    const tabs = screen.getByRole("group", { name: "Filter by state" });
+    for (const name of ["All 2+", "Running 1+", "Queued 0+", "Succeeded 1+", "Failed 0+", "Cancelled 0+"]) {
+      expect(within(tabs).getByRole("button", { name })).toBeTruthy();
+    }
+    expect(within(tabs).getByRole("button", { name: "All 2+" }).getAttribute("aria-pressed")).toBe("true");
 
     await userEvent.click(screen.getByRole("button", { name: "Load more" }));
     await waitFor(() => {
       expect(within(table).getAllByRole("row")).toHaveLength(4);
     });
-    expect(screen.getByRole("status").textContent).toMatch(/3 jobs loaded; that is all/);
+    expect(screen.queryByText(/jobs loaded/)).toBeNull(); // all loaded: no footer line
     expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();
+    expect(within(tabs).getByRole("button", { name: "All 3" })).toBeTruthy();
+    expect(within(tabs).getByRole("button", { name: "Failed 1" })).toBeTruthy();
   });
 
   it("filters go to the server (state, node, time) and into the URL", async () => {
@@ -151,27 +163,73 @@ describe("Jobs list (0.8.5, D174)", () => {
     });
     renderAt("/jobs", <JobsListPage />, "/jobs");
     await screen.findByRole("table");
-    await userEvent.selectOptions(screen.getByLabelText("State"), "active");
+    await userEvent.click(screen.getByRole("button", { name: /^Running/ }));
     await waitFor(() => {
-      expect(seen.at(-1)?.getAll("state")).toEqual(["submitted", "planning", "queued", "preparing", "running", "collecting", "retrying"]);
+      expect(seen.at(-1)?.getAll("state")).toEqual(["preparing", "running", "collecting", "retrying"]);
     });
-    await userEvent.selectOptions(await screen.findByLabelText("Ran on node"), "node_A");
+    expect(screen.getByRole("button", { name: /^Running/ }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByTestId("where").textContent).toMatch(/state=preparing&state=running/);
+    await userEvent.click(screen.getByRole("button", { name: /^Queued/ }));
+    await waitFor(() => {
+      expect(seen.at(-1)?.getAll("state")).toEqual(["submitted", "planning", "queued"]);
+    });
+    // the other filters sit behind the round button, in a popover
+    expect(screen.queryByLabelText("Ran on node")).toBeNull();
+    const filtersBtn = screen.getByRole("button", { name: "Filters" });
+    await userEvent.click(filtersBtn);
+    expect(filtersBtn.getAttribute("aria-expanded")).toBe("true");
+    // "Ran on node" is hive's own listbox: Escape closes only the list, not the popover
+    await userEvent.click(await screen.findByLabelText("Ran on node"));
+    expect(within(screen.getByRole("listbox")).getAllByRole("option").map((o) => o.textContent)).toEqual(["Any node", "laptop-anode_A"]);
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("listbox")).toBeNull();
+    expect(screen.getByRole("search", { name: "Filter jobs" })).toBeTruthy();
+    await userEvent.click(screen.getByLabelText("Ran on node"));
+    await userEvent.keyboard("{ArrowDown}{Enter}");
     await waitFor(() => {
       expect(seen.at(-1)?.get("node")).toBe("node_A");
     });
-    fireEvent.change(screen.getByLabelText("Created after"), { target: { value: "2026-10-01T10:00" } });
+    // an active filter shows as removable text; the button says how many
+    expect(screen.getByRole("button", { name: "Remove filter: node laptop-a" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Filters, 1 active" })).toBe(filtersBtn);
+    // "Created after" is hive's own calendar: set the time, pick the 1st of the shown month
+    expect(screen.getByLabelText("Created after").textContent).toBe("any time");
+    await userEvent.click(screen.getByLabelText("Created after"));
+    const calendar = screen.getByRole("dialog", { name: "Pick a date and time" });
+    const time = within(calendar).getByLabelText("Time (HH:MM)");
+    await userEvent.clear(time);
+    await userEvent.type(time, "10:00");
+    const today = new Date();
+    const month = today.toLocaleString("en", { month: "long" });
+    await userEvent.click(within(calendar).getByRole("button", { name: `1 ${month} ${String(today.getFullYear())}` }));
+    const picked = new Date(today.getFullYear(), today.getMonth(), 1, 10, 0);
     await waitFor(() => {
-      expect(seen.at(-1)?.get("created_after")).toBe(new Date("2026-10-01T10:00").toISOString());
+      expect(seen.at(-1)?.get("created_after")).toBe(picked.toISOString());
     });
+    expect(screen.getByLabelText("Created after").textContent).toBe(`1 ${month.slice(0, 3)} · 10:00`);
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "Pick a date and time" })).toBeNull();
+    expect(screen.getByRole("search", { name: "Filter jobs" })).toBeTruthy();
     expect(screen.getByTestId("where").textContent).toMatch(/node=node_A/);
     await userEvent.type(screen.getByLabelText("Owner (user id)"), "usr_9");
     await waitFor(() => {
       expect(seen.at(-1)?.get("owner")).toBe("usr_9");
     });
+    // removing one active filter drops only that one
+    await userEvent.click(screen.getByRole("button", { name: "Remove filter: node laptop-a" }));
+    await waitFor(() => {
+      expect(seen.at(-1)?.get("node")).toBeNull();
+    });
+    expect(seen.at(-1)?.get("owner")).toBe("usr_9");
+    await userEvent.click(screen.getByRole("button", { name: "Filters, 2 active" }));
     await userEvent.click(screen.getByRole("button", { name: "Clear filters" }));
     await waitFor(() => {
       expect([...(seen.at(-1)?.keys() ?? [])]).toEqual(["limit"]);
     });
+    // Escape closes the popover and returns focus to the button
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("search", { name: "Filter jobs" })).toBeNull();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Filters" }));
   });
 
   it("windows rows over 200: the DOM holds a slice, spacers hold the rest (no style attribute)", async () => {
@@ -318,19 +376,33 @@ describe("Job detail (0.8.5, D176)", () => {
     expect(summaryCard.textContent).toContain(job.tree_id ?? "");
     expect(sockets[0]?.url).toMatch(/\/v1\/jobs\/job_01J0007\/logs\/ws\?stream=both&stdout_offset=0&stderr_offset=0$/);
 
-    // Log lines arrive from the socket.
+    // The Progress tab opens first: the planner sent it to node_A (12.5 s estimate).
+    expect(screen.getByRole("tab", { name: "Progress" }).getAttribute("aria-selected")).toBe("true");
+    await waitFor(() => {
+      expect(screen.getByTestId("job-mode").textContent).toBe("Sent away");
+    });
+    const progress = screen.getByRole("region", { name: "Job progress" });
+    expect(progress.textContent).toContain("laptop-a");
+    expect(within(progress).getByRole("list", { name: "Steps" }).textContent).toMatch(/Waiting.*Sending.*Running.*Done/);
+    expect(within(progress).getByRole("progressbar", { name: "Job progress" })).toBeTruthy();
+
+    // Log lines arrive from the socket (the follower runs at page level, whichever tab is open).
     sockets[0]?.onopen?.(new Event("open"));
     sockets[0]?.onmessage?.(new MessageEvent("message", { data: JSON.stringify({ stream: "stdout", offset: 0, data: btoa("epoch 1 loss 0.5\n") }) }));
+    await userEvent.click(screen.getByRole("tab", { name: "Logs" }));
+    expect(screen.getByTestId("where").textContent).toMatch(/\?tab=logs$/);
     expect(await screen.findByText("epoch 1 loss 0.5")).toBeTruthy();
+    expect(screen.getByTestId("log-status").textContent).toBe("Live");
     expect(screen.getByRole("link", { name: "Download full log" }).getAttribute("href")).toBe("/v1/jobs/job_01J0007/logs?stream=both");
 
-    await userEvent.click(screen.getByRole("tab", { name: "Attempts (1)" }));
+    await userEvent.click(screen.getByRole("tab", { name: "Attempts 1" }));
     const attempts = await screen.findByRole("table", { name: /attempts/i });
     expect(attempts.textContent).toContain("att_1");
     expect(attempts.textContent).toContain("node_A");
+    expect(attempts.textContent).toContain("laptop-a");
 
     await userEvent.click(screen.getByRole("tab", { name: "Timeline" }));
-    const timeline = await screen.findByRole("list", { name: "State timeline" });
+    const timeline = await screen.findByRole("table", { name: "State timeline" });
     expect(timeline.textContent).toContain("queued");
     expect(timeline.textContent).toContain("12.0 s"); // queued 08:00:00 -> running 08:00:12
   });
@@ -339,6 +411,18 @@ describe("Job detail (0.8.5, D176)", () => {
     renderDetail(detail());
     await screen.findByRole("heading", { level: 1 });
     await userEvent.click(screen.getByRole("tab", { name: "Plan" }));
+    // the options as clear rows: the chosen one first and current, the rejected one with its reason
+    const options = await screen.findByRole("list", { name: "Options the planner weighed" });
+    const items = within(options).getAllByRole("listitem");
+    expect(items[0]?.getAttribute("aria-current")).toBe("true");
+    expect(items[0]?.textContent).toContain("laptop-a");
+    expect(items[0]?.textContent).toContain("Sent away");
+    expect(items[0]?.textContent).toContain("12.5 s");
+    expect(items[1]?.getAttribute("aria-current")).toBeNull();
+    expect(items[1]?.textContent).toContain("the job needs a GPU");
+    // the full explanation opens on request
+    expect(screen.queryByRole("table", { name: /candidates of decision 11/i })).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Show the full explanation" }));
     const table = await screen.findByRole("table", { name: /candidates of decision 11/i });
     const rows = within(table).getAllByRole("row").slice(1);
     expect(rows[0]?.textContent).toContain("node_A");
@@ -438,7 +522,7 @@ describe("Job detail (0.8.5, D176)", () => {
     expect(warnings.textContent).toContain("×2");
     expect(warnings.textContent).toContain("chunks 4, 17");
     expect(warnings.textContent).toContain("first committed result was kept");
-    await userEvent.click(screen.getByRole("tab", { name: "Attempts (3)" }));
+    await userEvent.click(screen.getByRole("tab", { name: "Attempts 3" }));
     const attempts = await screen.findByRole("table", { name: /attempts/i });
     expect(attempts.textContent).toContain("combine");
     expect(attempts.textContent).toContain("lane");
@@ -501,7 +585,8 @@ describe("Submit from the browser (D177)", () => {
     expect(facts.textContent).toMatch(/2 ignored/);
 
     await userEvent.type(screen.getByLabelText("Priority (-10 to 10)"), "5");
-    await userEvent.selectOptions(screen.getByLabelText("Placement policy"), "least_loaded");
+    await userEvent.click(screen.getByLabelText("Placement policy"));
+    await userEvent.click(within(screen.getByRole("listbox")).getByRole("option", { name: "least_loaded" }));
     await userEvent.click(screen.getByRole("button", { name: "Upload and submit" }));
     await waitFor(() => {
       // An alert (upload/submit failure) shows its text here instead - a clear failure message.

@@ -83,7 +83,7 @@ export function ChunkGrid({ map, selected, onSelect, className }: ChunkGridProps
       role="region"
       aria-label={`Chunk grid: ${String(count)} chunks; arrow keys select a chunk`}
       onKeyDown={onKey}
-      className={cn("max-h-72 overflow-y-auto rounded-md border border-border bg-bg p-1", className)}
+      className={cn("jb-scroll max-h-72 overflow-y-auto rounded-lg", className)}
     >
       <svg
         role="img"

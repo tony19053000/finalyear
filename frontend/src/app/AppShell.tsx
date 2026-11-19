@@ -10,7 +10,7 @@ import { StreamStatusContext } from "../events/streamStatus";
 import { useEventStream, type UseEventStreamOptions } from "../events/useEventStream";
 import type { LoginState } from "../pages/loginMessages";
 import { Header } from "./Header";
-import { Sidebar } from "./Sidebar";
+import { HiveBackdrop } from "./HiveBackdrop";
 
 export interface AppShellProps {
   /** Tests inject a fake socket; production uses the browser WebSocket. */
@@ -18,8 +18,9 @@ export interface AppShellProps {
 }
 
 /**
- * The signed-in frame: skip link, sidebar navigation, header (fabric +
- * connection status, user, theme, logout) and the page. Owns the app's one
+ * The signed-in frame: skip link, top bar (hive. brand, centred main
+ * navigation, round alerts + account buttons; sign-out sits in the
+ * account menu) and the page. Owns the app's one
  * event stream and what a dead session does (-> login page, reason shown).
  */
 export function AppShell({ socketFactory }: AppShellProps) {
@@ -70,22 +71,20 @@ export function AppShell({ socketFactory }: AppShellProps) {
   });
 
   return (
-    <div className="flex min-h-screen bg-bg text-fg">
+    <div className="mf-app flex min-h-screen flex-col bg-bg text-fg">
+      <HiveBackdrop />
       <a
         href="#main"
         className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:rounded-md focus:bg-surface-raised focus:px-3 focus:py-2"
       >
         Skip to content
       </a>
-      <Sidebar />
-      <div className="flex min-w-0 flex-1 flex-col">
-        <Header streamStatus={streamStatus} onSigningOut={markSigningOut} />
-        <main id="main" tabIndex={-1} className="flex-1 px-6 py-5 outline-none">
-          <StreamStatusContext.Provider value={streamStatus}>
-            <Outlet />
-          </StreamStatusContext.Provider>
-        </main>
-      </div>
+      <Header streamStatus={streamStatus} onSigningOut={markSigningOut} />
+      <main id="main" tabIndex={-1} className="min-w-0 flex-1 px-6 py-5 outline-none">
+        <StreamStatusContext.Provider value={streamStatus}>
+          <Outlet />
+        </StreamStatusContext.Provider>
+      </main>
     </div>
   );
 }

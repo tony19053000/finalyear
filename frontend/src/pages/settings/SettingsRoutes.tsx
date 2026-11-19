@@ -10,13 +10,17 @@
  *
  * A user sees only what the API lets them: admin sections are not in a
  * user's menu, and a direct visit says why instead of calling a 403 route.
+ *
+ * Layout: deliberately not a dashboard page - one calm centred column open
+ * on the page: the title, the sections as underlined text tabs over a
+ * full-width hairline (links: each section keeps its own route), then the
+ * section itself, which opens with a plain intro line and its own action.
  */
 import { NavLink, Route, Routes } from "react-router-dom";
 
 import { useSession } from "../../api/hooks";
 import { cn } from "../../lib/cn";
 import { NotFoundPage } from "../PlaceholderPages";
-import { PageHeader } from "../PageHeader";
 import { AccountPage } from "./AccountPage";
 import { DataPage } from "./DataPage";
 import { InvitesPage } from "./InvitesPage";
@@ -40,21 +44,12 @@ const SETTINGS_SECTIONS: readonly Section[] = [
   { to: "/settings/users", label: "Users", adminOnly: true },
 ];
 
+/** The sections as underlined text tabs on a full-width hairline. */
 function SettingsNav({ isAdmin }: { isAdmin: boolean }) {
   return (
-    <nav aria-label="Settings" className="mb-5 flex flex-wrap gap-1 border-b border-border">
+    <nav aria-label="Settings" className="st-tabs">
       {SETTINGS_SECTIONS.filter((s) => isAdmin || s.adminOnly !== true).map((section) => (
-        <NavLink
-          key={section.to}
-          to={section.to}
-          end={section.end}
-          className={({ isActive }) =>
-            cn(
-              "-mb-px flex h-9 items-center border-b-2 px-3 text-sm",
-              isActive ? "border-accent font-medium text-fg" : "border-transparent text-fg-muted hover:text-fg",
-            )
-          }
-        >
+        <NavLink key={section.to} to={section.to} end={section.end} className={({ isActive }) => cn("st-tab", isActive && "st-tab-on")}>
           {section.label}
         </NavLink>
       ))}
@@ -66,18 +61,20 @@ export function SettingsRoutes() {
   const session = useSession();
   const isAdmin = session.data?.user.role === "admin";
   return (
-    <>
-      <PageHeader title="Settings" description="Your account, API tokens, secrets and data; invites and users for admins." />
+    <div className="st-page">
+      <h1 className="st-title">Settings</h1>
       <SettingsNav isAdmin={isAdmin} />
-      <Routes>
-        <Route index element={<AccountPage />} />
-        <Route path="tokens" element={<TokensPage isAdmin={isAdmin} />} />
-        <Route path="secrets" element={<SecretsPage />} />
-        <Route path="data" element={<DataPage />} />
-        <Route path="invites" element={<InvitesPage isAdmin={isAdmin} />} />
-        <Route path="users" element={<UsersPage isAdmin={isAdmin} />} />
-        <Route path="*" element={<NotFoundPage />} />
-      </Routes>
-    </>
+      <div className="nd-in">
+        <Routes>
+          <Route index element={<AccountPage />} />
+          <Route path="tokens" element={<TokensPage isAdmin={isAdmin} />} />
+          <Route path="secrets" element={<SecretsPage />} />
+          <Route path="data" element={<DataPage />} />
+          <Route path="invites" element={<InvitesPage isAdmin={isAdmin} />} />
+          <Route path="users" element={<UsersPage isAdmin={isAdmin} />} />
+          <Route path="*" element={<NotFoundPage />} />
+        </Routes>
+      </div>
+    </div>
   );
 }

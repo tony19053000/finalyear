@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>hive. honeycomb marks</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600;12..96,700&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap">
+<style>
+:root{--bg:#0B0A08;--panel:#16140F;--line:#2A251C;--honey:#FFC93C;--honey-d:#F5A623;--text:#F2EDE4;--mute:#8C8475;
+--f-display:"Bricolage Grotesque",ui-sans-serif,system-ui,sans-serif}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 Geist,system-ui,sans-serif;padding:48px 24px 80px}
+.top{max-width:1180px;margin:0 auto 32px}
+.top h1{font-weight:500;font-size:28px;margin:0 0 6px;letter-spacing:-.01em}
+.top p{color:var(--mute);margin:0;max-width:820px}
+.card{max-width:1180px;margin:0 auto 20px;border:1px solid var(--line);border-radius:18px;background:var(--panel);padding:24px}
+.card header{display:grid;grid-template-columns:auto auto 1fr;gap:14px;align-items:baseline;margin-bottom:18px}
+.num{font:500 13px Geist Mono,monospace;color:var(--honey);border:1px solid var(--line);border-radius:999px;padding:2px 10px}
+h2{margin:0;font-weight:500;font-size:20px}
+.card header p{margin:0;color:var(--mute)}
+.grid{display:grid;grid-template-columns:280px 1fr;gap:16px}
+.dark{background:var(--bg)} .honey{background:var(--honey-d)} .light{background:#EDEAE4;color:#333}
+.big{border-radius:14px;display:grid;place-items:center;aspect-ratio:1;border:1px solid var(--line)}
+.col{display:grid;gap:12px;min-width:0}
+.lock{border-radius:14px;padding:22px 28px;display:flex;align-items:center;border:1px solid var(--line);min-height:112px}
+.row{display:flex;flex-wrap:wrap;gap:10px}
+.tiny{border-radius:10px;border:1px solid var(--line);padding:10px 12px;display:flex;align-items:center;gap:8px;min-height:62px;position:relative}
+.tiny>span{position:absolute;top:3px;left:8px;font:10px Geist Mono,monospace;color:var(--mute)}
+.tiny.honey>span{color:#5a3d06} .tiny.light>span{color:#888}
+.tiny>img,.tiny>canvas,.tiny>em,.tiny>.brand{margin-top:10px}
+.tiny em{font-style:normal;font-size:12px}
+canvas{width:96px;height:96px;image-rendering:pixelated}
+.meta{color:var(--mute);font:12px Geist Mono,monospace;margin:0}
+/* exact copy of the site's brand CSS (assets/css/site.css) */
+.brand{display:inline-flex;align-items:center;gap:10px;text-decoration:none;color:var(--text)}
+.brand img{width:30px;height:30px;flex:none}
+.wordmark{font:700 25px/1 var(--f-display);letter-spacing:-.045em;display:inline-flex;align-items:baseline}
+.wordmark .dot{display:inline-block;width:.3em;height:.34em;margin-left:.06em;background:var(--honey);clip-path:polygon(50% 0,100% 25%,100% 75%,50% 100%,0 75%,0 25%)}
+.brand.xl{gap:22px} .brand.xl img{width:64px;height:64px} .brand.xl .wordmark{font-size:56px}
+.brand.mono{color:#0B0A08} .brand.mono .dot{background:#0B0A08}
+@media (max-width:760px){.grid{grid-template-columns:1fr}.big{max-width:280px}.brand.xl img{width:44px;height:44px}.brand.xl .wordmark{font-size:38px}}
+</style></head><body>
+<div class="top"><h1>hive. — honeycomb marks M1–M6</h1>
+<p>New symbol only; the wordmark is the site's existing one (Bricolage Grotesque 700 + honey hex dot, same CSS). Each mark: large, favicon at 32/16 px plus a 6x zoom of the real 16 px raster, mono on honey, and in the exact site header size (30 px mark + 25 px wordmark).</p></div>
+
+<section class="card" id="m1">
+  <header><span class="num">M1</span><h2>Triad</h2><p>Three precision-cut cells, one lit: the smallest possible comb - two machines and the one that just joined.</p></header>
+  <div class="grid">
+    <div class="big dark"><img src="m1-mark.svg" alt="M1 mark" width="200" height="200"></div>
+    <div class="col">
+      <div class="lock dark"><a class="brand xl"><img src="m1-mark.svg" alt=""><span class="wordmark">hive<span class="dot"></span></span></a></div>
+      <div class="lock honey"><a class="brand xl mono"><img src="m1-mark-mono.svg" alt=""><span class="wordmark">hive<span class="dot"></span></span></a></div>
+      <div class="row">
+        <div class="tiny dark nav"><span>site header (exact)</span><a class="brand"><img src="m1-mark.svg" alt=""><span class="wordmark">hive<span class="dot"></span></span></a></div>
+        <div class="tiny dark"><span>32</span><img src="m1-favicon.svg" alt="" width="32" height="32"></div>
+        <div class="tiny dark"><span>16</span><img src="m1-favicon.svg" alt="" width="16" height="16"></div>
+        <div class="tiny dark"><span>16 x6</span><canvas data-src="m1-favicon.svg"></canvas></div>
+        <div class="tiny honey"><span>32</span><img src="m1-mark-mono.svg" alt="" width="32" height="32"></div>
+        <div class="tiny honey"><span>16</span><img src="m1-mark-mono.svg" alt="" width="16" height="16"></div>
+        <div class="tiny light"><span>tab</span><img src="m1-favicon.svg" alt="" width="16" height="16"><em>hive.</em></div>
+      </div>
+      <p class="meta">m1-mark.svg · m1-mark-mono.svg · m1-favicon.svg</p>
+    </div>
+  </div>
+</section>
+<section class="card" id="m2">
+  <header><span class="num">M2</span><h2>Stack</h2><p>Each cell is also an isometric block (three tones), so the comb reads as stacked compute; the honey block sits on top.</p></header>
+  <div class="grid">
+    <div class="big dark"><img src="m2-mark.svg" alt="M2 mark" width="200" height="200"></div>
+    <div class="col">
+      <div class="lock dark"><a class="brand xl"><img src="m2-mark.svg" alt=""><span class="wordmark">hive<span class="dot"></span></span></a></div>
+      <div class="lock honey"><a class="brand xl mono"><img src="m2-mark-mono.svg" alt=""><span class="wordmark">hive<span class="dot"></span></span></a></div>
+      <div class="row">
+        <div class="tiny dark nav"><span>site header (exact)</span><a class="brand"><img src="m2-mark.svg" alt=""><span class="wordmark">hive<span class="dot"></span></span></a></div>
+        <div class="tiny dark"><span>32</span><img src="m2-favicon.svg" alt="" width="32" height="32"></div>
+        <div class="tiny dark"><span>16</span><img src="m2-favicon.svg" alt="" width="16" height="16"></div>
+        <div class="tiny dark"><span>16 x6</span><canvas data-src="m2-favicon.svg"></canvas></div>
+        <div class="tiny honey"><span>32</span><img src="m2-mark-mono.svg" alt="" width="32" height="32"></div>
+        <div class="tiny honey"><span>16</span><img src="m2-mark-mono.svg" alt="" width="16" height="16"></div>
+        <div class="tiny light"><span>tab</span><img src="m2-favicon.svg" alt="" width="16" height="16"><em>hive.</em></div>
+      </div>
+      <p class="meta">m2-mark.svg · m2-mark-mono.svg · m2-favicon.svg</p>
+    </div>
+  </div>
+</section>
+<section class="card" id="m3">
+  <header><span class="num">M3</span><h2>Lift</h2><p>A seven-cell comb with one cell lifting out of its socket: a chunk of work in transit between machines.</p></header>
+  <div class="grid">
+    <div class="big dark"><img src="m3-mark.svg" alt="M3 mark" width="200" height="200"></div>
+    <div class="col">
+      <div class="lock dark"><a class="brand xl"><img src="m3-mark.svg" alt=""><span class="wordmark">hive<span class="dot"></span></span></a></div>
+      <div class="lock honey"><a class="brand xl mono"><img src="m3-mark-mono.svg" alt=""><span class="wordmark">hive<span class="dot"></span></span></a></div>
+      <div class="row">
+        <div class="tiny dark nav"><span>site header (exact)</span><a class="brand"><img src="m3-mark.svg" alt=""><span class="wordmark">hive<span class="dot"></span></span></a></div>
+        <div class="tiny dark"><span>32</span><img src="m3-favicon.svg" alt="" width="32" height="32"></div>
+        <div class="tiny dark"><span>16</span><img src="m3-favicon.svg" alt="" width="16" height="16"></div>
+        <div class="tiny dark"><span>16 x6</span><canvas data-src="m3-favicon.svg"></canvas></div>
+        <div class="tiny honey"><span>32</span><img src="m3-mark-mono.svg" alt="" width="32" height="32"></div>
+        <div class="tiny honey"><span>16</span><img src="m3-mark-mono.svg" alt="" width="16" height="16"></div>
+        <div class="tiny light"><span>tab</span><img src="m3-favicon.svg" alt="" width="16" height="16"><em>hive.</em></div>
+      </div>
+      <p class="meta">m3-mark.svg · m3-mark-mono.svg · m3-favicon.svg</p>
+    </div>
+  </div>
+</section>
+<section class="card" id="m4">
+  <header><span class="num">M4</span><h2>Wax</h2><p>Real comb anatomy: walls of one constant thickness, rounded cell corners, one cell capped with honey.</p></header>
+  <div class="grid">
+    <div class="big dark"><img src="m4-mark.svg" alt="M4 mark" width="200" height="200"></div>
+    <div class="col">
+      <div class="lock dark"><a class="brand xl"><img src="m4-mark.svg" alt=""><span class="wordmark">hive<span class="dot"></span></span></a></div>
+      <div class="lock honey"><a class="brand xl mono"><img src="m4-mark-mono.svg" alt=""><span class="wordmark">hive<span class="dot"></span></span></a></div>
+      <div class="row">
+        <div class="tiny dark nav"><span>site header (exact)</span><a class="brand"><img src="m4-mark.svg" alt=""><span class="wordmark">hive<span class="dot"></span></span></a></div>
+        <div class="tiny dark"><span>32</span><img src="m4-favicon.svg" alt="" width="32" height="32"></div>
+        <div class="tiny dark"><span>16</span><img src="m4-favicon.svg" alt="" width="16" height="16"></div>
+        <div class="tiny dark"><span>16 x6</span><canvas data-src="m4-favicon.svg"></canvas></div>
+        <div class="tiny honey"><span>32</span><img src="m4-mark-mono.svg" alt="" width="32" height="32"></div>
+        <div class="tiny honey"><span>16</span><img src="m4-mark-mono.svg" alt="" width="16" height="16"></div>
+        <div class="tiny light"><span>tab</span><img src="m4-favicon.svg" alt="" width="16" height="16"><em>hive.</em></div>
+      </div>
+      <p class="meta">m4-mark.svg · m4-mark-mono.svg · m4-favicon.svg</p>
+    </div>
+  </div>
+</section>
+<section class="card" id="m5">
+  <header><span class="num">M5</span><h2>Slice</h2><p>One bold cell cut exactly along the comb lattice: a cross-section where every wall ends in a corner. One computer, made of many cells.</p></header>
+  <div class="grid">
+    <div class="big dark"><img src="m5-mark.svg" alt="M5 mark" width="200" height="200"></div>
+    <div class="col">
+      <div class="lock dark"><a class="brand xl"><img src="m5-mark.svg" alt=""><span class="wordmark">hive<span class="dot"></span></span></a></div>
+      <div class="lock honey"><a class="brand xl mono"><img src="m5-mark-mono.svg" alt=""><span class="wordmark">hive<span class="dot"></span></span></a></div>
+      <div class="row">
+        <div class="tiny dark nav"><span>site header (exact)</span><a class="brand"><img src="m5-mark.svg" alt=""><span class="wordmark">hive<span class="dot"></span></span></a></div>
+        <div class="tiny dark"><span>32</span><img src="m5-favicon.svg" alt="" width="32" height="32"></div>
+        <div class="tiny dark"><span>16</span><img src="m5-favicon.svg" alt="" width="16" height="16"></div>
+        <div class="tiny dark"><span>16 x6</span><canvas data-src="m5-favicon.svg"></canvas></div>
+        <div class="tiny honey"><span>32</span><img src="m5-mark-mono.svg" alt="" width="32" height="32"></div>
+        <div class="tiny honey"><span>16</span><img src="m5-mark-mono.svg" alt="" width="16" height="16"></div>
+        <div class="tiny light"><span>tab</span><img src="m5-favicon.svg" alt="" width="16" height="16"><em>hive.</em></div>
+      </div>
+      <p class="meta">m5-mark.svg · m5-mark-mono.svg · m5-favicon.svg</p>
+    </div>
+  </div>
+</section>
+<section class="card" id="m6">
+  <header><span class="num">M6</span><h2>Quiet h</h2><p>Four comb cells: a tall pair, a lit joint, a landing cell. It reads as comb first; the h of hive is only implied by the silhouette.</p></header>
+  <div class="grid">
+    <div class="big dark"><img src="m6-mark.svg" alt="M6 mark" width="200" height="200"></div>
+    <div class="col">
+      <div class="lock dark"><a class="brand xl"><img src="m6-mark.svg" alt=""><span class="wordmark">hive<span class="dot"></span></span></a></div>
+      <div class="lock honey"><a class="brand xl mono"><img src="m6-mark-mono.svg" alt=""><span class="wordmark">hive<span class="dot"></span></span></a></div>
+      <div class="row">
+        <div class="tiny dark nav"><span>site header (exact)</span><a class="brand"><img src="m6-mark.svg" alt=""><span class="wordmark">hive<span class="dot"></span></span></a></div>
+        <div class="tiny dark"><span>32</span><img src="m6-favicon.svg" alt="" width="32" height="32"></div>
+        <div class="tiny dark"><span>16</span><img src="m6-favicon.svg" alt="" width="16" height="16"></div>
+        <div class="tiny dark"><span>16 x6</span><canvas data-src="m6-favicon.svg"></canvas></div>
+        <div class="tiny honey"><span>32</span><img src="m6-mark-mono.svg" alt="" width="32" height="32"></div>
+        <div class="tiny honey"><span>16</span><img src="m6-mark-mono.svg" alt="" width="16" height="16"></div>
+        <div class="tiny light"><span>tab</span><img src="m6-favicon.svg" alt="" width="16" height="16"><em>hive.</em></div>
+      </div>
+      <p class="meta">m6-mark.svg · m6-mark-mono.svg · m6-favicon.svg</p>
+    </div>
+  </div>
+</section>
+<script>
+const only=new URLSearchParams(location.search).get('only');
+if(only){const k=only.split(',');document.querySelectorAll('.card').forEach(c=>{if(!k.includes(c.id))c.remove()})}
+document.querySelectorAll('canvas[data-src]').forEach(cv=>{
+  cv.width=16;cv.height=16;const im=new Image();
+  im.onload=()=>{cv.getContext('2d').drawImage(im,0,0,16,16)};im.src=cv.dataset.src;
+});
+</script>
+</body></html>

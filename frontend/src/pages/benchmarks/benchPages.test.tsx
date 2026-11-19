@@ -5,7 +5,7 @@
  * Quality tab survives a controller without the route; downloads save only a
  * complete Parquet file; a user never sees the section.
  */
-import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -104,12 +104,42 @@ describe("campaigns list", () => {
     expect(row.getByText("1.2 %")).toBeTruthy(); // infra_failure_rate 0.0123
     expect(row.getByRole("button", { name: "Pause campaign night-1" })).toBeTruthy(); // runner-owned
     expect(row.getByRole("button", { name: "Cancel campaign night-1" })).toBeTruthy();
-    expect(screen.getByText("(owner pre-emptions excluded)")).toBeTruthy();
+    // the failure column explains itself in its header (tooltip + screen-reader text), not a footer line
+    const failures = screen.getByRole("columnheader", { name: /^Failures/ });
+    expect(failures.getAttribute("title")).toBe("Infrastructure failure rate (owner pre-emptions excluded)");
+    expect(failures.textContent).toContain("owner pre-emptions excluded");
+    expect(screen.queryByText(/^Infra failures/)).toBeNull();
     const rowB = within(screen.getByRole("link", { name: "old" }).closest("tr") as HTMLElement);
     expect(await rowB.findByText("100.0 %")).toBeTruthy();
-    expect(rowB.getByText("complete")).toBeTruthy();
+    expect(rowB.getByText("done")).toBeTruthy();
+    expect(rowB.queryByText("complete")).toBeNull(); // done / complete: the reason adds nothing
     expect(rowB.queryByRole("button")).toBeNull(); // done: no controls
     expect(screen.getByRole("link", { name: "night-1" }).getAttribute("href")).toBe(`/benchmarks/${A}`);
+  });
+
+  it("a campaign with no run past planned reads queued, with a bare dash for progress; a budget stop keeps its reason", async () => {
+    const C = "camp_01J00000000000000000000CCC";
+    admin({
+      "GET /v1/bench/campaigns": () =>
+        json(200, {
+          campaigns: [
+            campaign(A, "night-1", "active", { planned: 10, submitted: 0, done: 0, failed: 0, skipped: 0 }, 10),
+            campaign(C, "capped", "done", { planned: 0, submitted: 0, done: 4, failed: 0, skipped: 2 }, 6),
+          ],
+          count: 2,
+        }),
+      [`GET /v1/bench/campaigns/${A}/status`]: () => json(200, status(A, { runner_owned: false, started_at: null, done_percent: 0, eta_s: null })),
+      [`GET /v1/bench/campaigns/${C}/status`]: () => json(200, status(C, { state: "done", finished_reason: "budget", done_percent: 100, eta_s: null })),
+    });
+    renderApp("/benchmarks");
+    const rowA = within((await screen.findByRole("link", { name: "night-1" })).closest("tr") as HTMLElement);
+    expect(await rowA.findByText("not started")).toBeTruthy();
+    expect(rowA.getByText("queued")).toBeTruthy();
+    expect(rowA.queryByText("active")).toBeNull();
+    expect(rowA.getByTestId("done-percent").textContent).toBe("—");
+    expect(rowA.queryByText(/left/)).toBeNull();
+    const rowC = within(screen.getByRole("link", { name: "capped" }).closest("tr") as HTMLElement);
+    expect(await rowC.findByText("budget")).toBeTruthy();
   });
 
   it("an empty fabric says how to create a campaign", async () => {
@@ -369,19 +399,21 @@ describe("campaign detail", () => {
     renderApp(`/benchmarks/${A}?tab=runs`);
     const table = await screen.findByRole("table", { name: "Campaign runs in execution order" });
     const row = within(table).getAllByRole("row")[1] as HTMLElement;
-    const cells = within(row).getAllByRole("cell").map((c) => c.textContent);
-    expect(cells).toEqual([
-      "1",
-      "grp_…00GGG1 cpu.primes",
-      "cfg_…00CCC1",
-      "node_a",
-      "local",
-      "0",
-      "done",
-      "2",
-      "network_error: the stream to the node was lost",
-      "job_…000JJ1",
-    ]);
+    // the node shows as its name once the node list is in (the fake lists node_a only, as "host-node_a")
+    await waitFor(() => {
+      expect(within(row).getAllByRole("cell").map((c) => c.textContent)).toEqual([
+        "1",
+        "grp_…00GGG1 cpu.primes",
+        "cfg_…00CCC1",
+        "host-node_a",
+        "local",
+        "0",
+        "done",
+        "2",
+        "network_error: the stream to the node was lost",
+        "job_…000JJ1",
+      ]);
+    });
     expect(within(row).getByRole("link").getAttribute("href")).toBe("/jobs/job_01J00000000000000000000JJ1");
   });
 
@@ -389,7 +421,9 @@ describe("campaign detail", () => {
     const fake = detail();
     renderApp(`/benchmarks/${A}?tab=runs`);
     await screen.findByRole("table", { name: "Campaign runs in execution order" });
-    fireEvent.change(screen.getByLabelText("State"), { target: { value: "failed" } });
+    // hive's own listbox (no native select)
+    await userEvent.click(screen.getByLabelText("State"));
+    await userEvent.click(within(screen.getByRole("listbox")).getByRole("option", { name: "failed" }));
     await waitFor(() => {
       expect(fake.calls.some((c) => c.url.includes("/runs?") && c.url.includes("state=failed"))).toBe(true);
     });
@@ -401,8 +435,10 @@ describe("campaign detail", () => {
     await openTab("Labels");
     const table = await screen.findByRole("table", { name: "Per-group labels" });
     const rows = within(table).getAllByRole("row").slice(1);
-    const first = within(rows[0] as HTMLElement).getAllByRole("cell").map((c) => c.textContent);
-    expect(first).toEqual(["cpu.primesgrp_…00GGG1", "limit=10000000", "none", "best", "local on node_b", "28.6 %", "yes"]);
+    await waitFor(() => {
+      const first = within(rows[0] as HTMLElement).getAllByRole("cell").map((c) => c.textContent);
+      expect(first).toEqual(["cpu.primesgrp_…00GGG1", "limit=10000000", "none", "best", "local on node_b", "28.6 %", "yes"]);
+    });
     const second = within(rows[1] as HTMLElement).getAllByRole("cell").map((c) => c.textContent);
     expect(second).toEqual(["cpu.primesgrp_…00GGG2", "limit=100000000", "none", "tieCIs overlap", "tie: 2 configs", "—", "—"]);
     expect(screen.getByTestId("labels-summary").textContent).toBe("2 groups from 12 run records: 1 best, 1 tie, 0 insufficient, 0 pending.");
@@ -414,13 +450,16 @@ describe("campaign detail", () => {
     const family = await screen.findByTestId("family-chart");
     expect(family.querySelector("figcaption")?.textContent).toBe("cpu.primes: median total time vs limit (condition none)");
     const numbers = within(family).getByTestId("chart-numbers");
-    const rows = within(numbers).getAllByRole("row").slice(1).map((r) => within(r).getAllByRole("cell").map((c) => c.textContent));
-    expect(rows).toEqual([
-      ["10.0M", "node_a", "900 ms", "880 ms", "950 ms", "3"],
-      ["100M", "node_a", "9.0 s", "8.0 s", "9.9 s", "3"],
-      ["10.0M", "node_b", "700 ms", "690 ms", "720 ms", "3"],
-      ["100M", "node_b", "8.8 s", "8.5 s", "9.1 s", "3"],
-    ]);
+    // nodes show by name once the node list is in (the fake lists node_a only, as "host-node_a")
+    await waitFor(() => {
+      const rows = within(numbers).getAllByRole("row").slice(1).map((r) => within(r).getAllByRole("cell").map((c) => c.textContent));
+      expect(rows).toEqual([
+        ["10.0M", "host-node_a", "900 ms", "880 ms", "950 ms", "3"],
+        ["100M", "host-node_a", "9.0 s", "8.0 s", "9.9 s", "3"],
+        ["10.0M", "node_b", "700 ms", "690 ms", "720 ms", "3"],
+        ["100M", "node_b", "8.8 s", "8.5 s", "9.1 s", "3"],
+      ]);
+    });
     expect(family.querySelector("svg")).not.toBeNull();
     const strategy = screen.getByTestId("strategy-chart");
     const bars = within(within(strategy).getByTestId("chart-numbers"))
@@ -428,7 +467,7 @@ describe("campaign detail", () => {
       .slice(1)
       .map((r) => within(r).getAllByRole("cell").map((c) => c.textContent));
     expect(bars).toEqual([
-      ["local on node_a", "900 ms", "880 ms", "950 ms", "3", ""],
+      ["local on host-node_a", "900 ms", "880 ms", "950 ms", "3", ""],
       ["local on node_b", "700 ms", "690 ms", "720 ms", "3", "yes"],
     ]);
   });

@@ -4,64 +4,26 @@
  * comparison (median + CI per configuration). Everything is read from the
  * labels answer through the pure `chartData.ts` - no statistics here.
  *
- * Recharts draws with SVG attributes and React-set styles (allowed by the CSP,
- * like the Sparkline). Colours come from theme classes (`currentColor`), the
- * legend is plain HTML, and every chart has its numbers as a table too
+ * Drawn in the Overview's chart language (BenchCharts.tsx): thin lines,
+ * legend labels only, a faint grid, a frosted tooltip; honey for the best
+ * series / the best configuration, grey for the local baseline (the run kept
+ * on the laptop that submits it). Every chart has its numbers as a table too
  * (screen readers, and "what the API said" is checkable).
  */
 import { useId, useMemo, useState } from "react";
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  ErrorBar,
-  Scatter,
-  ScatterChart,
-  Tooltip,
-  XAxis,
-  YAxis,
-  type TooltipContentProps,
-  type TooltipValueType,
-} from "recharts";
 
-import { Card } from "../../components/Card";
 import { EmptyState } from "../../components/States";
+import { ListboxField } from "../../components/jobs/ListboxField";
 import { formatMs } from "../../lib/format";
-import { cn } from "../../lib/cn";
 import type { LabelsOut } from "./benchApi";
-import {
-  familiesOf,
-  familyCharts,
-  formatParams,
-  plottable,
-  strategyChart,
-  type FamilyChart,
-  type PlotPoint,
-  type StrategyBar,
-  type StrategyChart,
-} from "./chartData";
+import { CompareBars, LineChart, Legend, type CompareBar, type LineSeries } from "./BenchCharts";
+import { toneClass, type Tone } from "./benchShared";
+import { FrostCard, Note } from "./benchUi";
+import { useNodeNames } from "./benchShared";
+import { optionText, strategyText } from "./campaignView";
+import { familiesOf, familyCharts, formatParams, plottable, strategyChart, type FamilyChart, type StrategyChart } from "./chartData";
 import { LabelsError } from "./LabelsTab";
 import { useLabels } from "./benchQueries";
-
-/** Series colours: theme tones (each >= 4.5:1 on every surface, tokens.test.ts). */
-const SERIES_CLASSES = [
-  "text-accent",
-  "text-status-ok",
-  "text-status-busy",
-  "text-status-failed",
-  "text-status-degraded",
-  "text-fg",
-  "text-status-unknown",
-] as const;
-
-const seriesClass = (i: number) => SERIES_CLASSES[i % SERIES_CLASSES.length] ?? "text-accent";
-const DOT_CLASSES = ["bg-accent", "bg-status-ok", "bg-status-busy", "bg-status-failed", "bg-status-degraded", "bg-fg", "bg-status-unknown"];
-const dotClass = (i: number) => DOT_CLASSES[i % DOT_CLASSES.length] ?? "bg-accent";
-
-const WIDTH = 640;
-const HEIGHT = 300;
-const MARGIN = { top: 12, right: 24, bottom: 28, left: 16 };
-const TICK = { fill: "currentColor", fontSize: 11 };
 
 function axisNumber(value: number): string {
   if (!Number.isFinite(value)) return "";
@@ -72,101 +34,23 @@ function axisNumber(value: number): string {
   return String(Number(value.toPrecision(3)));
 }
 
-function ChartTooltip({ active, payload }: TooltipContentProps<TooltipValueType, string | number>) {
-  const item = payload[0]?.payload as (PlotPoint | StrategyBar) | undefined;
-  if (!active || item === undefined) return null;
-  return (
-    <div className="rounded-md border border-border-strong bg-surface-raised px-2 py-1 text-xs text-fg shadow-overlay">
-      {"x" in item && <div>x = {axisNumber(item.x)}</div>}
-      {"label" in item && <div>{item.label}</div>}
-      <div>
-        median {formatMs(item.y)} (CI {formatMs(item.ciLow)} – {formatMs(item.ciHigh)}), n = {item.n}
-      </div>
-    </div>
-  );
-}
-
-function Legend({ items }: { items: { key: string; label: string }[] }) {
-  return (
-    <ul className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-fg-muted" aria-label="Series">
-      {items.map((item, i) => (
-        <li key={item.key} className="inline-flex items-center gap-1.5">
-          <span aria-hidden="true" className={cn("size-2.5 rounded-full", dotClass(i))} />
-          <span className="font-mono">{item.label}</span>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-function FamilyPlot({ chart }: { chart: FamilyChart }) {
-  const param = chart.param ?? "";
-  const fixed = Object.keys(chart.fixed).length > 0 ? `; ${formatParams(chart.fixed)}` : "";
-  const title = `${chart.family}: median total time vs ${param} (condition ${chart.condition}${fixed})`;
-  const points = chart.series.reduce((n, s) => n + s.points.length, 0);
-  return (
-    <figure className="flex flex-col gap-2" data-testid="family-chart">
-      <figcaption className="text-sm font-medium text-fg">{title}</figcaption>
-      <Legend items={chart.series} />
-      <div
-        role="img"
-        aria-label={`${title}: ${String(chart.series.length)} series, ${String(points)} points; the numbers are in the table below.`}
-        className="overflow-x-auto text-fg-muted"
-      >
-        <ScatterChart width={WIDTH} height={HEIGHT} margin={MARGIN}>
-          <CartesianGrid stroke="currentColor" strokeOpacity={0.15} />
-          <XAxis
-            type="number"
-            dataKey="x"
-            name={param}
-            scale={chart.logX ? "log" : "auto"}
-            domain={chart.logX ? ["dataMin", "dataMax"] : ["auto", "auto"]}
-            tick={TICK}
-            tickFormatter={axisNumber}
-            stroke="currentColor"
-            label={{ value: param + (chart.logX ? " (log)" : ""), position: "insideBottom", offset: -16, fill: "currentColor", fontSize: 11 }}
-          />
-          <YAxis type="number" dataKey="y" name="median total" tick={TICK} tickFormatter={(v: number) => formatMs(v)} stroke="currentColor" width={72} />
-          <Tooltip content={ChartTooltip} isAnimationActive={false} />
-          {chart.series.map((s, i) => (
-            <Scatter
-              key={s.key}
-              name={s.label}
-              data={s.points}
-              className={seriesClass(i)}
-              fill="currentColor"
-              line={{ stroke: "currentColor", strokeWidth: 1.5 }}
-              isAnimationActive={false}
-            >
-              <ErrorBar dataKey="err" direction="y" width={6} stroke="currentColor" strokeWidth={1} />
-            </Scatter>
-          ))}
-        </ScatterChart>
-      </div>
-      <DataTable
-        caption={title}
-        head={[param, "series", "median", "CI low", "CI high", "n"]}
-        rows={chart.series.flatMap((s) =>
-          s.points.map((p) => ({
-            key: `${s.key}|${p.configId}`,
-            cells: [axisNumber(p.x), s.label, formatMs(p.y), formatMs(p.ciLow), formatMs(p.ciHigh), String(p.n)],
-          })),
-        )}
-      />
-    </figure>
-  );
+/** A short axis label: 10.0M -> 10M, 1.00G -> 1G. */
+function tickNumber(value: number): string {
+  return axisNumber(value).replace(/\.0+([kMG]?)$/, "$1").replace(/(\.\d*?)0+([kMG])$/, "$1$2");
 }
 
 function DataTable({ caption, head, rows }: { caption: string; head: string[]; rows: { key: string; cells: string[] }[] }) {
   return (
-    <details className="text-xs">
-      <summary className="cursor-pointer text-fg-muted">Numbers ({rows.length})</summary>
-      <table className="mt-2 border-collapse" data-testid="chart-numbers">
+    <details className="bm-numbers">
+      <summary className="cursor-pointer font-mono text-[0.625rem] font-medium tracking-[0.14em] text-fg-subtle uppercase transition-colors duration-300 hover:text-fg">
+        Numbers ({rows.length})
+      </summary>
+      <table className="mt-4 w-full border-collapse" data-testid="chart-numbers">
         <caption className="sr-only">{caption}</caption>
         <thead>
           <tr>
             {head.map((h) => (
-              <th key={h} scope="col" className="px-2 py-1 text-left font-medium text-fg-subtle">
+              <th key={h} scope="col" className="py-2 pr-6 text-left font-mono text-[0.625rem] font-medium tracking-[0.12em] text-fg-subtle uppercase">
                 {h}
               </th>
             ))}
@@ -174,9 +58,9 @@ function DataTable({ caption, head, rows }: { caption: string; head: string[]; r
         </thead>
         <tbody>
           {rows.map((r) => (
-            <tr key={r.key} className="border-t border-border">
+            <tr key={r.key} className="nd-hair-t">
               {r.cells.map((c, i) => (
-                <td key={`${String(i)}-${head[i] ?? ""}`} className="px-2 py-1 font-mono tabular-nums">
+                <td key={`${String(i)}-${head[i] ?? ""}`} className="py-2 pr-6 font-mono text-xs text-fg-muted tabular-nums">
                   {c}
                 </td>
               ))}
@@ -188,44 +72,101 @@ function DataTable({ caption, head, rows }: { caption: string; head: string[]; r
   );
 }
 
-function StrategyPlot({ chart }: { chart: StrategyChart }) {
+/** The origin (the laptop the runs come from) of a family: every config of a campaign shares it. */
+function originOf(labels: LabelsOut, family: string): string | null {
+  return labels.groups.find((g) => g.family === family)?.configs[0]?.origin_node_id ?? null;
+}
+
+function FamilyPlot({ chart, origin, nameOf }: { chart: FamilyChart; origin: string | null; nameOf: (id: string) => string }) {
+  const param = chart.param ?? "";
+  const fixed = Object.keys(chart.fixed).length > 0 ? `; ${formatParams(chart.fixed)}` : "";
+  const title = `${chart.family}: median total time vs ${param} (condition ${chart.condition}${fixed})`;
+  const points = chart.series.reduce((n, s) => n + s.points.length, 0);
+  const many = new Set(chart.series.map((s) => s.strategy)).size > 1;
+  const labelOf = (s: FamilyChart["series"][number]) => (many ? `${nameOf(s.nodeId)} · ${strategyText(s.strategy)}` : nameOf(s.nodeId));
+  // the best series: the lowest medians on average (honey); the local baseline grey
+  const mean = (s: FamilyChart["series"][number]) => s.points.reduce((a, p) => a + p.y, 0) / Math.max(1, s.points.length);
+  const isBase = (s: FamilyChart["series"][number]) => s.strategy === "local" && s.nodeId === origin;
+  const bestKey = [...chart.series].filter((s) => s.points.length > 0).sort((a, b) => mean(a) - mean(b))[0]?.key;
+  let other = 0;
+  const series: LineSeries[] = chart.series.map((s) => {
+    const tone: Tone = s.key === bestKey ? "hive" : isBase(s) ? "base" : "other";
+    const className = toneClass(tone, tone === "other" ? other++ : 0);
+    return {
+      key: s.key,
+      label: labelOf(s),
+      className,
+      strong: tone === "hive",
+      points: s.points.map((p) => ({ x: p.x, y: p.y, lo: p.ciLow, hi: p.ciHigh, n: p.n })),
+    };
+  });
+  return (
+    <figure className="flex flex-col gap-5" data-testid="family-chart">
+      <figcaption className="text-[0.9375rem] font-medium text-fg">{title}</figcaption>
+      <Legend items={series.map((s) => ({ key: s.key, label: s.label, className: s.className }))} />
+      <div role="img" aria-label={`${title}: ${String(chart.series.length)} series, ${String(points)} points; the numbers are in the table below.`}>
+        <LineChart
+          series={series}
+          logX={chart.logX}
+          xLabel={param}
+          formatX={tickNumber}
+          formatY={(v) => formatMs(v)}
+          label={title}
+        />
+      </div>
+      <DataTable
+        caption={title}
+        head={[param, "series", "median", "CI low", "CI high", "n"]}
+        rows={chart.series.flatMap((s) =>
+          s.points.map((p) => ({
+            key: `${s.key}|${p.configId}`,
+            cells: [axisNumber(p.x), labelOf(s), formatMs(p.y), formatMs(p.ciLow), formatMs(p.ciHigh), String(p.n)],
+          })),
+        )}
+      />
+    </figure>
+  );
+}
+
+function StrategyPlot({ chart, origin, nameOf }: { chart: StrategyChart; origin: string | null; nameOf: (id: string) => string }) {
   const title = `${chart.family} (${formatParams(chart.params)}, condition ${chart.condition}): strategy comparison - label ${chart.label}`;
   if (chart.bars.length === 0) {
     return <EmptyState title="Nothing measured in this group yet">Its configurations have no successful run records.</EmptyState>;
   }
+  const bars: CompareBar[] = [...chart.bars]
+    .sort((a, b) => a.y - b.y)
+    .map((b) => ({
+      key: b.configId,
+      label: nameOf(b.nodeId),
+      sub: b.strategy === "local" && b.nodeId === (origin ?? b.originNodeId) ? `${strategyText(b.strategy)} · baseline` : strategyText(b.strategy),
+      value: b.y,
+      ciLow: b.ciLow,
+      ciHigh: b.ciHigh,
+      tone: b.best ? "hive" : b.strategy === "local" && b.nodeId === b.originNodeId ? "base" : "other",
+    }));
   return (
-    <figure className="flex flex-col gap-2" data-testid="strategy-chart">
-      <figcaption className="text-sm font-medium text-fg">{title}</figcaption>
-      <div
-        role="img"
-        aria-label={`${title}: ${String(chart.bars.length)} configurations; the numbers are in the table below.`}
-        className="overflow-x-auto text-fg-muted"
-      >
-        <BarChart width={WIDTH} height={HEIGHT} data={chart.bars} margin={MARGIN}>
-          <CartesianGrid stroke="currentColor" strokeOpacity={0.15} vertical={false} />
-          <XAxis type="category" dataKey="label" tick={TICK} stroke="currentColor" interval={0} />
-          <YAxis type="number" tick={TICK} tickFormatter={(v: number) => formatMs(v)} stroke="currentColor" width={72} />
-          <Tooltip content={ChartTooltip} isAnimationActive={false} cursor={false} />
-          <Bar dataKey="y" name="median total" className="text-accent" fill="currentColor" fillOpacity={0.7} isAnimationActive={false}>
-            <ErrorBar dataKey="err" direction="y" width={8} stroke="currentColor" strokeWidth={1.5} />
-          </Bar>
-        </BarChart>
+    <figure className="flex flex-col gap-6" data-testid="strategy-chart">
+      <figcaption className="text-[0.9375rem] font-medium text-fg">{title}</figcaption>
+      <div role="img" aria-label={`${title}: ${String(chart.bars.length)} configurations; the numbers are in the table below.`}>
+        <CompareBars bars={bars} format={(v) => formatMs(v)} label="Median total time per configuration" />
       </div>
+      {!chart.bars.some((b) => b.best) && (
+        <Note caps={false}>{chart.label === "tie" ? "No bar is honey: the configurations' CIs overlap (a tie)." : `No clear best yet (label ${chart.label}).`}</Note>
+      )}
       <DataTable
         caption={title}
         head={["configuration", "median", "CI low", "CI high", "n", "best"]}
         rows={chart.bars.map((b) => ({
           key: b.configId,
-          cells: [b.label, formatMs(b.y), formatMs(b.ciLow), formatMs(b.ciHigh), String(b.n), b.best ? "yes" : ""],
+          cells: [optionText(b.strategy, nameOf(b.nodeId)), formatMs(b.y), formatMs(b.ciLow), formatMs(b.ciHigh), String(b.n), b.best ? "yes" : ""],
         }))}
       />
     </figure>
   );
 }
 
-const select = "h-8 max-w-full rounded-md border border-border-strong bg-surface px-2 text-sm text-fg";
-
 function Charts({ labels }: { labels: LabelsOut }) {
+  const nameOf = useNodeNames();
   const families = useMemo(() => familiesOf(labels), [labels]);
   const [picked, setPicked] = useState<string | null>(null);
   const family = picked !== null && families.includes(picked) ? picked : (families[0] ?? null);
@@ -239,72 +180,65 @@ function Charts({ labels }: { labels: LabelsOut }) {
   if (family === null) {
     return <EmptyState title="No data to chart yet">Charts appear once the campaign has run records.</EmptyState>;
   }
+  const origin = originOf(labels, family);
   const drawable = charts.filter(plottable);
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <label htmlFor={familyId} className="text-sm text-fg-muted">
+    <div className="flex flex-col gap-8">
+      <div className="flex w-72 flex-col gap-1.5 px-2">
+        <label htmlFor={familyId} className="nd-label">
           Family
         </label>
-        <select
+        <ListboxField
           id={familyId}
-          className={select}
           value={family}
-          onChange={(e) => {
-            setPicked(e.target.value);
+          options={families.map((f) => ({ value: f, label: f }))}
+          onChange={(f) => {
+            setPicked(f);
             setPickedGroup(null);
           }}
-        >
-          {families.map((f) => (
-            <option key={f} value={f}>
-              {f}
-            </option>
-          ))}
-        </select>
+        />
       </div>
-      <Card title="Runtime vs parameter">
-        {drawable.length === 0 ? (
-          <EmptyState title="Not enough data for this chart">
-            {charts.some((c) => c.param !== null)
-              ? "No node has a successful median at two or more parameter values yet."
-              : `The campaign measured ${family} at one parameter point only: there is no swept parameter to plot. The strategy comparison below compares its configurations.`}
-          </EmptyState>
-        ) : (
-          <div className="flex flex-col gap-6">
-            {drawable.map((c) => (
-              <FamilyPlot key={c.key} chart={c} />
-            ))}
-          </div>
-        )}
-      </Card>
-      <Card title="Strategy comparison">
-        {group === undefined ? (
-          <EmptyState title="No groups in this family" />
-        ) : (
-          <div className="flex flex-col gap-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <label htmlFor={groupId} className="text-sm text-fg-muted">
+      <FrostCard title="Runtime vs parameter">
+        <div className="px-10 pt-6 pb-9">
+          {drawable.length === 0 ? (
+            <EmptyState title="Not enough data for this chart">
+              {charts.some((c) => c.param !== null)
+                ? "No node has a successful median at two or more parameter values yet."
+                : `The campaign measured ${family} at one parameter point only: there is no swept parameter to plot. The strategy comparison below compares its configurations.`}
+            </EmptyState>
+          ) : (
+            <div className="flex flex-col gap-12">
+              {drawable.map((c) => (
+                <FamilyPlot key={c.key} chart={c} origin={origin} nameOf={nameOf} />
+              ))}
+            </div>
+          )}
+        </div>
+      </FrostCard>
+      <FrostCard
+        title="Strategy comparison"
+        meta={
+          group === undefined ? undefined : (
+            <div className="flex w-80 max-w-full flex-col gap-1.5">
+              <label htmlFor={groupId} className="nd-label">
                 Group
               </label>
-              <select
+              <ListboxField
                 id={groupId}
-                className={select}
                 value={group.group_id}
-                onChange={(e) => {
-                  setPickedGroup(e.target.value);
+                options={groups.map((g) => ({ value: g.group_id, label: `${formatParams(g.params)} · ${g.condition} · ${g.label}` }))}
+                onChange={(g) => {
+                  setPickedGroup(g);
                 }}
-              >
-                {groups.map((g) => (
-                  <option key={g.group_id} value={g.group_id}>
-                    {`${formatParams(g.params)} · ${g.condition} · ${g.label}`}
-                  </option>
-                ))}
-              </select>
+              />
             </div>
-            <StrategyPlot chart={strategyChart(group)} />
-          </div>
-        )}
-      </Card>
+          )
+        }
+      >
+        <div className="px-10 pt-6 pb-9">
+          {group === undefined ? <EmptyState title="No groups in this family" /> : <StrategyPlot chart={strategyChart(group)} origin={origin} nameOf={nameOf} />}
+        </div>
+      </FrostCard>
     </div>
   );
 }

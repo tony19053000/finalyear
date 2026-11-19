@@ -42,7 +42,7 @@ function walk(dir: string): string[] {
 }
 
 const SRC = join(__dirname, "..");
-const SOURCES = walk(SRC).filter((f) => /\.(ts|tsx)$/.test(f) && !/\.test\.|\.d\.ts$|\/test\//.test(f));
+const SOURCES = walk(SRC).filter((f) => /\.(ts|tsx)$/.test(f) && !/\.test\.|\.d\.ts$|[\\/]test[\\/]/.test(f));
 
 beforeEach(() => {
   setUnauthorizedHandler(null);
@@ -140,7 +140,7 @@ describe("T: CSRF header on every mutating call, never on reads", () => {
 describe("T: nothing secret is kept by script", () => {
   it("only theme.ts touches web storage", () => {
     const users = SOURCES.filter((f) => /localStorage|sessionStorage|indexedDB|document\.cookie/.test(readFileSync(f, "utf8"))).map(
-      (f) => f.slice(SRC.length + 1),
+      (f) => f.slice(SRC.length + 1).replaceAll("\\", "/"),
     );
     expect(users.sort()).toEqual(["api/client.ts", "app/theme.ts"].sort()); // client.ts: read-only csrf cookie
   });

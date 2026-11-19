@@ -1,6 +1,6 @@
 /** View helpers of the Benchmarks pages (pure, unit-tested). */
 import type { StatusTone } from "../../lib/status";
-import type { CampaignState, CampaignVerb, GroupLabel, RunState } from "./benchApi";
+import type { CampaignState, CampaignVerb, ConfigLabel, GroupLabel, LabelsOut, RunCounts, RunState } from "./benchApi";
 
 const CAMPAIGN_TONES: Record<CampaignState, StatusTone> = {
   active: "busy",
@@ -146,4 +146,115 @@ export function specBudget(yaml: string): SpecBudget | null {
   const maxHours = scalar(fields.get("max_hours"));
   if (maxRuns === null && maxHours === null) return null;
   return { maxRuns, maxHours };
+}
+
+/* ------------------------------------------------------------ presentation (restyle) */
+
+const TONE_LIGHT: Record<StatusTone, string> = {
+  ok: "bg-status-ok",
+  busy: "bg-status-busy",
+  degraded: "bg-status-degraded",
+  failed: "bg-status-failed",
+  unknown: "bg-status-unknown",
+};
+
+/** The flat state light's colour class of a campaign / run state. */
+export function campaignLight(state: string): string {
+  return TONE_LIGHT[campaignTone(state)];
+}
+
+export function runLight(state: string): string {
+  return TONE_LIGHT[runTone(state)];
+}
+
+export function labelLight(label: string): string {
+  const tone = labelTone(label);
+  return tone === "neutral" ? "bg-fg-subtle" : TONE_LIGHT[tone];
+}
+
+/** The campaign strategies in the dashboard's words (the API's `local | mode1 | mode3`). */
+export const STRATEGY_TEXT: Record<string, string> = { local: "local", mode1: "sent away", mode3: "split" };
+
+export function strategyText(strategy: string | null | undefined): string {
+  return strategy == null ? "—" : (STRATEGY_TEXT[strategy] ?? strategy);
+}
+
+/** The list's state tabs. Queued = active, but no run has left `planned` yet. */
+export const LIST_TABS = [
+  { key: "all", label: "All" },
+  { key: "running", label: "Running" },
+  { key: "queued", label: "Queued" },
+  { key: "paused", label: "Paused" },
+  { key: "done", label: "Done" },
+  { key: "cancelled", label: "Cancelled" },
+] as const;
+export type ListTab = (typeof LIST_TABS)[number]["key"];
+
+export function isListTab(value: string | null): value is ListTab {
+  return value !== null && LIST_TABS.some((t) => t.key === value);
+}
+
+export function listTabOf(campaign: { state: string; counts: RunCounts }): Exclude<ListTab, "all"> {
+  if (campaign.state === "active") {
+    const c = campaign.counts;
+    return c.submitted + c.done + c.failed + c.skipped === 0 ? "queued" : "running";
+  }
+  return campaign.state === "paused" ? "paused" : campaign.state === "cancelled" ? "cancelled" : "done";
+}
+
+export interface SpeedUpResult {
+  factor: number;
+  groupId: string;
+  family: string;
+  params: Record<string, unknown>;
+  baseline: ConfigLabel;
+  best: ConfigLabel;
+}
+
+/**
+ * The campaign's best measured speed-up, from its labels (no new statistics:
+ * a ratio of two server medians). Per settled group (label best or tie): the
+ * baseline is the run kept local on the laptop that submits it (strategy
+ * `local` on `origin_node_id`), the best is the lowest median; the factor is
+ * baseline ÷ best. The largest over the groups, or null when no group has a
+ * measured baseline.
+ */
+export function bestSpeedUp(labels: LabelsOut): SpeedUpResult | null {
+  let out: SpeedUpResult | null = null;
+  for (const g of labels.groups) {
+    if (g.label !== "best" && g.label !== "tie") continue;
+    const measured = g.configs.filter((c) => c.state === "measured" && c.total_ms != null && c.total_ms.median > 0);
+    const baseline = measured.find((c) => c.strategy === "local" && c.node_id === c.origin_node_id);
+    if (baseline?.total_ms == null) continue;
+    const best = measured.reduce((a, b) => ((b.total_ms?.median ?? Infinity) < (a.total_ms?.median ?? Infinity) ? b : a), baseline);
+    const factor = baseline.total_ms.median / (best.total_ms?.median ?? baseline.total_ms.median);
+    if (out === null || factor > out.factor) out = { factor, groupId: g.group_id, family: g.family, params: g.params, baseline, best };
+  }
+  return out;
+}
+
+/** Groups where the planner's preferred node was the best one, of the groups with a verdict. */
+export function plannerAgreement(labels: LabelsOut): { agrees: number; judged: number } {
+  let agrees = 0;
+  let judged = 0;
+  for (const g of labels.groups) {
+    if (g.planner_agrees === null) continue;
+    judged += 1;
+    if (g.planner_agrees) agrees += 1;
+  }
+  return { agrees, judged };
+}
+
+/** A speed-up factor as printed: 3.4167 -> "3.42". */
+export function formatFactor(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return "—";
+  return value >= 10 ? value.toFixed(1) : value.toFixed(2);
+}
+
+/** One option of a group in words: "local on asha-laptop", "sent away → lab-pc-07", "split, led by asha-laptop". */
+export function optionText(strategy: string | null | undefined, node: string): string {
+  if (strategy === "local") return `local on ${node}`;
+  if (strategy === "mode3") return `split, led by ${node}`;
+  if (strategy === "mode1") return `sent away → ${node}`;
+  return `${strategy ?? "?"} → ${node}`;
 }

@@ -25,6 +25,7 @@
   --color-fg-subtle: var(--mf-fg-subtle);
   --color-accent: var(--mf-accent);
   --color-accent-hover: var(--mf-accent-hover);
+  --color-accent-deep: var(--mf-accent-deep);
   --color-accent-fg: var(--mf-accent-fg);
   --color-accent-soft: var(--mf-accent-soft);
   --color-focus: var(--mf-focus);
@@ -39,8 +40,16 @@
   --color-status-degraded-soft: var(--mf-status-degraded-soft);
   --color-status-failed-soft: var(--mf-status-failed-soft);
   --color-status-unknown-soft: var(--mf-status-unknown-soft);
+  --color-ov-card: var(--mf-ov-card);
+  --color-series-cpu: var(--mf-series-cpu);
+  --color-series-ram: var(--mf-series-ram);
+  --color-series-gpu: var(--mf-series-gpu);
 
   --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  /* The landing page's display face (wordmark, page titles). It is a Google
+     Fonts face the offline dashboard cannot fetch (CSP font-src 'self'), so it
+     is used when installed locally and falls back to the vendored Inter. */
+  --font-display: "Bricolage Grotesque", "Inter Variable", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono Variable", ui-monospace, "SFMono-Regular", Consolas, monospace;
 
   /* Compact type scale (an operator console, not a landing page). */
@@ -74,11 +83,26 @@
     font-size: 100%;
     -webkit-font-smoothing: antialiased;
     font-feature-settings: "cv11", "tnum";
+    font-variant-numeric: tabular-nums;
+    /* hive. theme: native controls (checkboxes, radios, ranges), caret and
+       scrollbars take the honey/warm palette instead of the browser's blue/grey. */
+    accent-color: var(--mf-accent);
+    caret-color: var(--mf-accent);
+    scrollbar-color: var(--mf-border-strong) var(--mf-bg);
   }
 
   body {
     font-size: var(--text-base);
     line-height: var(--text-base--line-height);
+    background-color: var(--mf-bg);
+  }
+
+  /* Landing-page type feel: tight tracking on headings (utilities still win). */
+  h1,
+  h2,
+  h3,
+  h4 {
+    letter-spacing: -0.015em;
   }
 
   /* Visible keyboard focus everywhere (checklist 27); mouse clicks stay clean. */
@@ -87,8 +111,25 @@
     outline-offset: 2px;
   }
 
+  /* Honey selection, ink text (landing site.css ::selection). */
   ::selection {
-    background-color: var(--mf-accent-soft);
+    background-color: var(--mf-accent);
+    color: var(--mf-accent-fg);
+  }
+
+  ::placeholder {
+    color: var(--mf-fg-subtle);
+    opacity: 1;
+  }
+
+  /* Scrollable panels (logs, tables) get warm thumbs too. */
+  * {
+    scrollbar-color: var(--mf-border-strong) transparent;
+  }
+
+  select option {
+    background-color: var(--mf-surface-raised);
+    color: var(--mf-fg);
   }
 
   /* No motion at all. Not the common "duration: 0.01ms" trick: with the
@@ -112,3 +153,2592 @@
     background-color: var(--mf-backdrop);
   }
 }
+
+/*
+ * hive. landing-page touches. Unlayered on purpose, so they win over the
+ * colour utilities they adjust (border-border on cards). Paint only:
+ * nothing here changes a box's size or position.
+ */
+/* The signed-in frame: a faint honey glow at the top of the page, like the
+   landing page's hero/stage glow. Painted as a background, so no layout. */
+.mf-app {
+  background-image: none; /* glow removed: Download page is plain black */ --mf-old-glow: radial-gradient(
+    ellipse 70% 520px at 50% -160px,
+    color-mix(in srgb, var(--mf-accent-deep) 9%, transparent),
+    color-mix(in srgb, var(--mf-accent-deep) 3%, transparent) 55%,
+    transparent
+  );
+  background-repeat: no-repeat;
+}
+
+/* Honeycomb hero comb behind the top of every signed-in page - the
+   Download page's .comb-bg, value for value (website site.css --comb and
+   .comb-bg): the 56x100 hex tile in #332D22 hairlines at opacity .55, masked
+   by radial-gradient(ellipse 70% 60% at 50% 40%) so it fades out toward the
+   bottom and the side edges. Like the site it is a hero band that scrolls
+   with the page (absolute against the initial containing block, i.e. the top
+   of the document), not a fixed wallpaper. `isolation` gives .mf-app its own
+   stacking context so the z-index:-1 layer sits above its bg colour but
+   below the nav, cards and text; cards keep their opaque surfaces, so text
+   contrast is unchanged. Paint only, no pointer events, no layout. Dark
+   theme only: the hex stroke is tuned for the warm black background. */
+[data-theme="dark"] .mf-app {
+  isolation: isolate;
+}
+/* The comb band, drawn on a canvas (app/HiveBackdrop.tsx) so its lines can
+   brighten around the mouse. Same size and fade as the old CSS band. Dark only. */
+.mf-backdrop {
+  display: none;
+}
+[data-theme="dark"] .mf-backdrop {
+  display: block;
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 420px;
+  z-index: -1;
+  pointer-events: none;
+  -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 40%, #000 0%, transparent 75%);
+  mask-image: radial-gradient(ellipse 70% 60% at 50% 40%, #000 0%, transparent 75%);
+}
+
+/* Card titles as the site's eyebrows (site.css .eyebrow: 500 mono,
+   uppercase, wide tracking). Text is unchanged - only its case is drawn
+   upper. Size/line-height stay at the header's text-sm row height, so the
+   header row keeps its height. fg-muted rather than the site's --dim so the
+   card heading stays easy to read at 11px. */
+.mf-card > header > h2 {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--mf-fg-muted);
+}
+
+/* Field labels and table column heads (the existing `text-2xs uppercase`
+   labels) in the site's mono label style (pages.css th: 500 11px mono,
+   uppercase, .1em tracking). Same size and colour as before. */
+.text-2xs.uppercase {
+  font-family: var(--font-mono);
+  letter-spacing: 0.1em;
+}
+
+/* Status dots glow faintly in their own colour, like the site's honey
+   version dot (site.css .badge i: box-shadow 0 0 10px). Dark theme only. */
+[data-theme="dark"] [data-tone] > span[aria-hidden="true"].rounded-full {
+  box-shadow: 0 0 8px var(--mf-dot-glow, transparent);
+}
+[data-theme="dark"] [data-tone="ok"] {
+  --mf-dot-glow: color-mix(in srgb, var(--mf-status-ok) 55%, transparent);
+}
+[data-theme="dark"] [data-tone="busy"] {
+  --mf-dot-glow: color-mix(in srgb, var(--mf-status-busy) 55%, transparent);
+}
+[data-theme="dark"] [data-tone="degraded"] {
+  --mf-dot-glow: color-mix(in srgb, var(--mf-status-degraded) 55%, transparent);
+}
+[data-theme="dark"] [data-tone="failed"] {
+  --mf-dot-glow: color-mix(in srgb, var(--mf-status-failed) 55%, transparent);
+}
+
+/* Tabs (Tabs.tsx, Radix) as the site's segmented pill toggle (pages.css
+   .tabs / .tab / .tab-ink): a rounded track on --bg-2 with a hairline ring,
+   the active tab a honey pill with ink text. Same boxes as before: the
+   track's hairline is a box-shadow (no border width), the list keeps its
+   1px bottom border (now transparent), each trigger keeps h-9 and its
+   padding, and the pill is the trigger's background inset by a 4px ring of
+   the track colour. The list only shrinks to its tabs' width instead of
+   stretching; nothing sits beside it. */
+[role="tablist"][aria-orientation="horizontal"] {
+  width: fit-content;
+  max-width: 100%;
+  border-bottom-color: transparent;
+  border-radius: 9999px;
+  background-color: var(--mf-surface);
+  box-shadow: 0 0 0 1px var(--mf-border);
+}
+[role="tablist"][aria-orientation="horizontal"] > [role="tab"] {
+  border-bottom-width: 0;
+  border-radius: 9999px;
+  transition:
+    color 0.25s ease,
+    background-color 0.25s ease;
+}
+[role="tablist"][aria-orientation="horizontal"] > [role="tab"][data-state="active"] {
+  background-color: var(--mf-accent);
+  color: var(--mf-accent-fg);
+  box-shadow: inset 0 0 0 4px var(--mf-surface);
+}
+
+/* Toggle-button groups (e.g. the Nodes status filter: Buttons with
+   aria-pressed in a role=group) get the site's pill shape. Shape only. */
+[role="group"] > button[aria-pressed] {
+  border-radius: 9999px;
+}
+
+/* Cards: soft warm border glow on hover (landing hairline + honey glow).
+   Colour and shadow only - the box never moves or resizes. */
+.mf-card {
+  transition:
+    border-color 0.25s ease,
+    box-shadow 0.25s ease;
+}
+.mf-card:hover {
+  border-color: var(--mf-border-strong);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--mf-accent) 6%, transparent),
+    0 18px 48px -28px color-mix(in srgb, var(--mf-accent-deep) 35%, transparent);
+}
+
+/* Primary (honey) buttons glow on hover, like the landing .btn-honey. */
+.mf-btn-primary:hover:not(:disabled) {
+  box-shadow: 0 10px 32px -12px color-mix(in srgb, var(--mf-accent) 55%, transparent);
+}
+
+/* Upload progress (SubmitJobPage): a thin honey line on a faint track,
+   no gradient, no glow (the browser's blue default is replaced). */
+progress.mf-progress {
+  display: block;
+  height: 2px;
+  appearance: none;
+  border: 0;
+  border-radius: 9999px;
+  overflow: hidden;
+  background-color: color-mix(in srgb, var(--mf-fg) 8%, transparent);
+  color: var(--mf-accent);
+}
+progress.mf-progress::-webkit-progress-bar {
+  background-color: color-mix(in srgb, var(--mf-fg) 8%, transparent);
+  border-radius: 9999px;
+}
+progress.mf-progress::-webkit-progress-value {
+  background-color: var(--mf-accent);
+  border-radius: 9999px;
+  transition: width 0.4s ease;
+}
+progress.mf-progress::-moz-progress-bar {
+  background-color: var(--mf-accent);
+  border-radius: 9999px;
+}
+
+/*
+ * Overview (frame B "Stockify" layout): big rounded black cards, the one
+ * honey highlight card, the hatched (unfilled) part of the split bar and the
+ * slow glows. Paint only; every motion here stops under reduced motion (the
+ * base layer's rule above).
+ */
+/* Frame B card: matte warm-grey surface with a faint grain, 28px corners,
+   no border. The grain is a tiny SVG noise tile (img-src allows data:). */
+.ov-card {
+  position: relative;
+  border-radius: 28px;
+  background-color: var(--mf-ov-card);
+  background-image: var(--ov-grain);
+  background-size: 180px 180px;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--mf-fg) 3%, transparent);
+  transition: box-shadow 0.5s ease;
+  --ov-grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .07 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+.ov-card:hover {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--mf-fg) 6%, transparent);
+}
+.ov-card-title {
+  font-size: 1.0625rem;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+  color: var(--mf-fg);
+}
+/* The one highlight card: honey ground, ink text (dark in both themes). */
+.ov-card-honey {
+  background-color: #ffc93c;
+  background-image: var(--ov-grain), linear-gradient(150deg, #ffd35e 0%, #ffc93c 40%, #f5a623 100%);
+  background-size: 180px 180px, 100% 100%;
+  color: #0b0a08;
+}
+.ov-card-honey .ov-card-title {
+  color: #0b0a08;
+}
+.ov-card-honey:hover {
+  box-shadow: none;
+}
+/* The notched top-right corner: a cut-out in the page colour holding the
+   card's round buttons, with concave joins on both sides (frame B). */
+.ov-notch {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 2;
+  display: flex;
+  gap: 6px;
+  padding: 0 0 8px 8px;
+  border-bottom-left-radius: 24px;
+  background-color: var(--mf-bg);
+}
+.ov-notch::before,
+.ov-notch::after {
+  content: "";
+  position: absolute;
+  width: 24px;
+  height: 24px;
+  pointer-events: none;
+  background-image: radial-gradient(circle at 0 100%, transparent 23.5px, var(--mf-bg) 24px);
+}
+.ov-notch::before {
+  top: 0;
+  left: -24px;
+}
+.ov-notch::after {
+  right: 0;
+  bottom: -24px;
+}
+.ov-icon-btn {
+  display: inline-flex;
+  height: 2.5rem;
+  width: 2.5rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  background-color: var(--mf-ov-card);
+  color: var(--mf-fg-muted);
+  transition:
+    color 0.3s ease,
+    background-color 0.3s ease;
+}
+.ov-icon-btn:hover {
+  color: var(--mf-fg);
+  background-color: var(--mf-surface-raised);
+}
+.ov-icon-btn-honey {
+  background-color: var(--mf-accent);
+  color: var(--mf-accent-fg);
+}
+.ov-icon-btn-honey:hover {
+  background-color: var(--mf-accent-hover);
+  color: var(--mf-accent-fg);
+}
+/* Big light-weight figures (frame B's "$23.0K"). */
+.ov-figure {
+  font-family: var(--font-sans);
+  font-weight: 300;
+  letter-spacing: -0.04em;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+/* The honey card's hero number: heavy, tight, display-like. */
+.ov-figure.ov-figure-bold {
+  font-weight: 500;
+  letter-spacing: -0.05em;
+  font-feature-settings: "ss01", "cv11", "tnum";
+}
+/* Speed-up pills: circles slide to their new height when the job changes. */
+.ov-pill-dot {
+  transition: y 1.2s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.ov-pill-light {
+  filter: drop-shadow(0 4px 8px rgb(120 80 0 / 0.25));
+}
+.ov-pill-text {
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ov-pill-dot {
+    transition: none;
+  }
+}
+/* Nodes: the comb is the card's background; title and counts sit above it. */
+.ov-comb-card > header {
+  position: relative;
+  z-index: 1;
+  pointer-events: none;
+}
+/* Quiet scrollbars inside Overview cards. */
+.ov-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(255 255 255 / 0.08) transparent;
+}
+/* Alerts expand: Load folds away, the extra alert rows rise in one by one. */
+.ov-fold {
+  display: grid;
+  grid-template-rows: 1fr;
+  opacity: 1;
+  transition:
+    grid-template-rows 0.55s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.35s ease,
+    margin-bottom 0.55s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.55s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.ov-fold > div {
+  overflow: hidden;
+}
+/* A fold inside a card: grows to fill the card's free height when open. */
+.ov-fold-grow {
+  min-height: 0;
+  flex: 1 1 0%;
+}
+.ov-fold-grow > div {
+  display: flex;
+  flex-direction: column;
+}
+.ov-fold-closed {
+  grid-template-rows: 0fr;
+  opacity: 0;
+  margin-bottom: -1rem;
+  transform: translateY(-8px) scale(0.98);
+  pointer-events: none;
+}
+.ov-alerts-open > li:nth-child(n + 4) {
+  animation: ov-row-in 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.ov-alerts-open > li:nth-child(4) {
+  animation-delay: 120ms;
+}
+.ov-alerts-open > li:nth-child(5) {
+  animation-delay: 155ms;
+}
+.ov-alerts-open > li:nth-child(6) {
+  animation-delay: 190ms;
+}
+.ov-alerts-open > li:nth-child(7) {
+  animation-delay: 225ms;
+}
+.ov-alerts-open > li:nth-child(8) {
+  animation-delay: 260ms;
+}
+.ov-alerts-open > li:nth-child(9) {
+  animation-delay: 295ms;
+}
+.ov-alerts-open > li:nth-child(10) {
+  animation-delay: 330ms;
+}
+.ov-alerts-open > li:nth-child(11) {
+  animation-delay: 365ms;
+}
+.ov-alerts-open > li:nth-child(12) {
+  animation-delay: 400ms;
+}
+.ov-alerts-open > li:nth-child(13) {
+  animation-delay: 435ms;
+}
+.ov-alerts-open > li:nth-child(14) {
+  animation-delay: 470ms;
+}
+.ov-alerts-open > li:nth-child(15) {
+  animation-delay: 505ms;
+}
+.ov-alerts-open > li:nth-child(16) {
+  animation-delay: 540ms;
+}
+.ov-alerts-open > li:nth-child(17) {
+  animation-delay: 575ms;
+}
+.ov-alerts-open > li:nth-child(18) {
+  animation-delay: 610ms;
+}
+.ov-alerts-open > li:nth-child(19) {
+  animation-delay: 645ms;
+}
+.ov-alerts-open > li:nth-child(20) {
+  animation-delay: 680ms;
+}
+
+@keyframes ov-row-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ov-fold,
+  .ov-alerts-open > li {
+    transition: none;
+    animation: none;
+  }
+}
+.ov-scroll-none {
+  scrollbar-width: none;
+}
+.ov-scroll-none::-webkit-scrollbar {
+  display: none;
+}
+/* Overview top row; open: Resources takes the whole row, the other two fold away to the left. */
+.ov-toprow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
+}
+@media (min-width: 64rem) {
+  .ov-toprow {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 0.6fr);
+    transition:
+      grid-template-columns 0.6s cubic-bezier(0.22, 1, 0.36, 1),
+      column-gap 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .ov-toprow-res {
+    grid-template-columns: minmax(0, 0fr) minmax(0, 0fr) minmax(0, 1fr);
+    column-gap: 0;
+  }
+  .ov-toprow-job {
+    grid-template-columns: minmax(0, 2fr) minmax(0, 0fr) minmax(0, 0.6fr);
+    column-gap: 0;
+  }
+  .ov-toprow-speed {
+    grid-template-columns: minmax(0, 0fr) minmax(0, 2fr) minmax(0, 0.6fr);
+    column-gap: 0;
+  }
+}
+/* keep a gap beside Resources when a neighbour widens (column-gap is 0 then) */
+.ov-toprow-job .ov-side-res,
+.ov-toprow-speed .ov-side-res {
+  padding-left: 1rem;
+}
+.ov-toprow-side {
+  min-width: 0;
+  overflow: hidden;
+  transition:
+    padding-left 0.6s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.35s ease,
+    transform 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.ov-toprow-res .ov-side-job,
+.ov-toprow-res .ov-side-speed,
+.ov-toprow-speed .ov-side-job,
+.ov-toprow-job .ov-side-speed {
+  opacity: 0;
+  transform: translateX(-12px);
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ov-toprow,
+  .ov-toprow-side {
+    transition: none;
+  }
+}
+.ov-icon-btn.ov-icon-btn-dark {
+  background-color: #0b0a08;
+  color: #ffc93c;
+}
+.ov-speed-more {
+  animation: ov-row-in 0.5s 0.15s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+/* A table card that hugs its columns (Nodes list): no stretched gaps. */
+.ov-table-fit th,
+.ov-table-fit td {
+  padding-left: 1.25rem;
+  padding-right: 1.25rem;
+}
+/* Frosted glass card: see-through with the page (and the comb) softly blurred behind */
+.ov-card.ov-frost {
+  background-color: rgb(40 37 31 / 0.22);
+  background-image:
+    linear-gradient(155deg, rgb(255 255 255 / 0.13), rgb(255 255 255 / 0.03) 38%, rgb(255 255 255 / 0.015) 70%, rgb(255 255 255 / 0.06)),
+    var(--ov-grain);
+  background-size: 100% 100%, 180px 180px;
+  backdrop-filter: blur(7px) saturate(1.5) brightness(1.15);
+  -webkit-backdrop-filter: blur(7px) saturate(1.5) brightness(1.15);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.18),
+    inset 1px 0 0 rgb(255 255 255 / 0.06),
+    inset 0 0 0 1px rgb(255 255 255 / 0.08),
+    inset 0 -24px 40px rgb(0 0 0 / 0.12),
+    0 24px 60px rgb(0 0 0 / 0.45);
+}
+/* even columns: each width = its content + the same gap, so the space between columns looks equal */
+.ov-table-fit table {
+  table-layout: fixed;
+}
+.ov-table-fit th:nth-child(1) { width: 19%; }
+.ov-table-fit th:nth-child(2) { width: 17.5%; }
+.ov-table-fit th:nth-child(3) { width: 12%; }
+.ov-table-fit th:nth-child(4) { width: 17.5%; }
+.ov-table-fit th:nth-child(5) { width: 18%; }
+.ov-table-fit th:nth-child(6) { width: 16%; }
+/* the same space before the first column and after the last as between columns */
+.ov-table-fit th:first-child,
+.ov-table-fit td:first-child {
+  padding-left: 3.25rem;
+}
+.ov-table-fit th:last-child,
+.ov-table-fit td:last-child {
+  padding-right: 3.25rem;
+}
+/* the header row sits on a line; bigger type throughout */
+.ov-table-fit thead tr {
+  border-bottom: 1px solid rgb(255 255 255 / 0.1);
+}
+.ov-table-fit th {
+  padding-top: 0.9rem;
+  padding-bottom: 0.9rem;
+}
+/* bigger type: the Nodes list only */
+.ov-table-big th {
+  font-size: 0.75rem;
+}
+.ov-table-big td {
+  font-size: 0.9375rem;
+}
+.ov-table-big td .text-2xs {
+  font-size: 0.75rem;
+}
+/* taller, airier rows; a soft lift + honey edge on the hovered row */
+.ov-table-fit td {
+  padding-top: 1.1rem;
+  padding-bottom: 1.1rem;
+}
+.ov-table-fit tbody tr {
+  transition: background-color 0.3s ease, box-shadow 0.3s ease;
+}
+.ov-table-fit tbody tr:hover {
+  background-color: rgb(255 255 255 / 0.025);
+  box-shadow: inset 2px 0 0 #f5a623;
+}
+/* Split bar: unfilled part hatched with diagonal stripes, filled part solid honey. */
+.ov-hatch {
+  background-color: #121110;
+}
+.ov-bar-fill {
+  transition: width 1.2s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.ov-stop-deep {
+  stop-color: var(--mf-accent-deep);
+}
+.ov-stop-honey {
+  stop-color: var(--mf-accent);
+}
+.ov-donut-slice {
+  transition:
+    opacity 0.5s ease,
+    stroke-width 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.ov-donut-centre {
+  animation: ov-donut-centre-in 0.5s ease both;
+}
+@keyframes ov-donut-centre-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ov-donut-slice,
+  .ov-donut-centre {
+    transition: none;
+    animation: none;
+  }
+}
+.ov-line {
+  transition: opacity 0.3s ease;
+}
+/* No glow on the Overview: status dots there are flat (the app-wide dot glow is off inside its cards). */
+[data-theme="dark"] .ov-card [data-tone] > span[aria-hidden="true"].rounded-full {
+  box-shadow: none;
+}
+.ov-tooltip {
+  pointer-events: none;
+  border-radius: 0.875rem;
+  border: 1px solid rgb(255 255 255 / 0.12);
+  background-color: rgb(40 37 31 / 0.22);
+  background-image: linear-gradient(160deg, rgb(255 255 255 / 0.12), rgb(255 255 255 / 0.03) 60%);
+  backdrop-filter: blur(6px) saturate(1.2);
+  -webkit-backdrop-filter: blur(6px) saturate(1.2);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.1),
+    0 10px 30px rgb(0 0 0 / 0.35);
+}
+
+/*
+ * Node detail (frame D "operations console" in hive's palette): open facts
+ * strip, frame-B text tabs, one live chart per resource, the machine
+ * schematic. Thin precise lines, flat status lights (no glow), calm motion
+ * that stops under reduced motion.
+ */
+.nd-label {
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  font-weight: 500;
+  line-height: 1rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--mf-fg-subtle);
+}
+.nd-hair-y {
+  border-top: 1px solid color-mix(in srgb, var(--mf-fg) 8%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--mf-fg) 8%, transparent);
+}
+.nd-hair-t {
+  border-top: 1px solid color-mix(in srgb, var(--mf-fg) 7%, transparent);
+}
+.nd-hair-b {
+  border-bottom: 1px solid color-mix(in srgb, var(--mf-fg) 7%, transparent);
+}
+/* Flat status light (the app-wide dot glow does not reach it: no data-tone). */
+.nd-light {
+  display: inline-block;
+  height: 0.5rem;
+  width: 0.5rem;
+  flex-shrink: 0;
+  border-radius: 9999px;
+}
+.nd-light-sm {
+  height: 0.375rem;
+  width: 0.375rem;
+}
+.nd-breathe {
+  animation: nd-breathe 2.8s ease-in-out infinite;
+}
+@keyframes nd-breathe {
+  50% {
+    opacity: 0.35;
+  }
+}
+/* Sections and rows ease in once when shown. */
+.nd-in {
+  animation: nd-in 0.6s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.nd-stagger > * {
+  animation: nd-in 0.6s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.nd-stagger > *:nth-child(2) {
+  animation-delay: 0.06s;
+}
+.nd-stagger > *:nth-child(3) {
+  animation-delay: 0.12s;
+}
+.nd-stagger > *:nth-child(4) {
+  animation-delay: 0.18s;
+}
+.nd-stagger > *:nth-child(5) {
+  animation-delay: 0.24s;
+}
+.nd-stagger > *:nth-child(n + 6) {
+  animation-delay: 0.3s;
+}
+@keyframes nd-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+/* Live lines glide to their new shape when a sample arrives (same point count). */
+.nd-line {
+  transition: d 0.9s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.nd-end-dot {
+  transition:
+    cx 0.9s cubic-bezier(0.22, 1, 0.36, 1),
+    cy 0.9s cubic-bezier(0.22, 1, 0.36, 1);
+}
+/* The quiet outline action (Revoke node): danger colour only on hover/confirm. */
+.nd-ghost-btn {
+  display: inline-flex;
+  height: 2.25rem;
+  align-items: center;
+  gap: 0.5rem;
+  border-radius: 9999px;
+  border: 1px solid color-mix(in srgb, var(--mf-fg) 14%, transparent);
+  padding: 0 1rem;
+  font-size: 0.8125rem;
+  color: var(--mf-fg-muted);
+  transition:
+    color 0.3s ease,
+    border-color 0.3s ease;
+}
+.nd-ghost-btn:hover {
+  color: var(--mf-status-failed);
+  border-color: color-mix(in srgb, var(--mf-status-failed) 45%, transparent);
+}
+/*
+ * The Hardware tab's 3D tower (PcSetupScene): one pre-rendered still with a
+ * gentle parallax tilt towards the cursor, and per-part light layers screened
+ * over it. Every value below is a custom property set from JS through the
+ * CSSOM (CSP forbids inline style attributes).
+ */
+/* fills its parent (the grid cell sized by the specs column); every image is
+   object-fit: contain with the same aspect, so the angles and lights stay registered */
+.pc-stage {
+  position: absolute;
+  inset: 0;
+  perspective: 1400px;
+  user-select: none;
+}
+.pc-tilt {
+  position: absolute;
+  inset: 0;
+  isolation: isolate; /* the lights screen onto the tower only */
+  transform: translate3d(var(--pc-tx, 0px), 0, 0) rotateX(var(--pc-rx, 0deg)) rotateY(var(--pc-ry, 0deg));
+  transition: transform 0.8s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.pc-tilt > img {
+  position: absolute;
+  inset: 0;
+  height: 100%;
+  width: 100%;
+  object-fit: contain;
+  pointer-events: none;
+}
+.pc-light {
+  mix-blend-mode: screen;
+  transition: opacity 1.2s ease;
+}
+.pc-light-cpu { opacity: var(--pc-cpu, 0); }
+.pc-light-ram0 { opacity: var(--pc-ram0, 0); }
+.pc-light-ram1 { opacity: var(--pc-ram1, 0); }
+.pc-light-ram2 { opacity: var(--pc-ram2, 0); }
+.pc-light-ram3 { opacity: var(--pc-ram3, 0); }
+.pc-light-gpu { opacity: var(--pc-gpu, 0); }
+.nd-ring {
+  transition: stroke-dasharray 1s cubic-bezier(0.22, 1, 0.36, 1);
+}
+/* Detail tables: the Nodes table's frosted card, rows and hover edge, with their own even columns. */
+.nd-table.ov-table-fit th:first-child,
+.nd-table.ov-table-fit td:first-child {
+  padding-left: 2.25rem;
+}
+.nd-table.ov-table-fit th:last-child,
+.nd-table.ov-table-fit td:last-child {
+  padding-right: 2.25rem;
+}
+.nd-net.ov-table-fit th:nth-child(1) { width: 20%; }
+.nd-net.ov-table-fit th:nth-child(2) { width: 15%; }
+.nd-net.ov-table-fit th:nth-child(3) { width: 16%; }
+.nd-net.ov-table-fit th:nth-child(4) { width: 11%; }
+.nd-net.ov-table-fit th:nth-child(5) { width: 17%; }
+.nd-net.ov-table-fit th:nth-child(6) { width: 21%; }
+.nd-cache.ov-table-fit th:nth-child(1) { width: 52%; }
+.nd-cache.ov-table-fit th:nth-child(2) { width: 20%; }
+.nd-cache.ov-table-fit th:nth-child(3) { width: 28%; }
+.nd-policy.ov-table-fit th:nth-child(1) { width: 58%; }
+.nd-policy.ov-table-fit th:nth-child(2) { width: 42%; }
+.nd-scores.ov-table-fit th:nth-child(1) { width: 44%; }
+.nd-scores.ov-table-fit th:nth-child(2) { width: 32%; }
+.nd-scores.ov-table-fit th:nth-child(3) { width: 24%; }
+.nd-table.ov-table-fit td {
+  padding-top: 1rem;
+  padding-bottom: 1rem;
+}
+@media (prefers-reduced-motion: reduce) {
+  .nd-breathe,
+  .nd-in,
+  .nd-stagger > * {
+    animation: none;
+  }
+  .nd-line,
+  .nd-end-dot,
+  .nd-ring,
+  .pc-light {
+    transition: none;
+  }
+  .pc-tilt {
+    transform: none;
+    transition: none;
+  }
+}
+
+
+/*
+ * Jobs pages (the Nodes language): the frosted list with seven even
+ * columns, quiet filter fields, the detail's progress figure and options
+ * rows, the dark log well. Flat lights, hairlines, calm motion.
+ */
+/* Even gaps: each column is its widest content (rem, below) + the cells'
+   1.25rem side paddings + one shared slack `--jb-s`, so every gap between
+   two columns' contents is the same (2.5rem + s), and the space before the
+   first column equals the space after the last (3.25rem + s). The slack is
+   the room left over: the scroller's width (100cqw: it is an inline-size
+   container) minus the 74.75rem the columns need, shared by the 6 gaps and
+   the 2 ends. Lengths only (no %), so the fixed layout honours them; the
+   last column is auto and absorbs any rounding. */
+/* content: job 14.5 · mode 4.75 · nodes 10 · progress 7 · speed 5.75 · submitted 6 · duration 5.25 */
+.jb-list {
+  --jb-s: max(0px, calc((100cqw - 74.75rem) / 8));
+}
+.jb-list.ov-table-fit th:nth-child(1) { width: calc(19rem + 2 * var(--jb-s)); }
+.jb-list.ov-table-fit th:nth-child(2) { width: calc(7.25rem + var(--jb-s)); }
+.jb-list.ov-table-fit th:nth-child(3) { width: calc(12.5rem + var(--jb-s)); }
+.jb-list.ov-table-fit th:nth-child(4) { width: calc(9.5rem + var(--jb-s)); }
+.jb-list.ov-table-fit th:nth-child(5) { width: calc(8.25rem + var(--jb-s)); }
+.jb-list.ov-table-fit th:nth-child(6) { width: calc(8.5rem + var(--jb-s)); }
+.jb-list.ov-table-fit th:nth-child(7) { width: auto; }
+.jb-list.ov-table-fit th:first-child,
+.jb-list.ov-table-fit td:first-child {
+  padding-left: calc(3.25rem + var(--jb-s));
+}
+/* The list fills the window down to ~24px above its bottom (the header,
+   page padding and title row above it take ~12rem; the card's own bottom
+   padding and the 24px below it the rest). vh is divided by the page zoom. */
+.jb-list-scroll {
+  max-height: calc(100vh / var(--mf-zoom) - 14.5rem);
+  container-type: inline-size;
+}
+/* the header stays on top while a long list scrolls inside the card; it is
+   clear at the top and takes the card's tone only once rows pass under it */
+/* (the fill is an inset shadow of the whole row group: a background would be
+   painted cell by cell, with hairline seams at the fractional column edges) */
+/* Sticky header: clear at the top (nothing under it). Once rows scroll
+   under it, the whole row takes the card's tone with a soft fade into the
+   rows below, edge to edge across the card (the card has no side padding;
+   the table's own end padding keeps the columns in place). */
+.jb-list thead {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.jb-list.ov-table-fit th {
+  background: transparent;
+  transition: background-color 220ms ease;
+}
+.jb-list-scroll[data-scrolled="true"] th {
+  background: linear-gradient(to bottom,
+    rgb(37 34 29 / 0.97) 0%, rgb(37 34 29 / 0.97) 62%,
+    rgb(37 34 29 / 0.6) 82%, rgb(37 34 29 / 0) 100%);
+}
+.jb-list.ov-table-fit thead tr {
+  border-bottom: 0;
+}
+.jb-list.ov-table-fit th {
+  padding-top: 1.6rem;
+  padding-bottom: 1.75rem;
+}
+/* the windowing spacer rows carry no padding and no hover edge */
+.ov-table-fit td.jb-spacer {
+  padding: 0;
+}
+.ov-table-fit tbody tr.jb-spacer-row:hover {
+  background-color: transparent;
+  box-shadow: none;
+}
+.jb-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(255 255 255 / 0.12) transparent;
+}
+/* Attempts, transfers, state changes: their own even columns. */
+.jb-att.ov-table-fit th:nth-child(1) { width: 15%; }
+.jb-att.ov-table-fit th:nth-child(2) { width: 15%; }
+.jb-att.ov-table-fit th:nth-child(3) { width: 12%; }
+.jb-att.ov-table-fit th:nth-child(4) { width: 14%; }
+.jb-att.ov-table-fit th:nth-child(5) { width: 16%; }
+.jb-att.ov-table-fit th:nth-child(6) { width: 9%; }
+.jb-att.ov-table-fit th:nth-child(7) { width: 19%; }
+.jb-xfer.ov-table-fit th:nth-child(n) { width: 11.11%; }
+.jb-states.ov-table-fit th:nth-child(1) { width: 30%; }
+.jb-states.ov-table-fit th:nth-child(2) { width: 25%; }
+.jb-states.ov-table-fit th:nth-child(3) { width: 25%; }
+.jb-states.ov-table-fit th:nth-child(4) { width: 20%; }
+.jb-lanes.ov-table-fit th:nth-child(n) { width: 10.5%; }
+.jb-lanes.ov-table-fit th:nth-child(1) { width: 16%; }
+/* the planner's full explanation: dense, scrolls sideways, no fixed widths */
+.jb-explain table {
+  table-layout: auto;
+}
+.jb-explain th {
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--mf-fg-subtle);
+}
+.jb-explain thead tr,
+.jb-explain tbody tr {
+  border-color: rgb(255 255 255 / 0.07);
+}
+/* Filter fields: no box, a hairline under the value, honey when focused. */
+.jb-field {
+  height: 2.25rem;
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--mf-fg) 14%, transparent);
+  border-radius: 0;
+  background-color: transparent;
+  padding: 0 0.125rem;
+  font-size: 0.875rem;
+  color: var(--mf-fg);
+  outline: none;
+  transition: border-color 0.3s ease;
+  color-scheme: dark;
+}
+.jb-field:hover {
+  border-bottom-color: color-mix(in srgb, var(--mf-fg) 28%, transparent);
+}
+.jb-field:focus-visible {
+  border-bottom-color: var(--mf-accent);
+}
+.jb-field:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.jb-field option {
+  background-color: #15130f;
+  color: var(--mf-fg);
+}
+/* The quiet honey action (Submit job): outline, honey text, fills on hover. */
+.jb-honey-btn {
+  display: inline-flex;
+  height: 2.25rem;
+  align-items: center;
+  gap: 0.5rem;
+  border-radius: 9999px;
+  border: 1px solid color-mix(in srgb, var(--mf-accent) 45%, transparent);
+  padding: 0 1.125rem;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--mf-accent);
+  transition:
+    color 0.3s ease,
+    background-color 0.3s ease,
+    border-color 0.3s ease;
+}
+.jb-honey-btn:hover {
+  background-color: var(--mf-accent);
+  border-color: var(--mf-accent);
+  color: #0b0a08;
+}
+/* A neutral quiet action (Pause, Download log, Show the explanation). */
+.jb-quiet-btn {
+  display: inline-flex;
+  height: 2rem;
+  align-items: center;
+  gap: 0.5rem;
+  border-radius: 9999px;
+  border: 1px solid color-mix(in srgb, var(--mf-fg) 14%, transparent);
+  padding: 0 0.875rem;
+  font-size: 0.8125rem;
+  color: var(--mf-fg-muted);
+  transition:
+    color 0.3s ease,
+    border-color 0.3s ease;
+}
+.jb-quiet-btn:hover {
+  color: var(--mf-fg);
+  border-color: color-mix(in srgb, var(--mf-fg) 30%, transparent);
+}
+/* Mode / small facts: mono uppercase text, never a pill. */
+.jb-tag {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+/* Jobs list filters: the one solid warm-white round button on the title row
+   (same size as the top bar's round buttons), a tiny honey dot when any
+   filter is on, a frosted popover under it, active filters as plain text. */
+.jb-filter-btn {
+  position: relative;
+  display: inline-flex;
+  height: 2.75rem;
+  width: 2.75rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  background-color: var(--mf-fg);
+  color: #0b0a08;
+  transition: background-color 0.3s ease;
+}
+.jb-filter-btn:hover,
+.jb-filter-btn[aria-expanded="true"] {
+  background-color: color-mix(in srgb, var(--mf-fg) 86%, #0b0a08);
+}
+.jb-filter-btn:focus-visible {
+  outline: 2px solid var(--mf-accent);
+  outline-offset: 3px;
+}
+/* Submit job: the same round size as the filter button, honey with a black plus. */
+.jb-submit-btn {
+  display: inline-flex;
+  height: 2.75rem;
+  width: 2.75rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  background-color: var(--mf-accent);
+  color: #0b0a08;
+  transition: background-color 0.3s ease;
+}
+.jb-submit-btn:hover {
+  background-color: var(--mf-accent-hover);
+}
+.jb-submit-btn:focus-visible {
+  outline: 2px solid var(--mf-accent);
+  outline-offset: 3px;
+}
+.jb-filter-dot {
+  position: absolute;
+  top: 0.4375rem;
+  right: 0.4375rem;
+  height: 0.375rem;
+  width: 0.375rem;
+  border-radius: 9999px;
+  background-color: var(--mf-accent);
+}
+.jb-filter-pop {
+  position: absolute;
+  top: calc(100% + 0.75rem);
+  right: 0;
+  z-index: 40;
+  display: flex;
+  width: 20rem;
+  max-width: calc(100vw / var(--mf-zoom) - 3rem);
+  flex-direction: column;
+  gap: 1.25rem;
+  border-radius: 22px;
+  padding: 1.25rem 1.375rem 1.125rem;
+  animation: jb-pop-in 0.15s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes jb-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.jb-active-filter {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.375rem;
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.04em;
+  color: var(--mf-fg-muted);
+  white-space: nowrap;
+  transition: color 0.2s ease;
+}
+.jb-active-x {
+  color: var(--mf-fg-subtle);
+  transition: color 0.2s ease;
+}
+.jb-active-filter:hover,
+.jb-active-filter:hover .jb-active-x {
+  color: var(--mf-fg);
+}
+.jb-clear-btn {
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--mf-fg-subtle);
+  transition: color 0.2s ease;
+}
+.jb-clear-btn:hover {
+  color: var(--mf-fg);
+}
+.jb-clear-btn:disabled {
+  opacity: 0.4;
+  pointer-events: none;
+}
+/* Our own select / date field: the underline trigger with a thin chevron. */
+.jb-field-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  text-align: left;
+}
+.jb-chevron {
+  display: inline-flex;
+  color: var(--mf-fg-subtle);
+  transition: transform 0.2s ease, color 0.2s ease;
+}
+.jb-field-btn:hover .jb-chevron {
+  color: var(--mf-fg-muted);
+}
+.jb-chevron-open {
+  transform: rotate(180deg);
+}
+/* A floating panel inside the frosted popover: near-opaque warm dark (a
+   nested backdrop blur only sees the popover), the same grain and hairline. */
+.jb-float {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 50;
+  border-radius: 18px;
+  background-color: rgb(24 22 19 / 0.94);
+  background-image: var(--ov-grain);
+  background-size: 180px 180px;
+  backdrop-filter: blur(12px) saturate(1.3);
+  -webkit-backdrop-filter: blur(12px) saturate(1.3);
+  box-shadow:
+    inset 0 0 0 1px rgb(255 255 255 / 0.08),
+    inset 0 1px 0 rgb(255 255 255 / 0.1),
+    0 18px 44px rgb(0 0 0 / 0.5);
+  animation: jb-pop-in 0.15s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.jb-float-down {
+  top: calc(100% + 0.5rem);
+}
+.jb-float-up {
+  bottom: calc(100% + 0.5rem);
+}
+.jb-listbox {
+  max-height: 18rem;
+  overflow-y: auto;
+  padding: 0.375rem;
+  outline: none;
+  scrollbar-width: thin;
+  scrollbar-color: rgb(255 255 255 / 0.12) transparent;
+}
+.jb-opt {
+  position: relative;
+  display: flex;
+  min-height: 3rem;
+  cursor: pointer;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  border-radius: 12px;
+  padding: 0.5rem 0.75rem 0.5rem 1rem;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  transition: background-color 0.2s ease;
+}
+.jb-opt::before {
+  content: "";
+  position: absolute;
+  top: 0.75rem;
+  bottom: 0.75rem;
+  left: 0;
+  width: 2px;
+  border-radius: 2px;
+  background-color: #f5a623;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+.jb-opt[data-active] {
+  background-color: rgb(255 250 240 / 0.04);
+}
+.jb-opt[data-active]::before {
+  opacity: 1;
+}
+/* The calendar: month nav, mono weekdays, plain day numbers. */
+.jb-cal {
+  left: auto;
+  width: 17rem;
+  padding: 0.875rem 0.875rem 0.75rem;
+}
+.jb-cal-nav {
+  display: inline-flex;
+  height: 1.75rem;
+  width: 1.75rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  color: var(--mf-fg-subtle);
+  transition: color 0.2s ease, background-color 0.2s ease;
+}
+.jb-cal-nav:hover {
+  color: var(--mf-fg);
+  background-color: rgb(255 250 240 / 0.05);
+}
+.jb-cal-day {
+  display: inline-flex;
+  height: 2rem;
+  width: 2rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--mf-fg-muted);
+  transition: color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
+}
+.jb-cal-day:hover {
+  color: var(--mf-fg);
+  background-color: rgb(255 250 240 / 0.06);
+}
+.jb-cal-today {
+  color: var(--mf-accent);
+}
+.jb-cal-chosen,
+.jb-cal-chosen:hover {
+  color: var(--mf-accent);
+  background-color: color-mix(in srgb, var(--mf-accent) 14%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--mf-accent) 55%, transparent);
+}
+.jb-cal-day:focus-visible,
+.jb-cal-nav:focus-visible {
+  outline: 1px solid var(--mf-accent);
+  outline-offset: 1px;
+}
+.jb-cal-foot {
+  margin-top: 0.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-top: 1px solid rgb(255 255 255 / 0.07);
+  padding: 0.75rem 0.25rem 0;
+}
+.jb-time {
+  height: 1.75rem;
+  width: 3.5rem;
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+@media (prefers-reduced-motion: reduce) {
+  .jb-filter-pop,
+  .jb-float {
+    animation: none;
+  }
+}
+/* Progress in a list row: a slim track with the honey fill. */
+.jb-track {
+  fill: color-mix(in srgb, var(--mf-fg) 9%, transparent);
+}
+.jb-fill {
+  fill: var(--mf-accent);
+  transition: width 1.2s cubic-bezier(0.22, 1, 0.36, 1);
+}
+/* The planner's options: chosen at full strength, the others faded. */
+.jb-option {
+  transition: opacity 0.4s ease;
+}
+/* The log well: dark, mono, inside the frosted card. */
+.jb-log {
+  overflow: auto;
+  border-radius: 1rem;
+  background-color: rgb(8 7 6 / 0.62);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.05);
+  padding: 1.25rem 1.5rem;
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  line-height: 1.6rem;
+  scrollbar-width: thin;
+  scrollbar-color: rgb(255 255 255 / 0.12) transparent;
+}
+/* The steps line: the reached part brightens smoothly. */
+.jb-step-line {
+  transition: background-color 0.6s ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  .jb-fill,
+  .jb-option,
+  .jb-step-line {
+    transition: none;
+  }
+}
+
+/* Node detail: the name block stays at the top while the page scrolls under it */
+.nd-sticky-head {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  margin-left: -1.5rem;
+  margin-right: -1.5rem;
+  padding-left: 1.5rem;
+  padding-right: 1.5rem;
+  margin-bottom: 0.75rem;
+  transition:
+    background-color 0.3s ease,
+    backdrop-filter 0.3s ease;
+}
+.nd-sticky-head-stuck {
+  background-color: rgb(11 10 8 / 0.72);
+  backdrop-filter: blur(16px) saturate(1.2);
+  -webkit-backdrop-filter: blur(16px) saturate(1.2);
+}
+
+/* Caches & policy: both tables the same height */
+.nd-equal > section {
+  height: 100%;
+}
+
+/* Whole-dashboard scale (user: felt "zoomed in" at 1920). zoom also scales vh,
+   so full-height shells divide by the same factor. */
+:root { --mf-zoom: 0.9; }
+html { zoom: var(--mf-zoom); background: var(--mf-bg); }
+.min-h-screen { min-height: calc(100vh / var(--mf-zoom)); }
+
+/*
+ * Submit a job: two frosted cards side by side (project | options) that
+ * fill the window down to ~24px above its bottom (back link, title and page
+ * padding take ~16.5rem; vh is divided by the page zoom). No boxes inside:
+ * a quiet drop area, mono labels, underline fields, one honey action.
+ */
+.sj-back {
+  display: inline-block;
+  margin-top: 0.75rem;
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--mf-fg-subtle);
+  transition: color 0.3s ease;
+}
+.sj-back:hover {
+  color: var(--mf-fg);
+}
+.sj-card {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  min-height: clamp(32rem, calc(100vh / var(--mf-zoom) - 16.5rem), 46rem);
+  padding: 1.75rem 2.25rem 1.75rem;
+}
+/* The drop area: a slightly deeper patch of the card with a faint comb that
+   fades out towards its edges; it lifts a little while a file is over it. */
+.sj-drop {
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border-radius: 20px;
+  padding: 2rem;
+  background-color: rgb(0 0 0 / 0.1);
+  transition: background-color 0.4s ease;
+}
+.sj-drop::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='56' height='100'%3E%3Cpath d='M28 66L0 50L0 16L28 0L56 16L56 50L28 66L28 100M28 0L28 34L0 50L0 84L28 100L56 84L56 50L28 34' fill='none' stroke='%23fff' stroke-opacity='.05' stroke-width='1'/%3E%3C/svg%3E");
+  background-size: 28px 50px;
+  background-position: center;
+  -webkit-mask-image: radial-gradient(ellipse 60% 60% at 50% 50%, #000 0%, transparent 100%);
+  mask-image: radial-gradient(ellipse 60% 60% at 50% 50%, #000 0%, transparent 100%);
+  opacity: 0.7;
+  transition: opacity 0.4s ease;
+}
+.sj-drop > * {
+  position: relative;
+}
+.sj-drop-over {
+  background-color: rgb(255 250 240 / 0.04);
+}
+.sj-drop-over::before {
+  opacity: 1;
+}
+.sj-drop-icon {
+  color: var(--mf-fg-subtle);
+  transition: color 0.4s ease, transform 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.sj-drop-over .sj-drop-icon {
+  color: var(--mf-accent);
+  transform: translateY(-3px);
+}
+/* A quiet text action: mono uppercase, muted, honey on hover. */
+.sj-link {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--mf-fg-muted);
+  transition: color 0.25s ease;
+}
+.sj-link:hover {
+  color: var(--mf-accent);
+}
+.sj-link:focus-visible,
+.sj-x:focus-visible,
+.sj-step:focus-visible {
+  outline: 2px solid var(--mf-accent);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+.sj-link:disabled {
+  opacity: 0.4;
+  pointer-events: none;
+}
+.sj-x {
+  display: inline-flex;
+  height: 1.75rem;
+  width: 1.75rem;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.25rem;
+  line-height: 1;
+  color: var(--mf-fg-subtle);
+  transition: color 0.25s ease;
+}
+.sj-x:hover {
+  color: var(--mf-fg);
+}
+/* The priority stepper's − / +: bare mono glyphs. */
+.sj-step {
+  display: inline-flex;
+  height: 2.25rem;
+  width: 1.75rem;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-size: 1rem;
+  color: var(--mf-fg-muted);
+  transition: color 0.25s ease, opacity 0.25s ease;
+}
+.sj-step:hover {
+  color: var(--mf-accent);
+}
+.sj-step:disabled {
+  opacity: 0.3;
+  pointer-events: none;
+}
+/* The one action: a honey round-ended button with ink text (the round
+   honey "+" of the Jobs list, stretched to hold its words). */
+.sj-go {
+  display: inline-flex;
+  height: 2.75rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  padding: 0 1.5rem;
+  background-color: var(--mf-accent);
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #0b0a08;
+  transition: background-color 0.3s ease, opacity 0.3s ease;
+}
+.sj-go:hover {
+  background-color: var(--mf-accent-hover);
+}
+.sj-go:focus-visible {
+  outline: 2px solid var(--mf-accent);
+  outline-offset: 3px;
+}
+.sj-go:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+  background-color: var(--mf-accent);
+}
+/* The rules paragraph opens by growing its row (0fr -> 1fr). */
+.sj-reveal {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition: grid-template-rows 0.35s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.3s ease;
+}
+.sj-reveal-open {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+.sj-in {
+  animation: ov-row-in 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/*
+ * Benchmarks pages (the Jobs language): the frosted campaigns list with
+ * eight even columns and the sticky header, the open headline figures, the
+ * quiet row actions, the tab tables, and the charts' marks (thin lines,
+ * honey only for the best, grey for the baseline). Calm motion that stops
+ * under reduced motion.
+ */
+/* Even gaps, as the jobs list: each column is its widest content (rem,
+   below) + the cells' 1.25rem side paddings + one shared slack `--bm-s`, so
+   every gap between two columns' contents is the same (2.5rem + s). The
+   ends stay fixed and equal (3.25rem before the first column's content and
+   after the actions), so a wide window widens the gaps, not the margins.
+   The slack is the scroller's width (100cqw: an inline-size container)
+   minus the 89.75rem the columns need, shared by the 7 gaps; lengths only
+   (no %), so the fixed layout honours them. The actions column is auto (it
+   absorbs any rounding) and right-aligned, its buttons ending 3.25rem from
+   the card's edge.
+   content (at the bigger .ov-table-big type): campaign 17 · state 6 ·
+   progress 10.5 · runs 6 · speed-up 5 · failures 5 · started 7.25 ·
+   actions 9 */
+.bm-list {
+  --bm-s: max(0px, calc((100cqw - 89.75rem) / 7));
+}
+.bm-list.ov-table-fit th:nth-child(1) { width: calc(21.5rem + var(--bm-s)); }
+.bm-list.ov-table-fit th:nth-child(2) { width: calc(8.5rem + var(--bm-s)); }
+.bm-list.ov-table-fit th:nth-child(3) { width: calc(13rem + var(--bm-s)); }
+.bm-list.ov-table-fit th:nth-child(4) { width: calc(8.5rem + var(--bm-s)); }
+.bm-list.ov-table-fit th:nth-child(5) { width: calc(7.5rem + var(--bm-s)); }
+.bm-list.ov-table-fit th:nth-child(6) { width: calc(7.5rem + var(--bm-s)); }
+.bm-list.ov-table-fit th:nth-child(7) { width: calc(9.75rem + var(--bm-s)); }
+.bm-list.ov-table-fit th:nth-child(8) { width: auto; }
+/* compact rows (~4.25rem: the two-line campaign cell + these paddings) */
+.bm-list.ov-table-fit td {
+  padding-top: 0.9375rem;
+  padding-bottom: 0.9375rem;
+}
+/* the mono counts (runs, speed-up, failures) a step under the bigger sans
+   type, so they read the same size beside it */
+.bm-list.ov-table-big td.font-mono {
+  font-size: 0.875rem;
+}
+/* The list fills the window down to ~24px above its bottom, however few
+   rows it has: the header, page padding and title row take ~12rem (as the
+   jobs list), the compact headline figures ~7.5rem, the card's own bottom
+   padding 1rem and the 24px gap the rest. vh is divided by the page zoom. */
+.bm-list-scroll {
+  height: max(16rem, calc(100vh / var(--mf-zoom) - 22rem));
+  container-type: inline-size;
+}
+/* A tab's table scrolls inside its card at most a window high. */
+.bm-tab-scroll {
+  max-height: calc(100vh / var(--mf-zoom) - 10rem);
+}
+/* Sticky headers: clear at the top, the card's tone with a soft fade into
+   the rows once rows scroll under them (the Jobs list's approach). */
+.bm-list thead,
+.bm-runs thead,
+.bm-labels thead,
+.bm-quality thead {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.bm-list.ov-table-fit th,
+.bm-runs.ov-table-fit th,
+.bm-labels.ov-table-fit th,
+.bm-quality.ov-table-fit th {
+  background: transparent;
+  transition: background-color 220ms ease;
+}
+.bm-list-scroll[data-scrolled="true"] th,
+.bm-tab-scroll[data-scrolled="true"] th {
+  background: linear-gradient(to bottom,
+    rgb(37 34 29 / 0.97) 0%, rgb(37 34 29 / 0.97) 62%,
+    rgb(37 34 29 / 0.6) 82%, rgb(37 34 29 / 0) 100%);
+}
+.bm-list.ov-table-fit thead tr,
+.bm-runs.ov-table-fit thead tr,
+.bm-labels.ov-table-fit thead tr,
+.bm-quality.ov-table-fit thead tr {
+  border-bottom: 0;
+}
+.bm-list.ov-table-fit th {
+  padding-top: 1.6rem;
+  padding-bottom: 1.75rem;
+}
+.bm-runs.ov-table-fit th,
+.bm-labels.ov-table-fit th,
+.bm-quality.ov-table-fit th {
+  padding-top: 1.4rem;
+  padding-bottom: 1.4rem;
+}
+/* the tab tables' own even columns */
+.bm-runs.ov-table-fit th:nth-child(1) { width: 5%; }
+.bm-runs.ov-table-fit th:nth-child(2) { width: 17%; }
+.bm-runs.ov-table-fit th:nth-child(3) { width: 11%; }
+.bm-runs.ov-table-fit th:nth-child(4) { width: 12%; }
+.bm-runs.ov-table-fit th:nth-child(5) { width: 9%; }
+.bm-runs.ov-table-fit th:nth-child(6) { width: 5%; }
+.bm-runs.ov-table-fit th:nth-child(7) { width: 10%; }
+.bm-runs.ov-table-fit th:nth-child(8) { width: 5%; }
+.bm-runs.ov-table-fit th:nth-child(9) { width: 16%; }
+.bm-runs.ov-table-fit th:nth-child(10) { width: 10%; }
+.bm-labels.ov-table-fit th:nth-child(1) { width: 17%; }
+.bm-labels.ov-table-fit th:nth-child(2) { width: 20%; }
+.bm-labels.ov-table-fit th:nth-child(3) { width: 10%; }
+.bm-labels.ov-table-fit th:nth-child(4) { width: 16%; }
+.bm-labels.ov-table-fit th:nth-child(5) { width: 17%; }
+.bm-labels.ov-table-fit th:nth-child(6) { width: 9%; }
+.bm-labels.ov-table-fit th:nth-child(7) { width: 11%; }
+.bm-quality.ov-table-fit th:nth-child(1) { width: 12%; }
+.bm-quality.ov-table-fit th:nth-child(2) { width: 20%; }
+.bm-quality.ov-table-fit th:nth-child(3) { width: 5%; }
+.bm-quality.ov-table-fit th:nth-child(4) { width: 9%; }
+.bm-quality.ov-table-fit th:nth-child(5) { width: 7%; }
+.bm-quality.ov-table-fit th:nth-child(6) { width: 12%; }
+.bm-quality.ov-table-fit th:nth-child(7) { width: 12%; }
+.bm-quality.ov-table-fit th:nth-child(8) { width: 6%; }
+.bm-quality.ov-table-fit th:nth-child(9) { width: 9%; }
+.bm-quality.ov-table-fit th:nth-child(10) { width: 8%; }
+/* Row actions: quiet mono words, never boxes; muted, honey on hover;
+   Start / Resume honey. */
+.bm-act {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.25rem 0;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--mf-fg-muted);
+  transition: color 0.25s ease, opacity 0.25s ease;
+}
+.bm-act:hover:not(:disabled) {
+  color: #ffc93c;
+}
+.bm-act-honey {
+  color: #ffc93c;
+}
+.bm-act-honey:hover:not(:disabled) {
+  color: #ffd35e;
+}
+.bm-act:focus-visible {
+  outline: 2px solid var(--mf-accent);
+  outline-offset: 4px;
+  border-radius: 4px;
+}
+.bm-act:disabled,
+.bm-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+/* the campaign page's round actions share one height */
+.bm-btn {
+  height: 2.25rem;
+}
+/* Charts: the bars' track, a grow-in for the bars, a draw-in for the lines. */
+.bm-track {
+  fill: color-mix(in srgb, var(--mf-fg) 7%, transparent);
+}
+.bm-bar {
+  transform-box: fill-box;
+  transform-origin: left center;
+  transition: width 0.9s cubic-bezier(0.22, 1, 0.36, 1);
+  animation: bm-grow 0.9s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes bm-grow {
+  from {
+    transform: scaleX(0);
+  }
+}
+.bm-in {
+  animation: bm-fade 0.5s 0.35s ease both;
+}
+.bm-draw {
+  stroke-dasharray: 1;
+  animation: bm-draw 1.1s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes bm-draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+}
+.bm-dot {
+  transition: r 0.2s ease;
+  animation: bm-fade 0.5s 0.45s ease both;
+}
+@keyframes bm-fade {
+  from {
+    opacity: 0;
+  }
+}
+.bm-numbers > summary {
+  list-style: none;
+  width: fit-content;
+}
+.bm-numbers > summary::-webkit-details-marker {
+  display: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .bm-bar,
+  .bm-in,
+  .bm-draw,
+  .bm-dot {
+    animation: none;
+    transition: none;
+  }
+}
+
+/*
+ * Planner page (the Benchmarks / Jobs language): a frosted card only where a
+ * main table scrolls inside it, everything else open on the page with the
+ * same paddings (so titles and edges line up); tables with even gaps and the
+ * sticky header that takes its fill only once rows scroll under it; the
+ * tab's first row fills the window; the round title-row actions; the
+ * run-evaluation popover; quiet toggles; the error histogram's thin bars.
+ * Calm motion that stops under reduced motion.
+ */
+/* one title row and one side padding for every section, card or open */
+.pl-head {
+  padding: 1.75rem 2.25rem 0.5rem;
+}
+.pl-body {
+  padding-left: 2.25rem;
+  padding-right: 2.25rem;
+}
+/* A tab's first row fills the window down to ~24px above its bottom: the
+   header (~4.75rem), the page padding (1.25rem), the title row (~5.65rem)
+   and the headline figures with their gap (~8.25rem) above it, the page's
+   bottom padding (1.25rem) below it. vh is divided by the page zoom. */
+.pl-fill {
+  height: max(44rem, calc(100vh / var(--mf-zoom) - 21.5rem));
+}
+/* the Models tab's first row: the model in use and the sets, one height */
+.pl-top {
+  min-height: 22rem;
+}
+/* a report detail's table scrolls inside its card at most a window high */
+.pl-detail-scroll {
+  max-height: calc(100vh / var(--mf-zoom) - 14rem);
+}
+/* the held-out error chart, open on the page under its title row */
+.pl-chart {
+  padding-left: 0.75rem;
+  padding-right: 0.75rem;
+}
+/* the Models charts' captions: one height, so both plots start on one line */
+.pl-chart-cap {
+  display: flex;
+  min-width: 0;
+  height: 2.5rem;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1.5rem;
+  padding-bottom: 0.75rem;
+}
+.pl-chart-empty {
+  display: flex;
+  height: 300px;
+  align-items: center;
+}
+/* The scroller is positioned (so visually hidden cell text is clipped with
+   the rows instead of stretching the page) and an inline-size container
+   (so the columns can share its width: 100cqw). */
+.pl-table > .pl-scroll {
+  position: relative;
+  flex: 1 1 auto;
+  container-type: inline-size;
+}
+.pl-table thead {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.pl-table.ov-table-fit thead tr {
+  border-bottom: 0;
+}
+/* one-line mono heads (short forms; the full name is the tooltip) */
+.pl-table.ov-table-fit th {
+  width: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+  padding-top: 1.1rem;
+  padding-bottom: 1.1rem;
+  background: transparent;
+  transition: background-color 220ms ease;
+}
+.pl-scroll[data-scrolled="true"] th {
+  background: linear-gradient(to bottom,
+    rgb(37 34 29 / 0.97) 0%, rgb(37 34 29 / 0.97) 62%,
+    rgb(37 34 29 / 0.6) 82%, rgb(37 34 29 / 0) 100%);
+}
+.pl-table.ov-table-fit td {
+  white-space: nowrap;
+  padding-top: 0.875rem;
+  padding-bottom: 0.875rem;
+}
+.pl-table.ov-table-fit td.pl-empty {
+  white-space: normal;
+}
+/* Even gaps: each cell has 1rem a side, so two columns' contents are 2rem
+   apart, plus one shared slack `--pl-s`; the ends are fixed at 2.25rem (the
+   title row's padding), so the first column starts under the title and the
+   space after the last column's content equals the space before the first.
+   Each width below = the column's widest content (rem, commented) + its cell
+   padding (2rem; the first column 3.25rem) + the slack; the last column is
+   auto and takes the rest (its content + 3.25rem + rounding). The slack is
+   the scroller's width minus what the columns need, shared by the gaps
+   (lengths only, no %, so the fixed layout honours them). */
+.pl-table.ov-table-fit th,
+.pl-table.ov-table-fit td {
+  padding-left: 1rem;
+  padding-right: 1rem;
+}
+.pl-table.ov-table-fit th:first-child,
+.pl-table.ov-table-fit td:first-child {
+  padding-left: 2.25rem;
+}
+.pl-table.ov-table-fit th:last-child,
+.pl-table.ov-table-fit td:last-child {
+  padding-right: 2.25rem;
+}
+/* the selected row (shown version / report / set): the honey edge stays */
+.pl-table.ov-table-fit tbody tr[data-selected="true"] {
+  background-color: rgb(255 255 255 / 0.035);
+  box-shadow: inset 2px 0 0 #ffc93c;
+}
+/* factors: term 9 · level 6 · node 10 · family 6 · factor 3.75 · n 2.5 · median 5.25 */
+.pl-factors {
+  --pl-s: max(0px, calc((100cqw - 59rem) / 6));
+}
+.pl-factors.ov-table-fit th:nth-child(1) { width: calc(12.25rem + var(--pl-s)); }
+.pl-factors.ov-table-fit th:nth-child(2) { width: calc(8rem + var(--pl-s)); }
+.pl-factors.ov-table-fit th:nth-child(3) { width: calc(12rem + var(--pl-s)); }
+.pl-factors.ov-table-fit th:nth-child(4) { width: calc(8rem + var(--pl-s)); }
+.pl-factors.ov-table-fit th:nth-child(5) { width: calc(5.75rem + var(--pl-s)); }
+.pl-factors.ov-table-fit th:nth-child(6) { width: calc(4.5rem + var(--pl-s)); }
+/* versions: version 3.75 · created 6.5 · status 6 · held-out error 7.25 · reason 8 */
+.pl-versions {
+  --pl-s: max(0px, calc((100cqw - 44rem) / 4));
+}
+.pl-versions.ov-table-fit th:nth-child(1) { width: calc(7rem + var(--pl-s)); }
+.pl-versions.ov-table-fit th:nth-child(2) { width: calc(8.5rem + var(--pl-s)); }
+.pl-versions.ov-table-fit th:nth-child(3) { width: calc(8rem + var(--pl-s)); }
+.pl-versions.ov-table-fit th:nth-child(4) { width: calc(9.25rem + var(--pl-s)); }
+/* reports: report 5.5 · status 6.5 · campaigns 8 · groups 3.5 · verdicts 5.5 */
+.pl-reports {
+  --pl-s: max(0px, calc((100cqw - 36rem) / 4));
+}
+.pl-reports.ov-table-fit th:nth-child(1) { width: calc(7rem + var(--pl-s)); }
+.pl-reports.ov-table-fit th:nth-child(2) { width: calc(7.5rem + var(--pl-s)); }
+.pl-reports.ov-table-fit th:nth-child(3) { width: calc(9.5rem + var(--pl-s)); }
+.pl-reports.ov-table-fit th:nth-child(4) { width: calc(4rem + var(--pl-s)); }
+/* per policy: policy 17 · kind 5.5 · counted 3.75 · unmeasured 5.25 · no replay 4.75 ·
+   mean 5.75 · CI 6 · time 5.75 · within 3.5 */
+.pl-policies {
+  --pl-s: max(0px, calc((100cqw - 77.75rem) / 8));
+}
+.pl-policies.ov-table-fit th:nth-child(1) { width: calc(20.25rem + var(--pl-s)); }
+.pl-policies.ov-table-fit th:nth-child(2) { width: calc(7.5rem + var(--pl-s)); }
+.pl-policies.ov-table-fit th:nth-child(3) { width: calc(5.75rem + var(--pl-s)); }
+.pl-policies.ov-table-fit th:nth-child(4) { width: calc(7.25rem + var(--pl-s)); }
+.pl-policies.ov-table-fit th:nth-child(5) { width: calc(6.75rem + var(--pl-s)); }
+.pl-policies.ov-table-fit th:nth-child(6) { width: calc(7.75rem + var(--pl-s)); }
+.pl-policies.ov-table-fit th:nth-child(7) { width: calc(8rem + var(--pl-s)); }
+.pl-policies.ov-table-fit th:nth-child(8) { width: calc(7.75rem + var(--pl-s)); }
+/* paired: rule policy 12 · common 6.75 · mean diff 7.75 · CI 6 · unmeasured 5.25 */
+.pl-paired {
+  --pl-s: max(0px, calc((100cqw - 50.25rem) / 4));
+}
+.pl-paired.ov-table-fit th:nth-child(1) { width: calc(15.25rem + var(--pl-s)); }
+.pl-paired.ov-table-fit th:nth-child(2) { width: calc(8.75rem + var(--pl-s)); }
+.pl-paired.ov-table-fit th:nth-child(3) { width: calc(9.75rem + var(--pl-s)); }
+.pl-paired.ov-table-fit th:nth-child(4) { width: calc(8rem + var(--pl-s)); }
+/* per family: family 6.5 · policy 15 · counted 3.75 · mean 5.75 · time 5.75 · within 3.5 */
+.pl-families {
+  --pl-s: max(0px, calc((100cqw - 54.75rem) / 5));
+}
+.pl-families.ov-table-fit th:nth-child(1) { width: calc(9.75rem + var(--pl-s)); }
+.pl-families.ov-table-fit th:nth-child(2) { width: calc(17rem + var(--pl-s)); }
+.pl-families.ov-table-fit th:nth-child(3) { width: calc(5.75rem + var(--pl-s)); }
+.pl-families.ov-table-fit th:nth-child(4) { width: calc(7.75rem + var(--pl-s)); }
+.pl-families.ov-table-fit th:nth-child(5) { width: calc(7.75rem + var(--pl-s)); }
+/* calibrations used: family 6.5 · calibration 6 · fitted 5.75 · held out 4.25 · factors 3.75 */
+.pl-calused {
+  --pl-s: max(0px, calc((100cqw - 38.75rem) / 4));
+}
+.pl-calused.ov-table-fit th:nth-child(1) { width: calc(9.75rem + var(--pl-s)); }
+.pl-calused.ov-table-fit th:nth-child(2) { width: calc(8rem + var(--pl-s)); }
+.pl-calused.ov-table-fit th:nth-child(3) { width: calc(7.75rem + var(--pl-s)); }
+.pl-calused.ov-table-fit th:nth-child(4) { width: calc(6.25rem + var(--pl-s)); }
+/* set detail: term 4.5 · algorithm 4.75 · CV rows 3.75 · families 4.25 · selected 4.25 ·
+   CV error 6.5 · interval 4.25 · held rows 4.75 · error m/c/r 10.5 · coverage 4.25 ·
+   usable 3.75 · failed 6 · reason 8 */
+.pl-metrics {
+  --pl-s: max(0px, calc((100cqw - 101rem) / 12));
+}
+.pl-metrics.ov-table-fit th:nth-child(1) { width: calc(7.75rem + var(--pl-s)); }
+.pl-metrics.ov-table-fit th:nth-child(2) { width: calc(6.75rem + var(--pl-s)); }
+.pl-metrics.ov-table-fit th:nth-child(3) { width: calc(5.75rem + var(--pl-s)); }
+.pl-metrics.ov-table-fit th:nth-child(4) { width: calc(6.25rem + var(--pl-s)); }
+.pl-metrics.ov-table-fit th:nth-child(5) { width: calc(6.25rem + var(--pl-s)); }
+.pl-metrics.ov-table-fit th:nth-child(6) { width: calc(8.5rem + var(--pl-s)); }
+.pl-metrics.ov-table-fit th:nth-child(7) { width: calc(6.25rem + var(--pl-s)); }
+.pl-metrics.ov-table-fit th:nth-child(8) { width: calc(6.75rem + var(--pl-s)); }
+.pl-metrics.ov-table-fit th:nth-child(9) { width: calc(10.5rem + var(--pl-s)); }
+.pl-metrics.ov-table-fit th:nth-child(10) { width: calc(6.25rem + var(--pl-s)); }
+.pl-metrics.ov-table-fit th:nth-child(11) { width: calc(5.75rem + var(--pl-s)); }
+.pl-metrics.ov-table-fit th:nth-child(12) { width: calc(13rem + var(--pl-s)); }
+/* sets: set 6.5 · status 5.5 · learned 18 · reason 12 (· actions 3.5, admins) */
+.pl-sets {
+  --pl-s: max(0px, calc((100cqw - 52.5rem) / 3));
+}
+.pl-sets-admin {
+  --pl-s: max(0px, calc((100cqw - 58rem) / 4));
+}
+.pl-sets.ov-table-fit th:nth-child(1) { width: calc(9.75rem + var(--pl-s)); }
+.pl-sets.ov-table-fit th:nth-child(2) { width: calc(7.5rem + var(--pl-s)); }
+.pl-sets.ov-table-fit th:nth-child(3) { width: calc(20rem + var(--pl-s)); }
+.pl-sets-admin.ov-table-fit th:nth-child(4) { width: calc(15rem + var(--pl-s)); }
+/* points: decision 4.25 · node 8 · family 5.5 · analytical 5.25 · calibrated 5.25 · ML 4 ·
+   actual 4 · ML used 9 · set 6 */
+.pl-pointsTable {
+  --pl-s: max(0px, calc((100cqw - 71.75rem) / 8));
+}
+.pl-pointsTable.ov-table-fit th:nth-child(1) { width: calc(7.5rem + var(--pl-s)); }
+.pl-pointsTable.ov-table-fit th:nth-child(2) { width: calc(10rem + var(--pl-s)); }
+.pl-pointsTable.ov-table-fit th:nth-child(3) { width: calc(7.5rem + var(--pl-s)); }
+.pl-pointsTable.ov-table-fit th:nth-child(4) { width: calc(7.25rem + var(--pl-s)); }
+.pl-pointsTable.ov-table-fit th:nth-child(5) { width: calc(7.25rem + var(--pl-s)); }
+.pl-pointsTable.ov-table-fit th:nth-child(6) { width: calc(6rem + var(--pl-s)); }
+.pl-pointsTable.ov-table-fit th:nth-child(7) { width: calc(6rem + var(--pl-s)); }
+.pl-pointsTable.ov-table-fit th:nth-child(8) { width: calc(11rem + var(--pl-s)); }
+.pl-points-scroll {
+  max-height: 28rem;
+}
+.pl-points > summary {
+  list-style: none;
+}
+.pl-points > summary::-webkit-details-marker {
+  display: none;
+}
+/* small open tables (how often ML acted): no ends of their own (the section
+   pads them), hairline rows, the counts right-aligned */
+.pl-mini.ov-table-fit th:nth-child(1) { width: auto; }
+.pl-mini.ov-table-fit th:nth-child(2) { width: 7rem; }
+.pl-mini.ov-table-fit th:nth-child(3) { width: 7rem; }
+.pl-mini.ov-table-fit th,
+.pl-mini.ov-table-fit td {
+  padding-left: 0.75rem;
+  padding-right: 0.75rem;
+}
+.pl-mini.ov-table-fit th:first-child,
+.pl-mini.ov-table-fit td:first-child {
+  padding-left: 0;
+}
+.pl-mini.ov-table-fit th:last-child,
+.pl-mini.ov-table-fit td:last-child {
+  padding-right: 0;
+}
+.pl-mini.ov-table-fit th {
+  padding-top: 0.5rem;
+  padding-bottom: 0.6rem;
+}
+.pl-mini.ov-table-fit td {
+  padding-top: 0.6rem;
+  padding-bottom: 0.6rem;
+  font-size: 0.8125rem;
+}
+.pl-mini.ov-table-fit tbody tr + tr {
+  border-top: 1px solid color-mix(in srgb, var(--mf-fg) 6%, transparent);
+}
+.pl-mini.ov-table-fit tbody tr:hover {
+  background-color: transparent;
+  box-shadow: none;
+}
+/* the round title-row actions (Run evaluation, Train now) */
+.pl-round:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.pl-run-dot {
+  background-color: #0b0a08;
+}
+.jb-filter-pop.pl-run-pop {
+  width: 28rem;
+}
+.pl-go {
+  display: inline-flex;
+  height: 2.25rem;
+  align-items: center;
+  gap: 0.5rem;
+  border-radius: 9999px;
+  padding: 0 1.125rem;
+  background-color: var(--mf-accent);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: #0b0a08;
+  white-space: nowrap;
+  transition: background-color 0.3s ease, opacity 0.3s ease;
+}
+.pl-go:hover:not(:disabled) {
+  background-color: var(--mf-accent-hover);
+}
+.pl-go:focus-visible {
+  outline: 2px solid var(--mf-accent);
+  outline-offset: 3px;
+}
+.pl-go:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+/* a quiet checkbox: a small square that fills honey, the words beside it */
+.pl-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.625rem;
+  font-size: 0.8125rem;
+  color: var(--mf-fg-muted);
+  transition: color 0.25s ease, opacity 0.25s ease;
+}
+.pl-toggle:hover:not(:disabled) {
+  color: var(--mf-fg);
+}
+.pl-toggle:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.pl-toggle:focus-visible {
+  outline: 2px solid var(--mf-accent);
+  outline-offset: 4px;
+  border-radius: 4px;
+}
+.pl-toggle-box {
+  display: inline-flex;
+  height: 0.875rem;
+  width: 0.875rem;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  border: 1px solid color-mix(in srgb, var(--mf-fg) 28%, transparent);
+  color: #0b0a08;
+  transition: background-color 0.25s ease, border-color 0.25s ease;
+}
+.pl-toggle-box svg {
+  height: 0.625rem;
+  width: 0.625rem;
+}
+.pl-toggle-on {
+  border-color: #ffc93c;
+  background-color: #ffc93c;
+}
+/* the error histogram's thin bars grow up once; the hovered bin brightens */
+.pl-bar {
+  transform-box: fill-box;
+  transform-origin: center bottom;
+  animation: pl-grow 0.8s cubic-bezier(0.22, 1, 0.36, 1) both;
+  transition: fill-opacity 0.2s ease;
+}
+.pl-bar-on {
+  fill-opacity: 0.9;
+}
+@keyframes pl-grow {
+  from {
+    transform: scaleY(0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pl-bar {
+    animation: none;
+    transition: none;
+  }
+}
+
+/* Planner "Model in use": its state word sits right after the title, away from the Model sets card. */
+.pl-meta-left > .pl-head { justify-content: flex-start; }
+
+/* Calibration: Versions always shows ~6 rows; on short windows the page scrolls rather than squashing it. */
+.pl-versions-card { min-height: 22rem; }
+
+/* regret bars: name · track · value, the value in its own column */
+.pl-rbar { display: grid; grid-template-columns: minmax(0, 17rem) minmax(0, 1fr) 4.5rem; align-items: center; column-gap: 2rem; }
+.pl-rtrack { fill: rgb(255 255 255 / .06); }
+.pl-rfill { fill: rgb(214 205 190 / .5); }
+.pl-rbar[data-tone="hive"] .pl-rfill { fill: #ffc93c; }
+.pl-rbar[data-tone="base"] .pl-rfill { fill: rgb(214 205 190 / .3); }
+.pl-rci line { stroke: rgb(255 255 255 / .35); stroke-width: 1; }
+/* the set detail's last column keeps the card's inner margin on the right */
+.pl-metrics.ov-table-fit th:last-child,
+.pl-metrics.ov-table-fit td:last-child { padding-right: 2.25rem; }
+
+/*
+ * Settings pages - deliberately NOT the dashboard language: no frosted
+ * cards, one calm centred column open on the page. The title, underlined
+ * text tabs on a full-width hairline, a plain intro line with the section's
+ * honey action, lists as simple hairline rows (small sans header, a "⋯" menu
+ * per row), facts as label/value rows under a left label column.
+ */
+.st-page {
+  --st-hair: color-mix(in srgb, var(--mf-fg) 9%, transparent);
+  margin: 0 auto;
+  width: 100%;
+  max-width: 76rem;
+  padding-top: 0.75rem;
+  padding-bottom: 4rem;
+}
+.st-title {
+  font-family: var(--font-display);
+  font-size: 2rem;
+  line-height: 1.15;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  color: var(--mf-fg);
+}
+/* sub-section tabs: words over one hairline; the open one honey-underlined */
+.st-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 2rem;
+  margin-top: 1.5rem;
+  border-bottom: 1px solid var(--st-hair);
+}
+.st-tab {
+  margin-bottom: -1px;
+  padding: 0.25rem 0 0.875rem;
+  border-bottom: 2px solid transparent;
+  font-size: 0.9375rem;
+  color: var(--mf-fg-muted);
+  transition: color 0.2s ease, border-color 0.2s ease;
+}
+.st-tab:hover {
+  color: var(--mf-fg);
+}
+.st-tab-on {
+  border-bottom-color: #ffc93c;
+  font-weight: 500;
+  color: var(--mf-fg);
+}
+.st-tab:focus-visible {
+  outline: 2px solid var(--mf-accent);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+/* the intro line and the section's action */
+.st-intro {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 3rem;
+  padding: 2rem 0 1.75rem;
+}
+.st-intro-text {
+  max-width: 46rem;
+  font-size: 0.95rem;
+  line-height: 1.6;
+  color: var(--mf-fg-muted);
+}
+.st-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  height: 2.375rem;
+  padding: 0 1.125rem 0 0.9375rem;
+  border-radius: 0.5rem;
+  background-color: #ffc93c;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #17130a;
+  white-space: nowrap;
+  transition: background-color 0.2s ease;
+}
+.st-primary:hover {
+  background-color: #ffd666;
+}
+.st-primary:focus-visible {
+  outline: 2px solid #ffc93c;
+  outline-offset: 3px;
+}
+/* the list: plain rows, a hairline under the header and between rows */
+.st-list {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+  color: var(--mf-fg-muted);
+}
+.st-list th {
+  padding: 0 1.5rem 0.75rem 0;
+  border-bottom: 1px solid var(--st-hair);
+  text-align: left;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--mf-fg-subtle);
+  white-space: nowrap;
+}
+.st-list td {
+  height: 3.625rem;
+  padding: 0 1.5rem 0 0;
+  border-bottom: 1px solid var(--st-hair);
+  vertical-align: middle;
+  white-space: nowrap;
+}
+.st-list th:last-child,
+.st-list td:last-child {
+  padding-right: 0;
+}
+.st-list .st-grow {
+  width: 99%;
+  white-space: normal;
+}
+.st-list td.st-grow {
+  overflow-wrap: anywhere;
+}
+.st-list .st-mono {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+}
+.st-list tbody tr {
+  transition: background-color 0.2s ease;
+}
+.st-list tbody tr:hover {
+  background-color: rgb(255 255 255 / 0.015);
+}
+.st-list td.st-empty {
+  height: 6rem;
+  text-align: center;
+  white-space: normal;
+}
+.st-mask {
+  letter-spacing: 0.06em;
+  color: var(--mf-fg-subtle);
+}
+.st-tag {
+  border-radius: 9999px;
+  background-color: rgb(255 201 60 / 0.1);
+  padding: 0.0625rem 0.5rem;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  color: #ffc93c;
+  white-space: nowrap;
+}
+.st-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.st-state > span:last-child::first-letter {
+  text-transform: uppercase;
+}
+.st-light {
+  height: 0.375rem;
+  width: 0.375rem;
+  flex-shrink: 0;
+  border-radius: 9999px;
+}
+.st-foot {
+  margin-top: 1rem;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--mf-fg-subtle);
+}
+/* a row's "⋯" and its small popover */
+.st-dots {
+  display: inline-flex;
+  height: 2rem;
+  width: 2rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.375rem;
+  color: var(--mf-fg-muted);
+  transition: color 0.2s ease, background-color 0.2s ease;
+}
+.st-dots:hover:not(:disabled),
+.st-dots[aria-expanded="true"] {
+  background-color: rgb(255 255 255 / 0.06);
+  color: var(--mf-fg);
+}
+.st-dots:disabled {
+  cursor: progress;
+}
+.st-dots:focus-visible {
+  outline: 2px solid var(--mf-accent);
+  outline-offset: 1px;
+}
+.st-pop {
+  position: absolute;
+  top: calc(100% + 0.25rem);
+  right: 0;
+  z-index: 30;
+  display: flex;
+  min-width: 9.5rem;
+  flex-direction: column;
+  border: 1px solid color-mix(in srgb, var(--mf-fg) 10%, transparent);
+  border-radius: 0.5rem;
+  background-color: var(--mf-surface-raised);
+  padding: 0.25rem;
+  box-shadow: 0 12px 32px rgb(0 0 0 / 0.45);
+}
+.st-pop-item {
+  border-radius: 0.3125rem;
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+  font-size: 0.875rem;
+  color: var(--mf-fg);
+  white-space: nowrap;
+}
+.st-pop-item:hover,
+.st-pop-item:focus-visible {
+  outline: none;
+  background-color: rgb(255 255 255 / 0.06);
+}
+.st-pop-danger {
+  color: var(--mf-status-failed);
+}
+/* a settings section: label column (title + one line) | content; hairlines between */
+.st-section {
+  display: grid;
+  grid-template-columns: 19rem minmax(0, 1fr);
+  gap: 3rem;
+  padding: 2rem 0;
+  border-top: 1px solid var(--st-hair);
+}
+.st-intro + .st-section {
+  border-top: 0;
+  padding-top: 0.5rem;
+}
+.st-foot + .st-section,
+.st-list + .st-section {
+  margin-top: 3rem;
+}
+.st-section-title {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--mf-fg);
+}
+.st-section-desc {
+  margin-top: 0.375rem;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--mf-fg-muted);
+}
+@media (max-width: 1000px) {
+  .st-section {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1rem;
+  }
+}
+.st-prose {
+  max-width: 44rem;
+  font-size: 0.875rem;
+  line-height: 1.65;
+  color: var(--mf-fg-muted);
+}
+/* label/value rows */
+.st-fact {
+  display: grid;
+  grid-template-columns: 11rem minmax(0, 1fr);
+  align-items: baseline;
+  gap: 1.5rem;
+  padding: 0.8125rem 0;
+  border-bottom: 1px solid var(--st-hair);
+  font-size: 0.875rem;
+}
+.st-fact:first-child {
+  padding-top: 0;
+}
+.st-fact:last-child {
+  border-bottom: 0;
+}
+.st-fact dt {
+  color: var(--mf-fg-muted);
+}
+.st-fact dd {
+  min-width: 0;
+  color: var(--mf-fg);
+}
+/* commands and examples: a quiet well */
+.st-code {
+  max-width: 44rem;
+  border: 1px solid color-mix(in srgb, var(--mf-fg) 7%, transparent);
+  border-radius: 0.5rem;
+  background-color: rgb(0 0 0 / 0.2);
+  padding: 0.75rem 1rem;
+  font-size: 0.75rem;
+  line-height: 1.375rem;
+  color: var(--mf-fg-muted);
+  scrollbar-width: thin;
+}
+/* an invalid underline field turns red */
+.st-field[aria-invalid="true"] {
+  border-bottom-color: var(--mf-status-failed);
+}
+/* the file picker: the native control with a quiet round button */
+.st-file {
+  font-size: 0.8125rem;
+  color: var(--mf-fg-muted);
+}
+.st-file::file-selector-button {
+  margin-right: 0.875rem;
+  border: 1px solid color-mix(in srgb, var(--mf-fg) 18%, transparent);
+  border-radius: 9999px;
+  background: transparent;
+  padding: 0.375rem 0.875rem;
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--mf-fg);
+  cursor: pointer;
+  transition: border-color 0.2s ease;
+}
+.st-file:hover::file-selector-button {
+  border-color: var(--mf-accent);
+}
+/* the issued invite's facts: mono captions */
+.st-issued dt {
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--mf-fg-subtle);
+}
+/* Overview: what a card shows, opened by its bell */
+.ov-info-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.6rem 2rem; align-content: center; height: 100%; }
+.ov-info-list li { position: relative; padding-left: 0.9rem; font-size: 0.8125rem; line-height: 1.25rem; opacity: .9; }
+.ov-info-list li::before { content: ""; position: absolute; left: 0; top: 0.45rem; width: 4px; height: 4px; border-radius: 9999px; background: currentColor; opacity: .7; }
+/* Models: a thin light line between the two prediction charts, centred in the gap */
+.pl-split2 > :last-child { position: relative; }
+.pl-split2 > :last-child::before {
+  content: ""; position: absolute; left: -1.75rem; top: 0.5rem; bottom: 0.5rem;
+  border-left: 1px solid rgb(255 255 255 / .08);
+}
+
+/*
+ * Product guide (/guide, the top bar's bell): a reading page, not a
+ * dashboard - one calm centred column on the page background, hairline
+ * separators, mono captions, thin line diagrams with honey for what moves.
+ */
+.gd { max-width: 68rem; margin: 0 auto; padding: 2rem 0 6rem; }
+.gd-head { padding-bottom: 3.5rem; }
+.gd-h1 {
+  margin-top: 0.75rem;
+  font-family: var(--font-display);
+  font-size: 3.5rem;
+  line-height: 1.02;
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  color: var(--mf-fg);
+}
+.gd-lead { margin-top: 1.25rem; max-width: 40rem; font-size: 1.125rem; line-height: 1.65; color: var(--mf-fg-muted); }
+.gd-sec { padding: 2rem 0 4rem; }
+.gd-sec-head { display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 2.25rem; }
+.gd-h2 { font-family: var(--font-display); font-size: 1.75rem; line-height: 1.2; font-weight: 600; letter-spacing: -0.025em; color: var(--mf-fg); }
+.gd-h3 { font-family: var(--font-display); font-size: 1.125rem; line-height: 1.4; font-weight: 600; letter-spacing: -0.01em; color: var(--mf-fg); }
+.gd-p { max-width: 44rem; font-size: 0.9375rem; line-height: 1.7; color: var(--mf-fg-muted); }
+.gd-small { margin-top: 0.5rem; max-width: 36rem; font-size: 0.875rem; line-height: 1.65; color: var(--mf-fg-muted); }
+.gd-code { font-family: var(--font-mono); font-size: 0.8125em; color: var(--mf-fg); }
+
+/* the one question */
+.gd-q {
+  max-width: 50rem;
+  margin-bottom: 1.5rem;
+  font-family: var(--font-display);
+  font-size: 2rem;
+  line-height: 1.3;
+  font-weight: 500;
+  letter-spacing: -0.025em;
+  color: var(--mf-fg);
+}
+.gd-q::before {
+  content: "";
+  display: block;
+  width: 2.5rem;
+  margin-bottom: 1.25rem;
+  border-top: 2px solid var(--mf-accent);
+}
+
+/* the 2 x 2 of ways (+ axis captions on wide screens) */
+.gd-ways { display: grid; grid-template-columns: 9rem minmax(0, 1fr) minmax(0, 1fr); column-gap: 3.5rem; }
+.gd-axis { padding-bottom: 0.875rem; color: var(--mf-fg-muted); }
+.gd-axis-row { padding-top: 2.1rem; padding-right: 1rem; }
+.gd-way { padding: 2rem 0 2.5rem; }
+.gd-way-axis { display: none; margin-top: 0.25rem; }
+.gd-fig { display: block; width: 100%; max-width: 16rem; height: auto; margin-bottom: 1.5rem; color: var(--mf-fg-subtle); }
+.gd-fig-sm { flex: none; width: 2.75rem; height: auto; margin-top: 0.125rem; color: var(--mf-fg-subtle); }
+.gd-ln { fill: none; stroke: currentColor; stroke-width: 1; stroke-linecap: round; stroke-linejoin: round; }
+.gd-mv { fill: none; stroke: var(--mf-accent); stroke-width: 1.25; stroke-linecap: round; stroke-linejoin: round; }
+.gd-mvf { fill: var(--mf-accent); }
+.gd-blk { fill: var(--mf-fg-muted); }
+.gd-dash { stroke-dasharray: 2 3; }
+.gd-tx { font-family: var(--font-mono); font-size: 6.5px; letter-spacing: 0.12em; fill: currentColor; }
+.gd-way-meta { display: flex; align-items: baseline; gap: 0.875rem; margin-bottom: 0.375rem; }
+.gd-built { color: var(--mf-accent); }
+.gd-coming { color: var(--mf-fg-subtle); }
+.gd-shown { margin-left: 0.625rem; font-family: var(--font-sans); font-size: 0.8125rem; font-weight: 400; letter-spacing: 0; color: var(--mf-fg-subtle); }
+.gd-local { display: flex; align-items: flex-start; gap: 1.25rem; padding-top: 1.75rem; }
+.gd-local-name { margin-right: 0.75rem; font-family: var(--font-display); font-size: 1.125rem; font-weight: 600; color: var(--mf-fg); }
+.gd-local .gd-built { margin-right: 0.875rem; }
+
+/* how a job flows: one hairline, a honey point per step */
+.gd-steps { position: relative; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); column-gap: 2.5rem; row-gap: 2rem; list-style: none; padding: 0; }
+.gd-steps::before {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 0;
+  right: 0;
+  border-top: 1px solid color-mix(in srgb, var(--mf-fg) 12%, transparent);
+}
+.gd-steps > li { position: relative; padding-top: 1.75rem; }
+.gd-steps > li::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: 9999px;
+  background: var(--mf-accent);
+}
+.gd-step-n { display: block; margin-bottom: 0.375rem; }
+
+/* the pages: name left, one line right */
+.gd-row { display: grid; grid-template-columns: 13rem minmax(0, 1fr); column-gap: 2.5rem; padding: 1.25rem 0; }
+.gd-row:first-child { border-top: 0; padding-top: 0; }
+.gd-page { font-family: var(--font-display); font-size: 1.125rem; font-weight: 600; letter-spacing: -0.01em; color: var(--mf-fg); }
+.gd-page-link { display: inline-flex; align-items: baseline; gap: 0.5rem; text-decoration: none; transition: color 0.2s ease; }
+.gd-page-link:hover { color: var(--mf-accent); }
+.gd-arrow { font-family: var(--font-sans); font-size: 0.875rem; font-weight: 400; color: var(--mf-fg-subtle); transition: transform 0.2s ease, color 0.2s ease; }
+.gd-page-link:hover .gd-arrow { color: var(--mf-accent); transform: translateX(2px); }
+.gd-sub { margin-top: 0.625rem; display: flex; flex-direction: column; gap: 0.375rem; max-width: 44rem; font-size: 0.875rem; line-height: 1.6; color: var(--mf-fg-muted); list-style: none; padding: 0; }
+.gd-sub-name { font-family: var(--font-mono); font-size: 0.6875rem; font-weight: 500; letter-spacing: 0.12em; text-transform: uppercase; color: var(--mf-fg); margin-right: 0.375rem; }
+
+/* words you'll see */
+.gd-terms { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2rem 4rem; }
+.gd-term { font-family: var(--font-display); font-size: 1rem; font-weight: 600; color: var(--mf-fg); }
+
+@media (prefers-reduced-motion: reduce) {
+  .gd-page-link, .gd-arrow { transition: none; }
+}
+@media (max-width: 64rem) {
+  .gd-ways { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 2.5rem; }
+  .gd-axis { display: none; }
+  .gd-way-axis { display: block; }
+  .gd-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .gd-steps::before { display: none; }
+}
+@media (max-width: 40rem) {
+  .gd-h1 { font-size: 2.5rem; }
+  .gd-q { font-size: 1.5rem; }
+  .gd-ways, .gd-steps, .gd-terms, .gd-row { grid-template-columns: minmax(0, 1fr); }
+  .gd-row { row-gap: 0.375rem; }
+}
+
+/*
+ * Nodes list (/nodes): the table in the Product guide's plain treatment -
+ * no frosted card, straight on the page background, hairlines under the
+ * header and between rows, mono uppercase header labels, honey only for
+ * emphasis (the hovered name, the active sort). Layout and columns are
+ * unchanged (.ov-table-fit widths still apply).
+ */
+.nl-plain th:first-child,
+.nl-plain td:first-child { padding-left: 0; }
+.nl-plain th:last-child,
+.nl-plain td:last-child { padding-right: 0; }
+.nl-plain thead tr { border-bottom: 1px solid color-mix(in srgb, var(--mf-fg) 7%, transparent); }
+.nl-plain th {
+  padding-top: 0;
+  padding-bottom: 0.875rem;
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  color: var(--mf-fg-subtle);
+}
+.nl-plain th button { letter-spacing: inherit; transition: color 0.2s ease; }
+.nl-plain th[aria-sort="ascending"] button,
+.nl-plain th[aria-sort="descending"] button { color: var(--mf-fg); }
+.nl-plain th[aria-sort="ascending"] button > span,
+.nl-plain th[aria-sort="descending"] button > span { color: var(--mf-accent); }
+.nl-plain tbody tr { border-bottom: 1px solid color-mix(in srgb, var(--mf-fg) 7%, transparent); }
+.nl-plain tbody tr:last-child { border-bottom: 1px solid color-mix(in srgb, var(--mf-fg) 7%, transparent); }
+.nl-plain tbody tr:hover {
+  background-color: color-mix(in srgb, var(--mf-fg) 2.5%, transparent);
+  box-shadow: none;
+}
+.nl-plain td { line-height: 1.5; }
+/* the usage meters as thin lines */
+.nl-plain td svg { height: 2px; border-radius: 0; }
+.nl-plain td svg > rect:first-child { fill: color-mix(in srgb, var(--mf-fg) 10%, transparent); }
+@media (prefers-reduced-motion: reduce) {
+  .nl-plain th button { transition: none; }
+}
+/* Jobs: the list table plain on the page, like Nodes; its sticky header fades from the page background */
+.jb-plain .jb-list-scroll[data-scrolled="true"] th {
+  background: linear-gradient(to bottom,
+    var(--mf-bg) 0%, var(--mf-bg) 62%,
+    color-mix(in srgb, var(--mf-bg) 60%, transparent) 82%, transparent);
+}
+.jb-plain td svg { height: 2px; border-radius: 0; }
+.jb-plain.ov-table-fit th:first-child,
+.jb-plain.ov-table-fit td:first-child { padding-left: 0; }
+.jb-plain.ov-table-fit th:last-child,
+.jb-plain.ov-table-fit td:last-child { padding-right: 0; }

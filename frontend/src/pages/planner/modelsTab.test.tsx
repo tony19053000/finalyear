@@ -61,10 +61,13 @@ describe("Planner page: Models tab", () => {
     const fabric = fakeController(routes(true));
     renderApp("/planner");
     await screen.findByRole("table", { name: "Calibration factors of version 7" });
-    expect(fabric.count("GET /v1/planner/ml/models")).toBe(0); // inactive tabs are not mounted
+    // inactive tabs are not mounted (the headline figures read the models list, nothing more)
+    expect(screen.queryByTestId("ml-in-use")).toBeNull();
+    expect(fabric.count("GET /v1/planner/ml/predictions")).toBe(0);
+    expect(fabric.calls.some((c) => c.key.startsWith("GET /v1/planner/ml/models/"))).toBe(false);
     await userEvent.click(screen.getByRole("tab", { name: "Models" }));
     expect(await screen.findByTestId("ml-in-use")).toBeTruthy();
-    expect(fabric.count("GET /v1/planner/ml/models")).toBe(1);
+    expect(screen.getByRole("tab", { name: "Models", selected: true })).toBeTruthy();
   });
 
   it("shows the set in use, the live numbers and the retrain state", async () => {
@@ -145,7 +148,9 @@ describe("Planner page: Models tab", () => {
   it("scatter: another term; a point with a zero value is counted, not plotted", async () => {
     await openModels();
     await screen.findByTestId("ml-scatter");
-    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Term" }), "env");
+    // hive's own listbox (no native select)
+    await userEvent.click(screen.getByLabelText("Term"));
+    await userEvent.click(within(screen.getByRole("listbox")).getByRole("option", { name: "env" }));
     const figure = await screen.findByTestId("ml-scatter");
     expect(within(figure).getByRole("img").getAttribute("aria-label")).toContain("1 calibration points and 0 ML points");
     expect(figure.textContent).toContain("1 point(s) not plotted");
@@ -175,12 +180,13 @@ describe("Planner page: Models tab", () => {
     const fabric = await openModels();
     await screen.findByTestId("ml-scatter");
     expect(fabric.calls.find((c) => c.key === "GET /v1/planner/ml/predictions")?.url).toContain("limit=500");
-    await userEvent.selectOptions(screen.getByRole("combobox", { name: "Newest runs" }), "2000");
+    await userEvent.click(screen.getByLabelText("Newest runs"));
+    const options = within(screen.getByRole("listbox")).getAllByRole("option");
+    expect(options.map((o) => o.textContent)).toEqual(["500", "2000"]);
+    await userEvent.click(within(screen.getByRole("listbox")).getByRole("option", { name: "2000" }));
     await waitFor(() => {
       expect(fabric.calls.some((c) => c.url.includes("limit=2000"))).toBe(true);
     });
-    const options = within(screen.getByRole("combobox", { name: "Newest runs" })).getAllByRole("option");
-    expect(options.map((o) => o.textContent)).toEqual(["500", "2000"]);
   });
 
   it("no points yet: an empty state", async () => {
