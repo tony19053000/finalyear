@@ -1736,3 +1736,12 @@ GPU top-up (topup_gpu.py, 162 runs) started 01:18 after warm-up 9/9 ok.
   transfer / output / lane_stage: too few rows. Failure classifier: 38 < 50 events, not trained.
 - Reading: ML clearly wins on overhead terms (env start, combine); the calibrated model wins on the core speed terms (compute, chunk_rate).
   Next (LEAD): a hybrid (ML for env/combine only) or relax/scope the lane_env coverage gate; per-term pinning.
+
+## 2026-11-19 SHOWCASE - one big GPU job (AI hyperparameter search: 270 SmallCNN models on 20k Tiny ImageNet photos, 300 steps each)
+| Laptops | Time | Models | Best model (held-out 2 000 photos) |
+|---|---|---|---|
+| L1+L2+L4 (3 GPUs) | 3 484 s = 58 min (12:53-13:51) | 270/270 ok (L4 100, L1 96, L2 74) | model 64, lr 3e-4, width 48: 15.55 % |
+| L1 alone | 10 066 s = 2 h 48 min (13:51-16:39) | 270/270 ok | model 40, lr 3e-4, width 48: 15.6 % |
+-> 2.89x faster on 3 GPUs (ideal ~3.0x). Same best recipe (lr 3e-4, width 48) both runs; mean accuracy 8.50 % vs 8.57 %; 219/270 models
+within 1 point (GPU training is not bit-exact across different GPUs/seeds of cuDNN). Best AI saved: ~/mf-eval/showcase/best_model.pt
+(7.7 MB, re-trained on L1 in 38 s, 14.9 % held-out; ~30x random 0.5 %); guess.py demo (top-3 guesses, 200 Tiny ImageNet labels).
