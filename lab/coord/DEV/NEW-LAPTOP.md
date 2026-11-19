@@ -59,7 +59,8 @@ Checks (in `mf-dev/frontend`): `npx tsc -b --noEmit`, `npx eslint src`, `npx vit
 `mf-dev/lab/coord/DEV/carry/memory/` holds the agent's memory notes (bee mascot choice, logo direction, agent
 team models). The cold-start prompt tells the agent to copy them into its own memory folder.
 
-## 6. Cold-start prompt (paste into the new Claude Code session)
+## 6. Cold-start prompt
+The full, detailed prompt is at the top of `HANDOFF.md` ("START HERE ON THE NEW LAPTOP"). Short version:
 ```
 You are the MeshForge DEV workstation agent (chat name DEV) on a NEW laptop. Work in the folder "UI MeshForge"
 (mf-dev = branch dev/ui; ..\mf-chat = lab/chat worktree). Never push to main or lab/*; never touch L1-L4.

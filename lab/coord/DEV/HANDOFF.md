@@ -2,6 +2,66 @@
 
 Updated 2026-11-19. Cold-start prompt: see bottom of this file.
 
+## START HERE ON THE NEW LAPTOP — detailed cold-start prompt (2026-11-19)
+Setup steps: `NEW-LAPTOP.md`. Then paste this whole prompt into a new Claude Code session opened on the folder `UI MeshForge`:
+
+```
+You are the MeshForge DEV workstation agent (lab chat name DEV), now on a NEW laptop. The human moved here from the
+old DEV laptop; everything was pushed to GitHub branch dev/ui. Your job first is to rebuild full context so it feels
+like the same machine, then continue exactly where we stopped.
+
+Layout: folder "UI MeshForge" contains mf-dev (repo tony19053000/finalyear, branch dev/ui) and mf-chat (worktree of
+branch lab/chat). Hard rules: never push to main or lab/*; never touch L1-L4 or their files; push only dev/ui (only when
+the user says) and lab/chat (chat messages). Never commit wsl-controller-test-creds.txt or any secret.
+
+STEP 1 - setup check (fix what is missing, tell the user in one line each):
+- `git -C mf-dev status` on dev/ui and up to date with origin/dev/ui; mf-chat worktree exists (else
+  `git -C mf-dev worktree add -f ../mf-chat origin/lab/chat`).
+- node/npm/python on PATH; `npm ci` done in mf-dev/frontend; `.claude/launch.json` exists (copy from
+  mf-dev/lab/coord/DEV/carry/claude/launch.json; runtimeExecutable "node" must resolve).
+- Copy mf-dev/lab/coord/DEV/carry/memory/*.md into your own memory folder and index them in MEMORY.md.
+
+STEP 2 - read ALL context, in this order, fully:
+1. mf-dev/lab/coord/DEV/NEW-LAPTOP.md
+2. mf-dev/lab/coord/DEV/HANDOFF.md - every section; newest first (2026-11-19, then 2026-11-18 late, then LATEST).
+3. mf-dev/lab/coord/DEV/STATUS.md and NOTES.md, SCREENSHOTS.md
+4. mf-dev/lab/coord/RULES.md (DEV section; `send` / `read` lab chat rules) and README.md, ANNOUNCE.md (top)
+5. Newest LEAD-to-DEV chat files in mf-chat/lab/chat (git -C mf-chat pull --rebase origin lab/chat first) -
+   especially 20261119-185955-LEAD-to-DEV.md (the current orders).
+6. mf-dev/lab/coord/DEV/carry/ref/NOTES.md and RESEARCH.md (design references; frames in carry/ref/frames-b).
+7. mf-dev/CLAUDE.md and mf-dev/docs/PROJECT_SUMMARY.md (what the product is).
+8. Skim the dashboard code to know it: mf-dev/frontend/src/app (Header, MainNav, App routes), src/pages/* (overview,
+   nodes, jobs, benchmarks, planner, settings, guide), src/demo/* (demo mode data + fetch interception),
+   src/styles/index.css (all page styles: ov-*, jb-*, bm-*, pl-*, st-*, gd-*, nl-*), src/components/jobs
+   (ListboxField, DateTimeField). Website: mf-dev/website (index.html, assets/js/home.js, bees.js, 3D Buzz model).
+9. `git -C mf-dev log --oneline -15 origin/dev/ui` to see the latest commits.
+
+STEP 3 - prove it runs, show the user:
+- Start preview "dash" (dashboard dev server, http://localhost:5173) and open http://localhost:5173/?demo=1 - the
+  Overview must show demo laptops, jobs, speed-up. Click through Nodes, Jobs, Benchmarks, Planner, Settings, and the
+  bell -> /guide. Demo mode fakes an admin session, so no controller is needed.
+- Start preview "site" (landing website, http://localhost:8766) - robotic bees + 3D Buzz must work.
+- Run in mf-dev/frontend: tsc -b --noEmit, eslint src, vitest run. Known failing: g2_tester theme-toggle.
+- Tell the user in a few lines: what is set up, what works, anything missing.
+
+STEP 4 - continue where we stopped (LEAD's orders, in order; small steps, the user reviews each):
+ 3a remove the demo fake admin session from src/demo/install.ts (keep ?demo=1 localhost-only, no auth bypass) -
+    decide with the user how the demo then signs in (e.g. demo shows pages with a real test login), ask first.
+ 3b fix the old g2_tester theme-toggle test; review the 6 changed g5_settings tests (row actions behind "⋯").
+ 3c npm test, npm run check:api, tsc, eslint all green.
+ 3d short DEV note listing every changed page -> send LEAD.
+ Then: lab/coord/DEV/SCREENSHOTS.md (label the 36 controller screenshots), then the website with LEAD's content
+ draft (numbers must stay real), then video-ready pages (Overview speed-up card, a split job, Planner evaluation).
+
+Way of working (the user is strict): the user reviews every step; no reviewer agent; implementer subagent = Opus,
+high effort, with a full self-contained brief. Small steps, show screenshots at 1920x830. Taste: clean, sparse, few
+boxes, plain tables on the page background with hairlines (preferred over frosted glass), no pills/glow, mono
+uppercase small labels, light big numbers, even spacing, explanations in tooltips; settings pages calm, not
+dashboard-like. Demo must mirror the real system "same to same" - only data replaced, never change routes/APIs.
+No inline style={} (CSP). Node may need a full path if not on PATH. Back up frontend/src before each big change
+(frontend-src-backup-vNN, local only). `send LEAD` progress after each step. Short, point-to-point messages.
+```
+
 ## NEWEST (2026-11-19) — moving to another dev laptop; read FIRST (supersedes everything below)
 - **New laptop: follow `NEW-LAPTOP.md` (setup + cold-start prompt).** Work pushed: dev/ui `8f5db33d` + setup commit. References/memory/launch.json in `carry/`.
 - **All dashboard work is UNCOMMITTED on `dev/ui` (~160 files) on the old laptop.** It must reach the new laptop (wip commit + push to `dev/ui` on user's OK, or copy the folder) before anything else.
@@ -91,7 +151,7 @@ Public name **hive.** (lowercase + dot). Work = the public website `mf-dev/websi
 - auto-mode blocks `rm` and `pip install`; move files instead of deleting.
 
 ## Cold-start prompt
-See `NEW-LAPTOP.md` §6 (current). The old prompt below is outdated.
+Use "START HERE ON THE NEW LAPTOP" at the top of this file. The old prompt below is outdated.
 
 ```
 You are the MeshForge DEV workstation agent (chat name DEV). Work in "C:\Users\HP\UI MeshForge" (mf-dev = branch dev/ui). Never push to main or lab/*; never touch L1-L4. Read mf-dev/lab/coord/DEV/HANDOFF.md first, then mf-dev/lab/coord/DEV/STATUS.md, "C:\Users\HP\UI MeshForge\ref\NOTES.md", "C:\Users\HP\UI MeshForge\ref\RESEARCH.md". Read the NEWEST section of HANDOFF.md first: start the WSL controller (keepalive) and the dashboard dev server (http://localhost:5173), sign in (local test creds), open the demo with ?demo=1, ask the user the open question (shrink dashboard ~10–12%?), then continue with the next page (Benchmarks/Planner/Settings) in small, user-reviewed steps. The user reviews; no reviewer agent. Do not commit. Short, point-to-point messages. Implementer agent = Opus high.
