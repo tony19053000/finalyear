@@ -964,6 +964,20 @@ sample_interval_s < 0.25 s, ML an_src_declared flag, lab checklist V0.10 mention
 * Trap: a failed-but-still-running old CI run blocks the new one in the concurrency queue - cancel it.
 * Nothing unpushed.
 
+## Known bugs from the final runs - FIX LATER (human, 2026-11-19: no time now)
+* BUG-L1 stuck lane: after cancel_chunk (speculation superseded) + no_work(drained), the Windows agent never ends the lane attempt -> node slot
+  stays full, next job waits ("slots_full") until `Restart-Service MeshForgeAgent`. Seen L2 2026-11-18 03:12-03:29 (Run 2A), L4 after the kill
+  test, earlier "lane running after job succeeded" in GPU runs. Evidence origin/lab/L2 lab/coord/L2/evidence/run2a-stuck-chunk-agent.log.
+  Fix idea: agent ends the lane attempt when its running chunk is cancelled and the lane is drained; controller closes lanes of a terminal job.
+* BUG-L2 min_nodes > feasible nodes -> job runs unsplit instead of the largest possible split.
+* BUG-L3 `compute planner ml compare` needs the ML extras (pyarrow/sklearn/lightgbm/xgboost) in the user CLI; works only with
+  /opt/meshforge/controller/current/bin/compute.
+* Future: battery %, AC power, GPU power limit (low-watt charger capped L4's GPU) in resource updates + ML features.
+* Also deferred: planner new-laptop calibration fix (G14), ADR-0024 warm worker, phase times, gpus list display, declared-vs-measured rate.
+* ML result (L1 2026-11-19): set rejected by all-or-nothing gate (lane_env coverage 0.57 < 0.70 on split.image_classify); per term ML wins env
+  (0.44 vs 2.57) + combine (0.75 vs 2.85), calibration wins compute (0.50 vs 0.56) + chunk_rate (0.16 vs 0.33). Gate thresholds are code
+  constants (controller/ml/train/compare.py coverage_reject 0.80 / family_coverage_reject 0.70) - no config switch.
+
 ## G14 planner new-laptop calibration fix -> v0.17.6 (2026-11-16, LEAD) - read this first
 * Problem (lab, L1 REPORT 2026-11-15): a new/changed laptop got a badly wrong speed estimate (L3 predicted 924 s vs real 250 s), so normal
   submits never split onto it (forced split 1.65x, 97 % of ideal). Causes: join hardware scores measured while throttled (pre-v0.17.5) and
