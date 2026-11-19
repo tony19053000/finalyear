@@ -1721,3 +1721,5 @@ pieces L1 8 / L2 2 (done before the kill) / L3 6 / L4 8, output digest IDENTICAL
 | Simulation 6,000 | 45 s | 25 s (1.8×) | 19 s (2.4×) | 16 s (2.8×) |
 | Simulation 11,000 | 83 s | 45 s (1.9×) | 32 s (2.6×) | 28 s (3.0×) |
 GPU top-up (topup_gpu.py, 162 runs) started 01:18 after warm-up 9/9 ok.
+
+## 2026-11-19 ML TOP-UP GPU DONE 08:13 - topup_gpu.py 162/162 ok (05:38 controller blip: script stopped, resumed 06:20 with poll retries; the in-flight job had succeeded, re-run once). ML dataset now: 3889 matched runs, 9533 rows.
