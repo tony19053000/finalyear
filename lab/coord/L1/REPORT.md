@@ -1766,3 +1766,18 @@ GAP (future work): a node that comes back does NOT rejoin a running split (lost 
 | text 512 | 1 | split L1+L2+L4 (3 GPUs, L3 left out) | 111 s |
 | text 512 | 2 | split L1+L2+L4 (3 GPUs, L3 left out) | 111 s |
 Forced 3-GPU in 2B: train 24 362 s, image 96 132 s, text 512 111 s -> planner matched or beat them; it never put GPU work on L3 (no GPU).
+
+## 2026-11-19/20 TEST 2 - 6 jobs submitted at once, planner decides (multi.py)
+| Job | Done after | Where (planner) |
+|---|---|---|
+| GPU text AI 400 | 214 s | split L1+L2+L4 |
+| CPU CSV 80k | 259 s | split L2+L4 |
+| GPU AI training 12 | 275 s | split L1+L2+L4 |
+| CPU image AI 20k | 283 s | L1 only ("only 1 node can take a lane now") |
+| CPU maths | 287 s | L4 |
+| CPU simulation 60k | 601 s | **L3 alone** ("only 1 node can take a lane now") |
+Makespan 604 s vs ~540 s if run one after another with each job's best plan -> no gain. Cause: placement is greedy at submit time;
+with L1/L2/L4 busy, the heavy simulation went whole to L3 (slowest CPU, ~600 s) instead of waiting ~4 min and splitting (~167 s).
+Without it, the other 5 jobs finished in 287 s (vs ~370 s back to back). Also: submit burst -> controller answered > 5 s (CLI timeout),
+needed a retry. FUTURE WORK: queue-aware / look-ahead placement (wait for a better plan, or re-plan a running job when nodes free up),
+longer CLI timeout / faster intake under bursts.
