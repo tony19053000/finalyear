@@ -7,6 +7,7 @@
  * predictions, run evaluation / train / pin / unpin) and the Settings pages
  * (demo/settingsDemoData.ts: controller health, API tokens, secrets, data,
  * invites - read-only); everything else still goes to the real controller. It stays on until the next full reload without `?demo=1`.
+ * It never fakes a session: you sign in to the real controller as usual.
  *
  * To remove: delete src/demo/ and the demo lines in src/main.tsx.
  */
@@ -38,7 +39,7 @@ import {
   demoRuns,
 } from "./benchDemoData";
 import { demoPlannerMoving, demoPlannerRoute } from "./plannerDemoData";
-import { DEMO_SESSION_TOKEN_ID, demoSettingsRoute } from "./settingsDemoData";
+import { demoSettingsRoute } from "./settingsDemoData";
 
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
 
@@ -52,25 +53,12 @@ function json(body: unknown): Response {
   return new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
 }
 
-/** Demo-only signed-in admin, so the demo works without a controller (localhost + ?demo=1 only). */
-const DEMO_USER = { id: "usr_demo_admin", name: "admin", role: "admin" };
-
+/**
+ * Data only: sign-in, session and whoami (`/v1/session`, `/v1/auth/*` except the
+ * token list) always go to the real controller, so the demo needs a real login.
+ */
 function route(url: URL): unknown {
   const p = url.pathname;
-  if (p === "/v1/session") {
-    return {
-      session: {
-        session_id: "ses_demo",
-        expires_at: new Date(Date.now() + 864e5).toISOString(),
-        idle_expires_at: new Date(Date.now() + 36e5).toISOString(),
-        idle_timeout_s: 3600,
-        user: DEMO_USER,
-      },
-    };
-  }
-  if (p === "/v1/auth/whoami") {
-    return { legacy: false, token_expires_at: new Date(Date.now() + 864e5).toISOString(), token_id: DEMO_SESSION_TOKEN_ID, user: DEMO_USER };
-  }
   if (p === "/v1/nodes") return demoNodeList();
   let m = /^\/v1\/nodes\/([^/]+)$/.exec(p);
   if (m) return demoNodeDetail(decodeURIComponent(m[1] ?? ""));
