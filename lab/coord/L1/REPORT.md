@@ -1723,3 +1723,16 @@ pieces L1 8 / L2 2 (done before the kill) / L3 6 / L4 8, output digest IDENTICAL
 GPU top-up (topup_gpu.py, 162 runs) started 01:18 after warm-up 9/9 ok.
 
 ## 2026-11-19 ML TOP-UP GPU DONE 08:13 - topup_gpu.py 162/162 ok (05:38 controller blip: script stopped, resumed 06:20 with poll retries; the in-flight job had succeeded, re-run once). ML dataset now: 3889 matched runs, 9533 rows.
+
+## 2026-11-19 ML TRAINING + COMPARE (dataset db26aff1..., 9 533 rows from 3 889 matched runs)
+- Auto retrain 08:35 IST on all rows -> REJECTED by the gate: "coverage: lane_env: coverage 0.50 on split.image_classify < 0.70" (same as
+  previous days). Manual `ml train` 09:05 = no_new_runs (same data). No ML set serving; planner stays calibrated-analytical (mode auto).
+- `ml compare` (controller python, held-out = leave one job family out), MALE = mean |ln(pred/actual)|, lower is better:
+  env (job env start): ML knn 0.44 vs cal 2.57 (ML far better, not separable: 3 families)
+  compute (whole-job run): ML knn 0.56 vs cal 0.50 (cal slightly better)
+  lane_env (split lane env start): ML lightgbm 1.22 vs cal 1.42 (ML better; coverage 57% -> gate fails)
+  chunk_rate (per-laptop piece speed in splits): ML xgboost 0.33 vs cal 0.16 (cal 2x better)
+  combine: ML lightgbm 0.75 vs cal 2.85 -> ML BETTER (significant)
+  transfer / output / lane_stage: too few rows. Failure classifier: 38 < 50 events, not trained.
+- Reading: ML clearly wins on overhead terms (env start, combine); the calibrated model wins on the core speed terms (compute, chunk_rate).
+  Next (LEAD): a hybrid (ML for env/combine only) or relax/scope the lane_env coverage gate; per-term pinning.

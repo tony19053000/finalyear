@@ -1,0 +1,54 @@
+dataset sha256:db26aff1bdedea79d4399ad88a8c04dcb63e25b4072a8c3ddde672405722606c (9533 rows, dataset v1, features v2)
+held-out = leave one family out; the model is chosen on the other families only; 'vs cal' = paired family bootstrap of the log error
+failure classifier: not trained, 38 < 50 events
+                      ML vs calibration, held-out families                      
++------------------------------------------------------------------------------+
+|       |      |     | statu | selec | MALE   | MALE  |        |       |       |
+|term   | rows | fam | s     | ted   | ml     | cal   | vs cal | cover | usable|
+|-------+------+-----+-------+-------+--------+-------+--------+-------+-------|
+|transf | 7    | 1   | insuf | -     | -      | -     | -      | -     | -     |
+|er     |      |     | ficie |       |        |       |        |       |       |
+|       |      |     | nt    |       |        |       |        |       |       |
+|       |      |     | data  |       |        |       |        |       |       |
+|env    | 540  | 3   | train | knn(n | 0.440  | 2.566 | not    | 91.3% | 0.0%  |
+|       |      |     | ed    | _neig |        |       | separa |       |       |
+|       |      |     |       | hbors |        |       | ble    |       |       |
+|       |      |     |       | =10)  |        |       |        |       |       |
+|comput | 785  | 3   | train | knn(n | 0.557  | 0.499 | not    | 73.0% | 0.0%  |
+|e      |      |     | ed    | _neig |        |       | separa |       |       |
+|       |      |     |       | hbors |        |       | ble    |       |       |
+|       |      |     |       | =25)  |        |       |        |       |       |
+|output | 0    | 0   | insuf | -     | -      | -     | -      | -     | -     |
+|       |      |     | ficie |       |        |       |        |       |       |
+|       |      |     | nt    |       |        |       |        |       |       |
+|       |      |     | data  |       |        |       |        |       |       |
+|lane_s | 19   | 1   | insuf | -     | -      | -     | -      | -     | -     |
+|tage   |      |     | ficie |       |        |       |        |       |       |
+|       |      |     | nt    |       |        |       |        |       |       |
+|       |      |     | data  |       |        |       |        |       |       |
+|lane_e | 2196 | 5   | train | light | 1.224  | 1.415 | not    | 57.1% | 0.0%  |
+|nv     |      |     | ed    | gbm(n |        |       | separa |       |       |
+|       |      |     |       | _esti |        |       | ble    |       |       |
+|       |      |     |       | mator |        |       |        |       |       |
+|       |      |     |       | s=400 |        |       |        |       |       |
+|       |      |     |       | ,num_ |        |       |        |       |       |
+|       |      |     |       | leave |        |       |        |       |       |
+|       |      |     |       | s=15) |        |       |        |       |       |
+|chunk_ | 4761 | 5   | train | xgboo | 0.329  | 0.157 | not    | 57.6% | 56.0% |
+|rate   |      |     | ed    | st(ma |        |       | separa |       |       |
+|       |      |     |       | x_dep |        |       | ble    |       |       |
+|       |      |     |       | th=6, |        |       |        |       |       |
+|       |      |     |       | n_est |        |       |        |       |       |
+|       |      |     |       | imato |        |       |        |       |       |
+|       |      |     |       | rs=40 |        |       |        |       |       |
+|       |      |     |       | 0)    |        |       |        |       |       |
+|combin | 1225 | 5   | train | light | 0.749  | 2.852 | better | 69.1% | 0.0%  |
+|e      |      |     | ed    | gbm(n |        |       |        |       |       |
+|       |      |     |       | _esti |        |       |        |       |       |
+|       |      |     |       | mator |        |       |        |       |       |
+|       |      |     |       | s=200 |        |       |        |       |       |
+|       |      |     |       | ,num_ |        |       |        |       |       |
+|       |      |     |       | leave |        |       |        |       |       |
+|       |      |     |       | s=7)  |        |       |        |       |       |
++------------------------------------------------------------------------------+
+compared in 131.89 s
