@@ -7,7 +7,8 @@
  * predictions, run evaluation / train / pin / unpin) and the Settings pages
  * (demo/settingsDemoData.ts: controller health, API tokens, secrets, data,
  * invites - read-only); everything else still goes to the real controller. It stays on until the next full reload without `?demo=1`.
- * It never fakes a session: you sign in to the real controller as usual.
+ * Sign-in: under the vite dev server only, a demo admin session (demoSessionRoute);
+ * in a production build it never fakes a session - you sign in to the real controller.
  *
  * To remove: delete src/demo/ and the demo lines in src/main.tsx.
  */
@@ -39,7 +40,7 @@ import {
   demoRuns,
 } from "./benchDemoData";
 import { demoPlannerMoving, demoPlannerRoute } from "./plannerDemoData";
-import { demoSettingsRoute } from "./settingsDemoData";
+import { DEMO_SESSION_TOKEN_ID, demoSettingsRoute } from "./settingsDemoData";
 
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
 
@@ -53,12 +54,38 @@ function json(body: unknown): Response {
   return new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
 }
 
+/** Demo-only signed-in admin for DEVELOPMENT (no controller on the DEV laptop). */
+const DEMO_USER = { id: "usr_demo_admin", name: "admin", role: "admin" };
+
 /**
- * Data only: sign-in, session and whoami (`/v1/session`, `/v1/auth/*` except the
- * token list) always go to the real controller, so the demo needs a real login.
+ * The demo admin session: ONLY under the vite dev server (`import.meta.env.DEV`),
+ * on top of ?demo=1 + localhost (demoRequested). In `npm run build` DEV is the
+ * constant false, so this answers nothing and the minifier drops the branch:
+ * a real build always signs in to the real controller.
  */
+export function demoSessionRoute(p: string): unknown {
+  if (!import.meta.env.DEV) return undefined;
+  if (p === "/v1/session") {
+    return {
+      session: {
+        session_id: "ses_demo",
+        expires_at: new Date(Date.now() + 864e5).toISOString(),
+        idle_expires_at: new Date(Date.now() + 36e5).toISOString(),
+        idle_timeout_s: 3600,
+        user: DEMO_USER,
+      },
+    };
+  }
+  if (p === "/v1/auth/whoami") {
+    return { legacy: false, token_expires_at: new Date(Date.now() + 864e5).toISOString(), token_id: DEMO_SESSION_TOKEN_ID, user: DEMO_USER };
+  }
+  return undefined;
+}
+
 function route(url: URL): unknown {
   const p = url.pathname;
+  const session = demoSessionRoute(p);
+  if (session !== undefined) return session;
   if (p === "/v1/nodes") return demoNodeList();
   let m = /^\/v1\/nodes\/([^/]+)$/.exec(p);
   if (m) return demoNodeDetail(decodeURIComponent(m[1] ?? ""));
