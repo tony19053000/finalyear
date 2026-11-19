@@ -1745,3 +1745,13 @@ GPU top-up (topup_gpu.py, 162 runs) started 01:18 after warm-up 9/9 ok.
 -> 2.89x faster on 3 GPUs (ideal ~3.0x). Same best recipe (lr 3e-4, width 48) both runs; mean accuracy 8.50 % vs 8.57 %; 219/270 models
 within 1 point (GPU training is not bit-exact across different GPUs/seeds of cuDNN). Best AI saved: ~/mf-eval/showcase/best_model.pt
 (7.7 MB, re-trained on L1 in 38 s, 14.9 % held-out; ~30x random 0.5 %); guess.py demo (top-3 guesses, 200 Tiny ImageNet labels).
+
+## 2026-11-19 CHAOS TEST - 140-model AI training on L1+L2+L4, human closes L2/L4 lids at random
+| Run | Time | Pieces L1 / L2 / L4 | Result |
+|---|---|---|---|
+| normal (job_01M7STYPXQ6YP7GMN5PJPZTGBN) | 1 800 s = 30.0 min | 26 / 19 / 25 | 140/140, mean acc 8.4 % |
+| chaos (job_01M7SXTHAC8PPZX1Q0CA4D461C) | 3 852 s = 64.2 min | 52 / 4 / 14 | 140/140 SUCCEEDED, mean acc 8.4 % |
+Events (IST): L2 offline 18:29:13 -> lane lost + piece released 18:30:13 (60 s grace) -> online 18:31:46; L2 offline again 18:37:58,
+online 18:39:08; L4 offline 18:38:10 -> lane lost 18:39:10 -> online 18:45:27. From 18:39 L1 worked alone.
+Findings: every drop detected in ~3 s, work re-queued after 60 s, no work lost, job never failed, all 140 models back.
+GAP (future work): a node that comes back does NOT rejoin a running split (lost lane stays closed) -> L1 finished alone, 2.1x baseline.
