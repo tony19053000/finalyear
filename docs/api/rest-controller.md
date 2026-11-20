@@ -3224,9 +3224,11 @@ registered (``source`` ``fold``); ``active`` = the serving set
 |---|---|---|---|
 | `algorithm` | string | yes | - |
 | `artefact_bytes` | integer (nullable) | yes | - |
+| `gate_reason` | string (nullable) | no | - |
 | `metrics` | object | yes | - |
 | `params` | object | yes | - |
 | `reason` | string (nullable) | yes | - |
+| `serves` | string | no | default `calibration` |
 | `term` | string | yes | - |
 | `version` | string | yes | - |
 
@@ -3325,6 +3327,7 @@ registered (``source`` ``fold``); ``active`` = the serving set
 
 | Field | Type | Required | Description |
 |---|---|---|---|
+| `approved_terms` | array of string (nullable) | no | - |
 | `created_at` | [Utc](#schema-utc) | yes | - |
 | `dataset_digest` | string | yes | - |
 | `feature_version` | integer | yes | - |
@@ -3342,6 +3345,7 @@ registered (``source`` ``fold``); ``active`` = the serving set
 
 | Field | Type | Required | Description |
 |---|---|---|---|
+| `approved_terms` | array of string (nullable) | no | - |
 | `created_at` | [Utc](#schema-utc) | yes | - |
 | `dataset_digest` | string | yes | - |
 | `feature_version` | integer | yes | - |

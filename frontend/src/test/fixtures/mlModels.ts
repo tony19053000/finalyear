@@ -18,6 +18,7 @@ const MEMBERS: MlSetOut["members"] = [
     metrics: { rows: 120, families: 4, groups: 30, selected: "lightgbm", inner_male: 0.1234, inner_se: 0.0101, interval_width: 0.61 },
     reason: null,
     artefact_bytes: 2048,
+    serves: "ml",
   },
   {
     term: "transfer",
@@ -27,6 +28,7 @@ const MEMBERS: MlSetOut["members"] = [
     metrics: { rows: 9, families: 1, groups: 2 },
     reason: "insufficient_data: 9 rows, 1 families, 2 groups (needs >= 30 rows, >= 2 families, >= 2 groups)",
     artefact_bytes: null,
+    serves: "calibration",
   },
 ];
 
