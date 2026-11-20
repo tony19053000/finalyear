@@ -62,6 +62,7 @@ import {
   gateText,
   inUseText,
   learnedText,
+  mlPartsText,
   liveText,
   mlState,
   plottedText,
@@ -244,6 +245,7 @@ function setColumns(shown: string | null, onSelect: (v: string) => void, admin: 
     { id: "created", header: "Created", mono: true, cell: (s) => formatTime(s.created_at) },
     { id: "status", header: "Status", cell: (s) => <Badge tone={setTone(s.status)}>{s.status}</Badge> },
     { id: "learned", header: "Learned terms", mono: true, cell: (s) => learnedText(s.members) },
+    { id: "mlparts", header: "ML parts", mono: true, cell: (s) => mlPartsText(s) },
     { id: "reason", header: "Reason", cell: (s) => s.reason ?? "—" },
   ];
   if (admin) {
@@ -270,6 +272,7 @@ function setColumns(shown: string | null, onSelect: (v: string) => void, admin: 
 const METRIC_COLUMNS: Column<TermMetricsRow>[] = [
   { id: "term", header: "Term", mono: true, cell: (r) => r.term },
   { id: "algorithm", header: "Algorithm", mono: true, cell: (r) => r.algorithm },
+  { id: "serves", header: "Uses", mono: true, cell: (r) => r.serves },
   { id: "rows", header: "CV rows", align: "right", mono: true, cell: (r) => r.rows },
   { id: "families", header: "Families", align: "right", mono: true, cell: (r) => r.families },
   { id: "selected", header: "Selected", mono: true, cell: (r) => r.selected },

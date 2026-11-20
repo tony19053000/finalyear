@@ -155,7 +155,11 @@ def test_registry_source_builds_once_per_set(
 
     def counting(predictor: Any, **kwargs: Any) -> Any:
         built.append(predictor.predictor_version)
-        assert kwargs == {"max_interval_log": 0.4, "budget_ms": 33.0}
+        assert kwargs == {
+            "max_interval_log": 0.4,
+            "budget_ms": 33.0,
+            "withheld": frozenset(),  # D462: nothing withheld by a pre-D462 set
+        }
         return real(predictor, **kwargs)
 
     monkeypatch.setattr("meshforge.controller.ml.source.ml_input", counting)

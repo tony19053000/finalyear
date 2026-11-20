@@ -19,6 +19,7 @@ export type TermMlRateOut = components["schemas"]["TermMlRateOut"];
 /** `detail.ml.reason` -> words; an unknown reason is shown as it is. */
 export const ML_REASON_TEXT: Readonly<Record<string, string>> = {
   no_model: "no model for this term",
+  not_approved: "part not approved by the gate (calibration)",
   ood: "out of distribution",
   interval_too_wide: "interval too wide",
   exact_by_construction: "exact by construction",

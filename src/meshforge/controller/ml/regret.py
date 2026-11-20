@@ -27,7 +27,10 @@ make the planner pick worse configurations:
 
 The result is the gate document's ``regret`` block (:func:`regret_block`); a
 ``rejected`` check turns the set ``rejected`` with rule ``regret_worse``
-(:func:`apply`). G3 rows keep ``"regret": "pending_g4"``; this is never
+(:func:`apply`; its ``approved_terms`` then empty). With the per-part gate
+(D462) the candidate is loaded with only its approved parts, so the check
+judges the partial set the planner would serve. G3 rows keep
+``"regret": "pending_g4"``; this is never
 written again.
 """
 
@@ -165,7 +168,10 @@ def apply(doc: Mapping[str, Any], outcome: RegretOutcome) -> dict[str, Any]:
     if outcome.check.status == "rejected":
         failed = [r for r in gate.get("rules_failed") or () if r != REGRET_RULE]
         gate.update(
-            accepted=False, rule=REGRET_RULE, rules_failed=[*failed, REGRET_RULE]
+            accepted=False,
+            rule=REGRET_RULE,
+            rules_failed=[*failed, REGRET_RULE],
+            approved_terms=[],  # D462: a rejected set serves no part
         )
         out.update(
             accepted=False,

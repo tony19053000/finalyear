@@ -134,8 +134,22 @@ export function retrainText(r: MlRetrainStateOut): string {
 export function learnedText(members: readonly MlMemberOut[]): string {
   const learned = members
     .filter((m) => m.algorithm !== "none")
-    .map((m) => `${m.term}=${m.algorithm}`);
+    .map((m) => `${m.term}=${m.algorithm}${m.gate_reason != null ? " (cal)" : ""}`);
   return learned.length === 0 ? "none" : learned.join(", ");
+}
+
+/**
+ * D462 per-part gate: the terms a set serves with ML. `null` = a set gated
+ * before D462 (all-or-nothing: every learned term). A rejected set serves
+ * no part.
+ */
+export function mlPartsText(
+  set: Pick<MlSetOut, "approved_terms"> & Partial<Pick<MlSetOut, "status">>,
+): string {
+  if (set.status === "rejected") return "none";
+  const approved = set.approved_terms;
+  if (approved == null) return "all learned";
+  return approved.length === 0 ? "none" : approved.join(", ");
 }
 
 export type SetTone = "ok" | "failed" | "accent" | "neutral";
@@ -161,6 +175,8 @@ export function canUnpin(set: MlSetOut): boolean {
 export interface TermMetricsRow {
   term: string;
   algorithm: string;
+  /** D462: `ml` or `calibration` - what the planner uses for this term. */
+  serves: string;
   /** Cross-validation (members[].metrics, G3 fit). */
   rows: string;
   families: string;
@@ -202,6 +218,7 @@ export function termMetricRows(
       return {
         term: m.term,
         algorithm: m.algorithm,
+        serves: m.serves,
         rows: count(cv.rows),
         families: count(cv.families),
         selected: str(cv.selected) ?? DASH,
@@ -217,7 +234,7 @@ export function termMetricRows(
         coverage: share(held.coverage),
         usable: share(held.usable_rate),
         failed: failed.length === 0 ? DASH : failed.join(", "),
-        reason: m.reason ?? DASH,
+        reason: m.gate_reason ?? m.reason ?? DASH,
       };
     });
 }

@@ -58,7 +58,13 @@ from meshforge.common.errors import ExitCode, FailureType, MeshForgeError
 from meshforge.common.hashing import Digest
 from meshforge.common.logging import get_logger
 from meshforge.controller.ml.artefact import ArtefactError, digest
-from meshforge.controller.ml.serve import LoadedModel, LoadedSet, load_model
+from meshforge.controller.ml.serve import (
+    NOT_APPROVED,
+    LoadedModel,
+    LoadedSet,
+    approved_terms,
+    load_model,
+)
 from meshforge.controller.store.engine import create_session_factory
 from meshforge.controller.store.models.ml import (
     MAX_ML_REASON_CHARS,
@@ -355,9 +361,16 @@ class ModelRegistry:
         member cannot be (a set serves whole or not at all)."""
         models: dict[str, LoadedModel] = {}
         without: dict[str, str] = {}
+        approved = approved_terms(row.gate)
+        withheld: set[str] = set()
         for member in row.members:
             if not member.learned:
                 without[member.term] = member.reason or "no_learned_model"
+                continue
+            if approved is not None and member.term not in approved:
+                # D462: a part the gate did not approve serves calibration
+                without[member.term] = NOT_APPROVED
+                withheld.add(member.term)
                 continue
             data = await self.artefact(member)
             models[member.term] = await asyncio.to_thread(
@@ -368,6 +381,7 @@ class ModelRegistry:
             feature_version=row.feature_version,
             models=models,
             without_model=without,
+            not_approved=frozenset(withheld),
         )
 
     def _put(self, data: bytes, version: str) -> PutResult:
@@ -421,7 +435,12 @@ class ModelRegistry:
             if problem is not None:  # D2: never activate what cannot serve
                 accepted = False
                 reason = f"unloadable_artefact: {problem}"
-                gate = {**gate, "accepted": False, "rule": "unloadable_artefact"}
+                gate = {
+                    **gate,
+                    "accepted": False,
+                    "rule": "unloadable_artefact",
+                    "approved_terms": [],  # D462: a rejected set serves no part
+                }
         try:
             async with self._sessions() as db, db.begin():
                 await db.execute(_LOCK)

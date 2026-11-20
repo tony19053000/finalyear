@@ -156,11 +156,14 @@ def ml_input(
     max_interval_log: float = DEFAULT_MAX_INTERVAL_LOG,
     budget_ms: float | None = DEFAULT_PREDICT_BUDGET_MS,
     clock: Callable[[], float] = time.perf_counter,
+    withheld: frozenset[str] = frozenset(),
 ) -> MlInput | None:
     """The planner's input for ``predictor`` (module docstring), warmed up;
     None = the warm-up failed (the model is unavailable: plan without it).
     ``budget_ms`` None = no budget (offline replays and evaluations, where
-    time does not decide anything). ``ValueError`` for nonsense limits."""
+    time does not decide anything). ``withheld`` = terms the per-part gate
+    did not approve (D462; reason ``not_approved``). ``ValueError`` for
+    nonsense limits."""
     if not (math.isfinite(max_interval_log) and max_interval_log >= 0.0):
         raise ValueError("ml_max_interval_log must be a non-negative number")
     if budget_ms is not None and not (math.isfinite(budget_ms) and budget_ms > 0.0):
@@ -176,6 +179,7 @@ def ml_input(
         predictor=wrapped,
         features=term_features,
         max_interval_log=max_interval_log,
+        withheld=withheld,
     )
 
 

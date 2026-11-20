@@ -100,7 +100,7 @@ class TermMlRateOut(_Stored):
     used: bool
     """True = the planner used ``raw_s x e^y_hat`` for this term."""
     reason: str | None = None
-    """Why not (``no_model`` / ``ood`` / ``interval_too_wide`` /
+    """Why not (``no_model`` / ``not_approved`` (D462) / ``ood`` / ``interval_too_wide`` /
     ``exact_by_construction`` / ``below_min_predicted`` /
     ``predictor_error`` ...); null when used."""
     ood_reason: str | None = None

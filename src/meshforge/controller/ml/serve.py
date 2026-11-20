@@ -54,15 +54,34 @@ from meshforge.controller.ml.prep import transform
 from meshforge.controller.ml.schema import FEATURE_VERSION, NUMERIC_FEATURES
 
 __all__ = [
+    "NOT_APPROVED",
     "LoadedModel",
     "LoadedSet",
     "TermOutput",
+    "approved_terms",
     "library_available",
     "load_model",
 ]
 
 _EXTRA_CANDIDATES: Final = 8
 _LIBRARY: Final = {"lightgbm": "lightgbm", "xgboost": "xgboost"}
+
+
+NOT_APPROVED: Final = "not_approved_by_gate"
+"""``without_model`` reason of a learned member the per-part gate did not
+approve (D462): it is not loaded, the planner uses calibration for it."""
+
+
+def approved_terms(gate: Mapping[str, Any] | None) -> frozenset[str] | None:
+    """The terms a set's gate document approved (D462 per-part gate); None
+    = the document predates D462 (no ``approved_terms``): every learned member
+    serves, as before."""
+    if not gate:
+        return None
+    value = gate.get("approved_terms")
+    if not isinstance(value, list | tuple):
+        return None
+    return frozenset(str(term) for term in value)
 
 
 def library_available(algorithm: str) -> bool:
@@ -327,6 +346,9 @@ class LoadedSet:
     """Term -> its learned model."""
     without_model: Mapping[str, str] = field(default_factory=dict)
     """Term -> why the set has no learned model for it."""
+    not_approved: frozenset[str] = frozenset()
+    """Learned members the per-part gate rejected (D462): not loaded, also
+    in ``without_model`` with reason :data:`NOT_APPROVED`."""
 
     @property
     def terms(self) -> Sequence[str]:

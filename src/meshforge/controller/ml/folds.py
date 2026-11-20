@@ -49,7 +49,13 @@ from meshforge.controller.ml.child import (
     read_output,
 )
 from meshforge.controller.ml.predictor import ml_input
-from meshforge.controller.ml.serve import LoadedModel, LoadedSet, load_model
+from meshforge.controller.ml.serve import (
+    NOT_APPROVED,
+    LoadedModel,
+    LoadedSet,
+    approved_terms,
+    load_model,
+)
 from meshforge.controller.ml.source import SetPredictor
 from meshforge.controller.planner.predictor import MlInput
 from meshforge.controller.settings import PlannerSettings
@@ -125,10 +131,16 @@ def loaded_set(doc: Mapping[str, Any], artefacts: Mapping[str, bytes]) -> Loaded
     cannot be (a set serves whole or not at all, like the registry)."""
     models: dict[str, LoadedModel] = {}
     without: dict[str, str] = {}
+    approved = approved_terms(doc.get("gate"))
+    withheld: set[str] = set()
     for member in doc.get("members") or ():
         term = str(member["term"])
         if member.get("algorithm") == "none":
             without[term] = str(member.get("reason") or "no_learned_model")
+            continue
+        if approved is not None and term not in approved:
+            without[term] = NOT_APPROVED
+            withheld.add(term)
             continue
         version = str(member["version"])
         data = artefacts.get(version)
@@ -143,6 +155,7 @@ def loaded_set(doc: Mapping[str, Any], artefacts: Mapping[str, bytes]) -> Loaded
         feature_version=int(doc["feature_version"]),
         models=models,
         without_model=without,
+        not_approved=frozenset(withheld),
     )
 
 
@@ -152,7 +165,10 @@ def planner_input(loaded: LoadedSet, max_interval_log: float) -> MlInput | None:
     if not loaded.models:
         return None
     return ml_input(
-        SetPredictor(loaded), max_interval_log=max_interval_log, budget_ms=None
+        SetPredictor(loaded),
+        max_interval_log=max_interval_log,
+        budget_ms=None,
+        withheld=loaded.not_approved,
     )
 
 
