@@ -357,6 +357,7 @@ class RegistryMlInputSource:
                 SetPredictor(loaded),
                 max_interval_log=self.max_interval_log,
                 budget_ms=self.budget_ms,
+                withheld=loaded.not_approved,
             )
             log.info(
                 "controller.planner.ml_input_ready"

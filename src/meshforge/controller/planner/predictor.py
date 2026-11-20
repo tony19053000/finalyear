@@ -248,6 +248,10 @@ class MlInput:
     """Set = do not ask the model: every learnable term falls back with
     reason ``predictor_error`` (a replay of a decision whose predictor failed
     re-plans exactly so; the value is the original error)."""
+    withheld: frozenset[str] = frozenset()
+    """Terms the set has a learned model for that the per-part activation
+    gate did not approve (D462): never asked, reason ``not_approved``, the
+    term keeps calibration."""
 
     @property
     def version(self) -> str:
@@ -263,6 +267,8 @@ class MlReason(StrEnum):
     EXACT = "exact_by_construction"
     BELOW_MIN = "below_min_predicted"
     PREDICTOR_ERROR = "predictor_error"
+    NOT_APPROVED = "not_approved"
+    """D462: the set's per-part gate did not approve this term's model."""
     COMBINE_NODE_UNKNOWN = "combine_node_unknown"
     """V0.15 G5a: a ``combine`` term whose detail names no combine node -
     its features cannot be built, so the model is not asked (never a
@@ -380,6 +386,8 @@ class MlSession:
             known = self.ml.predictor.has_model(term)
         except Exception as exc:
             raise PredictorFailed(type(exc).__name__) from exc
+        if term in self.ml.withheld:
+            return MlOutcome(False, MlReason.NOT_APPROVED)
         return MlOutcome(False, reason if known else MlReason.NO_MODEL)
 
     def resolve(self, contexts: Sequence[TermContext]) -> list[MlOutcome]:
@@ -396,6 +404,8 @@ class MlSession:
                     out[index] = MlOutcome(False, MlReason.EXACT)
                 elif self.error is not None:  # nothing of the model is touched
                     out[index] = MlOutcome(False, MlReason.PREDICTOR_ERROR)
+                elif ctx.term in self.ml.withheld:
+                    out[index] = MlOutcome(False, MlReason.NOT_APPROVED)
                 elif not predictor.has_model(ctx.term):
                     out[index] = MlOutcome(False, MlReason.NO_MODEL)
                 elif _too_small(ctx):
