@@ -56,7 +56,7 @@ Time-critical cues from L1 (`...-go <Ln>`) always come first.
 Messages between laptops (and the Lead) live on the shared branch **`lab/chat`**, folder `lab/chat/`, **one file
 per message** (so nobody conflicts). You may push to `lab/chat` (the only exception to "only your own branch").
 
-**`send <to>`** (to = L1, L2, L3, L4, DEV, LEAD or ALL; plain `send` = to whoever your current step needs):
+**`send <to>`** (to = L1, L2, L3, L4, DEV, FIX, LEAD or ALL; plain `send` = to whoever your current step needs):
 1. `git fetch origin lab/chat` and work in a separate worktree so your own branch is untouched:
    `git worktree add -f ../mf-chat origin/lab/chat` (first time) or `git -C ../mf-chat pull --rebase origin lab/chat`.
 2. Write `lab/chat/<YYYYMMDD-HHMMSS>-<FROM>-to-<TO>.md` with:
@@ -128,3 +128,8 @@ Fill in your OS/hostname/IP in the first step of your TODO; the Lead uses them f
 worker (never joined, never takes jobs). It uses lab chat like a laptop (`send LEAD`, `read`), keeps its own notes in `lab/coord/DEV/`,
 and works on branch `dev/ui` (never main, never `lab/L*`). During lab runs DEV never installs/upgrades anything on L1-L4 and never
 pushes to main; its work is merged to main by the LEAD after the runs. "ALL" messages are for L1-L4; DEV reads only messages to DEV.
+
+## FIX worker (2026-11-21)
+`FIX` = a code-fix Claude session on a lab laptop (first: L2) working ONLY on a `fix/*` branch in a separate clone (`mf-fix`). It uses lab chat
+like a laptop (`send LEAD`, `read`; files `lab/chat/<ts>-FIX-to-LEAD.md`), with its own chat worktree (`git worktree add -f ../mf-chat-fix origin/lab/chat`).
+It never pushes main, never merges, never tags; LEAD verifies on L1 and merges. "ALL" messages are for L1-L4; FIX reads only messages to FIX.
