@@ -55,6 +55,7 @@ __all__ = [
 
 ML_REASON_TEXT: Final[Mapping[str, str]] = {
     "no_model": "no model for this term",
+    "not_approved": "part not approved by the gate (calibration)",
     "ood": "out of distribution",
     "interval_too_wide": "interval too wide",
     "exact_by_construction": "exact by construction",

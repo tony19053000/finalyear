@@ -65,20 +65,39 @@ def _checked(set_version: str) -> str:
 
 
 def _learned(members: Any) -> str:
+    """``term=algorithm`` per learned member; a member the per-part gate did
+    not approve (D462, ``serves`` = calibration on a served set) is marked
+    ``(cal)``."""
     if not isinstance(members, list):
         return _DASH
     parts = [
         f"{render.echo(m.get('term'))}={render.echo(m.get('algorithm'))}"
+        + (" (cal)" if m.get("gate_reason") else "")
         for m in members
         if isinstance(m, Mapping) and m.get("algorithm") not in (None, "none")
     ]
     return ", ".join(parts) or "none"
 
 
+def _ml_parts(item: Mapping[str, Any]) -> str:
+    """D462: the terms a set serves with ML (``all learned`` for a set gated
+    before D462)."""
+    approved = item.get("approved_terms")
+    if not isinstance(approved, list):
+        return "all learned"
+    return ", ".join(render.echo(t) for t in approved) or "none"
+
+
 def ml_sets_table(doc: Mapping[str, Any]) -> Table:
     """The sets list (pure; tests read it)."""
     table = render.table(
-        "SET", "STATUS", "CREATED", "LEARNED", "REASON", title="model sets"
+        "SET",
+        "STATUS",
+        "CREATED",
+        "LEARNED",
+        "ML PARTS",
+        "REASON",
+        title="model sets",
     )
     sets = doc.get("sets")
     for item in sets if isinstance(sets, list) else []:
@@ -89,6 +108,7 @@ def ml_sets_table(doc: Mapping[str, Any]) -> Table:
             render.cell(item.get("status")),
             render.cell(item.get("created_at")),
             render.cell(_learned(item.get("members"))),
+            render.cell(_ml_parts(item)),
             render.cell(item.get("reason")),
         )
     return table
@@ -97,7 +117,14 @@ def ml_sets_table(doc: Mapping[str, Any]) -> Table:
 def ml_set_table(doc: Mapping[str, Any]) -> Table:
     """One set's members (pure)."""
     table = render.table(
-        "TERM", "ALGORITHM", "ROWS", "INNER MALE", "WIDTH", "REASON", title="members"
+        "TERM",
+        "ALGORITHM",
+        "SERVES",
+        "ROWS",
+        "INNER MALE",
+        "WIDTH",
+        "REASON",
+        title="members",
     )
     members = doc.get("members")
     for m in members if isinstance(members, list) else []:
@@ -108,10 +135,11 @@ def ml_set_table(doc: Mapping[str, Any]) -> Table:
         table.add_row(
             render.cell(m.get("term")),
             render.cell(m.get("algorithm")),
+            render.cell(m.get("serves")),
             render.cell(metrics.get("rows")),
             render.cell(metrics.get("inner_male")),
             render.cell(metrics.get("interval_width")),
-            render.cell(m.get("reason")),
+            render.cell(m.get("gate_reason") or m.get("reason")),
         )
     return table
 

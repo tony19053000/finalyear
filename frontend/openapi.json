@@ -6132,6 +6132,17 @@
             ],
             "title": "Artefact Bytes"
           },
+          "gate_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gate Reason"
+          },
           "metrics": {
             "additionalProperties": true,
             "title": "Metrics",
@@ -6152,6 +6163,11 @@
               }
             ],
             "title": "Reason"
+          },
+          "serves": {
+            "default": "calibration",
+            "title": "Serves",
+            "type": "string"
           },
           "term": {
             "title": "Term",
@@ -6605,6 +6621,20 @@
       "MlSetDetailOut": {
         "additionalProperties": false,
         "properties": {
+          "approved_terms": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved Terms"
+          },
           "created_at": {
             "$ref": "#/components/schemas/Utc"
           },
@@ -6674,6 +6704,20 @@
       "MlSetOut": {
         "additionalProperties": false,
         "properties": {
+          "approved_terms": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved Terms"
+          },
           "created_at": {
             "$ref": "#/components/schemas/Utc"
           },

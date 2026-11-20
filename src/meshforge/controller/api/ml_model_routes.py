@@ -42,6 +42,7 @@ from meshforge.controller.ml.registry import (
     PinError,
     SetRow,
 )
+from meshforge.controller.ml.serve import approved_terms
 from meshforge.controller.ml.source import ModelSource
 from meshforge.controller.ml_retrain_task import MlRetrainer, RetrainResult
 
@@ -94,6 +95,11 @@ class MlMemberOut(ApiModel):
     metrics: dict[str, Any]
     reason: str | None
     artefact_bytes: int | None
+    serves: str = "calibration"
+    """D462: what the planner uses for this term when the set serves -
+    ``ml`` (learned and approved by the per-part gate) or ``calibration``."""
+    gate_reason: str | None = None
+    """D462: why the per-part gate did not approve this learned term."""
 
 
 class MlSetOut(ApiModel):
@@ -106,6 +112,9 @@ class MlSetOut(ApiModel):
     dataset_digest: str
     feature_version: int
     members: list[MlMemberOut]
+    approved_terms: list[str] | None = None
+    """D462: the terms this set serves with ML; None = a set gated before
+    D462 (all-or-nothing: every learned term)."""
 
 
 class MlSetDetailOut(MlSetOut):
@@ -180,7 +189,16 @@ class MlTrainOut(ApiModel):
     retrain: MlRetrainStateOut
 
 
+def _serves(row: SetRow, term: str, learned: bool) -> str:
+    approved = approved_terms(row.gate)
+    if not learned or row.status == "rejected":
+        return "calibration"
+    return "ml" if approved is None or term in approved else "calibration"
+
+
 def _members(row: SetRow) -> list[MlMemberOut]:
+    rejected = row.gate.get("rejected_terms") if row.gate else None
+    why = rejected if isinstance(rejected, dict) else {}
     return [
         MlMemberOut(
             term=m.term,
@@ -190,6 +208,8 @@ def _members(row: SetRow) -> list[MlMemberOut]:
             metrics=m.metrics,
             reason=m.reason,
             artefact_bytes=m.artefact_bytes,
+            serves=_serves(row, m.term, m.learned),
+            gate_reason=None if why.get(m.term) is None else str(why[m.term]),
         )
         for m in row.members
     ]
@@ -205,6 +225,9 @@ def _set(row: SetRow) -> MlSetOut:
         dataset_digest=row.dataset_digest,
         feature_version=row.feature_version,
         members=_members(row),
+        approved_terms=None
+        if (approved := approved_terms(row.gate)) is None
+        else sorted(approved),
     )
 
 
