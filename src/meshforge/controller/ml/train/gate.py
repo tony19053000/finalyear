@@ -44,6 +44,18 @@ rule's numbers are in the gate document either way):
   ``min_effect_log`` (0.02, D357): a set that changes nothing useful is
   never activated (pure noise lands here).
 
+**Per part** (D462, ADR-0026): the rules are judged **per term**. A learned
+term is *approved* when it fails none of the first four rules and beats the
+calibration by more than ``min_effect_log``; the set is accepted when at least
+one term is approved, and it serves **only** the approved terms (the gate
+document's ``approved_terms``; the others keep calibration, reason
+``not_approved``). A failure of a term that is not approved still rejects the
+whole set only where serving calibration for it would be worse than what
+serves now: ``worse_than_reference`` judged on calibration (the prediction the
+set will deliver for it). No term approved -> rejected with the first failed
+rule, exactly as before D462. ``rejected_terms`` names each rejected learned
+term and why.
+
 **Regret** (D339's regret part, D371 - V0.15 G5a): it needs the stored
 decisions and benchmark labels, which this child process never reads, so the
 child writes ``"regret": {"status": "not_run", ...}`` and the controller's
@@ -321,7 +333,12 @@ def run_gate(
     )
     terms: dict[str, Any] = {}
     failures: list[tuple[str, str]] = []
+    """Every rule a term failed (the numbers of the document)."""
+    blocking: list[tuple[str, str]] = []
+    """Failures that reject the set even with approved terms."""
     better: list[str] = []
+    approved: list[str] = []
+    rejected: dict[str, str] = {}
     for member in shipped.members:
         rows = table.rows_of(member.term)
         held = rows[held_mask[rows]]
@@ -332,6 +349,7 @@ def run_gate(
                 failures.append(
                     ("too_few_held_out", f"{member.term}: no held-out rows")
                 )
+                rejected[member.term] = "too_few_held_out: no held-out rows"
             continue
         cal = fit_one(_CALIBRATION, ctx, fit_rows).predict(table.X[held], held)
         doc, failed = _term(
@@ -347,11 +365,42 @@ def run_gate(
         )
         terms[member.term] = doc
         failures.extend(failed)
-        if (
+        beats = (
             member.learned
             and doc["male_calibration"] - doc["male_new"] > settings.min_effect_log
-        ):
+        )
+        if beats:
             better.append(member.term)
+        if member.learned and beats and not failed:
+            approved.append(member.term)
+            doc["approved"] = True
+            continue
+        doc["approved"] = False
+        if member.learned:
+            if failed:
+                first = min(failed, key=lambda f: GATE_RULES.index(f[0]))
+                rejected[member.term] = f"{first[0]}: {first[1]}"
+            else:
+                rejected[member.term] = (
+                    f"not_better: does not beat the calibration by more than "
+                    f"{settings.min_effect_log} log error"
+                )
+        # not served -> the set delivers calibration for it; that must not be
+        # worse than what serves now (D462)
+        male_ref = doc.get("male_reference", math.nan)
+        male_cal = doc.get("male_calibration", math.nan)
+        if (
+            doc.get("reference") == "model"
+            and male_cal > male_ref * (1.0 + gate.tolerance) + _EPS
+        ):
+            blocking.append(
+                (
+                    "worse_than_reference",
+                    f"{member.term}: not approved, its calibration log error "
+                    f"{male_cal:.3f} > {reference.kind} {male_ref:.3f} x "
+                    f"{1.0 + gate.tolerance:.2f}",
+                )
+            )
     if not better:
         failures.append(
             (
@@ -362,16 +411,24 @@ def run_gate(
         )
     order = {rule: i for i, rule in enumerate(GATE_RULES)}
     failures.sort(key=lambda f: order[f[0]])
-    rule = failures[0][0] if failures else None
+    blocking.sort(key=lambda f: order[f[0]])
+    # D462: approved terms carry the set unless a not-approved term would
+    # serve worse than now; no approved term -> the old all-or-nothing verdict
+    deciding = blocking if approved else failures
+    accepted = not deciding
+    rule = deciding[0][0] if deciding else None
     reason = None
-    if failures:
-        same = [detail for r, detail in failures if r == rule]
+    if deciding:
+        same = [detail for r, detail in deciding if r == rule]
         reason = f"{rule}: " + "; ".join(same)
     doc = clean(
         {
-            "accepted": not failures,
+            "accepted": accepted,
             "rule": rule,
             "rules_failed": sorted({r for r, _ in failures}, key=order.__getitem__),
+            "per_term": True,
+            "approved_terms": sorted(approved) if accepted else [],
+            "rejected_terms": dict(sorted(rejected.items())),
             "reference": {
                 "kind": reference.kind,
                 "set_version": reference.set_version,
@@ -396,4 +453,4 @@ def run_gate(
             "judged_at_rows": table.n,
         }
     )
-    return GateResult(not failures, rule, reason, doc)
+    return GateResult(accepted, rule, reason, doc)
