@@ -435,7 +435,12 @@ class ModelRegistry:
             if problem is not None:  # D2: never activate what cannot serve
                 accepted = False
                 reason = f"unloadable_artefact: {problem}"
-                gate = {**gate, "accepted": False, "rule": "unloadable_artefact"}
+                gate = {
+                    **gate,
+                    "accepted": False,
+                    "rule": "unloadable_artefact",
+                    "approved_terms": [],  # D462: a rejected set serves no part
+                }
         try:
             async with self._sessions() as db, db.begin():
                 await db.execute(_LOCK)

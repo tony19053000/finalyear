@@ -52,9 +52,11 @@ document's ``approved_terms``; the others keep calibration, reason
 ``not_approved``). A failure of a term that is not approved still rejects the
 whole set only where serving calibration for it would be worse than what
 serves now: ``worse_than_reference`` judged on calibration (the prediction the
-set will deliver for it). No term approved -> rejected with the first failed
-rule, exactly as before D462. ``rejected_terms`` names each rejected learned
-term and why.
+set will deliver for it; a NaN log error there blocks too), and a learned
+term with no held-out rows while the reference serves a model for it
+(``too_few_held_out`` - it cannot be shown not to be worse). No term
+approved -> rejected with the first failed rule, exactly as before D462.
+``rejected_terms`` names each rejected learned term and why.
 
 **Regret** (D339's regret part, D371 - V0.15 G5a): it needs the stored
 decisions and benchmark labels, which this child process never reads, so the
@@ -350,6 +352,16 @@ def run_gate(
                     ("too_few_held_out", f"{member.term}: no held-out rows")
                 )
                 rejected[member.term] = "too_few_held_out: no held-out rows"
+                if reference.models.get(member.term) is not None:
+                    # unjudgeable, yet what serves now has a model for it: the
+                    # set would replace it by calibration unseen (ADR-0026 §3)
+                    blocking.append(
+                        (
+                            "too_few_held_out",
+                            f"{member.term}: no held-out rows, {reference.kind} "
+                            "serves a model",
+                        )
+                    )
             continue
         cal = fit_one(_CALIBRATION, ctx, fit_rows).predict(table.X[held], held)
         doc, failed = _term(
@@ -389,7 +401,17 @@ def run_gate(
         # worse than what serves now (D462)
         male_ref = doc.get("male_reference", math.nan)
         male_cal = doc.get("male_calibration", math.nan)
-        if (
+        if doc.get("reference") == "model" and (
+            math.isnan(male_cal) or math.isnan(male_ref)
+        ):
+            blocking.append(
+                (
+                    "worse_than_reference",
+                    f"{member.term}: not approved, its calibration log error "
+                    f"cannot be compared with {reference.kind}'s model (NaN)",
+                )
+            )
+        elif (
             doc.get("reference") == "model"
             and male_cal > male_ref * (1.0 + gate.tolerance) + _EPS
         ):

@@ -140,9 +140,13 @@ export function learnedText(members: readonly MlMemberOut[]): string {
 
 /**
  * D462 per-part gate: the terms a set serves with ML. `null` = a set gated
- * before D462 (all-or-nothing: every learned term).
+ * before D462 (all-or-nothing: every learned term). A rejected set serves
+ * no part.
  */
-export function mlPartsText(set: Pick<MlSetOut, "approved_terms">): string {
+export function mlPartsText(
+  set: Pick<MlSetOut, "approved_terms"> & Partial<Pick<MlSetOut, "status">>,
+): string {
+  if (set.status === "rejected") return "none";
   const approved = set.approved_terms;
   if (approved == null) return "all learned";
   return approved.length === 0 ? "none" : approved.join(", ");

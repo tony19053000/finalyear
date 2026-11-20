@@ -400,6 +400,8 @@ class MlSession:
         predictor = self.ml.predictor
         try:
             for index, ctx in enumerate(contexts):
+                # D462 (ADR-0026 §5): exact > predictor_error > not_approved;
+                # all three serve calibration, only the recorded reason differs
                 if exact_by_construction(ctx.term, ctx.detail):
                     out[index] = MlOutcome(False, MlReason.EXACT)
                 elif self.error is not None:  # nothing of the model is touched

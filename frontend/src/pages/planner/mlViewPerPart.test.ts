@@ -32,6 +32,9 @@ describe("per-part gate (D462)", () => {
     expect(mlPartsText({ approved_terms: [] })).toBe("none");
     expect(mlPartsText({ approved_terms: null })).toBe("all learned");
     expect(mlPartsText({})).toBe("all learned");
+    expect(mlPartsText({ approved_terms: ["env"], status: "rejected" })).toBe("none");
+    expect(mlPartsText({ approved_terms: null, status: "rejected" })).toBe("none");
+    expect(mlPartsText({ approved_terms: ["env"], status: "active" })).toBe("env");
   });
 
   it("marks a learned part that keeps calibration", () => {

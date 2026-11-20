@@ -32,7 +32,8 @@ from meshforge.cli.ml_model_commands import ml_set_table, ml_sets_table
 from meshforge.common.ml_explain import ml_line, term_ml
 from meshforge.controller.ml.folds import loaded_set
 from meshforge.controller.ml.regret import RegretOutcome, apply
-from meshforge.controller.ml.serve import NOT_APPROVED, approved_terms
+from meshforge.controller.ml.serve import NOT_APPROVED, approved_terms, load_model
+from meshforge.controller.ml.train import gate as gate_module
 from meshforge.controller.ml.train.compare import CompareSettings
 from meshforge.controller.ml.train.data import table_from_rows
 from meshforge.controller.ml.train.fit import train_set
@@ -105,6 +106,66 @@ def test_all_parts_passing_approves_all() -> None:
     assert gate.accepted, gate.reason
     learned = sorted(m.term for m in shipped.members if m.learned)
     assert gate.doc["approved_terms"] == learned
+
+
+def _env_never_held(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The real D329 split, except no ``env`` row is held out."""
+    real = gate_module.holdout_mask
+
+    def mask(table: Any) -> Any:
+        held, split = real(table)
+        held = held.copy()
+        held[table.rows_of("env")] = False
+        return held, split
+
+    monkeypatch.setattr(gate_module, "holdout_mask", mask)
+
+
+@pytest.fixture(scope="module")
+def signal_two() -> tuple[Any, Any, Any]:
+    """Signal on both terms; ``env``'s model as a reference would serve it."""
+    table = table_from_rows(_rows(noisy=()))
+    shipped = train_set(table, TWO)
+    env = shipped.member("env")
+    assert env is not None and env.learned and env.artefact is not None
+    model = load_model(env.artefact, expected_version=env.version)
+    return table, shipped, model
+
+
+def test_a_term_without_held_rows_the_reference_serves_rejects_the_set(
+    signal_two: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    table, shipped, env_model = signal_two
+    _env_never_held(monkeypatch)
+    reference = Reference(
+        kind="active", set_version="sha256:r", models={"env": env_model}
+    )
+    gate = run_gate(table, TWO, shipped, reference)
+    assert gate.doc["terms"]["env"]["held_rows"] == 0
+    assert "compute" in gate.doc["better_terms"]
+    assert gate.doc["terms"]["compute"]["approved"] is True  # another term passes
+    assert not gate.accepted
+    assert gate.rule == "too_few_held_out"
+    assert gate.reason is not None
+    assert "env: no held-out rows, active serves a model" in gate.reason
+    assert gate.doc["approved_terms"] == []
+    assert gate.doc["rejected_terms"]["env"].startswith("too_few_held_out")
+
+
+def test_a_term_without_held_rows_the_reference_has_no_model_for_is_unchanged(
+    signal_two: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    table, shipped, env_model = signal_two
+    _env_never_held(monkeypatch)
+    # a model for a term outside the set does not count for env
+    reference = Reference(
+        kind="active", set_version="sha256:r", models={"output": env_model}
+    )
+    for ref in (Reference(), reference):
+        gate = run_gate(table, TWO, shipped, ref)
+        assert gate.accepted, gate.reason
+        assert gate.doc["approved_terms"] == ["compute"]
+        assert gate.doc["rejected_terms"]["env"].startswith("too_few_held_out")
 
 
 def _child_doc(shipped: Any, gate: Any) -> tuple[dict[str, Any], dict[str, bytes]]:
@@ -306,3 +367,8 @@ def test_cli_models_shows_ml_parts_and_sources() -> None:
     assert "worse_than_reference" in members
     old = dict(_api_set(), approved_terms=None)
     assert "all learned" in _text(ml_sets_table({"sets": [old]}))
+    for approved in (["env"], None):
+        rejected = dict(_api_set(), status="rejected", approved_terms=approved)
+        listing = _text(ml_sets_table({"sets": [rejected]}))
+        assert "none" in listing
+        assert "env, combine" not in listing and "all learned" not in listing

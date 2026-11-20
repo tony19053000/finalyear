@@ -81,7 +81,9 @@ def _learned(members: Any) -> str:
 
 def _ml_parts(item: Mapping[str, Any]) -> str:
     """D462: the terms a set serves with ML (``all learned`` for a set gated
-    before D462)."""
+    before D462; ``none`` for a rejected set, which serves nothing)."""
+    if item.get("status") == "rejected":
+        return "none"
     approved = item.get("approved_terms")
     if not isinstance(approved, list):
         return "all learned"

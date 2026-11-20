@@ -22,15 +22,27 @@ clear gains on `env` and `combine` never reached the planner.
    with the first failed rule, as before.
 3. A term that is not approved serves calibration. If what serves now has a model for it and calibration is worse
    than that by more than the 5 % tolerance, the set is still rejected (`worse_than_reference`): activation never makes
-   a term worse than today.
+   a term worse than today. For the same reason, a learned term with **no** held-out rows while what serves now has a
+   model for it rejects the set (`too_few_held_out`: it cannot be shown not to be worse), and so does a not-approved
+   term whose calibration or reference log error is NaN (not comparable).
 4. The D371 regret check loads the candidate through the same serving path, so it judges the **partial** set; a
    regret rejection rejects the set and empties `approved_terms`.
 5. Serving (`ModelRegistry.load`, `folds.loaded_set`) loads only the approved members; the others are
    `without_model = not_approved_by_gate` and are passed to the planner as `MlInput.withheld`. The planner answers
    reason `not_approved` for them (calibration). The per-case fallbacks (`ood`, `interval_too_wide`,
-   `predictor_error`, ...) are unchanged for approved terms.
+   `predictor_error`, ...) are unchanged for approved terms. Reason precedence per term: `exact` (exact by
+   construction) > `predictor_error` (the predictor failed for the decision) > `not_approved`; all three serve
+   calibration, only the recorded reason differs.
+   `ModelRegistry.store`'s loadability check (D2) still requires the artefacts of **every** learned member, approved
+   or not, to load: stricter than serving needs, kept on purpose (a set version names all its members, and a set with
+   an unreadable artefact is suspect as a whole). A set it rejects records `rule = unloadable_artefact` and empty
+   `approved_terms`.
 6. A set gated before D462 has no `approved_terms`: it serves every learned member, exactly as before. Existing
-   rejected sets stay rejected (no retro-activation); a retrain produces a new verdict.
+   rejected sets stay rejected (no retro-activation, no migration, no automatic re-judge); a retrain produces a new
+   verdict. Training is deterministic, so an explicit operator retrain on the **same** dataset yields the **same**
+   `set_version`: `ModelRegistry.store` then re-judges the existing rejected row in place (the old verdict is kept in
+   `gate.history`). That is the intended activation path for a set rejected before D462. `pin()` still refuses a
+   rejected set.
 7. Visible everywhere: `compute explain` / plan JSON (`detail.ml.reason = not_approved`, "part not approved by the
    gate (calibration)"), `compute planner ml models` (`ML PARTS` column, `(cal)` marks, a `SERVES` column per
    member) and the dashboard Planner > Models (ML parts, Uses). API fields are only added
