@@ -50,3 +50,14 @@ Branch `fix/ml-per-term-gate` (from origin/main). ADR: `docs/adr/0026-per-part-m
    `ML not used: part not approved by the gate (calibration)`; ood / interval / predictor_error still shown per case.
 5. Dashboard Planner > Models: "ML parts" column on the set list, "Uses" column in the set detail.
 6. If regret rejects the partial set: set `rejected`, rule `regret_worse`, `approved_terms` empty.
+
+## Independent passes (CLAUDE.md 4b, LEAD 2026-11-21 01:06)
+- Tester (claude-sonnet-5-5, medium): **PASS**, no defects. Added `tests/unit/ml/test_d462_tester.py` (29) +
+  `tests/unit/planner/test_d462_tester_planner.py` (8); tests/unit/ml + planner 7424 passed, 44 skipped. Commit 70dfe945.
+- Reviewer #1 (claude-opus-5-5, low): **REQUEST_CHANGES** - blocking: a learned part with no held-out rows that the
+  reference serves with a model could drop to calibration unjudged (also NaN comparisons); non-blocking: unloadable set
+  kept approved_terms, "ML parts" on rejected sets, ADR notes.
+- Implementer (claude-opus-5-5, medium) fixed all: commit a41f3481 (new test fails on the old code, passes now).
+- Reviewer #2: **APPROVE** at a41f3481.
+- Follow-up (not blocking, pre-existing): a baseline ("none") member with no held-out rows while the reference serves
+  a model for it is still accepted - same as before D462; could get the same "never worse than now" check later.
