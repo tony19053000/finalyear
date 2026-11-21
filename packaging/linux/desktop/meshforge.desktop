@@ -1,9 +1,9 @@
 [Desktop Entry]
 Type=Application
 Version=1.5
-Name=MeshForge
+Name=Hive
 GenericName=Compute fabric
-Comment=Join a MeshForge fabric and choose what this computer shares
+Comment=Join a Hive fabric and choose what this computer shares
 Exec=env MESHFORGE_INSTALL_MODE=system /usr/bin/meshforge-console-open
 Icon=meshforge
 Terminal=false

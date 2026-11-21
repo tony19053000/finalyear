@@ -1,6 +1,6 @@
-MeshForge Agent
+Hive Agent
 
-MeshForge is a final-year student project. The team has not chosen a license
+Hive is a final-year student project. The team has not chosen a license
 for its own code yet; until it does, all rights are reserved by its authors.
 
 This installer bundles third-party software under its own licenses:
@@ -11,7 +11,7 @@ This installer bundles third-party software under its own licenses:
   <install folder>\<version>\python\Lib\site-packages\ (among them pywin32,
   PSF-2.0 / BSD-style).
 
-What MeshForge does on this computer: it runs a background service
-(MeshForgeAgent) that connects to the MeshForge fabric you join and runs the
-jobs you allow, within the limits you set in the MeshForge console. It accepts
+What Hive does on this computer: it runs a background service
+(MeshForgeAgent) that connects to the Hive fabric you join and runs the
+jobs you allow, within the limits you set in the Hive console. It accepts
 no jobs until you turn that on.
