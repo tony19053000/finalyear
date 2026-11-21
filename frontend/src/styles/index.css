@@ -1341,6 +1341,12 @@ progress.mf-progress::-moz-progress-bar {
   scrollbar-width: thin;
   scrollbar-color: rgb(255 255 255 / 0.12) transparent;
 }
+/* outline:none above hides the mouse focus ring only; keyboard focus keeps a visible ring
+   (inset, so the panel's rounded clip does not cut it off). */
+.jb-listbox:focus-visible {
+  outline: 2px solid var(--mf-focus);
+  outline-offset: -2px;
+}
 .jb-opt {
   position: relative;
   display: flex;
