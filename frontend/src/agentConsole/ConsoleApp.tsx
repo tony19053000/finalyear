@@ -2,7 +2,8 @@ import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-quer
 import { Suspense, lazy, useEffect, useState, type ReactNode } from "react";
 import { BrowserRouter, NavLink, Route, Routes } from "react-router-dom";
 
-import { HiveMark, JobsIcon, OverviewIcon, SettingsIcon } from "../app/icons";
+import { JobsIcon, OverviewIcon, SettingsIcon } from "../app/icons";
+import { Wordmark } from "../app/Wordmark";
 import { ToastProvider } from "../components/Toast";
 import { cn } from "../lib/cn";
 import { ConsoleApiError, consoleApi, consoleKeys, explain, type StatusView } from "./api";
@@ -67,18 +68,11 @@ function useAccess(): Access {
   return access;
 }
 
-/** The hive lockup (the dashboard's Brand, without a link: this page is its own app). */
+/** The "hive." wordmark (the dashboard's Brand, without a link: this page is its own app). */
 function Lockup() {
   return (
-    <span className="flex shrink-0 items-center gap-2.5 text-fg">
-      <HiveMark size={26} />
-      <span className="inline-flex items-baseline font-display text-[25px] leading-none font-bold tracking-[-0.045em]">
-        hive
-        <span
-          aria-hidden="true"
-          className="ml-[0.06em] inline-block h-[0.34em] w-[0.3em] bg-accent [clip-path:polygon(50%_0,100%_25%,100%_75%,50%_100%,0_75%,0_25%)]"
-        />
-      </span>
+    <span role="img" aria-label="Hive" className="flex shrink-0 items-center text-fg">
+      <Wordmark />
     </span>
   );
 }

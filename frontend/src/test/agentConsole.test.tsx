@@ -192,6 +192,10 @@ describe("ConsoleApp", () => {
     });
     render(<ConsoleApp client={client()} />);
     expect(await screen.findByText("This link has expired")).toBeTruthy();
+    // C2: the console lockup is the "hive." wordmark only (no mark), named "Hive"
+    const lockup = screen.getByRole("img", { name: "Hive" });
+    expect(lockup.querySelector("svg")).toBeNull();
+    expect(within(lockup).getByTestId("hive-wordmark").className).toContain("text-[34px]");
   });
 
   it("wizard: join error is said in plain words; a good code moves on to the policy step, which saves the safe defaults", async () => {

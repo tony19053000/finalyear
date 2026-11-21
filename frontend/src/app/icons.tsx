@@ -81,24 +81,6 @@ export const LogoMark = () => (
   </svg>
 );
 
-/**
- * The hive. mark (website/assets/img/hive-mark.svg, the landing page's header
- * crop): three isometric cells, the top one honey. Inline, so no extra request.
- */
-export const HiveMark = ({ size = 24 }: { size?: number }) => (
-  <svg aria-hidden="true" viewBox="5.5 5.5 53 53" width={size} height={size} className="shrink-0">
-    <polygon points="18.14,30.4 29.35,36.87 18.14,43.34 6.94,36.87" fill="#F2EDE4" />
-    <polygon points="6.36,37.86 17.57,44.33 17.57,57.27 6.36,50.8" fill="#A59D8F" />
-    <polygon points="18.72,44.33 29.93,37.86 29.93,50.8 18.72,57.27" fill="#5F584C" />
-    <polygon points="45.86,30.4 57.06,36.87 45.86,43.34 34.65,36.87" fill="#F2EDE4" />
-    <polygon points="34.08,37.86 45.28,44.33 45.28,57.27 34.07,50.8" fill="#A59D8F" />
-    <polygon points="46.43,44.33 57.64,37.86 57.64,50.8 46.43,57.27" fill="#5F584C" />
-    <polygon points="32,6.4 43.21,12.87 32,19.34 20.79,12.87" fill="#FFC93C" />
-    <polygon points="20.22,13.86 31.43,20.33 31.43,33.27 20.22,26.8" fill="#D9971F" />
-    <polygon points="32.58,20.33 43.78,13.86 43.78,26.8 32.58,33.27" fill="#8F5F10" />
-  </svg>
-);
-
 export const SunIcon = () => (
   <Icon>
     <circle cx="8" cy="8" r="2.75" />

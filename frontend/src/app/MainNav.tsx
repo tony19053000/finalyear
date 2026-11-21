@@ -3,7 +3,8 @@ import { Link, NavLink } from "react-router-dom";
 
 import { cn } from "../lib/cn";
 import { useSession } from "../api/hooks";
-import { BenchmarksIcon, HiveMark, JobsIcon, NodesIcon, OverviewIcon, PlannerIcon, SettingsIcon } from "./icons";
+import { BenchmarksIcon, JobsIcon, NodesIcon, OverviewIcon, PlannerIcon, SettingsIcon } from "./icons";
+import { Wordmark, type WordmarkSize } from "./Wordmark";
 
 interface NavItem {
   to: string;
@@ -25,18 +26,11 @@ const NAV_ITEMS: readonly NavItem[] = [
   { to: "/settings", label: "Settings", icon: <SettingsIcon /> },
 ];
 
-/** The landing page's lockup: hive mark + "hive" wordmark with the honey hex dot. */
-export function Brand() {
+/** The brand: the "hive." wordmark (no mark), linking home. "login" is the larger sign-in size. */
+export function Brand({ size = "bar" }: { size?: WordmarkSize }) {
   return (
-    <Link to="/" aria-label="hive home" className="flex shrink-0 items-center gap-2.5 rounded-lg text-fg no-underline">
-      <HiveMark size={26} />
-      <span className="inline-flex items-baseline font-display text-[25px] leading-none font-bold tracking-[-0.045em]">
-        hive
-        <span
-          aria-hidden="true"
-          className="ml-[0.06em] inline-block h-[0.34em] w-[0.3em] bg-accent [clip-path:polygon(50%_0,100%_25%,100%_75%,50%_100%,0_75%,0_25%)]"
-        />
-      </span>
+    <Link to="/" aria-label="Hive home" className="flex shrink-0 items-center rounded-lg text-fg no-underline">
+      <Wordmark size={size} />
     </Link>
   );
 }

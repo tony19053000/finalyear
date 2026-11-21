@@ -119,6 +119,10 @@ describe("login", () => {
     renderApp("/nodes");
 
     expect(await screen.findByRole("heading", { name: "Sign in" })).toBeTruthy();
+    // C2: the login card shows only the larger "hive." wordmark (no mark), still linking home
+    const loginBrand = screen.getByRole("link", { name: "Hive home" });
+    expect(loginBrand.querySelector("svg")).toBeNull();
+    expect(within(loginBrand).getByTestId("hive-wordmark").className).toContain("text-[40px]");
     const name = screen.getByLabelText("User name");
     expect(document.activeElement).toBe(name);
     await userEvent.type(name, "alice");
@@ -168,6 +172,12 @@ describe("shell", () => {
     renderApp("/");
     expect(await screen.findByRole("heading", { level: 1, name: "Overview" })).toBeTruthy();
     expect(screen.getByRole("link", { name: "Skip to content" }).getAttribute("href")).toBe("#main");
+    // C2: the top bar brand is the "hive." wordmark only (no mark), linking home
+    const brand = screen.getByRole("link", { name: "Hive home" });
+    expect(brand.getAttribute("href")).toBe("/");
+    expect(brand.querySelector("svg")).toBeNull();
+    expect(brand.textContent).toBe("hive");
+    expect(within(brand).getByTestId("hive-wordmark").className).toContain("text-[34px]");
     const nav = screen.getByRole("navigation", { name: "Main" });
     await userEvent.click(within(nav).getByRole("link", { name: "Jobs" }));
     expect(await screen.findByRole("heading", { level: 1, name: "Jobs" })).toBeTruthy();
