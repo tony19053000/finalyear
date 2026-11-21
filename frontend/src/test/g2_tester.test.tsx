@@ -42,7 +42,7 @@ function walk(dir: string): string[] {
 }
 
 const SRC = join(__dirname, "..");
-const SOURCES = walk(SRC).filter((f) => /\.(ts|tsx)$/.test(f) && !/\.test\.|\.d\.ts$|\/test\//.test(f));
+const SOURCES = walk(SRC).filter((f) => /\.(ts|tsx)$/.test(f) && !/\.test\.|\.d\.ts$|[\\/]test[\\/]/.test(f));
 
 beforeEach(() => {
   setUnauthorizedHandler(null);
@@ -140,7 +140,7 @@ describe("T: CSRF header on every mutating call, never on reads", () => {
 describe("T: nothing secret is kept by script", () => {
   it("only theme.ts touches web storage", () => {
     const users = SOURCES.filter((f) => /localStorage|sessionStorage|indexedDB|document\.cookie/.test(readFileSync(f, "utf8"))).map(
-      (f) => f.slice(SRC.length + 1),
+      (f) => f.slice(SRC.length + 1).replaceAll("\\", "/"),
     );
     expect(users.sort()).toEqual(["api/client.ts", "app/theme.ts"].sort()); // client.ts: read-only csrf cookie
   });
@@ -262,7 +262,8 @@ describe("T: theme survives hostile storage", () => {
     expect(storedTheme()).toBe("dark");
   });
 
-  it("clicking the toggle in the real shell with a throwing setItem still switches the theme and the page keeps working", async () => {
+  // The dashboard is dark only since the top-bar redesign (main.tsx pins it, Header has no toggle).
+  it("the real shell with a throwing setItem renders, stays dark and offers no theme toggle", async () => {
     vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
       throw new DOMException("full", "QuotaExceededError");
     });
@@ -275,11 +276,10 @@ describe("T: theme survives hostile storage", () => {
     };
     stubFetch((url) => (url === "/v1/session" ? json(200, { session }) : url.startsWith("/v1/nodes") ? json(200, { nodes: [] }) : json(404, { error: { code: "x", message: "x" } })));
     document.documentElement.dataset.theme = "dark";
-    const user = userEvent.setup();
     render(<App initialPath="/" socketFactory={() => ({ onopen: null, onmessage: null, onclose: null, onerror: null, close() {} })} queryClient={new QueryClient({ defaultOptions: { queries: { retry: false } } })} />);
-    await user.click(await screen.findByRole("button", { name: "Switch to light theme" }));
-    expect(document.documentElement.dataset.theme).toBe("light");
-    expect(screen.getByRole("button", { name: "Switch to dark theme" })).toBeTruthy();
+    expect(await screen.findByRole("heading", { level: 1, name: "Overview" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /switch to (light|dark) theme/i })).toBeNull();
+    expect(document.documentElement.dataset.theme).toBe("dark");
   });
 });
 

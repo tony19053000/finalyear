@@ -1,60 +1,132 @@
-import { useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useId, useRef, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 
-import { useLogout, useNodes, useSession } from "../api/hooks";
+import { useLogout, useSession } from "../api/hooks";
 import { Button } from "../components/Button";
-import { StatusDot } from "../components/Status";
 import { useToast } from "../components/toastContext";
 import type { EventStreamStatus } from "../events/eventStream";
-import type { StatusTone } from "../lib/status";
+import { cn } from "../lib/cn";
 import type { LoginState } from "../pages/loginMessages";
-import { applyTheme, saveTheme, storedTheme, type Theme } from "./theme";
+import { BellIcon, SignOutIcon } from "./icons";
+import { Brand, MainNav } from "./MainNav";
 
-const STREAM: Record<EventStreamStatus, { tone: StatusTone; label: string }> = {
-  live: { tone: "ok", label: "Live" },
-  connecting: { tone: "unknown", label: "Connecting…" },
-  reconnecting: { tone: "degraded", label: "Reconnecting…" },
-  stopped: { tone: "unknown", label: "Not connected" },
+/** Words for the screen-reader-only connection status (the bar shows no pill). */
+const STREAM_LABEL: Record<EventStreamStatus, string> = {
+  live: "Live",
+  connecting: "Connecting…",
+  reconnecting: "Reconnecting…",
+  stopped: "Not connected",
 };
 
-/** "2 of 3 nodes online", from `GET /v1/nodes` (refreshed by node.status events). */
-function FabricStatus() {
-  const nodes = useNodes();
-  if (nodes.isPending) {
-    return <span className="text-fg-subtle">Loading nodes…</span>;
-  }
-  if (nodes.isError) {
-    return <StatusDot tone="failed" label="Nodes unavailable" />;
-  }
-  const total = nodes.data.nodes.length;
-  const online = nodes.data.nodes.filter((n) => n.state === "online").length;
-  const tone: StatusTone = total === 0 ? "unknown" : online === total ? "ok" : online === 0 ? "failed" : "degraded";
+/** The top bar's round icon buttons (product guide, account). The dashboard is dark only: no theme toggle. */
+const ROUND_BASE =
+  "inline-flex size-11 shrink-0 items-center justify-center rounded-full border bg-surface transition-colors";
+const ROUND = `${ROUND_BASE} border-border text-fg-muted hover:border-border-strong hover:text-fg`;
+
+/** "alice" -> "A", "ada lovelace" / "ada.lovelace" -> "AL". */
+function initials(name: string): string {
+  const parts = name.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+  const letters = parts.slice(0, 2).map((p) => p.charAt(0).toUpperCase());
+  return letters.join("") || "?";
+}
+
+/** The bell opens the product guide (every signed-in user; alerts stay on the Overview). */
+function GuideLink() {
   return (
-    <span data-testid="fabric-status">
-      <StatusDot
-        tone={tone}
-        label={total === 0 ? "No nodes yet" : `${online} of ${total} node${total === 1 ? "" : "s"} online`}
-      />
-    </span>
+    <Link to="/guide" className={ROUND} aria-label="Product guide" title="Product guide">
+      <BellIcon />
+    </Link>
   );
 }
 
-function ThemeToggle() {
-  const [theme, setTheme] = useState<Theme>(() => storedTheme());
-  const next: Theme = theme === "dark" ? "light" : "dark";
+interface AccountMenuProps {
+  name: string;
+  role: string;
+  signingOut: boolean;
+  onSignOut: () => void;
+}
+
+/**
+ * Round avatar with the user's initials; a click discloses who is signed in
+ * and "Sign out". A disclosure (not an ARIA menu): the panel follows the
+ * button in the tab order, Escape or a click/focus outside closes it.
+ */
+function AccountMenu({ name, role, signingOut, onSignOut }: AccountMenuProps) {
+  const [open, setOpen] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const panelId = useId();
+
+  useEffect(() => {
+    if (!open) return;
+    const outside = (event: Event) => {
+      if (event.target instanceof Node && root.current?.contains(event.target) !== true) setOpen(false);
+    };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setOpen(false);
+      trigger.current?.focus();
+    };
+    document.addEventListener("pointerdown", outside);
+    document.addEventListener("focusin", outside);
+    document.addEventListener("keydown", escape);
+    return () => {
+      document.removeEventListener("pointerdown", outside);
+      document.removeEventListener("focusin", outside);
+      document.removeEventListener("keydown", escape);
+    };
+  }, [open]);
+
   return (
-    <Button
-      variant="ghost"
-      size="sm"
-      aria-label={`Switch to ${next} theme`}
-      onClick={() => {
-        applyTheme(next);
-        saveTheme(next);
-        setTheme(next);
-      }}
-    >
-      {theme === "dark" ? "Light" : "Dark"}
-    </Button>
+    <div ref={root} className="relative">
+      <button
+        ref={trigger}
+        type="button"
+        aria-expanded={open}
+        aria-controls={panelId}
+        title={`${name} (${role})`}
+        className={cn(
+          ROUND_BASE,
+          "font-display text-sm font-semibold",
+          open ? "border-accent text-accent" : "border-border text-fg hover:border-border-strong",
+        )}
+        onClick={() => {
+          setOpen((v) => !v);
+        }}
+      >
+        <span aria-hidden="true">{initials(name)}</span>
+        <span className="sr-only">
+          Account:{" "}
+          <span data-testid="current-user">
+            {name}
+            <span>({role})</span>
+          </span>
+        </span>
+      </button>
+      {open && (
+        <div
+          id={panelId}
+          className="absolute top-full right-0 z-40 mt-2 w-56 rounded-2xl border border-border bg-surface-raised p-1.5 shadow-lg"
+        >
+          <div className="px-3 pt-2 pb-2.5">
+            <p className="truncate text-sm font-medium text-fg" title={name}>
+              {name}
+            </p>
+            <p className="text-xs text-fg-muted">{role}</p>
+          </div>
+          <div className="my-1 border-t border-border" />
+          <Button
+            variant="ghost"
+            className="h-9! w-full justify-start! gap-2! rounded-xl! px-3! text-sm!"
+            loading={signingOut}
+            onClick={onSignOut}
+          >
+            <SignOutIcon />
+            Sign out
+          </Button>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -69,55 +141,46 @@ export function Header({ streamStatus, onSigningOut }: HeaderProps) {
   const logout = useLogout();
   const navigate = useNavigate();
   const toast = useToast();
-  const stream = STREAM[streamStatus];
   const user = session.data?.user;
   // One sign-out per click burst: TanStack publishes `isPending` on its next
   // tick, so a double click could reach `mutate` twice before the button is
   // disabled (V0.8 G5: G2 tester's "double-click sends one DELETE" flaked).
   const signingOut = useRef(false);
 
+  const signOut = () => {
+    if (signingOut.current) return;
+    signingOut.current = true;
+    onSigningOut?.();
+    logout.mutate(undefined, {
+      onSettled: (_data, error) => {
+        const state: LoginState = { reason: "logged_out" };
+        void navigate("/login", { replace: true, state });
+        logout.forgetUser();
+        if (error) {
+          toast({
+            title: "Signed out in this tab",
+            description: "The controller did not confirm the logout; the session ends at its expiry or when revoked.",
+            tone: "failed",
+          });
+        }
+      },
+    });
+  };
+
   return (
-    <header className="flex h-12 shrink-0 items-center justify-between gap-4 border-b border-border bg-surface px-6">
-      <div className="flex items-center gap-5 text-sm" aria-label="Fabric status" role="group">
-        <FabricStatus />
-        <span className="text-fg-muted" data-testid="stream-status" data-status={streamStatus}>
-          <StatusDot tone={stream.tone} label={<span className="text-xs">{stream.label}</span>} />
-        </span>
+    <header className="flex shrink-0 flex-wrap items-center gap-x-6 gap-y-4 px-6 pt-6 pb-3 lg:grid lg:grid-cols-[1fr_auto_1fr]">
+      <div className="lg:justify-self-start">
+        <Brand />
       </div>
-      <div className="flex items-center gap-2">
-        {user && (
-          <span className="text-sm text-fg-muted" data-testid="current-user">
-            <span className="text-fg">{user.name}</span>
-            <span className="ml-1.5 text-xs">({user.role})</span>
-          </span>
-        )}
-        <ThemeToggle />
-        <Button
-          variant="secondary"
-          size="sm"
-          loading={logout.isPending}
-          onClick={() => {
-            if (signingOut.current) return;
-            signingOut.current = true;
-            onSigningOut?.();
-            logout.mutate(undefined, {
-              onSettled: (_data, error) => {
-                const state: LoginState = { reason: "logged_out" };
-                void navigate("/login", { replace: true, state });
-                logout.forgetUser();
-                if (error) {
-                  toast({
-                    title: "Signed out in this tab",
-                    description: "The controller did not confirm the logout; the session ends at its expiry or when revoked.",
-                    tone: "failed",
-                  });
-                }
-              },
-            });
-          }}
-        >
-          Sign out
-        </Button>
+      <div className="order-last w-full min-w-0 lg:order-none lg:w-auto lg:justify-self-center">
+        <MainNav />
+      </div>
+      <div className="ml-auto flex items-center gap-2.5 lg:ml-0 lg:justify-self-end">
+        <span role="status" className="sr-only" data-testid="stream-status" data-status={streamStatus}>
+          Live updates: {STREAM_LABEL[streamStatus]}
+        </span>
+        {user && <GuideLink />}
+        {user && <AccountMenu name={user.name} role={user.role} signingOut={logout.isPending} onSignOut={signOut} />}
       </div>
     </header>
   );

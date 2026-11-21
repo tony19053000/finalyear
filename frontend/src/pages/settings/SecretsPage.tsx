@@ -24,19 +24,14 @@ import {
 } from "../../api/settings";
 import { useDocumentTitle } from "../../app/useDocumentTitle";
 import { Button } from "../../components/Button";
-import { Card } from "../../components/Card";
 import { CodeBlock } from "../../components/CodeBlock";
 import { Dialog } from "../../components/Dialog";
 import { ErrorState } from "../../components/States";
 import { useToast } from "../../components/toastContext";
-import { Table, type Column } from "../../components/Table";
-import { formatDateTime } from "../../lib/format";
-import { ConfirmAction } from "./ConfirmAction";
-import { Field } from "./Field";
+import { useConfirmAction } from "./ConfirmAction";
+import { FIELD_CLASS, Field } from "./Field";
+import { AddButton, Footnote, Intro, Loading, RowMenu, Section, SettingsList, When, type StColumn } from "./settingsUi";
 import { useAction } from "./useAction";
-
-const input =
-  "h-8 rounded-md border border-border-strong bg-surface px-2.5 text-sm text-fg aria-[invalid=true]:border-status-failed";
 
 function valueProblem(bytes: number): string | null {
   if (bytes === 0) return null; // nothing typed yet: no nagging
@@ -139,7 +134,7 @@ function SetSecretForm({
       onSubmit={(e) => {
         void submit(e);
       }}
-      className="flex flex-col gap-3"
+      className="flex flex-col gap-5"
     >
       <Field
         label="Name"
@@ -155,7 +150,7 @@ function SetSecretForm({
           <input
             {...control}
             ref={first}
-            className={`${input} font-mono`}
+            className={`${FIELD_CLASS} font-mono`}
             value={rawName}
             autoComplete="off"
             spellCheck={false}
@@ -170,7 +165,7 @@ function SetSecretForm({
         {(control) => (
           <input
             {...control}
-            className={`${input} font-mono`}
+            className={`${FIELD_CLASS} font-mono`}
             type="password"
             value={value}
             autoComplete="new-password"
@@ -190,7 +185,7 @@ function SetSecretForm({
           <input
             {...control}
             type="file"
-            className="text-sm text-fg-muted"
+            className="st-file"
             onChange={(e) => {
               void readFile(e.target.files?.[0]);
               e.target.value = "";
@@ -225,7 +220,10 @@ function SetSecretForm({
   );
 }
 
-function SetSecret({ existing }: { existing: readonly string[] }) {
+/** The section's primary action: the dialog with the write-only form (the names come from the same query as the list). */
+export function SetSecret() {
+  const secrets = useSecrets();
+  const existing = secrets.data?.secrets.map((s) => s.name) ?? [];
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const close = () => {
@@ -233,15 +231,12 @@ function SetSecret({ existing }: { existing: readonly string[] }) {
   };
   return (
     <>
-      <Button
-        variant="primary"
-        size="sm"
+      <AddButton
+        label="Set a secret"
         onClick={() => {
           setOpen(true);
         }}
-      >
-        Set a secret
-      </Button>
+      />
       <Dialog
         open={open}
         onClose={close}
@@ -254,70 +249,83 @@ function SetSecret({ existing }: { existing: readonly string[] }) {
   );
 }
 
+const USING_HINT =
+  "A job lists the secrets it needs in its compute.yaml; the agent gives each one to the job as a file (and, with as_env, an environment variable); every log line is scrubbed of it.";
+
+/** The row's "⋯" menu: Delete behind its confirm dialog. */
+function SecretActions({ secret: s }: { secret: SecretOut }) {
+  const client = useQueryClient();
+  const remove = useConfirmAction({
+    title: `Delete ${s.name}?`,
+    description: "Jobs that ask for it will fail to start until it is set again. The value cannot be recovered.",
+    confirmLabel: "Delete secret",
+    action: () => deleteSecret(s.name),
+    done: () => {
+      void client.invalidateQueries({ queryKey: queryKeys.secrets });
+      return { title: `Secret ${s.name} deleted` };
+    },
+  });
+  return (
+    <>
+      <RowMenu
+        label={`Actions for secret ${s.name}`}
+        items={[{ key: "delete", label: "Delete", name: `Delete secret ${s.name}`, danger: true, onSelect: remove.open }]}
+      />
+      {remove.dialog}
+    </>
+  );
+}
+
 export function SecretsPage() {
   useDocumentTitle("Secrets");
   const secrets = useSecrets();
-  const client = useQueryClient();
-  const names = secrets.data?.secrets.map((s) => s.name) ?? [];
 
-  const columns: Column<SecretOut>[] = [
-    { id: "name", header: "Name", mono: true, cell: (s) => s.name },
-    { id: "created", header: "Created", cell: (s) => formatDateTime(s.created_at) },
-    { id: "updated", header: "Updated", cell: (s) => formatDateTime(s.updated_at) },
-    {
-      id: "actions",
-      header: <span className="sr-only">Actions</span>,
-      align: "right",
-      cell: (s) => (
-        <ConfirmAction
-          label="Delete"
-          triggerName={`Delete secret ${s.name}`}
-          title={`Delete ${s.name}?`}
-          description="Jobs that ask for it will fail to start until it is set again. The value cannot be recovered."
-          confirmLabel="Delete secret"
-          action={() => deleteSecret(s.name)}
-          done={() => {
-            void client.invalidateQueries({ queryKey: queryKeys.secrets });
-            return { title: `Secret ${s.name} deleted` };
-          }}
-        />
-      ),
-    },
+  const columns: StColumn<SecretOut>[] = [
+    { id: "name", header: "Name", mono: true, grow: true, cell: (s) => s.name },
+    { id: "created", header: "Created", cell: (s) => <When iso={s.created_at} /> },
+    { id: "updated", header: "Updated", cell: (s) => <When iso={s.updated_at} /> },
+    { id: "actions", header: <span className="sr-only">Actions</span>, align: "right", cell: (s) => <SecretActions secret={s} /> },
   ];
 
   return (
-    <div className="flex flex-col gap-5">
-      <Card title="Your secrets" actions={<SetSecret existing={names} />} flush>
-        {secrets.isPending ? (
-          <p role="status" className="p-4 text-sm text-fg-muted">
-            Loading…
-          </p>
-        ) : secrets.isError ? (
-          <ErrorState
-            className="m-4"
-            title="Could not load your secrets"
-            error={secrets.error}
-            onRetry={() => {
-              void secrets.refetch();
-            }}
-          />
-        ) : (
-          <Table
+    <>
+      <Intro actions={<SetSecret />}>
+        Values your jobs can ask for by name, such as API keys and passwords. A value is write-only: once stored it is never
+        shown again, here or anywhere.
+      </Intro>
+      {secrets.isPending ? (
+        <Loading />
+      ) : secrets.isError ? (
+        <ErrorState
+          title="Could not load your secrets"
+          error={secrets.error}
+          onRetry={() => {
+            void secrets.refetch();
+          }}
+        />
+      ) : (
+        <>
+          <SettingsList
             caption="Your secrets (names only - values are never shown)"
             columns={columns}
             rows={secrets.data.secrets}
             rowKey={(s) => s.name}
             empty="No secrets yet."
           />
-        )}
-      </Card>
-      <Card title="Using a secret in a job">
-        <p className="text-sm text-fg-muted">
-          A job lists the secrets it needs in its <code className="font-mono">compute.yaml</code>; the agent gives each one
-          to the job as a file (and, with <code className="font-mono">as_env</code>, an environment variable); every log line is scrubbed of it:
+          <Footnote>{`${String(secrets.data.secrets.length)} stored. Names and times only; a value is never sent back by the controller.`}</Footnote>
+        </>
+      )}
+      <Section title="Using a secret in a job" description="List it in the job's compute.yaml." hint={USING_HINT}>
+        <p className="st-prose cursor-help" title={USING_HINT}>
+          The agent gives each listed secret to the job as a file (with <code className="font-mono text-fg">as_env</code>, also
+          as an environment variable) and scrubs it from every log line.
         </p>
-        <CodeBlock className="mt-3" label="compute.yaml secrets example" code={"secrets:\n  - API_KEY                         # file /run/secrets/API_KEY\n  - {name: DB_PASS, as_env: true}   # also the env var DB_PASS"} />
-      </Card>
-    </div>
+        <CodeBlock
+          className="st-code mt-4"
+          label="compute.yaml secrets example"
+          code={"secrets:\n  - API_KEY                         # file /run/secrets/API_KEY\n  - {name: DB_PASS, as_env: true}   # also the env var DB_PASS"}
+        />
+      </Section>
+    </>
   );
 }

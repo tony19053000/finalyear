@@ -207,7 +207,8 @@ describe("Models tab: predictions at the limit", () => {
     };
     await open({ "GET /v1/planner/ml/predictions": () => json(200, odd) });
     await screen.findByTestId("ml-scatter");
-    const options = within(screen.getByRole("combobox", { name: "Term" }))
+    await userEvent.click(screen.getByLabelText("Term"));
+    const options = within(screen.getByRole("listbox"))
       .getAllByRole("option")
       .map((o) => o.textContent);
     expect(options).toContain("future_term");

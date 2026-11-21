@@ -10,7 +10,8 @@
  * query cache, storage or the URL (checklist 25).
  *
  * The API has no invite label or multi-use count (a code is single-use by
- * design, D135), so the dialog offers what it has: TTL and "re-key a node".
+ * design, D135), so the dialog offers what it has: TTL and "re-key a node",
+ * both in hive's own listbox (no native select).
  */
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type FormEvent } from "react";
@@ -29,23 +30,20 @@ import {
 } from "../../api/settings";
 import { useDocumentTitle } from "../../app/useDocumentTitle";
 import { Button } from "../../components/Button";
-import { Card } from "../../components/Card";
 import { CodeBlock } from "../../components/CodeBlock";
 import { CopyField } from "../../components/CopyField";
 import { Dialog } from "../../components/Dialog";
+import { ListboxField, type ListboxOption } from "../../components/jobs/ListboxField";
 import { QrCode } from "../../components/QrCode";
 import { EmptyState, ErrorState } from "../../components/States";
-import { Badge } from "../../components/Status";
-import { Table, type Column } from "../../components/Table";
 import { formatDateTime, shortId } from "../../lib/format";
-import type { StatusTone } from "../../lib/status";
-import { ConfirmAction } from "./ConfirmAction";
+import { dash } from "../benchmarks/benchShared";
+import { useConfirmAction } from "./ConfirmAction";
 import { Field } from "./Field";
+import { AddButton, Footnote, Intro, Loading, MaskedId, RowMenu, SettingsList, StateWord, When, type StColumn } from "./settingsUi";
 import { useAction } from "./useAction";
 
-const INVITE_TONES: Record<string, StatusTone> = { pending: "busy", used: "ok", revoked: "failed", expired: "unknown" };
-
-const select = "h-8 rounded-md border border-border-strong bg-surface px-2 text-sm text-fg";
+const INVITE_TONES: Record<string, string> = { pending: "busy", used: "ok", revoked: "failed", expired: "unknown" };
 
 function IssuedCode({ issued, onDone }: { issued: InviteCreated; onDone: () => void }) {
   return (
@@ -53,7 +51,7 @@ function IssuedCode({ issued, onDone }: { issued: InviteCreated; onDone: () => v
       <CopyField label="Join code - shown only now" value={issued.code} />
       <div className="flex flex-wrap items-start gap-4">
         <QrCode text={issued.code} label="QR code of the join code" size={208} className="rounded-md" />
-        <dl className="grid min-w-0 flex-1 grid-cols-[7rem_1fr] gap-x-3 gap-y-1 text-sm">
+        <dl className="st-issued grid min-w-0 flex-1 grid-cols-[7rem_1fr] items-baseline gap-x-3 gap-y-2.5 text-sm">
           <dt className="text-fg-muted">Invite</dt>
           <dd className="font-mono text-xs leading-5 break-all">{issued.invite_id}</dd>
           <dt className="text-fg-muted">Controller</dt>
@@ -72,7 +70,7 @@ function IssuedCode({ issued, onDone }: { issued: InviteCreated; onDone: () => v
       </div>
       <div className="flex flex-col gap-1.5 text-sm text-fg-muted">
         <span>On the new laptop (with the MeshForge agent installed), run one of these and paste the code when asked:</span>
-        <CodeBlock label="join commands" code={"meshforge-agent join\ncompute fabric join"} />
+        <CodeBlock className="st-code" label="join commands" code={"meshforge-agent join\ncompute fabric join"} />
         <span>The code works once. The controller keeps only its hash; it cannot show it again.</span>
       </div>
       <div className="flex justify-end">
@@ -91,10 +89,11 @@ function CreateInviteForm({ onDone, onBusy }: { onDone: () => void; onBusy: (bus
   const [ttl, setTtl] = useState("");
   const [replace, setReplace] = useState("");
   const create = useAction(createInvite);
-  const first = useRef<HTMLSelectElement>(null);
+  const form = useRef<HTMLFormElement>(null);
 
   useEffect(() => {
-    first.current?.focus();
+    // the first control (the expiry list's trigger) takes the focus
+    form.current?.querySelector<HTMLButtonElement>("button")?.focus();
   }, []);
   useEffect(() => {
     onBusy(create.pending);
@@ -112,54 +111,31 @@ function CreateInviteForm({ onDone, onBusy }: { onDone: () => void; onBusy: (bus
   if (create.state.status === "done") return <IssuedCode issued={create.state.result} onDone={onDone} />;
 
   const replaceable = (nodes.data?.nodes ?? []).filter((n) => n.state !== "revoked");
+  const ttlOptions: ListboxOption[] = INVITE_TTL_CHOICES.map((choice) => ({
+    value: choice.seconds === null ? "" : String(choice.seconds),
+    label: choice.label,
+  }));
+  const forOptions: ListboxOption[] = [
+    { value: "", label: "A new laptop" },
+    ...replaceable.map((n) => ({ value: n.node_id, label: `Re-key ${n.hostname}`, detail: shortId(n.node_id) })),
+  ];
   const error = create.state.status === "error" ? create.state.error : null;
   return (
     <form
+      ref={form}
       onSubmit={(e) => {
         void submit(e);
       }}
-      className="flex flex-col gap-3"
+      className="flex flex-col gap-5"
     >
       <Field label="Code expires after">
-        {(control) => (
-          <select
-            {...control}
-            ref={first}
-            className={select}
-            value={ttl}
-            onChange={(e) => {
-              setTtl(e.target.value);
-            }}
-          >
-            {INVITE_TTL_CHOICES.map((choice) => (
-              <option key={choice.label} value={choice.seconds === null ? "" : String(choice.seconds)}>
-                {choice.label}
-              </option>
-            ))}
-          </select>
-        )}
+        {(control) => <ListboxField id={control.id} value={ttl} options={ttlOptions} onChange={setTtl} />}
       </Field>
       <Field
         label="For"
         help="Re-keying gives an enrolled laptop a new certificate under the same node id (its old one stops working)."
       >
-        {(control) => (
-          <select
-            {...control}
-            className={select}
-            value={replace}
-            onChange={(e) => {
-              setReplace(e.target.value);
-            }}
-          >
-            <option value="">A new laptop</option>
-            {replaceable.map((n) => (
-              <option key={n.node_id} value={n.node_id}>
-                Re-key {n.hostname} ({shortId(n.node_id)})
-              </option>
-            ))}
-          </select>
-        )}
+        {(control) => <ListboxField id={control.id} value={replace} options={forOptions} onChange={setReplace} />}
       </Field>
       {error !== null && (
         <p role="alert" className="text-sm text-status-failed">
@@ -178,7 +154,8 @@ function CreateInviteForm({ onDone, onBusy }: { onDone: () => void; onBusy: (bus
   );
 }
 
-function CreateInvite() {
+/** The section's primary action (admins): the dialog with the form and the one-time code. */
+export function CreateInvite() {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const close = () => {
@@ -186,15 +163,12 @@ function CreateInvite() {
   };
   return (
     <>
-      <Button
-        variant="primary"
-        size="sm"
+      <AddButton
+        label="Create invite"
         onClick={() => {
           setOpen(true);
         }}
-      >
-        Create invite
-      </Button>
+      />
       <Dialog
         open={open}
         onClose={close}
@@ -208,10 +182,34 @@ function CreateInvite() {
   );
 }
 
+/** The row's "⋯" menu: Revoke (pending codes only) behind its confirm dialog. */
+function InviteActions({ invite: i }: { invite: InviteOut }) {
+  const client = useQueryClient();
+  const revoke = useConfirmAction({
+    title: "Revoke this invite?",
+    description: `The join code of ${i.id} stops working at once. A laptop that already joined with it is not affected.`,
+    confirmLabel: "Revoke invite",
+    action: () => revokeInvite(i.id),
+    done: () => {
+      void client.invalidateQueries({ queryKey: queryKeys.invites });
+      return { title: `Invite ${i.id} revoked` };
+    },
+  });
+  if (i.state !== "pending") return null;
+  return (
+    <>
+      <RowMenu
+        label={`Actions for invite ${i.id}`}
+        items={[{ key: "revoke", label: "Revoke", name: `Revoke invite ${i.id}`, danger: true, onSelect: revoke.open }]}
+      />
+      {revoke.dialog}
+    </>
+  );
+}
+
 export function InvitesPage({ isAdmin }: { isAdmin: boolean }) {
   useDocumentTitle("Invites");
   const invites = useInvites(isAdmin);
-  const client = useQueryClient();
 
   if (!isAdmin) {
     return (
@@ -221,56 +219,48 @@ export function InvitesPage({ isAdmin }: { isAdmin: boolean }) {
     );
   }
 
-  const columns: Column<InviteOut>[] = [
-    { id: "id", header: "Invite", mono: true, cell: (i) => i.id },
-    { id: "state", header: "State", cell: (i) => <Badge tone={INVITE_TONES[i.state] ?? "unknown"}>{i.state}</Badge> },
+  const columns: StColumn<InviteOut>[] = [
+    { id: "id", header: "Invite", mono: true, grow: true, cell: (i) => <span className="text-fg"><MaskedId id={i.id} /></span> },
+    { id: "state", header: "State", cell: (i) => <StateWord tone={INVITE_TONES[i.state] ?? "unknown"}>{i.state}</StateWord> },
     { id: "by", header: "Created by", cell: (i) => i.created_by },
-    { id: "created", header: "Created", cell: (i) => formatDateTime(i.created_at) },
-    { id: "expires", header: "Expires", cell: (i) => formatDateTime(i.expires_at) },
+    { id: "created", header: "Created", cell: (i) => <When iso={i.created_at} /> },
+    { id: "expires", header: "Expires", cell: (i) => <When iso={i.expires_at} /> },
     {
       id: "used",
       header: "Used by",
+      hint: "The node that joined with the code.",
+      mono: true,
       cell: (i) =>
         i.used_by_node != null ? (
-          <Link className="font-mono text-xs text-accent underline-offset-2 hover:underline" to={`/nodes/${encodeURIComponent(i.used_by_node)}`}>
-            {i.used_by_node}
+          <Link className="text-accent underline-offset-2 hover:underline" to={`/nodes/${encodeURIComponent(i.used_by_node)}`}>
+            <MaskedId id={i.used_by_node} />
           </Link>
         ) : (
-          "—"
+          dash
         ),
     },
-    { id: "replaces", header: "Re-keys", mono: true, cell: (i) => i.replace_node_id ?? "—" },
     {
-      id: "actions",
-      header: <span className="sr-only">Actions</span>,
-      align: "right",
-      cell: (i) =>
-        i.state === "pending" ? (
-          <ConfirmAction
-            label="Revoke"
-            triggerName={`Revoke invite ${i.id}`}
-            title="Revoke this invite?"
-            description={`The join code of ${i.id} stops working at once. A laptop that already joined with it is not affected.`}
-            confirmLabel="Revoke invite"
-            action={() => revokeInvite(i.id)}
-            done={() => {
-              void client.invalidateQueries({ queryKey: queryKeys.invites });
-              return { title: `Invite ${i.id} revoked` };
-            }}
-          />
-        ) : null,
+      id: "replaces",
+      header: "Re-keys",
+      hint: "An enrolled node the code gives a new certificate (same node id).",
+      mono: true,
+      cell: (i) => (i.replace_node_id != null ? <MaskedId id={i.replace_node_id} /> : dash),
     },
+    { id: "actions", header: <span className="sr-only">Actions</span>, align: "right", cell: (i) => <InviteActions invite={i} /> },
   ];
 
+  const rows = invites.data?.invites ?? [];
+  const pending = rows.filter((i) => i.state === "pending").length;
   return (
-    <Card title="Invites" actions={<CreateInvite />} flush>
+    <>
+      <Intro actions={<CreateInvite />}>
+        Single-use join codes that let one laptop enrol into this fabric, newest first. A code is shown only once, when it is
+        made.
+      </Intro>
       {invites.isPending ? (
-        <p role="status" className="p-4 text-sm text-fg-muted">
-          Loading…
-        </p>
+        <Loading />
       ) : invites.isError ? (
         <ErrorState
-          className="m-4"
           title="Could not load the invites"
           error={invites.error}
           onRetry={() => {
@@ -278,14 +268,17 @@ export function InvitesPage({ isAdmin }: { isAdmin: boolean }) {
           }}
         />
       ) : (
-        <Table
-          caption="Invites, newest first (codes are never shown again)"
-          columns={columns}
-          rows={invites.data.invites}
-          rowKey={(i) => i.id}
-          empty="No invites yet. Create one to add a laptop to the fabric."
-        />
+        <>
+          <SettingsList
+            caption="Invites, newest first (codes are never shown again)"
+            columns={columns}
+            rows={rows}
+            rowKey={(i) => i.id}
+            empty="No invites yet. Create one to add a laptop to the fabric."
+          />
+          <Footnote>{`${String(rows.length)} listed · ${String(pending)} pending. The controller keeps only a code's hash; it cannot show it again.`}</Footnote>
+        </>
       )}
-    </Card>
+    </>
   );
 }

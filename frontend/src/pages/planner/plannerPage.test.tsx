@@ -61,10 +61,12 @@ describe("Planner page", () => {
     expect(rows[1]?.textContent).toContain("node_01JA00000000000000000000L2");
     expect(rows[1]?.textContent).toContain("×1.30");
     expect(rows[1]?.textContent).toContain("14");
-    expect(rows[2]?.textContent).toContain("node_family");
+    expect(rows[2]?.textContent).toContain("node · family");
     expect(rows[2]?.textContent).toContain("split_hash");
     expect(screen.getByTestId("calibration-in-use").textContent).toContain("in use v7");
-    expect(screen.getByText(/Never scaled:/).textContent).toContain("risk (derived)");
+    // what is never scaled is the terms note's tooltip
+    expect(screen.getByTestId("calibration-terms").getAttribute("title")).toContain("Never scaled: queue (measured)");
+    expect(screen.getByTestId("calibration-terms").getAttribute("title")).toContain("risk (derived)");
     const versions = screen.getByRole("table", { name: "Calibration versions, newest first" });
     expect(versions.textContent).toContain("rejected");
     expect(versions.textContent).toContain("held-out error 0.310 > 1.05 x 0.112 (active v7)");
@@ -89,14 +91,14 @@ describe("Planner page", () => {
 
   it("no reports: an empty state that names compute planner eval", async () => {
     fakeController(routes({ "GET /v1/planner/eval-reports": () => json(200, EMPTY_REPORTS) }));
-    renderApp("/planner");
+    renderApp("/planner?tab=evaluation");
     expect(await screen.findByText("No evaluation reports yet")).toBeTruthy();
     expect(screen.getByText(/compute planner eval --campaign ID/)).toBeTruthy();
   });
 
   it("a controller without the evaluator (404): says so, no error box", async () => {
     fakeController(routes({ "GET /v1/planner/eval-reports": () => json(404, { error: { code: "not_found", message: "Not Found" } }) }));
-    renderApp("/planner");
+    renderApp("/planner?tab=evaluation");
     expect(await screen.findByText("Evaluation reports are not available")).toBeTruthy();
     expect(screen.queryByText(/not found/)).toBeNull();
     expect(screen.queryByRole("alert")).toBeNull();
@@ -104,7 +106,7 @@ describe("Planner page", () => {
 
   it("a proxy's non-envelope 404 on the list is also 'not available'", async () => {
     fakeController(routes({ "GET /v1/planner/eval-reports": () => new Response("gone", { status: 404 }) }));
-    renderApp("/planner");
+    renderApp("/planner?tab=evaluation");
     expect(await screen.findByText("Evaluation reports are not available")).toBeTruthy();
   });
 
@@ -126,20 +128,25 @@ describe("Planner page", () => {
     fakeController(
       routes({ "GET /v1/planner/eval-reports/4": () => json(404, { error: { code: "not_found", message: "Not Found" } }) }),
     );
-    renderApp("/planner");
+    renderApp("/planner?tab=evaluation");
     expect(await screen.findByText("Evaluation reports are not available")).toBeTruthy();
     expect(screen.queryByText(/not found/)).toBeNull();
   });
 
   it("criterion 2 (D322): the paired comparisons per rule policy, CI labelled with the report's level", async () => {
     fakeController(routes());
-    renderApp("/planner");
+    renderApp("/planner?tab=evaluation");
     const detail = await screen.findByTestId("eval-report-detail");
+    // the chart (the details' first view) uses the report's CI level, never a fixed 95 %
+    expect(within(detail).getByText("Mean regret per policy (bootstrap 90 % CI)")).toBeTruthy();
+    await userEvent.click(within(detail).getByRole("tab", { name: "Paired" }));
     const paired = within(detail).getByRole("table", { name: "Criterion 2: paired regret difference per rule policy" });
     const headers = within(paired)
       .getAllByRole("columnheader")
       .map((h) => h.textContent);
-    expect(headers).toEqual(["Rule policy", "Common groups", "Mean difference (% points)", "90 % CI", "Unmeasured"]);
+    expect(headers).toEqual(["Rule policy", "Common groups", "Mean diff (pts)", "90 % CI", "Unmeasured"]);
+    // a short head keeps its full name for screen readers
+    expect(within(paired).getByRole("columnheader", { name: "Mean difference (% points)" })).toBeTruthy();
     const rows = within(paired).getAllByRole("row").slice(1);
     expect(rows).toHaveLength(3);
     const random = rows.find((r) => r.textContent.includes("random"));
@@ -151,10 +158,10 @@ describe("Planner page", () => {
     expect(leastLoaded?.textContent).toContain("[-1.3, 15.5]");
     expect(detail.textContent).toContain("cost_model:calibrated:min_time");
     expect(detail.textContent).toContain("non-finite configurations dropped 1");
-    // the policy table and the chart use the report's CI level too, never a fixed 95 %
+    // the policy table uses the report's CI level too
+    await userEvent.click(within(detail).getByRole("tab", { name: "Per policy" }));
     const policies = within(detail).getByRole("table", { name: "Regret per policy" });
     expect(within(policies).getByRole("columnheader", { name: "90 % CI" })).toBeTruthy();
-    expect(within(detail).getByText("Mean regret per policy (bootstrap 90 % CI)")).toBeTruthy();
     expect(detail.textContent).not.toContain("95 % CI");
   });
 
@@ -166,18 +173,23 @@ describe("Planner page", () => {
     });
     const old = { ...REPORT_RECORD, report: { ...REPORT_RECORD.report, verdicts } };
     fakeController(routes({ "GET /v1/planner/eval-reports/4": () => json(200, old) }));
-    renderApp("/planner");
+    renderApp("/planner?tab=evaluation");
     const detail = await screen.findByTestId("eval-report-detail");
+    expect(within(detail).queryByRole("tab", { name: "Paired" })).toBeNull();
     expect(within(detail).queryByRole("table", { name: "Criterion 2: paired regret difference per rule policy" })).toBeNull();
   });
 
   it("one report: verdicts, per-policy regret with CI (bars + table), families, calibrations used", async () => {
     fakeController(routes());
-    renderApp("/planner");
+    renderApp("/planner?tab=evaluation");
     const detail = await screen.findByTestId("eval-report-detail");
     expect(within(detail).getByText("criterion 1: PASS")).toBeTruthy();
     expect(within(detail).getByText("criterion 2: not_separable")).toBeTruthy();
     expect(within(detail).queryByText("LEAKED")).toBeNull();
+    // one detail at a time: the bars first, then each table behind its tab
+    expect(within(detail).getByTestId("regret-chart")).toBeTruthy();
+    await userEvent.click(within(detail).getByRole("tab", { name: "Per policy" }));
+    expect(within(detail).queryByTestId("regret-chart")).toBeNull();
     const policies = within(detail).getByRole("table", { name: "Regret per policy" });
     const calibrated = within(policies)
       .getAllByRole("row")
@@ -188,15 +200,16 @@ describe("Planner page", () => {
       .getAllByRole("row")
       .find((r) => r.textContent.includes("cost_model:calibrated:prefer_local"));
     expect(noCounted?.textContent).toContain("—");
-    expect(within(detail).getByTestId("regret-chart")).toBeTruthy();
+    await userEvent.click(within(detail).getByRole("tab", { name: "Per family" }));
     expect(within(detail).getByRole("table", { name: "Regret per family and policy" }).textContent).toContain("split_hash");
+    await userEvent.click(within(detail).getByRole("tab", { name: "Calibrations used" }));
     expect(within(detail).getByRole("table", { name: "Calibration used per family" }).textContent).toContain("refit");
     expect(detail.textContent).toContain("seed 20261022");
   });
 
   it("criterion 3 (D324): the decision-latency row from the report's block, per snapshot size", async () => {
     fakeController(routes());
-    renderApp("/planner");
+    renderApp("/planner?tab=evaluation");
     const detail = await screen.findByTestId("eval-report-detail");
     expect(within(detail).getByText("criterion 3: PASS")).toBeTruthy();
     const row = within(detail).getByTestId("eval-latency");
@@ -217,7 +230,7 @@ describe("Planner page", () => {
     const latency = { ...LATENCY, judged_on: "snapshot_nodes" as const, by_live_node_count: null };
     const older = { ...REPORT_RECORD, report: { ...REPORT_RECORD.report, latency } };
     fakeController(routes({ "GET /v1/planner/eval-reports/4": () => json(200, older) }));
-    renderApp("/planner");
+    renderApp("/planner?tab=evaluation");
     const detail = await screen.findByTestId("eval-report-detail");
     const row = within(detail).getByTestId("eval-latency");
     expect(row.textContent).toContain("criterion 3 judges snapshots of ≥ 4 nodes: 64 decisions");
@@ -230,7 +243,7 @@ describe("Planner page", () => {
     );
     const old = { ...REPORT_RECORD, report: { ...REPORT_RECORD.report, verdicts, latency: null } };
     fakeController(routes({ "GET /v1/planner/eval-reports/4": () => json(200, old) }));
-    renderApp("/planner");
+    renderApp("/planner?tab=evaluation");
     const detail = await screen.findByTestId("eval-report-detail");
     expect(within(detail).getByText("criterion 3: too_few_decisions")).toBeTruthy();
     expect(within(detail).getByTestId("eval-latency").textContent).toContain("not recorded");
@@ -238,12 +251,13 @@ describe("Planner page", () => {
 
   it("a leaked report: LEAKED banner, every verdict stamped leaked with what it would be", async () => {
     fakeController(routes({ "GET /v1/planner/eval-reports": () => json(200, TWO_REPORTS) }));
-    renderApp("/planner");
+    renderApp("/planner?tab=evaluation");
     const banner = await screen.findByRole("alert");
     expect(banner.textContent).toContain("LEAKED");
     expect(banner.textContent).toContain("not evidence");
     const detail = screen.getByTestId("eval-report-detail");
     expect(within(detail).getByText("criterion 1: leaked (would be PASS)")).toBeTruthy();
+    await userEvent.click(within(detail).getByRole("tab", { name: "Calibrations used" }));
     expect(within(detail).getByRole("table", { name: "Calibration used per family" }).textContent).toContain("active v7");
     // the older, clean report is one click away
     await userEvent.click(screen.getByRole("button", { name: "#4" }));

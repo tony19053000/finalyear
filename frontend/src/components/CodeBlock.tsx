@@ -39,6 +39,8 @@ export interface LogViewProps {
   /** Lines kept in the DOM; older ones are cut (the API has the full log). */
   maxLines?: number;
   className?: string;
+  /** Replaces the scroll area's default box classes (the job page's dark log well). */
+  viewClassName?: string;
 }
 
 /**
@@ -46,7 +48,7 @@ export interface LogViewProps {
  * bottom; scrolling up pauses following, "Follow" resumes it. Text is
  * rendered as text (never HTML), so log bytes cannot inject markup.
  */
-export function LogView({ lines, label, maxLines = 5000, className }: LogViewProps) {
+export function LogView({ lines, label, maxLines = 5000, className, viewClassName }: LogViewProps) {
   const scroller = useRef<HTMLDivElement>(null);
   const [follow, setFollow] = useState(true);
   const shown = lines.length > maxLines ? lines.slice(lines.length - maxLines) : lines;
@@ -69,7 +71,7 @@ export function LogView({ lines, label, maxLines = 5000, className }: LogViewPro
           const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 8;
           setFollow(atBottom);
         }}
-        className="h-full min-h-40 overflow-auto rounded-md border border-border bg-surface-sunken p-3 font-mono text-xs leading-5"
+        className={viewClassName ?? "h-full min-h-40 overflow-auto rounded-md border border-border bg-surface-sunken p-3 font-mono text-xs leading-5"}
       >
         {cut > 0 && (
           <div className="text-fg-subtle">… {cut} earlier lines not shown</div>

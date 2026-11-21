@@ -222,7 +222,8 @@ describe("jobs list under load and hostile data", () => {
     expect(table.querySelector("img")).toBeNull();
     expect(table.querySelector("script")).toBeNull();
     expect(table.textContent).toContain("<img src=x onerror=alert(1)>");
-    expect(screen.getByRole("status").textContent).toMatch(/2500 jobs loaded; that is all/);
+    expect(table.getAttribute("aria-rowcount")).toBe("2501"); // all 2 500 are in the list
+    expect(screen.queryByText(/jobs loaded/)).toBeNull(); // all loaded: no footer line
   });
 
   it("a next_cursor that never ends (server loop) cannot be walked past the loaded pages without a click", async () => {

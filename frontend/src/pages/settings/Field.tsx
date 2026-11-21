@@ -5,10 +5,14 @@ export interface FieldControlProps {
   "aria-describedby"?: string;
 }
 
+/** The underline field of the restyled pages (jobs' filter fields), red under an invalid value. */
+export const FIELD_CLASS = "jb-field st-field w-full";
+
 /**
  * A labelled form control with optional help text: the label names the
  * control (and only the label - help text is its description, not part of its
- * name), as screen readers and keyboard users expect (checklist 27).
+ * name), as screen readers and keyboard users expect (checklist 27). The
+ * label is the quiet mono caption of the restyled pages.
  */
 export function Field({
   label,
@@ -23,10 +27,12 @@ export function Field({
   const helpId = `${id}-help`;
   return (
     <div className="flex flex-col gap-1.5 text-sm">
-      <label htmlFor={id}>{label}</label>
+      <label htmlFor={id} className="nd-label">
+        {label}
+      </label>
       {children(help !== undefined ? { id, "aria-describedby": helpId } : { id })}
       {help !== undefined && (
-        <span id={helpId} className="text-xs text-fg-muted">
+        <span id={helpId} className="text-xs leading-5 text-fg-muted">
           {help}
         </span>
       )}

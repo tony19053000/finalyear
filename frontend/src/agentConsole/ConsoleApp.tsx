@@ -2,13 +2,14 @@ import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-quer
 import { Suspense, lazy, useEffect, useState, type ReactNode } from "react";
 import { BrowserRouter, NavLink, Route, Routes } from "react-router-dom";
 
-import { applyTheme, saveTheme, storedTheme, type Theme } from "../app/theme";
-import { Button } from "../components/Button";
+import { HiveMark, JobsIcon, OverviewIcon, SettingsIcon } from "../app/icons";
 import { ToastProvider } from "../components/Toast";
 import { cn } from "../lib/cn";
 import { ConsoleApiError, consoleApi, consoleKeys, explain, type StatusView } from "./api";
 import { clearFragment, readCredential } from "./bootstrap";
-import { Problem } from "./components/fields";
+import { HiveBackdrop } from "../app/HiveBackdrop";
+import { Dot, Problem } from "./components/fields";
+import { connectionSummary } from "./logic";
 import { Home } from "./pages/Home";
 import { Wizard } from "./pages/Wizard";
 
@@ -66,79 +67,110 @@ function useAccess(): Access {
   return access;
 }
 
-function ThemeToggle() {
-  const [theme, setTheme] = useState<Theme>(() => storedTheme());
-  const next: Theme = theme === "dark" ? "light" : "dark";
+/** The hive lockup (the dashboard's Brand, without a link: this page is its own app). */
+function Lockup() {
   return (
-    <Button
-      variant="ghost"
-      size="sm"
-      aria-label={`Switch to ${next} theme`}
-      onClick={() => {
-        applyTheme(next);
-        saveTheme(next);
-        setTheme(next);
-      }}
-    >
-      {theme === "dark" ? "Light" : "Dark"}
-    </Button>
+    <span className="flex shrink-0 items-center gap-2.5 text-fg">
+      <HiveMark size={26} />
+      <span className="inline-flex items-baseline font-display text-[25px] leading-none font-bold tracking-[-0.045em]">
+        hive
+        <span
+          aria-hidden="true"
+          className="ml-[0.06em] inline-block h-[0.34em] w-[0.3em] bg-accent [clip-path:polygon(50%_0,100%_25%,100%_75%,50%_100%,0_75%,0_25%)]"
+        />
+      </span>
+    </span>
+  );
+}
+
+/** A page with only the comb and one centred panel (signed out, not answering, opening). */
+function Bare({ children }: { children: ReactNode }) {
+  return (
+    <div className="mf-app ac-app relative flex min-h-screen flex-col items-center justify-center bg-bg px-4 text-fg">
+      <HiveBackdrop />
+      <div className="ac-in relative z-10 flex w-full max-w-lg flex-col items-center gap-8">
+        <Lockup />
+        {children}
+      </div>
+    </div>
   );
 }
 
 function SignedOut({ expired }: { expired: boolean }) {
   return (
-    <main className="mx-auto flex max-w-xl flex-col gap-3 p-6">
-      <h1 className="text-lg font-semibold text-fg">MeshForge on this laptop</h1>
-      <Problem
-        title={expired ? "This link has expired" : "You are not signed in"}
-        message={
-          expired
-            ? "Console links work once and only for a minute."
-            : "This page opens from the MeshForge entry in your app menu, which signs you in."
-        }
-        fix="Open MeshForge from the app menu again. (Only users allowed to manage MeshForge on this laptop can.)"
-      />
-    </main>
+    <Bare>
+      <main className="ov-card ov-frost nd-glass ac-panel w-full">
+        <div className="ac-panel-body flex flex-col gap-5">
+          <h1 className="font-display text-[1.75rem] leading-tight font-bold tracking-[-0.03em] text-fg">MeshForge on this laptop</h1>
+          <Problem
+            title={expired ? "This link has expired" : "You are not signed in"}
+            message={
+              expired
+                ? "Console links work once and only for a minute."
+                : "This page opens from the MeshForge entry in your app menu, which signs you in."
+            }
+            fix="Open MeshForge from the app menu again. (Only users allowed to manage MeshForge on this laptop can.)"
+          />
+        </div>
+      </main>
+    </Bare>
   );
 }
 
 const NAV = [
-  { to: "/", label: "Home", end: true },
-  { to: "/settings", label: "Settings", end: false },
-  { to: "/logs", label: "Logs", end: false },
-  { to: "/leave", label: "Leave", end: false },
+  { to: "/", label: "Home", end: true, icon: <OverviewIcon /> },
+  { to: "/settings", label: "Settings", end: false, icon: <SettingsIcon /> },
+  { to: "/logs", label: "Logs", end: false, icon: <JobsIcon /> },
+  { to: "/leave", label: "Leave", end: false, icon: null },
 ];
 
 function Shell({ status, children }: { status: StatusView; children: ReactNode }) {
+  const summary = connectionSummary(status);
+  const tone = summary.tone === "ok" ? "ok" : summary.tone === "failed" ? "failed" : summary.tone === "degraded" ? "warn" : summary.tone === "busy" ? "honey" : "off";
   return (
-    <div className="min-h-screen bg-bg text-fg">
-      <header className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-2">
-        <div className="min-w-0">
-          <span className="text-sm font-semibold">MeshForge</span>
-          <span className="ml-2 truncate text-sm text-fg-muted">{status.node_name !== "" ? status.node_name : status.hostname}</span>
+    <div className="mf-app ac-app relative flex min-h-screen flex-col bg-bg text-fg">
+      <HiveBackdrop />
+      <header className="relative z-10 flex shrink-0 flex-wrap items-center gap-x-6 gap-y-4 px-6 pt-6 pb-3 lg:grid lg:grid-cols-[1fr_auto_1fr]">
+        <div className="flex min-w-0 items-center gap-4 lg:justify-self-start">
+          <Lockup />
+          <span className="ac-host hidden min-w-0 truncate sm:inline">{status.node_name !== "" ? status.node_name : status.hostname}</span>
         </div>
-        <ThemeToggle />
+        {status.joined && status.setup_complete ? (
+          <nav aria-label="Console" className="order-last w-full max-w-full min-w-0 overflow-x-auto [scrollbar-width:none] lg:order-none lg:w-auto lg:justify-self-center">
+            <ul className="flex items-center gap-2 p-0.5">
+              {NAV.map((item) => (
+                <li key={item.to}>
+                  <NavLink
+                    to={item.to}
+                    end={item.end}
+                    className={({ isActive }) =>
+                      cn(
+                        "flex h-11 items-center gap-2 rounded-full border px-5 text-sm whitespace-nowrap transition-colors",
+                        isActive
+                          ? "border-accent bg-surface font-medium text-accent"
+                          : "border-border bg-surface text-fg-muted hover:border-border-strong hover:text-fg",
+                      )
+                    }
+                  >
+                    {item.icon}
+                    {item.label}
+                  </NavLink>
+                </li>
+              ))}
+            </ul>
+          </nav>
+        ) : (
+          <span className="hidden lg:block" />
+        )}
+        <div className="ml-auto flex items-center gap-5 lg:ml-0 lg:justify-self-end">
+          {status.joined && (
+            <span className="ac-conn hidden sm:inline-flex">
+              <Dot tone={tone}>{summary.label}</Dot>
+            </span>
+          )}
+        </div>
       </header>
-      {status.joined && status.setup_complete && (
-        <nav aria-label="Console" className="flex gap-1 overflow-x-auto border-b border-border px-2">
-          {NAV.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              end={item.end}
-              className={({ isActive }) =>
-                cn(
-                  "border-b-2 px-3 py-2 text-sm whitespace-nowrap",
-                  isActive ? "border-accent text-fg" : "border-transparent text-fg-muted hover:text-fg",
-                )
-              }
-            >
-              {item.label}
-            </NavLink>
-          ))}
-        </nav>
-      )}
-      <main className="mx-auto w-full max-w-4xl p-4">{children}</main>
+      <main className="ac-in relative z-10 mx-auto w-full max-w-6xl flex-1 px-6 pt-6 pb-16">{children}</main>
     </div>
   );
 }
@@ -154,18 +186,22 @@ function Console() {
   if (access === "expired") return <SignedOut expired />;
   if (access === "exchanging" || status.isPending) {
     return (
-      <p role="status" className="p-6 text-sm text-fg-muted">
-        Opening MeshForge…
-      </p>
+      <Bare>
+        <p role="status" className="ac-loading">
+          Opening MeshForge…
+        </p>
+      </Bare>
     );
   }
   if (status.isError) {
     if (status.error instanceof ConsoleApiError && status.error.status === 401) return <SignedOut expired={false} />;
     const { message, fix } = explain(status.error);
     return (
-      <main className="mx-auto max-w-xl p-6">
-        <Problem title="MeshForge on this laptop does not answer" message={message} fix={fix || "It may be restarting; this page retries by itself."} />
-      </main>
+      <Bare>
+        <main className="w-full">
+          <Problem title="MeshForge on this laptop does not answer" message={message} fix={fix || "It may be restarting; this page retries by itself."} />
+        </main>
+      </Bare>
     );
   }
   const s = status.data;
@@ -178,7 +214,7 @@ function Console() {
   }
   return (
     <Shell status={s}>
-      <Suspense fallback={<p role="status" className="text-sm text-fg-muted">Loading…</p>}>
+      <Suspense fallback={<p role="status" className="ac-loading">Loading…</p>}>
         <Routes>
           <Route path="/settings" element={<Settings />} />
           <Route path="/logs" element={<Logs />} />
@@ -190,13 +226,16 @@ function Console() {
   );
 }
 
+/** Under the vite dev server the console is opened at its html file; links stay under it. */
+const BASENAME = import.meta.env.DEV && window.location.pathname.startsWith("/src/agentConsole/index.html") ? "/src/agentConsole/index.html" : undefined;
+
 /** The laptop owner's console (V0.17 G3). */
 export function ConsoleApp({ client }: { client?: QueryClient }) {
   const [queryClient] = useState(() => client ?? createClient());
   return (
     <QueryClientProvider client={queryClient}>
       <ToastProvider>
-        <BrowserRouter>
+        <BrowserRouter basename={BASENAME}>
           <Console />
         </BrowserRouter>
       </ToastProvider>

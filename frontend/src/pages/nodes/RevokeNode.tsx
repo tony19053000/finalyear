@@ -58,14 +58,16 @@ export function RevokeNode({ nodeId, hostname }: { nodeId: string; hostname: str
 
   return (
     <>
-      <Button
-        variant="danger"
+      {/* quiet outline: the danger colour shows on hover and in the confirm step only */}
+      <button
+        type="button"
+        className="nd-ghost-btn"
         onClick={() => {
           setOpen(true);
         }}
       >
         Revoke node
-      </Button>
+      </button>
       <Dialog
         open={open}
         onClose={close}

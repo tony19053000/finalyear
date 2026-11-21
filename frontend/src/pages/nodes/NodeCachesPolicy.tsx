@@ -5,11 +5,9 @@
  * - so the dashboard shows it read-only.
  */
 import type { NodeDetail } from "../../api/fabric";
-import { Card } from "../../components/Card";
-import { CodeBlock } from "../../components/CodeBlock";
-import { Badge } from "../../components/Status";
 import { Table } from "../../components/Table";
 import { formatBytes } from "../../lib/format";
+import { FrostTable } from "./FrostTable";
 
 const CACHE_LABELS: Record<string, string> = {
   blob: "Blobs (content store)",
@@ -18,19 +16,54 @@ const CACHE_LABELS: Record<string, string> = {
   image: "Container images",
 };
 
-function policyValue(value: unknown): string {
+/** Plain names for the owner-policy settings (the raw key stays in the row's title). */
+const POLICY_LABELS: Record<string, string> = {
+  accepting: "Accepting jobs",
+  accept_jobs: "Accepting jobs",
+  max_cpu_percent: "CPU limit",
+  max_ram_bytes: "RAM limit",
+  max_gpu_vram_bytes: "VRAM limit",
+  max_gpu_jobs: "GPU jobs limit",
+  accept_gpu_sessions: "GPU sessions",
+  only_when_plugged_in: "Only when plugged in",
+  quiet_hours: "Quiet hours",
+  allowed_users_count: "Allowed users",
+};
+
+function policyLabel(key: string): string {
+  return POLICY_LABELS[key] ?? key.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
+}
+
+/** A policy value as text; `*_bytes` keys read as sizes (the raw number stays in the title). */
+function policyValue(key: string, value: unknown): string {
   if (value === null || value === undefined) return "—";
   if (typeof value === "boolean") return value ? "yes" : "no";
+  if (typeof value === "number" && key.endsWith("_bytes")) return formatBytes(value);
+  if (typeof value === "number" && key.endsWith("_percent")) return `${String(value)}%`;
   if (typeof value === "string" || typeof value === "number") return String(value);
   return JSON.stringify(value);
 }
 
 export function NodeCaches({ node }: { node: NodeDetail }) {
   const kinds = Object.entries(node.cache ?? {});
+  const totalBytes = kinds.reduce((a, [, c]) => a + c.bytes, 0);
+  const totalItems = kinds.reduce((a, [, c]) => a + c.count, 0);
   return (
-    <Card title="Caches" data-testid="caches-card">
+    <FrostTable
+      title="Caches"
+      testId="caches-card"
+      className="nd-cache"
+      variant="plain"
+      meta={
+        kinds.length > 0 ? (
+          <span className="font-mono text-[0.6875rem] tracking-[0.12em] text-fg-subtle uppercase tabular-nums">
+            {formatBytes(totalBytes)} · {totalItems} items
+          </span>
+        ) : undefined
+      }
+    >
       {kinds.length === 0 ? (
-        <p className="text-sm text-fg-muted">Not reported - the node has not sent a cache report yet.</p>
+        <p className="px-9 pt-2 pb-5 text-sm text-fg-muted">Not reported - the node has not sent a cache report yet.</p>
       ) : (
         <Table
           caption="What the node caches, per kind"
@@ -43,43 +76,55 @@ export function NodeCaches({ node }: { node: NodeDetail }) {
           ]}
         />
       )}
-    </Card>
+    </FrostTable>
   );
 }
 
 export function NodePolicy({ node }: { node: NodeDetail }) {
   const policy = node.owner_policy;
-  const notEnforced = node.not_enforced ?? [];
+  // "max_gpu_vram_bytes:no_cgroup_on_windows" -> the key it is about
+  const notEnforcedKeys = new Set((node.not_enforced ?? []).map((x) => x.split(":")[0] ?? x));
+  const entries = policy == null ? [] : Object.entries(policy);
   return (
-    <Card title="Owner policy" actions={<Badge tone="neutral">read-only</Badge>} data-testid="policy-card">
+    <FrostTable
+      title="Owner policy"
+      testId="policy-card"
+      className="nd-policy"
+      variant="glass"
+      meta={<span className="font-mono text-[0.6875rem] tracking-[0.12em] text-fg-subtle uppercase">read-only</span>}
+    >
       {policy == null ? (
-        <p className="text-sm text-fg-muted">
-          Not reported - the node is offline, or its agent is older than V0.7 G5.
-        </p>
+        <p className="px-9 pt-2 pb-5 text-sm text-fg-muted">Not reported - the node is offline, or its agent is older than V0.7 G5.</p>
       ) : (
-        <dl>
-          {Object.entries(policy).map(([key, value]) => (
-            <div key={key} className="grid grid-cols-[14rem_1fr] gap-3 py-1">
-              <dt className="font-mono text-xs leading-5 text-fg-muted">{key}</dt>
-              <dd className="font-mono text-xs leading-5 text-fg">{policyValue(value)}</dd>
-            </div>
-          ))}
-        </dl>
+        <Table
+          caption="The owner policy of the node's live session"
+          rows={entries}
+          rowKey={([key]) => key}
+          columns={[
+            {
+              id: "key",
+              header: "Setting",
+              cell: ([key]) => (
+                <span className="text-fg" title={key}>
+                  {policyLabel(key)}
+                </span>
+              ),
+            },
+            {
+              id: "value",
+              header: "Value",
+              align: "right",
+              mono: true,
+              cell: ([key, value]) => (
+                <span title={typeof value === "number" ? String(value) : undefined}>
+                  {policyValue(key, value)}
+                  {notEnforcedKeys.has(key) && <span className="ml-2 text-[0.6875rem] text-status-degraded">not enforced</span>}
+                </span>
+              ),
+            },
+          ]}
+        />
       )}
-      {notEnforced.length > 0 && (
-        <div className="mt-3 flex flex-col gap-1">
-          <p className="text-sm text-status-degraded">Caps no runtime limit enforces on this node:</p>
-          <ul className="flex flex-wrap gap-1.5">
-            {notEnforced.map((item) => (
-              <li key={item}>
-                <Badge tone="degraded">{item}</Badge>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-      <p className="mt-3 text-xs text-fg-muted">The laptop's owner sets this on the laptop itself:</p>
-      <CodeBlock className="mt-1" label="Change the owner policy" code={"meshforge-agent policy show\nmeshforge-agent policy set KEY=VALUE"} />
-    </Card>
+    </FrostTable>
   );
 }

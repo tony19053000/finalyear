@@ -146,7 +146,10 @@ describe("T2: controller restarts under a signed-in shell", () => {
     }
     t.state.mode = "ok";
     await t.client.invalidateQueries();
-    await waitFor(() => { expect(screen.getByTestId("fabric-status").textContent).toContain("No nodes"); });
+    await waitFor(() => {
+      expect(t.client.getQueryState(queryKeys.nodes)?.status).toBe("success");
+      expect(t.client.getQueryData<{ nodes: unknown[] }>(queryKeys.nodes)?.nodes).toEqual([]);
+    });
     expect(screen.getByTestId("current-user")).toBeTruthy();
   });
 
@@ -198,6 +201,7 @@ describe("T2: sign-out race", () => {
     t.last().hello();
     let release: () => void = () => undefined;
     t.state.deleteGate = new Promise<void>((r) => { release = r; });
+    await userEvent.click(screen.getByRole("button", { name: /^Account:/ }));
     await userEvent.click(screen.getByRole("button", { name: "Sign out" }));
     t.last().drop(4401); // controller closes the stream while revoking
     await new Promise((r) => setTimeout(r, 30));
@@ -210,6 +214,7 @@ describe("T2: sign-out race", () => {
     const t = rig();
     await screen.findByTestId("current-user");
     t.state.mode = "down";
+    await userEvent.click(screen.getByRole("button", { name: /^Account:/ }));
     await userEvent.click(screen.getByRole("button", { name: "Sign out" }));
     expect(await screen.findByRole("heading", { name: "Sign in" })).toBeTruthy();
     expect(t.client.getQueryData(queryKeys.session)).toBeNull();
@@ -220,6 +225,7 @@ describe("T2: sign-out race", () => {
     const t = rig();
     await screen.findByTestId("current-user");
     t.state.deleteGate = new Promise<void>((r) => setTimeout(r, 50));
+    await userEvent.click(screen.getByRole("button", { name: /^Account:/ }));
     const b = screen.getByRole("button", { name: "Sign out" });
     await userEvent.dblClick(b);
     await screen.findByText("You are signed out.");

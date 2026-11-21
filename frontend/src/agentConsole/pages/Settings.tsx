@@ -2,10 +2,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
 
 import { Button } from "../../components/Button";
-import { Card } from "../../components/Card";
 import { useToast } from "../../components/toastContext";
 import { consoleApi, consoleKeys, explain, type PolicyValues } from "../api";
-import { INPUT, Problem } from "../components/fields";
+import { INPUT, Panel, Problem } from "../components/fields";
 import { nodeNameProblem } from "../logic";
 import { PolicyForm } from "../components/PolicyForm";
 
@@ -37,7 +36,7 @@ function NodeName() {
       toast({ title: "Restarting MeshForge's connection", tone: "ok" });
     },
   });
-  if (current.isPending) return <p role="status" className="text-sm text-fg-muted">Loading…</p>;
+  if (current.isPending) return <p role="status" className="ac-loading">Loading…</p>;
   if (current.isError) return <Problem title="Could not load the name" {...explain(current.error)} />;
   const value = draft ?? current.data.name;
   const problem = draft === null ? null : nodeNameProblem(value);
@@ -46,15 +45,15 @@ function NodeName() {
     if (problem === null) save.mutate(value);
   };
   return (
-    <form onSubmit={submit} className="flex flex-col gap-2" aria-label="Name of this laptop">
-      <label htmlFor="settings-node-name" className="text-sm font-medium text-fg">
+    <form onSubmit={submit} className="ac-field flex flex-col" aria-label="Name of this laptop">
+      <label htmlFor="settings-node-name" className="nd-label">
         Name of this laptop
       </label>
-      <p id="settings-node-name-hint" className="text-sm text-fg-muted">
+      <p id="settings-node-name-hint" className="ac-row-help">
         Shown in the fabric&apos;s dashboard next to its hostname ({current.data.hostname}). Empty = the hostname only.
         {current.data.applies_after_restart && " A new name reaches the dashboard after MeshForge restarts its connection."}
       </p>
-      <div className="flex max-w-md flex-wrap gap-2">
+      <div className="flex max-w-xl flex-wrap items-end gap-5">
         <input
           id="settings-node-name"
           className={`${INPUT} min-w-0 flex-1`}
@@ -63,7 +62,7 @@ function NodeName() {
           aria-describedby={problem !== null ? "settings-node-name-error" : "settings-node-name-hint"}
           onChange={(e) => { setDraft(e.target.value); }}
         />
-        <Button type="submit" loading={save.isPending} disabled={draft === null || problem !== null}>
+        <Button type="submit" variant="ghost" className="ac-quiet" loading={save.isPending} disabled={draft === null || problem !== null}>
           Save name
         </Button>
       </div>
@@ -73,7 +72,7 @@ function NodeName() {
         </p>
       )}
       {pendingRestart && (
-        <div role="status" className="flex flex-col gap-2 rounded-lg border border-status-degraded bg-status-degraded-soft px-4 py-3">
+        <div role="status" className="ac-warnbox flex flex-col gap-3">
           <p className="text-sm text-fg">
             Saved. The dashboard still shows the old name until MeshForge restarts its connection to the fabric.
           </p>
@@ -112,13 +111,17 @@ export function Settings() {
     },
   });
   return (
-    <div className="flex flex-col gap-4">
-      <Card title="Name">
+    <div className="mx-auto flex w-full max-w-4xl flex-col gap-8">
+      <div>
+        <p className="nd-label">Settings</p>
+        <p className="mt-3 font-display text-[3rem] leading-none font-bold tracking-[-0.04em] text-fg">Your laptop, your rules</p>
+      </div>
+      <Panel title="Name">
         <NodeName />
-      </Card>
-      <Card title="What this laptop shares">
+      </Panel>
+      <Panel title="What this laptop shares">
         {policy.isPending ? (
-          <p role="status" className="text-sm text-fg-muted">Loading…</p>
+          <p role="status" className="ac-loading">Loading…</p>
         ) : policy.isError ? (
           <Problem title="Could not load the settings" {...explain(policy.error)} />
         ) : (
@@ -131,7 +134,7 @@ export function Settings() {
               />
             )}
             {restartNeeded.length > 0 && (
-              <div role="status" className="flex flex-col gap-2 rounded-lg border border-status-degraded bg-status-degraded-soft px-4 py-3">
+              <div role="status" className="ac-warnbox flex flex-col gap-3">
                 <p className="text-sm text-fg">One restart is needed for this change to take effect.</p>
                 <ul className="list-disc pl-5 text-sm text-fg-muted">
                   {restartNeeded.map((key) => (
@@ -149,7 +152,7 @@ export function Settings() {
             {save.isError && <Problem title="The settings were not saved" {...explain(save.error)} />}
           </div>
         )}
-      </Card>
+      </Panel>
     </div>
   );
 }

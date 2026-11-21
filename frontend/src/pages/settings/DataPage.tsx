@@ -11,22 +11,31 @@ import { describeError } from "../../api/errors";
 import { queryKeys } from "../../api/queryKeys";
 import { removeInput, setInputPinned, useInputs, type InputOut } from "../../api/settings";
 import { useDocumentTitle } from "../../app/useDocumentTitle";
-import { Button } from "../../components/Button";
-import { Card } from "../../components/Card";
 import { CodeBlock } from "../../components/CodeBlock";
 import { ErrorState } from "../../components/States";
-import { Badge } from "../../components/Status";
 import { useToast } from "../../components/toastContext";
-import { Table, type Column } from "../../components/Table";
-import { formatBytes, formatDateTime } from "../../lib/format";
-import { ConfirmAction } from "./ConfirmAction";
+import { formatBytes } from "../../lib/format";
+import { useConfirmAction } from "./ConfirmAction";
+import { Footnote, Intro, Loading, RowMenu, Section, SettingsList, StateWord, When, type StColumn } from "./settingsUi";
 import { useAction } from "./useAction";
 
-function PinToggle({ input }: { input: InputOut }) {
+/** The row's "⋯" menu: Pin / Unpin (at once) and Delete (behind its confirm dialog). */
+function DataActions({ input }: { input: InputOut }) {
   const client = useQueryClient();
   const toast = useToast();
   const pin = useAction(setInputPinned);
-  const label = input.pinned ? "Unpin" : "Pin";
+  const pinLabel = input.pinned ? "Unpin" : "Pin";
+  const remove = useConfirmAction({
+    title: `Delete ${input.ref}?`,
+    description:
+      "This version's name is removed (refused while an unfinished job uses it). Jobs that name it later fail to submit; other versions stay.",
+    confirmLabel: "Delete version",
+    action: () => removeInput(input.name, input.version),
+    done: () => {
+      void client.invalidateQueries({ queryKey: queryKeys.inputs });
+      return { title: `${input.ref} deleted` };
+    },
+  });
 
   const toggle = async () => {
     const result = await pin.run(input.name, input.version, !input.pinned);
@@ -37,97 +46,98 @@ function PinToggle({ input }: { input: InputOut }) {
 
   return (
     <span className="inline-flex flex-col items-end gap-1">
-      <Button
-        size="sm"
-        aria-label={`${label} ${input.ref}`}
-        loading={pin.pending}
-        onClick={() => {
-          void toggle();
-        }}
-      >
-        {label}
-      </Button>
+      <RowMenu
+        label={`Actions for ${input.ref}`}
+        busy={pin.pending}
+        items={[
+          {
+            key: "pin",
+            label: pinLabel,
+            name: `${pinLabel} ${input.ref}`,
+            onSelect: () => {
+              void toggle();
+            },
+          },
+          { key: "delete", label: "Delete", name: `Delete ${input.ref}`, danger: true, onSelect: remove.open },
+        ]}
+      />
       {pin.state.status === "error" && (
-        <span role="alert" className="text-xs text-status-failed">
+        <span role="alert" className="text-xs whitespace-normal text-status-failed">
           {describeError(pin.state.error).message}
         </span>
       )}
+      {remove.dialog}
     </span>
   );
 }
 
+const PUSH_HINT = "A new version is uploaded from a laptop with the CLI; jobs then name it in inputs:.";
+
 export function DataPage() {
   useDocumentTitle("Data");
   const inputs = useInputs();
-  const client = useQueryClient();
 
-  const columns: Column<InputOut>[] = [
-    { id: "ref", header: "Input", mono: true, cell: (i) => i.ref },
-    { id: "files", header: "Files", align: "right", cell: (i) => String(i.files) },
-    { id: "size", header: "Size", align: "right", cell: (i) => formatBytes(i.size) },
+  const columns: StColumn<InputOut>[] = [
+    { id: "ref", header: "Input", mono: true, grow: true, cell: (i) => <span className="text-fg">{i.ref}</span> },
+    { id: "files", header: "Files", cell: (i) => String(i.files) },
+    { id: "size", header: "Size", cell: (i) => formatBytes(i.size) },
     {
       id: "pinned",
       header: "Cache",
-      cell: (i) => (i.pinned ? <Badge tone="accent">pinned</Badge> : <Badge>not pinned</Badge>),
+      hint: "A pinned version is kept in every agent's cache.",
+      cell: (i) => (i.pinned ? <StateWord tone="accent">pinned</StateWord> : <StateWord tone="neutral">not pinned</StateWord>),
     },
-    { id: "created", header: "Created", cell: (i) => formatDateTime(i.created_at) },
-    { id: "tree", header: "Tree", mono: true, cell: (i) => <span title={i.tree_id}>{i.tree_id.slice(0, 19)}…</span> },
+    { id: "created", header: "Created", cell: (i) => <When iso={i.created_at} /> },
     {
-      id: "actions",
-      header: <span className="sr-only">Actions</span>,
-      align: "right",
+      id: "tree",
+      header: "Tree",
+      mono: true,
+      hint: "The content address of this version's file tree.",
       cell: (i) => (
-        <span className="inline-flex items-start justify-end gap-2">
-          <PinToggle input={i} />
-          <ConfirmAction
-            label="Delete"
-            triggerName={`Delete ${i.ref}`}
-            title={`Delete ${i.ref}?`}
-            description="This version's name is removed (refused while an unfinished job uses it). Jobs that name it later fail to submit; other versions stay."
-            confirmLabel="Delete version"
-            action={() => removeInput(i.name, i.version)}
-            done={() => {
-              void client.invalidateQueries({ queryKey: queryKeys.inputs });
-              return { title: `${i.ref} deleted` };
-            }}
-          />
+        <span className="cursor-help" title={i.tree_id}>
+          {i.tree_id.slice(0, 19)}…
         </span>
       ),
     },
+    { id: "actions", header: <span className="sr-only">Actions</span>, align: "right", cell: (i) => <DataActions input={i} /> },
   ];
 
+  const rows = inputs.data?.inputs ?? [];
+  const pinned = rows.filter((i) => i.pinned).length;
   return (
-    <div className="flex flex-col gap-5">
-      <Card title="Named inputs" flush>
-        {inputs.isPending ? (
-          <p role="status" className="p-4 text-sm text-fg-muted">
-            Loading…
-          </p>
-        ) : inputs.isError ? (
-          <ErrorState
-            className="m-4"
-            title="Could not load the named inputs"
-            error={inputs.error}
-            onRetry={() => {
-              void inputs.refetch();
-            }}
-          />
-        ) : (
-          <Table
+    <>
+      <Intro>
+        Datasets and models shared by the fabric, every version. Jobs name one as <span className="font-mono text-fg">name@version</span>;
+        a pinned version stays in every agent&apos;s cache.
+      </Intro>
+      {inputs.isPending ? (
+        <Loading />
+      ) : inputs.isError ? (
+        <ErrorState
+          title="Could not load the named inputs"
+          error={inputs.error}
+          onRetry={() => {
+            void inputs.refetch();
+          }}
+        />
+      ) : (
+        <>
+          <SettingsList
             caption="Named inputs (datasets, models), every version"
             columns={columns}
-            rows={inputs.data.inputs}
+            rows={rows}
             rowKey={(i) => i.ref}
             empty="No named inputs yet."
           />
-        )}
-      </Card>
-      <Card title="Adding data">
-        <p className="text-sm text-fg-muted">
-          A new version is uploaded from a laptop with the CLI; jobs then name it in <code className="font-mono">inputs:</code>.
+          <Footnote>{`${String(rows.length)} versions · ${String(pinned)} pinned. Deleting a version is refused while an unfinished job uses it.`}</Footnote>
+        </>
+      )}
+      <Section title="Adding data" description="New versions come from a laptop, with the CLI." hint={PUSH_HINT}>
+        <p className="st-prose cursor-help" title={PUSH_HINT}>
+          Push a folder as a new version; jobs then name it in <code className="font-mono text-fg">inputs:</code>
         </p>
-        <CodeBlock className="mt-3" label="data push command" code={"compute data push NAME ./folder [--pin]"} />
-      </Card>
-    </div>
+        <CodeBlock className="st-code mt-4" label="data push command" code={"compute data push NAME ./folder [--pin]"} />
+      </Section>
+    </>
   );
 }

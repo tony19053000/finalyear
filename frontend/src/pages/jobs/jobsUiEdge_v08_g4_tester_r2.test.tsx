@@ -3,7 +3,7 @@
  * hostile job names, very long lists, unsupported manifests - against a stubbed controller.
  */
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
@@ -191,15 +191,18 @@ describe("idempotency key identity (T-14)", () => {
   });
 
   it.each([
-    ["name", (n: string) => { fireEvent.change(screen.getByLabelText("Name (overrides the manifest)"), { target: { value: n } }); }],
-    ["policy", () => { fireEvent.change(screen.getByLabelText("Placement policy"), { target: { value: "round_robin" } }); }],
-    ["priority", () => { fireEvent.change(screen.getByLabelText("Priority (-10 to 10)"), { target: { value: "3" } }); }],
+    ["name", (n: string) => { fireEvent.change(screen.getByLabelText("Name (overrides the manifest)"), { target: { value: n } }); return Promise.resolve(); }],
+    ["policy", async () => {
+      await userEvent.click(screen.getByLabelText("Placement policy"));
+      await userEvent.click(within(screen.getByRole("listbox")).getByRole("option", { name: "round_robin" }));
+    }],
+    ["priority", () => { fireEvent.change(screen.getByLabelText("Priority (-10 to 10)"), { target: { value: "3" } }); return Promise.resolve(); }],
   ])("a changed %s mints a NEW key (a reused key with a different body is a 409)", async (_label, change) => {
     const sent = happy(1);
     const button = await loaded();
     await userEvent.click(button);
     await screen.findByRole("alert");
-    change("renamed");
+    await change("renamed");
     await userEvent.click(screen.getByRole("button", { name: /upload and submit/i }));
     await waitFor(() => {
       expect(sent.keys).toHaveLength(2);

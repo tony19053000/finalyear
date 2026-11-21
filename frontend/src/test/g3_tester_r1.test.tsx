@@ -409,9 +409,10 @@ describe("Overview and Nodes equal the API under churn", () => {
     const live = truth.nodes.filter(
       (n) => n.connected === true && n.cpu_percent != null,
     );
+    // The Overview counts fabric members only: revoked nodes are not shown.
     await waitFor(() => {
       expect(screen.getByTestId("nodes-total").textContent).toBe(
-        String(truth.nodes.length),
+        String(members.length),
       );
     });
     await waitFor(() => {
@@ -421,7 +422,7 @@ describe("Overview and Nodes equal the API under churn", () => {
           : `${String(online.length)} of ${String(members.length)}`,
       );
     });
-    for (const state of ["online", "offline", "revoked"]) {
+    for (const state of ["online", "offline"]) {
       const want = truth.nodes.filter((n) => n.state === state).length;
       if (want === 0) expect(screen.queryByTestId(`nodes-${state}`)).toBeNull();
       else
@@ -429,17 +430,14 @@ describe("Overview and Nodes equal the API under churn", () => {
           String(want),
         );
     }
+    expect(screen.queryByTestId("nodes-revoked")).toBeNull();
     if (live.length > 0) {
-      const mean =
-        live.reduce((a, n) => a + Number(n.cpu_percent), 0) / live.length;
+      // Every live node has 8 GiB in total.
       await waitFor(() => {
-        expect(screen.getByTestId("util-cpu").textContent).toBe(
-          `${String(Math.round(mean))}%`,
+        expect(screen.getByTestId("util-ram").textContent).toBe(
+          `${String(8 * live.length)} GB`,
         );
       });
-      expect(screen.getByTestId("util-reporting").textContent).toBe(
-        `From ${String(live.length)} of ${String(truth.nodes.length)} nodes reporting now.`,
-      );
     }
   });
 });

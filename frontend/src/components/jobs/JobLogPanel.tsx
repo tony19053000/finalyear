@@ -1,19 +1,16 @@
-import { Badge } from "../Status";
-import { Button } from "../Button";
 import { LogView } from "../CodeBlock";
-import type { StatusTone } from "../../lib/status";
 import type { LogSnapshot, LogStatus } from "../../pages/jobs/logFollower";
 import { formatBytes } from "./format";
 
-const STATUS: Record<LogStatus, { label: string; tone: StatusTone }> = {
-  connecting: { label: "Connecting", tone: "unknown" },
-  live: { label: "Live", tone: "ok" },
-  paused: { label: "Paused", tone: "unknown" },
-  reconnecting: { label: "Reconnecting", tone: "degraded" },
-  ended: { label: "Ended", tone: "unknown" },
-  unauthorized: { label: "Signed out", tone: "failed" },
-  not_found: { label: "Unavailable", tone: "failed" },
-  unavailable: { label: "Unavailable", tone: "failed" },
+const STATUS: Record<LogStatus, { label: string; light: string; breathe?: boolean }> = {
+  connecting: { label: "Connecting", light: "bg-status-unknown", breathe: true },
+  live: { label: "Live", light: "bg-status-ok", breathe: true },
+  paused: { label: "Paused", light: "bg-status-unknown" },
+  reconnecting: { label: "Reconnecting", light: "bg-status-degraded", breathe: true },
+  ended: { label: "Ended", light: "bg-status-unknown" },
+  unauthorized: { label: "Signed out", light: "bg-status-failed" },
+  not_found: { label: "Unavailable", light: "bg-status-failed" },
+  unavailable: { label: "Unavailable", light: "bg-status-failed" },
 };
 
 export interface JobLogPanelProps {
@@ -26,42 +23,41 @@ export interface JobLogPanelProps {
   downloadName: string;
 }
 
-/** The terminal-style live log of a job (0.8.5): follow / pause, bounded. */
+/** The job's live log (0.8.5): a dark mono well in a frosted card; follow / pause, bounded. */
 export function JobLogPanel({ snapshot, maxLines, onPause, onResume, downloadHref, downloadName }: JobLogPanelProps) {
   const status = STATUS[snapshot.status];
   const canPause = snapshot.status === "live" || snapshot.status === "connecting" || snapshot.status === "reconnecting";
   const end = snapshot.end;
   const gapStreams = end === null ? [] : Object.entries(end.gaps).filter(([, ranges]) => ranges.length > 0);
   return (
-    <div className="flex flex-col gap-2">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2 text-sm">
-          <span className="text-fg-muted">Log stream:</span>
-          <Badge tone={status.tone}>{status.label}</Badge>
-          <span className="font-mono text-2xs text-fg-subtle">
+    <section aria-label="Job log" className="ov-card ov-frost nd-glass flex flex-col gap-5 px-9 pt-7 pb-8">
+      <header className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
+        <div className="flex items-center gap-6">
+          <h2 className="ov-card-title">Log</h2>
+          <span className="flex items-center gap-2 font-mono text-[0.75rem] tracking-[0.14em] text-fg uppercase" data-testid="log-status">
+            <span aria-hidden="true" className={`nd-light nd-light-sm ${status.light} ${status.breathe === true ? "nd-breathe" : ""}`} />
+            {status.label}
+          </span>
+          <span className="font-mono text-[0.75rem] tracking-[0.08em] text-fg-muted uppercase">
             stdout {formatBytes(snapshot.offsets.stdout)} · stderr {formatBytes(snapshot.offsets.stderr)}
           </span>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
           {canPause && (
-            <Button size="sm" onClick={onPause}>
+            <button type="button" className="jb-quiet-btn" onClick={onPause}>
               Pause
-            </Button>
+            </button>
           )}
           {snapshot.status === "paused" && (
-            <Button size="sm" variant="primary" onClick={onResume}>
+            <button type="button" className="jb-quiet-btn text-accent" onClick={onResume}>
               Resume
-            </Button>
+            </button>
           )}
-          <a
-            href={downloadHref}
-            download={downloadName}
-            className="inline-flex h-7 items-center rounded-md border border-border-strong bg-surface-raised px-2.5 text-xs font-medium text-fg hover:bg-surface-sunken"
-          >
+          <a href={downloadHref} download={downloadName} className="jb-quiet-btn">
             Download full log
           </a>
         </div>
-      </div>
+      </header>
       {snapshot.detail !== null && (
         <p role="status" className="text-xs text-fg-muted">
           {snapshot.detail}
@@ -72,9 +68,9 @@ export function JobLogPanel({ snapshot, maxLines, onPause, onResume, downloadHre
           Showing the last {maxLines} lines; {snapshot.dropped} earlier lines are only in the full log.
         </p>
       )}
-      <LogView label="Job output" lines={snapshot.lines} maxLines={maxLines} className="h-96" />
+      <LogView label="Job output" lines={snapshot.lines} maxLines={maxLines} className="h-[28rem]" viewClassName="jb-log h-full min-h-40" />
       {end !== null && (
-        <p className="text-xs text-fg-muted" data-testid="log-end">
+        <p className="font-mono text-[0.8125rem] tracking-[0.06em] text-fg" data-testid="log-end">
           Job {end.state ?? "ended"}
           {end.exitCode !== null ? ` · exit code ${end.exitCode}` : ""}
           {end.failureType !== null ? ` · ${end.failureType}` : ""}
@@ -83,6 +79,6 @@ export function JobLogPanel({ snapshot, maxLines, onPause, onResume, downloadHre
             : ""}
         </p>
       )}
-    </div>
+    </section>
   );
 }

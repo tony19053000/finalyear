@@ -1,14 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 
-import { Badge } from "../../components/Status";
-import { Card } from "../../components/Card";
-import type { StatusTone } from "../../lib/status";
 import { consoleApi, consoleKeys, explain, type LogLineView } from "../api";
-import { Problem } from "../components/fields";
+import { Dot, Panel, Problem } from "../components/fields";
 
 const LIMIT = 500;
-const TONE: Record<string, StatusTone> = { error: "failed", critical: "failed", warning: "degraded", info: "unknown", debug: "unknown" };
+const TONE: Record<string, "failed" | "warn" | "off"> = { error: "failed", critical: "failed", warning: "warn", info: "off", debug: "off" };
 
 function fieldsText(fields: LogLineView["fields"]): string {
   return Object.entries(fields)
@@ -20,32 +17,37 @@ function fieldsText(fields: LogLineView["fields"]): string {
 export function Logs() {
   const [onlyProblems, setOnlyProblems] = useState(false);
   const logs = useQuery({ queryKey: consoleKeys.logs, queryFn: () => consoleApi.logs(LIMIT), refetchInterval: 3000 });
-  if (logs.isPending) return <p role="status" className="text-sm text-fg-muted">Loading…</p>;
+  if (logs.isPending) return <p role="status" className="ac-loading">Loading…</p>;
   if (logs.isError) return <Problem title="Could not load the log" {...explain(logs.error)} />;
   const lines = logs.data.lines.filter((l) => !onlyProblems || l.level === "warning" || l.level === "error" || l.level === "critical");
   return (
-    <Card
+    <div className="flex flex-col gap-8">
+    <div>
+      <p className="nd-label">Logs</p>
+      <p className="mt-3 font-display text-[3rem] leading-none font-bold tracking-[-0.04em] text-fg">What MeshForge did</p>
+    </div>
+    <Panel
       title="Recent log"
+      className="ac-log"
       actions={
-        <label className="flex items-center gap-1.5 text-sm text-fg-muted">
-          <input type="checkbox" checked={onlyProblems} onChange={(e) => { setOnlyProblems(e.target.checked); }} />
+        <label className="flex items-center gap-3 text-sm text-fg-muted">
           Only problems
+          <input type="checkbox" className="ac-switch" checked={onlyProblems} onChange={(e) => { setOnlyProblems(e.target.checked); }} />
         </label>
       }
-      flush
     >
-      <p className="border-b border-border px-4 py-2 text-xs text-fg-muted">
+      <p className="ac-note pb-4">
         The newest {String(LIMIT)} lines of MeshForge on this laptop (secrets are removed). The full log: journalctl -u meshforge-agent
       </p>
       {lines.length === 0 ? (
-        <p className="p-4 text-sm text-fg-muted">Nothing to show.</p>
+        <p className="py-6 text-sm text-fg-muted">Nothing to show.</p>
       ) : (
-        <ol className="max-h-[70vh] overflow-auto font-mono text-xs" aria-label="Log lines">
+        <ol className="jb-scroll ac-lines max-h-[64vh] overflow-auto font-mono text-[0.8125rem]" aria-label="Log lines">
           {[...lines].reverse().map((line) => (
-            <li key={line.seq} className="flex flex-col gap-0.5 border-b border-border px-4 py-1.5 sm:flex-row sm:gap-3">
-              <span className="shrink-0 text-fg-subtle">{line.timestamp.replace("T", " ").slice(0, 19)}</span>
+            <li key={line.seq} className="ac-line grid grid-cols-1 gap-1 sm:grid-cols-[10.5rem_6.5rem_minmax(0,1fr)] sm:gap-6">
+              <span className="shrink-0 text-fg-muted tabular-nums">{line.timestamp.replace("T", " ").slice(0, 19)}</span>
               <span className="shrink-0">
-                <Badge tone={TONE[line.level] ?? "neutral"}>{line.level}</Badge>
+                <Dot tone={TONE[line.level] ?? "off"}>{line.level}</Dot>
               </span>
               <span className="min-w-0 break-words text-fg">
                 {line.event}
@@ -55,6 +57,7 @@ export function Logs() {
           ))}
         </ol>
       )}
-    </Card>
+    </Panel>
+    </div>
   );
 }

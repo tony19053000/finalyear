@@ -129,7 +129,7 @@ describe("login", () => {
     await userEvent.type(screen.getByLabelText("Password"), "right{Enter}");
     expect(await screen.findByRole("heading", { level: 1, name: "Nodes" })).toBeTruthy();
     expect(screen.getByTestId("current-user").textContent).toBe("alice(admin)");
-    expect((await screen.findByTestId("fabric-status")).textContent).toBe("1 of 2 nodes online");
+    expect(screen.getByRole("button", { name: "Account: alice(admin)" }).textContent).toContain("A");
 
     const post = ctl.calls.filter((c) => c.key === "POST /v1/session").at(-1);
     expect(post?.init.credentials).toBe("same-origin");
@@ -175,6 +175,21 @@ describe("shell", () => {
     expect(document.title).toBe("Jobs · MeshForge");
   });
 
+  it("the bell opens the product guide at /guide", async () => {
+    signedIn();
+    renderApp("/");
+    await screen.findByRole("heading", { level: 1, name: "Overview" });
+    const bell = screen.getByRole("link", { name: "Product guide" });
+    expect(bell.getAttribute("href")).toBe("/guide");
+    expect(bell.getAttribute("title")).toBe("Product guide");
+    await userEvent.click(bell);
+    expect(await screen.findByRole("heading", { level: 1, name: "How hive works" })).toBeTruthy();
+    expect(screen.getByRole("heading", { level: 2, name: "Five ways a job can run" })).toBeTruthy();
+    expect(screen.getByText("Remote GPU")).toBeTruthy();
+    expect(within(screen.getByRole("article")).getByRole("link", { name: "Planner" }).getAttribute("href")).toBe("/planner");
+    expect(document.title).toBe("Product guide · MeshForge");
+  });
+
   it("unknown paths show a not-found page inside the shell", async () => {
     signedIn();
     renderApp("/no/such/page");
@@ -210,12 +225,16 @@ describe("shell", () => {
       "GET /v1/nodes": () => json(200, { count: 2, nodes: [node("n1", online >= 1 ? "online" : "offline"), node("n2", online >= 2 ? "online" : "offline")] }),
     });
     const app = renderApp("/");
-    expect((await screen.findByTestId("fabric-status")).textContent).toBe("1 of 2 nodes online");
+    const onlineCount = () =>
+      app.queryClient.getQueryData<{ nodes: { state: string }[] }>(["nodes"])?.nodes.filter((n) => n.state === "online").length;
+    await waitFor(() => {
+      expect(onlineCount()).toBe(1);
+    });
     app.socket().greet();
     online = 2;
     app.socket().send({ seq: 2, type: "node.status", at: 0, data: { node_id: "n2", state: "online", connected: true } });
     await waitFor(() => {
-      expect(screen.getByTestId("fabric-status").textContent).toBe("2 of 2 nodes online");
+      expect(onlineCount()).toBe(2);
     });
   });
 
@@ -230,7 +249,8 @@ describe("shell", () => {
       },
     });
     renderApp("/");
-    await userEvent.click(await screen.findByRole("button", { name: "Sign out" }));
+    await userEvent.click(await screen.findByRole("button", { name: /^Account:/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Sign out" }));
     expect(await screen.findByText("You are signed out.")).toBeTruthy();
     const del = ctl.calls.find((c) => c.key === "DELETE /v1/session");
     expect(new Headers(del?.init.headers).get(CSRF_HEADER)).toBe("csrf-value");
@@ -260,6 +280,7 @@ describe("shell", () => {
     holder.app = app;
     await screen.findByRole("heading", { level: 1, name: "Overview" });
     app.socket().greet();
+    await userEvent.click(screen.getByRole("button", { name: /^Account:/ }));
     await userEvent.click(screen.getByRole("button", { name: "Sign out" }));
     expect(await screen.findByText("You are signed out.")).toBeTruthy();
     expect(screen.queryByText("Your session ended. Sign in again.")).toBeNull();
@@ -366,17 +387,16 @@ describe("controller restart (T-2)", () => {
 });
 
 describe("theme", () => {
-  it("toggles data-theme and persists only the theme", async () => {
+  it("the dashboard is dark only: no theme toggle in the top bar, nothing stored", async () => {
     fakeController({
       "GET /v1/session": () => json(200, { session: SESSION }),
       "GET /v1/nodes": () => json(200, { count: 0, nodes: [] }),
     });
     renderApp("/");
-    await userEvent.click(await screen.findByRole("button", { name: "Switch to light theme" }));
-    expect(document.documentElement.dataset.theme).toBe("light");
-    expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe("light");
-    expect(Object.keys(localStorage)).toEqual([THEME_STORAGE_KEY]);
-    expect(screen.getByRole("button", { name: "Switch to dark theme" })).toBeTruthy();
+    await screen.findByTestId("current-user");
+    expect(screen.queryByRole("button", { name: /theme/i })).toBeNull();
+    expect(document.documentElement.dataset.theme).toBe("dark");
+    expect(localStorage.getItem(THEME_STORAGE_KEY)).toBeNull();
   });
 
   it("survives a storage that throws", () => {

@@ -444,3 +444,55 @@ export function secondsText(
   if (value == null || !Number.isFinite(value)) return DASH;
   return `${String(Number(value.toPrecision(3)))} ${unit}`;
 }
+
+/* ------------------------------------------------------------ error distribution */
+
+/**
+ * The planner's estimate error per point of `term`, in % of the actual:
+ * (estimate / actual - 1) x 100, where the estimate is the ML prediction
+ * where ML was used and the calibrated one otherwise (what the planner
+ * planned with). Points without a positive estimate or actual are left out.
+ */
+export function estimateErrors(points: readonly MlPredictionPointOut[], term: string): number[] {
+  const out: number[] = [];
+  for (const p of points) {
+    if (p.term !== term) continue;
+    const estimate = p.used && positive(p.ml_s) ? p.ml_s : p.calibrated_s;
+    if (positive(estimate) && positive(p.actual_s)) out.push((estimate / p.actual_s - 1) * 100);
+  }
+  return out;
+}
+
+export interface ErrorBin {
+  /** Bin centre (%); the two end bins hold everything beyond `max`. */
+  centre: number;
+  lo: number;
+  hi: number;
+  count: number;
+  /** An end bin (beyond ±max). */
+  overflow: boolean;
+}
+
+/** Bins of `width` % centred on 0 from -max to +max, plus one open bin at each end. */
+export function errorBins(errors: readonly number[], width = 5, max = 40): ErrorBin[] {
+  const half = width / 2;
+  const centres: number[] = [];
+  for (let c = -max; c <= max + 1e-9; c += width) centres.push(Math.round(c * 1000) / 1000);
+  const bins: ErrorBin[] = [
+    { centre: -max - width, lo: Number.NEGATIVE_INFINITY, hi: -max - half, count: 0, overflow: true },
+    ...centres.map((c) => ({ centre: c, lo: c - half, hi: c + half, count: 0, overflow: false })),
+    { centre: max + width, lo: max + half, hi: Number.POSITIVE_INFINITY, count: 0, overflow: true },
+  ];
+  for (const e of errors) {
+    if (!Number.isFinite(e)) continue;
+    const bin = bins.find((b) => e >= b.lo && e < b.hi) ?? (e >= max + half ? bins.at(-1) : bins[0]);
+    if (bin !== undefined) bin.count += 1;
+  }
+  return bins;
+}
+
+/** Share (0..1) of errors within ±limit %; null without errors. */
+export function withinShare(errors: readonly number[], limit = 15): number | null {
+  if (errors.length === 0) return null;
+  return errors.filter((e) => Math.abs(e) <= limit).length / errors.length;
+}
