@@ -10,16 +10,16 @@ import { ArrowCorner, FigureCard, Panel, Problem } from "../components/fields";
 
 const STOP_HELP: Record<string, string> = {
   revoked: "The fabric admin removed this laptop. To come back, leave the fabric here and join again with a new code.",
-  conflict: "Another MeshForge agent is using this laptop's identity. Stop the other one, then restart.",
-  config: "Fix the setting named above (or ask whoever installed MeshForge), then restart.",
+  conflict: "Another Hive agent is using this laptop's identity. Stop the other one, then restart.",
+  config: "Fix the setting named above (or ask whoever installed Hive), then restart.",
   config_reload: "Fix the configuration file, then restart.",
   identity: "See the Logs page for details.",
   version_unsupported:
-    "The controller does not accept this MeshForge version. If the message says the agent is too old, install the newer MeshForge on this laptop; if it says the agent is newer, ask the fabric admin to upgrade the controller first. Then press Restart.",
+    "The controller does not accept this Hive version. If the message says the agent is too old, install the newer Hive on this laptop; if it says the agent is newer, ask the fabric admin to upgrade the controller first. Then press Restart.",
 };
 
 const UPGRADE_HELP: Record<string, string> = {
-  rolled_back: "MeshForge keeps working on the previous version. Fix the cause the installer named, then install the new version again.",
+  rolled_back: "Hive keeps working on the previous version. Fix the cause the installer named, then install the new version again.",
   interrupted: "Finish the upgrade: on Linux install the new package again (sudo dpkg -i ./<new .deb>), on Windows run the installer again.",
 };
 
@@ -70,7 +70,7 @@ export function Home({ status }: { status: StatusView }) {
           <p className="ac-hero-big">{status.stop_reason != null ? "Stopped" : status.connection === "ONLINE" ? "Sharing" : "Waiting"}</p>
           <p className="ac-hero-sub">
             {status.stop_reason != null
-              ? "MeshForge is not running here."
+              ? "Hive is not running here."
               : status.connection === "ONLINE"
                 ? "Connected and ready for the work the hive sends."
                 : "Reaching for the controller."}
@@ -90,7 +90,7 @@ export function Home({ status }: { status: StatusView }) {
       </div>
       {reason !== null && reason !== undefined && (
         <div className="flex flex-col gap-2">
-          <Problem title="MeshForge is stopped on this laptop" message={reason.message} fix={STOP_HELP[reason.code] ?? ""} code={reason.code} />
+          <Problem title="Hive is stopped on this laptop" message={reason.message} fix={STOP_HELP[reason.code] ?? ""} code={reason.code} />
           <div className="flex flex-wrap gap-3">
             <Button size="sm" variant="primary" className="ac-go" loading={restart.isPending} onClick={() => { restart.mutate(); }}>
               Restart
@@ -138,7 +138,7 @@ export function Home({ status }: { status: StatusView }) {
             </Row>
           )}
           <Row label="Certificate valid until">{status.cert_not_after ?? "-"}</Row>
-          <Row label="MeshForge version">{status.version}</Row>
+          <Row label="Hive version">{status.version}</Row>
         </dl>
         {status.identity_problem !== null && status.identity_problem !== undefined && (
           <Problem className="mt-5" title="This laptop's identity has a problem" message={status.identity_problem} />

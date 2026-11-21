@@ -19,7 +19,7 @@ const TITLES: Record<WizardStep, string> = {
 };
 
 const HINTS: Record<WizardStep, string> = {
-  welcome: "What MeshForge does here",
+  welcome: "What Hive does here",
   join: "Paste the join code",
   policy: "Limits you choose",
   checks: "What this laptop offers",
@@ -65,7 +65,7 @@ function Welcome({ status, next }: { status: StatusView; next: () => void }) {
   return (
     <div className="flex flex-col gap-8">
       <p className="ac-lead">
-        MeshForge lets the laptops of your group share their processors and graphics cards. This laptop,{" "}
+        Hive lets the laptops of your group share their processors and graphics cards. This laptop,{" "}
         <span className="font-mono text-[0.9375rem] text-fg">{status.hostname}</span>, can join a fabric so others can send it work:
         only when you allow it, and only within the limits you set.
       </p>
@@ -250,7 +250,7 @@ function Done({ status, finish, finishing, error }: { status: StatusView; finish
           </a>
         </div>
       )}
-      <p className="ac-note">You can open this page again from the MeshForge entry in the app menu.</p>
+      <p className="ac-note">You can open this page again from the Hive entry in the app menu.</p>
       {error !== null && error !== undefined && <Problem title="Could not finish" {...explain(error)} />}
       <div>
         <Button variant="primary" className="ac-go" loading={finishing} onClick={finish}>

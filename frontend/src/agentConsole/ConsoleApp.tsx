@@ -101,15 +101,15 @@ function SignedOut({ expired }: { expired: boolean }) {
     <Bare>
       <main className="ov-card ov-frost nd-glass ac-panel w-full">
         <div className="ac-panel-body flex flex-col gap-5">
-          <h1 className="font-display text-[1.75rem] leading-tight font-bold tracking-[-0.03em] text-fg">MeshForge on this laptop</h1>
+          <h1 className="font-display text-[1.75rem] leading-tight font-bold tracking-[-0.03em] text-fg">Hive on this laptop</h1>
           <Problem
             title={expired ? "This link has expired" : "You are not signed in"}
             message={
               expired
                 ? "Console links work once and only for a minute."
-                : "This page opens from the MeshForge entry in your app menu, which signs you in."
+                : "This page opens from the Hive entry in your app menu, which signs you in."
             }
-            fix="Open MeshForge from the app menu again. (Only users allowed to manage MeshForge on this laptop can.)"
+            fix="Open Hive from the app menu again. (Only users allowed to manage Hive on this laptop can.)"
           />
         </div>
       </main>
@@ -188,7 +188,7 @@ function Console() {
     return (
       <Bare>
         <p role="status" className="ac-loading">
-          Opening MeshForge…
+          Opening Hive…
         </p>
       </Bare>
     );
@@ -199,7 +199,7 @@ function Console() {
     return (
       <Bare>
         <main className="w-full">
-          <Problem title="MeshForge on this laptop does not answer" message={message} fix={fix || "It may be restarting; this page retries by itself."} />
+          <Problem title="Hive on this laptop does not answer" message={message} fix={fix || "It may be restarting; this page retries by itself."} />
         </main>
       </Bare>
     );

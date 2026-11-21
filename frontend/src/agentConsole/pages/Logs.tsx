@@ -24,7 +24,7 @@ export function Logs() {
     <div className="flex flex-col gap-8">
     <div>
       <p className="nd-label">Logs</p>
-      <p className="mt-3 font-display text-[3rem] leading-none font-bold tracking-[-0.04em] text-fg">What MeshForge did</p>
+      <p className="mt-3 font-display text-[3rem] leading-none font-bold tracking-[-0.04em] text-fg">What Hive did</p>
     </div>
     <Panel
       title="Recent log"
@@ -37,7 +37,7 @@ export function Logs() {
       }
     >
       <p className="ac-note pb-4">
-        The newest {String(LIMIT)} lines of MeshForge on this laptop (secrets are removed). The full log: journalctl -u meshforge-agent
+        The newest {String(LIMIT)} lines of Hive on this laptop (secrets are removed). The full log: journalctl -u meshforge-agent
       </p>
       {lines.length === 0 ? (
         <p className="py-6 text-sm text-fg-muted">Nothing to show.</p>

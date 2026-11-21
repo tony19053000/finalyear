@@ -9,8 +9,8 @@ import { nodeNameProblem } from "../logic";
 import { PolicyForm } from "../components/PolicyForm";
 
 const RESTART_WHY: Record<string, string> = {
-  accept_jobs: "MeshForge was started with jobs off, so it has not set up a way to run them yet.",
-  allow_unsandboxed: "MeshForge was started without container-free jobs, so it has not set up that runtime yet.",
+  accept_jobs: "Hive was started with jobs off, so it has not set up a way to run them yet.",
+  allow_unsandboxed: "Hive was started without container-free jobs, so it has not set up that runtime yet.",
 };
 
 function NodeName() {
@@ -33,7 +33,7 @@ function NodeName() {
     mutationFn: consoleApi.restart,
     onSuccess: () => {
       setPendingRestart(false);
-      toast({ title: "Restarting MeshForge's connection", tone: "ok" });
+      toast({ title: "Restarting Hive's connection", tone: "ok" });
     },
   });
   if (current.isPending) return <p role="status" className="ac-loading">Loading…</p>;
@@ -51,7 +51,7 @@ function NodeName() {
       </label>
       <p id="settings-node-name-hint" className="ac-row-help">
         Shown in the fabric&apos;s dashboard next to its hostname ({current.data.hostname}). Empty = the hostname only.
-        {current.data.applies_after_restart && " A new name reaches the dashboard after MeshForge restarts its connection."}
+        {current.data.applies_after_restart && " A new name reaches the dashboard after Hive restarts its connection."}
       </p>
       <div className="flex max-w-xl flex-wrap items-end gap-5">
         <input
@@ -74,7 +74,7 @@ function NodeName() {
       {pendingRestart && (
         <div role="status" className="ac-warnbox flex flex-col gap-3">
           <p className="text-sm text-fg">
-            Saved. The dashboard still shows the old name until MeshForge restarts its connection to the fabric.
+            Saved. The dashboard still shows the old name until Hive restarts its connection to the fabric.
           </p>
           <div>
             <Button size="sm" variant="primary" loading={restart.isPending} onClick={() => { restart.mutate(); }}>
@@ -100,14 +100,14 @@ export function Settings() {
       client.setQueryData(consoleKeys.policy, view);
       setRestartNeeded(view.restart_needed);
       setFormKey((k) => k + 1);
-      toast({ title: "Settings saved", description: "MeshForge applies them within a few seconds.", tone: "ok" });
+      toast({ title: "Settings saved", description: "Hive applies them within a few seconds.", tone: "ok" });
     },
   });
   const restart = useMutation({
     mutationFn: consoleApi.restart,
     onSuccess: () => {
       setRestartNeeded([]);
-      toast({ title: "Restarting MeshForge's connection", tone: "ok" });
+      toast({ title: "Restarting Hive's connection", tone: "ok" });
     },
   });
   return (

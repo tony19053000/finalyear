@@ -172,7 +172,7 @@ describe("shell", () => {
     await userEvent.click(within(nav).getByRole("link", { name: "Jobs" }));
     expect(await screen.findByRole("heading", { level: 1, name: "Jobs" })).toBeTruthy();
     expect(within(nav).getByRole("link", { name: "Jobs" }).getAttribute("aria-current")).toBe("page");
-    expect(document.title).toBe("Jobs · MeshForge");
+    expect(document.title).toBe("Jobs · Hive");
   });
 
   it("the bell opens the product guide at /guide", async () => {
@@ -187,7 +187,7 @@ describe("shell", () => {
     expect(screen.getByRole("heading", { level: 2, name: "Five ways a job can run" })).toBeTruthy();
     expect(screen.getByText("Remote GPU")).toBeTruthy();
     expect(within(screen.getByRole("article")).getByRole("link", { name: "Planner" }).getAttribute("href")).toBe("/planner");
-    expect(document.title).toBe("Product guide · MeshForge");
+    expect(document.title).toBe("Product guide · Hive");
   });
 
   it("unknown paths show a not-found page inside the shell", async () => {

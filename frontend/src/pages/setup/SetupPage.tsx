@@ -365,7 +365,7 @@ function Done({ result }: { result: SetupResult }) {
               <QrCode text={result.invite.code} label="QR code of the join code" size={208} className="rounded-md" />
             </div>
             <p>
-              On the new laptop, open the MeshForge app and paste (or scan) this code. It works once, until{" "}
+              On the new laptop, open the Hive app and paste (or scan) this code. It works once, until{" "}
               {result.invite.expires_at}. More codes: the dashboard&apos;s Invites page.
             </p>
           </div>
