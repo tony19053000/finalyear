@@ -48,6 +48,36 @@ The human does anything that needs a login or password. You never type passwords
 - Keep `docs/SESSION_HANDOFF.md` current after each finished step and commit work in progress (`wip:` ok)
   ONLY on your own branches, never main.
 
+## 3b. Agent team rules (how LEAD2 works with subagents)
+The lead plans, delegates, integrates and reports. **The lead never writes product code itself.**
+Subagents live in `.claude/agents/` and carry their own model/effort (do not override):
+| Agent | Model / effort | Role | Edits code? |
+|---|---|---|---|
+| `implementer` | claude-opus-5-5, medium | writes code + unit/component tests for ONE task; hands off a note | yes (`src/`, `tests/`) |
+| `tester` | claude-sonnet-5-5, medium | independent acceptance, edge-case, failure-injection tests from the success criteria (not from the code); tries to break it | tests only, never `src/` |
+| `reviewer` | claude-opus-5-5, low | architecture, correctness, concurrency, security, performance; APPROVE / REQUEST_CHANGES | no (read-only) |
+
+Flow for every code change that ships:
+```
+lead picks task -> implementer -> tester --FAIL--> implementer -> tester
+                                   |PASS
+                                   v
+                                reviewer --REQUEST_CHANGES--> implementer -> reviewer
+                                   |APPROVE
+                                   v
+         human lab step if needed -> lead reports "ready for merge" -> Aayush says "merge"
+```
+- Pass each subagent the task ID and the previous agent's report. One task per implementer run.
+- Never skip tester or reviewer for code that ships. Small doc-only edits may skip tester.
+- The implementer never approves its own work. Code existing is not done; tests + criteria (+ real-machine
+  result when needed) decide.
+- Record every non-trivial decision in an ADR (`docs/adr/NNNN-title.md`) or the decision log in the roadmap.
+- Parallel subagents are allowed for NON-conflicting work (e.g. Task A tester while Task B reviewer). Never two
+  agents editing the same files/branch at once.
+- **Writing rule (docs, thesis, slides, chat text for humans):** every writer AND every reviewer must read the
+  full humanizer skill (if installed on your account) and run its final audit; writer = Opus, reviewer = Sonnet.
+  Never invent data.
+
 ## 4. TASK A: D462 per-term ML gate (verify, make merge-ready)
 **What:** the old ML gate judged all learned terms as one set. In the final campaign `lane_env` failed coverage
 (57 % < 70 %), so the whole set was rejected, including env (kNN, 0.44 vs calibration 2.57) and combine
