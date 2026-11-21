@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type FormEvent } from "react";
+import { useId, useLayoutEffect, useRef, useState, type FormEvent } from "react";
 import { Navigate, useLocation, useNavigate } from "react-router-dom";
 
 import { useLogin, useSession } from "../api/hooks";
@@ -20,7 +20,9 @@ export function LoginPage() {
   const nameRef = useRef<HTMLInputElement>(null);
   const errorId = useId();
 
-  useEffect(() => {
+  // Layout effect: the name field has focus in the same commit that shows the form
+  // (a passive effect can run a frame later, after the page is already visible).
+  useLayoutEffect(() => {
     nameRef.current?.focus();
   }, []);
 
