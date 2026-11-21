@@ -795,7 +795,7 @@ def console_access(
         typer.Option("--sid", help="A Windows account SID, S-1-... (repeatable)."),
     ] = None,
 ) -> None:
-    """Windows: let another user open the MeshForge console (elevated prompt).
+    """Windows: let another user open the Hive console (elevated prompt).
     Linux: the console is for members of the meshforge-admin group."""
     if action not in ("add", "remove"):
         typer.echo(f"{PROG_NAME} console-access: ACTION is add or remove", err=True)

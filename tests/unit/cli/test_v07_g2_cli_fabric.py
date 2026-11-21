@@ -134,7 +134,7 @@ def test_join_without_an_agent_is_a_clear_config_error(
     monkeypatch.setattr(fabric_commands, "agent_command", lambda: None)
     result = runner.invoke(app, ["fabric", "join", CODE])
     assert result.exit_code == ExitCode.CONFIG_ERROR
-    assert "no MeshForge agent is installed" in result.stderr
+    assert "no Hive agent is installed" in result.stderr
 
 
 @pytest.mark.security

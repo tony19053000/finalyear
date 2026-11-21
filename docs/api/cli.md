@@ -1162,7 +1162,7 @@ Commands:
   rotate-key        Give this laptop a new key, keeping its node_id (V0.7 G4, D140).
   migrate-identity  Move this laptop's per-user identity + config to the system service (V0.17...
   prepare           Pre-pull the pinned base images so the first job does not wait for them.
-  console-access    Windows: let another user open the MeshForge console (elevated prompt).
+  console-access    Windows: let another user open the Hive console (elevated prompt).
   identity          Inspect or reset this node's identity (node_id + keypair, ADR-0013).
   hardware          Inspect the hardware this node discovers (local only; D13).
   policy            Show or change what this laptop's owner allows (live, no restart).
@@ -1214,7 +1214,7 @@ Options:
 ```text
 Usage: meshforge-agent console-access [OPTIONS] {action}
 
-  Windows: let another user open the MeshForge console (elevated prompt). Linux: the console is for
+  Windows: let another user open the Hive console (elevated prompt). Linux: the console is for
   members of the meshforge-admin group.
 
 Arguments:

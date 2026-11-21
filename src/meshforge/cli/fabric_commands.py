@@ -204,7 +204,7 @@ def join(
     command = agent_command()
     if command is None:
         cli._die(
-            "no MeshForge agent is installed on this laptop, so there is nothing "
+            "no Hive agent is installed on this laptop, so there is nothing "
             "to join: install it (see docs/OPERATIONS.md) and run "
             "`meshforge-agent join` - `compute` itself needs no certificate",
             CliExit.CONFIG_ERROR,

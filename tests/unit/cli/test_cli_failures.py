@@ -207,7 +207,7 @@ def test_a_body_that_is_not_a_json_object_exits_failure_with_a_hint(
     controller(answering(200, **handler_kwargs))
     result = runner.invoke(app, ["nodes"])
     assert result.exit_code == ExitCode.FAILURE
-    assert "really a MeshForge controller" in result.stderr
+    assert "really a Hive controller" in result.stderr
     assert_no_traceback(result.output)
 
 
