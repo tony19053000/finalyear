@@ -15,7 +15,7 @@ The user's tool: talks only to the controller's REST API. Output rules, `--json`
 ```text
 Usage: compute [OPTIONS] COMMAND [ARGS]...
 
-  MeshForge compute fabric command-line tool.
+  Hive compute fabric command-line tool.
 
 Options:
   --version             Print the version and exit.
@@ -1150,7 +1150,7 @@ The worker agent on every laptop (service, join, identity, setup).
 ```text
 Usage: meshforge-agent [OPTIONS] COMMAND [ARGS]...
 
-  MeshForge node agent process.
+  Hive node agent process.
 
 Options:
   --version  Print the version and exit.
@@ -1517,7 +1517,7 @@ The control plane (service, fabric CA, users, tokens, nodes).
 ```text
 Usage: meshforge-controller [OPTIONS] COMMAND [ARGS]...
 
-  MeshForge controller (control plane) process.
+  Hive controller (control plane) process.
 
 Options:
   --version         Print the version and exit.
