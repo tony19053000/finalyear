@@ -48,4 +48,3 @@ export function toneClass(tone: Tone, index = 0): string {
   if (tone === "base") return "text-fg-subtle";
   return OTHER[index % OTHER.length] ?? "text-fg";
 }
-

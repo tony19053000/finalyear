@@ -262,7 +262,7 @@ export function SpeedUpCard({ job, decisions, loading, predictedS, names, expand
               )
             )}
           </div>
-    
+
         </div>
         {expanded && explain && <InfoPoints title="Speed-up" points={SPEED_UP_POINTS} testId="speedup-info" />}
         {expanded && !explain && job !== undefined && (
