@@ -36,7 +36,7 @@ assert OWN is not None
     [
         (f"{OWN.major}.{OWN.minor + 1}.0", "", "upgrade the controller first"),
         (f"{OWN.major + 1}.0.0", "", "upgrade the controller first"),
-        ("0.0.1", str(OWN), "upgrade the MeshForge agent"),
+        ("0.0.1", str(OWN), "upgrade the Hive agent"),
     ],
     ids=["newer-minor", "newer-major", "older-than-floor"],
 )

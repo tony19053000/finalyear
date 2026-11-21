@@ -45,7 +45,7 @@ __all__ = [
     "service_python",
 ]
 
-_TITLE: Final = "MeshForge"
+_TITLE: Final = "Hive"
 _MB_OK: Final = 0x0
 _MB_YESNO: Final = 0x4
 _MB_ICONINFORMATION: Final = 0x40

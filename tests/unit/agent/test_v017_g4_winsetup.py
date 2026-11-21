@@ -241,7 +241,7 @@ def test_fresh_install_starts_checks_and_points_current_at_the_new_version() -> 
     # not joined yet: the user is told how to join, no node_id is made up
     assert result.node_id is None
     assert "Start menu" in result.lines[-1]
-    assert result.summary() == "MeshForge is installed and running."
+    assert result.summary() == "Hive is installed and running."
 
 
 def test_fresh_install_does_not_wait_for_agent_started_before_the_join() -> None:
@@ -297,7 +297,7 @@ def test_agent_refusing_its_config_leaves_needs_attention_with_the_reason(
     assert ops.now == 0
     # installed: the pointer names the new version (it is the only one)
     assert ops.args("write_current") == ["0.17.0-2"]
-    assert "MeshForge is installed but NOT running" in result.summary()
+    assert "Hive is installed but NOT running" in result.summary()
 
 
 def test_start_error_is_reported_not_raised() -> None:

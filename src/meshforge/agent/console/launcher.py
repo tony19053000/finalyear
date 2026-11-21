@@ -77,7 +77,7 @@ def _tell(message: str, *, warning: bool = False) -> None:
     if notifier and desktop:
         with contextlib.suppress(OSError, subprocess.SubprocessError):
             subprocess.run(  # noqa: S603 - fixed argv, no shell
-                [notifier, "--app-name=MeshForge", "MeshForge", message],
+                [notifier, "--app-name=Hive", "Hive", message],
                 check=False,
                 timeout=5,
                 capture_output=True,
@@ -91,13 +91,13 @@ def read_token(path: Path) -> str:
     except PermissionError:
         if sys.platform == "win32":
             raise LaunchError(
-                "your Windows user may not open the MeshForge console on this "
+                "your Windows user may not open the Hive console on this "
                 "computer yet (only the user who installed it and the users an "
                 "administrator added may).",
                 ExitCode.CONFIG_ERROR,
             ) from None
         raise LaunchError(
-            "your user may not open the MeshForge console on this laptop (it is "
+            "your user may not open the Hive console on this laptop (it is "
             f"not in the {_ADMIN_GROUP} group). Ask an admin to run: sudo usermod "
             f"-aG {_ADMIN_GROUP} {os.environ.get('USER', '<your user>')} - then log "
             "out and back in.",
@@ -111,8 +111,7 @@ def read_token(path: Path) -> str:
             else "sudo systemctl start meshforge-agent"
         )
         raise LaunchError(
-            "MeshForge is not running on this laptop (no console token). Start it: "
-            + start,
+            "Hive is not running on this laptop (no console token). Start it: " + start,
             ExitCode.UNAVAILABLE,
         ) from None
     except (OSError, UnicodeDecodeError) as exc:
@@ -215,7 +214,7 @@ def _wait_healthy(client: httpx.Client, base: str, wait_s: float) -> None:
                 else "journalctl -u meshforge-agent -n 50"
             )
             raise LaunchError(
-                f"MeshForge did not answer at {base} within {wait_s:.0f} s ({last}). "
+                f"Hive did not answer at {base} within {wait_s:.0f} s ({last}). "
                 f"See: {see}",
                 ExitCode.UNAVAILABLE,
             )
@@ -234,7 +233,7 @@ def launch_url(token_path: Path, port: int, *, wait_s: float) -> str:
         )
         if response.status_code == 401:
             raise LaunchError(
-                "the console token is out of date (MeshForge restarted while it was "
+                "the console token is out of date (Hive restarted while it was "
                 "read); try again"
             )
         if response.status_code != 200:
@@ -257,7 +256,7 @@ def docker_access() -> int:
         return int(ExitCode.UNAVAILABLE)
     result = subprocess.run([pkexec, str(DOCKER_ACCESS_HELPER)], check=False)  # noqa: S603
     if result.returncode == 0:
-        _tell("Docker access given; MeshForge restarted. Open it again from the menu.")
+        _tell("Docker access given; Hive restarted. Open it again from the menu.")
         return int(ExitCode.OK)
     if result.returncode in (126, 127):  # dismissed / not authorised
         _tell("Docker access was not given (the password dialog was cancelled).")
@@ -283,7 +282,7 @@ if sys.platform == "win32":  # pragma: no cover - Windows only
             return int(ExitCode.FAILURE)
         if code == 0:
             _tell(
-                "Docker access given; MeshForge restarted. Open MeshForge again from the "
+                "Docker access given; Hive restarted. Open Hive again from the "
                 "Start menu (if Docker still says no access, restart Docker Desktop)."
             )
             return int(ExitCode.OK)
@@ -304,7 +303,7 @@ if sys.platform == "win32":  # pragma: no cover - Windows only
         )
 
         if not ask_yes_no(
-            "Your Windows user may not open the MeshForge console on this computer "
+            "Your Windows user may not open the Hive console on this computer "
             "yet.\n\nAsk Windows for an administrator's OK to allow it now?"
         ):
             return False
@@ -331,7 +330,7 @@ else:
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
-        prog=PROG, description="Open the MeshForge console of this laptop."
+        prog=PROG, description="Open the Hive console of this laptop."
     )
     parser.add_argument("--config", type=Path, default=None, help="agent settings file")
     parser.add_argument(
@@ -343,7 +342,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument(
         "--docker-access",
         action="store_true",
-        help="give the MeshForge service Docker access (asks for an admin password)",
+        help="give the Hive service Docker access (asks for an admin password)",
     )
     args = parser.parse_args(argv)
     if args.docker_access:

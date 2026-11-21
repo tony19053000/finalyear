@@ -152,7 +152,7 @@ def _check_docker_windows(reason: str | None, version: str | None) -> Check:
             "docker",
             title,
             CheckStatus.OK,
-            f"Docker{shown} works for MeshForge: jobs run in containers.",
+            f"Docker{shown} works for Hive: jobs run in containers.",
         )
     if reason == "docker_permission_denied":
         if service_in_docker_users():
@@ -160,7 +160,7 @@ def _check_docker_windows(reason: str | None, version: str | None) -> Check:
                 "docker",
                 title,
                 CheckStatus.WARN,
-                "MeshForge was given Docker access, but its service has not "
+                "Hive was given Docker access, but its service has not "
                 "restarted since (Windows gives a service its groups at start).",
                 f"{DOCKER_ACCESS_MENU} again (it restarts the service), or restart "
                 "the computer.",
@@ -169,7 +169,7 @@ def _check_docker_windows(reason: str | None, version: str | None) -> Check:
             "docker",
             title,
             CheckStatus.WARN,
-            "Docker Desktop is installed, but MeshForge may not use it. Docker "
+            "Docker Desktop is installed, but Hive may not use it. Docker "
             "access is the same as full admin rights on this computer, so it is "
             "off until you turn it on.",
             f"{DOCKER_ACCESS_MENU} (asks for an administrator's OK), or in an "
@@ -213,8 +213,8 @@ def check_docker(settings: AgentSettings) -> Check:
                 "docker",
                 title,
                 CheckStatus.WARN,
-                "This MeshForge installation has no Docker library.",
-                "Reinstall MeshForge.",
+                "This Hive installation has no Docker library.",
+                "Reinstall Hive.",
             )
         if found.reason is not None and found.reason.startswith("docker_seccomp"):
             reason: str | None = "docker_daemon_unreachable"
@@ -241,7 +241,7 @@ def check_docker(settings: AgentSettings) -> Check:
             "docker",
             title,
             CheckStatus.OK,
-            f"Docker{version} works for MeshForge: jobs run in containers.",
+            f"Docker{version} works for Hive: jobs run in containers.",
         )
     reason = result.reason or "unknown"
     if reason == "docker_sdk_missing":
@@ -249,8 +249,8 @@ def check_docker(settings: AgentSettings) -> Check:
             "docker",
             title,
             CheckStatus.WARN,
-            "This MeshForge installation has no Docker library.",
-            "Reinstall the MeshForge agent package.",
+            "This Hive installation has no Docker library.",
+            "Reinstall the Hive agent package.",
         )
     if reason == "docker_permission_denied":
         listed = _in_docker_group_on_disk()
@@ -259,8 +259,8 @@ def check_docker(settings: AgentSettings) -> Check:
                 "docker",
                 title,
                 CheckStatus.WARN,
-                "MeshForge was given Docker access but has not restarted since.",
-                "Restart MeshForge (button below).",
+                "Hive was given Docker access but has not restarted since.",
+                "Restart Hive (button below).",
                 RESTART_ACTION,
             )
         system = sys.platform == "linux" and install_mode() is InstallMode.SYSTEM
@@ -268,11 +268,11 @@ def check_docker(settings: AgentSettings) -> Check:
             "docker",
             title,
             CheckStatus.WARN,
-            "Docker is installed, but MeshForge may not use it. Docker access is "
+            "Docker is installed, but Hive may not use it. Docker access is "
             "the same as full admin rights on this laptop, so it is off until you "
             "turn it on.",
             (
-                "Right-click MeshForge in the app menu and choose 'Give Docker "
+                "Right-click Hive in the app menu and choose 'Give Docker "
                 f"access' (asks for your password), or run: {DOCKER_ACCESS_COMMAND}"
             )
             if system
@@ -286,7 +286,7 @@ def check_docker(settings: AgentSettings) -> Check:
             title,
             CheckStatus.WARN,
             "Docker runs without its default security profile (seccomp), so "
-            "MeshForge does not use it.",
+            "Hive does not use it.",
             "Remove the seccomp=unconfined option from the Docker daemon settings "
             "and restart Docker.",
         )
@@ -343,7 +343,7 @@ def check_gpu() -> tuple[Check, Check]:
                     CheckStatus.WARN,
                     "An NVIDIA driver is loaded, but its nvidia-smi tool is missing.",
                     "Install the driver's utilities package (Ubuntu: "
-                    "nvidia-utils-<version>), then restart MeshForge.",
+                    "nvidia-utils-<version>), then restart Hive.",
                 ),
                 no_cuda,
             )
@@ -354,7 +354,7 @@ def check_gpu() -> tuple[Check, Check]:
                 CheckStatus.MISSING,
                 "No NVIDIA GPU driver found. This laptop shares its CPU only.",
                 "If it has an NVIDIA GPU, install the NVIDIA driver (Ubuntu: Software "
-                "& Updates > Additional Drivers), then restart MeshForge.",
+                "& Updates > Additional Drivers), then restart Hive.",
             ),
             no_cuda,
         )
@@ -369,7 +369,7 @@ def check_gpu() -> tuple[Check, Check]:
                 "gpu",
                 title,
                 CheckStatus.WARN,
-                "The NVIDIA driver does not answer MeshForge: "
+                "The NVIDIA driver does not answer Hive: "
                 f"{query.describe_failure()[:160]}",
                 "Restart the laptop; if it stays, reinstall the NVIDIA driver.",
             ),
@@ -388,7 +388,7 @@ def check_gpu() -> tuple[Check, Check]:
             "cuda",
             cuda_title,
             CheckStatus.WARN,
-            f"MeshForge may not open {blocked[0]}, so GPU jobs would fail.",
+            f"Hive may not open {blocked[0]}, so GPU jobs would fail.",
             "sudo usermod -aG video,render meshforge && sudo systemctl restart "
             "meshforge-agent",
         )
@@ -408,7 +408,7 @@ def check_gpu() -> tuple[Check, Check]:
         "cuda",
         cuda_title,
         CheckStatus.OK,
-        f"The driver offers CUDA {match.group(1)} to MeshForge's jobs.",
+        f"The driver offers CUDA {match.group(1)} to Hive's jobs.",
     )
 
 
@@ -436,7 +436,7 @@ def check_disk(settings: AgentSettings) -> Check:
             "disk",
             title,
             CheckStatus.MISSING,
-            f"Only {gib:.1f} GiB free where MeshForge keeps job files - not enough "
+            f"Only {gib:.1f} GiB free where Hive keeps job files - not enough "
             "for any job environment.",
             "Free some disk space.",
         )
@@ -503,7 +503,7 @@ def check_firewall(settings: AgentSettings, *, ufw_conf: Path = UFW_CONF) -> Che
             title,
             CheckStatus.OK,
             "ufw is off or not installed (other firewalls are not checked). "
-            "MeshForge only needs outgoing connections"
+            "Hive only needs outgoing connections"
             + (" and its peer port." if peer_on else "."),
         )
     if not peer_on:
@@ -511,7 +511,7 @@ def check_firewall(settings: AgentSettings, *, ufw_conf: Path = UFW_CONF) -> Che
             "firewall",
             title,
             CheckStatus.OK,
-            "ufw is on; MeshForge only makes outgoing connections, which ufw allows.",
+            "ufw is on; Hive only makes outgoing connections, which ufw allows.",
         )
     port = settings.agent.peer.port
     return Check(
@@ -545,7 +545,7 @@ def check_peer(settings: AgentSettings, endpoint: str | None) -> Check:
             title,
             CheckStatus.WARN,
             "The peer file server is not running (the laptop has not joined, or "
-            "MeshForge is stopped).",
+            "Hive is stopped).",
         )
     host, _, port_text = endpoint.rpartition(":")
     host = host.strip("[]")
@@ -559,7 +559,7 @@ def check_peer(settings: AgentSettings, endpoint: str | None) -> Check:
             CheckStatus.WARN,
             f"The peer file server at {endpoint} does not answer: "
             f"{getattr(exc, 'strerror', None) or exc}.",
-            "Check the agent's log, then restart MeshForge.",
+            "Check the agent's log, then restart Hive.",
             RESTART_ACTION,
         )
     return Check(

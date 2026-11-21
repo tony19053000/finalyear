@@ -47,7 +47,7 @@ PROG_NAME = "meshforge-agent"
 
 app = typer.Typer(
     name=PROG_NAME,
-    help="MeshForge node agent process.",
+    help="Hive node agent process.",
     add_completion=False,
     no_args_is_help=True,
 )

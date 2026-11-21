@@ -272,7 +272,7 @@ describe("ConsoleApp", () => {
 
   it("V0.17 G5: a version_unsupported stop says which side to upgrade", async () => {
     const reason =
-      "version_unsupported: agent 0.15.0 is too old for controller 0.17.0 (it accepts agents 0.16 or newer); upgrade the MeshForge agent on lab-a";
+      "version_unsupported: agent 0.15.0 is too old for controller 0.17.0 (it accepts agents 0.16 or newer); upgrade the Hive agent on lab-a";
     fakeAgent({
       "GET /status": () => ({
         json: status({
