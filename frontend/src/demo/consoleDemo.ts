@@ -1,6 +1,7 @@
 /**
  * DEMO MODE for the agent's local console:
- * `http://localhost:5173/src/agentConsole/index.html?demo=1` (localhost only).
+ * `http://localhost:5173/src/agentConsole/index.html?demo=1` (vite dev server +
+ * localhost only; never in a production build).
  * Answers `/console/v1/*` from memory, so the join wizard, Home, Settings,
  * Logs and Leave are seen without an agent on this laptop. The wizard walks
  * for real: discover finds a controller, any code joins, finishing marks
@@ -10,7 +11,9 @@
  */
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
+/** `?demo=1` on a local host, under the vite dev server only (never in a production build). */
 export function consoleDemoRequested(): boolean {
+  if (!import.meta.env.DEV) return false;
   if (!LOCAL_HOSTS.has(window.location.hostname)) return false;
   return new URLSearchParams(window.location.search).get("demo") === "1";
 }

@@ -1,5 +1,5 @@
 /**
- * DEMO MODE: `http://localhost:5173/?demo=1` (localhost only). Replaces the
+ * DEMO MODE: `http://localhost:5173/?demo=1` (vite dev server + localhost only). Replaces the
  * controller's node / job / alert answers with demo/demoData.ts so the
  * Overview is seen filled, the Benchmarks pages' campaigns (demo/benchDemoData.ts:
  * list, status, runs, labels, quality, controls, Parquet downloads) and the Planner
@@ -44,8 +44,13 @@ import { DEMO_SESSION_TOKEN_ID, demoSettingsRoute } from "./settingsDemoData";
 
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
 
-/** True when the page was opened with `?demo=1` on a local host (on until the next full reload). */
+/**
+ * True when the page was opened with `?demo=1` on a local host (on until the next
+ * full reload) - under the vite dev server only: a production build never turns
+ * the demo on (main.tsx also only imports this module when `import.meta.env.DEV`).
+ */
 export function demoRequested(): boolean {
+  if (!import.meta.env.DEV) return false;
   if (!LOCAL_HOSTS.has(window.location.hostname)) return false;
   return new URLSearchParams(window.location.search).get("demo") === "1";
 }

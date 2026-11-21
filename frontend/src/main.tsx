@@ -3,7 +3,6 @@ import { createRoot } from "react-dom/client";
 
 import { createQueryClient } from "./api/queryClient";
 import { App } from "./app/App";
-import { demoRequested, installDemo } from "./demo/install";
 import { applyTheme } from "./app/theme";
 import "./styles/index.css";
 
@@ -14,8 +13,13 @@ import "./styles/index.css";
 applyTheme("dark");
 
 const queryClient = createQueryClient();
-// DEMO MODE (localhost ?demo=1 only; delete src/demo/ and these lines to remove).
-if (demoRequested()) installDemo(queryClient);
+// DEMO MODE (vite dev server + localhost ?demo=1 only; delete src/demo/ and these
+// lines to remove). `import.meta.env.DEV` is the constant false in `npm run build`,
+// so this block and the demo modules are not in the production bundle at all.
+if (import.meta.env.DEV) {
+  const demo = await import("./demo/install");
+  if (demo.demoRequested()) demo.installDemo(queryClient);
+}
 
 const root = document.getElementById("root");
 if (root === null) {
