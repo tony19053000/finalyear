@@ -8,6 +8,15 @@ import { setSigningOut } from "../api/client";
 // Load their modules once here, so a page test's first `findBy` (1 s default)
 // never includes the time to transform a page and its libraries (Recharts).
 // In the browser the chunks are tiny same-origin files; this is test-only.
+//
+// react-router-dom is CommonJS that `require()`s the ESM react-router
+// (Node's require(esm), "module-sync" export). When the pages below are imported
+// in parallel, several of them reach react-router-dom at once and Node's loader
+// can race between that synchronous require and an async import of the same
+// module ("Cannot read properties of undefined (reading 'getStatus')" from
+// node:internal/modules/esm/loader): a random test file then fails to load with
+// 0 tests. Loading it once, alone, first removes the race.
+await import("react-router-dom");
 await Promise.all([
   import("../pages/overview/OverviewPage"),
   import("../pages/nodes/NodesPage"),
