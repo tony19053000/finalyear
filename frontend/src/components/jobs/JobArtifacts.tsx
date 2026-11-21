@@ -1,4 +1,3 @@
-import { CodeBlock } from "../CodeBlock";
 import { EmptyState } from "../States";
 import { blobUrl, type AttemptSummary } from "../../pages/jobs/jobsApi";
 
@@ -8,7 +7,17 @@ import { blobUrl, type AttemptSummary } from "../../pages/jobs/jobsApi";
  * what `compute get` unpacks). The browser downloads it as is from
  * GET /v1/blobs/{digest} (the cookie session may read its own jobs' outputs).
  */
-export function JobArtifacts({ jobId, attempts, terminal }: { jobId: string; attempts: readonly AttemptSummary[]; terminal: boolean }) {
+export function JobArtifacts({
+  jobId,
+  attempts,
+  terminal,
+  names,
+}: {
+  jobId: string;
+  attempts: readonly AttemptSummary[];
+  terminal: boolean;
+  names?: ReadonlyMap<string, string>;
+}) {
   const withOutputs = [...attempts]
     .filter((a) => a.output_digest != null && a.output_digest !== "")
     .sort((a, b) => b.fencing_token - a.fencing_token);
@@ -24,41 +33,42 @@ export function JobArtifacts({ jobId, attempts, terminal }: { jobId: string; att
     );
   }
   return (
-    <div className="flex flex-col gap-4">
-      <ul className="flex flex-col gap-3">
-        {withOutputs.map((a) => {
-          const digest = a.output_digest ?? "";
-          const file = `${jobId}-attempt${String(a.fencing_token)}-outputs.tar.zst`;
-          return (
-            <li key={a.attempt_id} className="flex flex-col gap-1 rounded-md border border-border p-3">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="text-sm">
-                  Attempt {a.fencing_token}
-                  {a.role === "combine" ? " (combined output)" : ""} on <span className="font-mono">{a.node_id}</span> ({a.state})
+    <div className="flex flex-col gap-10">
+      <section aria-label="Outputs" className="ov-card ov-frost nd-glass px-9 pt-7 pb-3">
+        <h2 className="ov-card-title">Outputs</h2>
+        <ul className="mt-4 divide-y divide-[#ffffff0f]">
+          {withOutputs.map((a) => {
+            const digest = a.output_digest ?? "";
+            const file = `${jobId}-attempt${String(a.fencing_token)}-outputs.tar.zst`;
+            return (
+              <li key={a.attempt_id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-10 gap-y-1 py-5">
+                <span className="min-w-0">
+                  <span className="block text-[0.9375rem] text-fg">
+                    Attempt {a.fencing_token}
+                    {a.role === "combine" ? " (combined output)" : ""} on{" "}
+                    <span className="font-medium">{names?.get(a.node_id) ?? a.node_id}</span>
+                    <span className="ml-2 font-mono text-[0.75rem] tracking-[0.12em] text-fg uppercase">{a.state}</span>
+                  </span>
+                  <span className="mt-1.5 block font-mono text-xs break-all text-fg/80">{digest}</span>
+                  {(a.missing_outputs ?? []).length > 0 && (
+                    <span className="mt-1 block text-xs text-fg-muted">
+                      Declared but not found: {(a.missing_outputs ?? []).join(", ")}
+                    </span>
+                  )}
                 </span>
-                <a
-                  href={blobUrl(digest)}
-                  download={file}
-                  className="inline-flex h-8 items-center rounded-md border border-transparent bg-accent px-3 text-sm font-medium text-accent-fg hover:bg-accent-hover"
-                >
+                <a href={blobUrl(digest)} download={file} className="jb-honey-btn">
                   Download outputs
                 </a>
-              </div>
-              <span className="font-mono text-2xs break-all text-fg-muted">{digest}</span>
-              {(a.missing_outputs ?? []).length > 0 && (
-                <span className="text-xs text-fg-muted">Declared but not found: {(a.missing_outputs ?? []).join(", ")}</span>
-              )}
-            </li>
-          );
-        })}
-      </ul>
-      <div className="text-sm text-fg-muted">
+              </li>
+            );
+          })}
+        </ul>
+      </section>
+      <div className="px-2 text-sm text-fg-muted">
         <p>The file is a zstd-compressed tar. Check and unpack it, or let the CLI do both:</p>
-        <CodeBlock
-          className="mt-2"
-          label="Unpack commands"
-          code={`sha256sum <file>   # must equal the digest above\ntar --zstd -xf <file>\n# or: compute get ${jobId}`}
-        />
+        <pre aria-label="Unpack commands" tabIndex={0} className="jb-log mt-4 text-fg">
+          <code>{`sha256sum <file>   # must equal the digest above\ntar --zstd -xf <file>\n# or: compute get ${jobId}`}</code>
+        </pre>
       </div>
     </div>
   );

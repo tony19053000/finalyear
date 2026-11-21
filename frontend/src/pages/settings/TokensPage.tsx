@@ -22,20 +22,19 @@ import {
   type TokenOut,
 } from "../../api/settings";
 import { useDocumentTitle } from "../../app/useDocumentTitle";
+import { CheckIcon } from "../../app/icons";
 import { Button } from "../../components/Button";
-import { Card } from "../../components/Card";
 import { CopyField } from "../../components/CopyField";
 import { Dialog } from "../../components/Dialog";
 import { ErrorState } from "../../components/States";
-import { Badge } from "../../components/Status";
-import { Table, type Column } from "../../components/Table";
+import { cn } from "../../lib/cn";
 import { formatDateTime } from "../../lib/format";
-import type { StatusTone } from "../../lib/status";
-import { ConfirmAction } from "./ConfirmAction";
-import { Field } from "./Field";
+import { useConfirmAction } from "./ConfirmAction";
+import { FIELD_CLASS, Field } from "./Field";
+import { AddButton, Footnote, Intro, Loading, MaskedId, RowMenu, SettingsList, StateWord, When, type StColumn } from "./settingsUi";
 import { useAction } from "./useAction";
 
-const TOKEN_TONES: Record<string, StatusTone> = { active: "ok", expired: "unknown", revoked: "failed" };
+const TOKEN_TONES: Record<string, string> = { active: "ok", expired: "unknown", revoked: "failed" };
 
 function kindLabel(kind: string): string {
   if (kind === "api") return "API token";
@@ -43,16 +42,13 @@ function kindLabel(kind: string): string {
   return kind;
 }
 
-function expiresText(token: TokenOut): string {
+function Expires({ token }: { token: TokenOut }) {
   // A browser session ends at whichever comes first: idle or absolute expiry.
   if (token.idle_expires_at != null && Date.parse(token.idle_expires_at) < Date.parse(token.expires_at)) {
-    return `${formatDateTime(token.idle_expires_at)} (idle)`;
+    return <When iso={token.idle_expires_at} suffix="(idle)" />;
   }
-  return formatDateTime(token.expires_at);
+  return <When iso={token.expires_at} />;
 }
-
-const input =
-  "h-8 rounded-md border border-border-strong bg-surface px-2.5 text-sm text-fg aria-[invalid=true]:border-status-failed";
 
 /** The form and its one-time answer; unmounted (and forgotten) when the dialog closes. */
 function CreateTokenForm({ userName, onDone, onBusy }: { userName: string; onDone: () => void; onBusy: (busy: boolean) => void }) {
@@ -89,10 +85,10 @@ function CreateTokenForm({ userName, onDone, onBusy }: { userName: string; onDon
     return (
       <div className="flex flex-col gap-3" data-testid="new-token">
         <CopyField label="Your new API token - shown only now; copy it somewhere safe" value={made.token} />
-        <dl className="grid grid-cols-[8rem_1fr] gap-x-3 gap-y-1 text-sm">
-          <dt className="text-fg-muted">Token id</dt>
+        <dl className="grid grid-cols-[8rem_1fr] items-baseline gap-x-3 gap-y-2 text-sm">
+          <dt className="nd-label">Token id</dt>
           <dd className="font-mono text-xs leading-5">{made.token_id}</dd>
-          <dt className="text-fg-muted">Expires</dt>
+          <dt className="nd-label">Expires</dt>
           <dd>{formatDateTime(made.expires_at)}</dd>
         </dl>
         <p className="text-sm text-fg-muted">
@@ -114,14 +110,14 @@ function CreateTokenForm({ userName, onDone, onBusy }: { userName: string; onDon
       onSubmit={(e) => {
         void submit(e);
       }}
-      className="flex flex-col gap-3"
+      className="flex flex-col gap-5"
     >
       <Field label="Token name" help={nameProblem ?? "Shown in this list, e.g. the laptop or script that uses it."}>
         {(control) => (
           <input
             {...control}
             ref={first}
-            className={input}
+            className={FIELD_CLASS}
             value={tokenName}
             maxLength={TOKEN_NAME_MAX_CHARS + 1}
             autoComplete="off"
@@ -139,7 +135,7 @@ function CreateTokenForm({ userName, onDone, onBusy }: { userName: string; onDon
         {(control) => (
           <input
             {...control}
-            className={input}
+            className={FIELD_CLASS}
             type="password"
             value={password}
             autoComplete="current-password"
@@ -166,23 +162,24 @@ function CreateTokenForm({ userName, onDone, onBusy }: { userName: string; onDon
   );
 }
 
-function CreateToken({ userName }: { userName: string }) {
+/** The section's primary action: the dialog with the form and its one-time answer. */
+export function CreateToken() {
+  const session = useSession();
+  const userName = session.data?.user.name ?? "";
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const close = () => {
     if (!busy) setOpen(false); // a token being minted must not be lost unseen
   };
+  if (userName === "") return null;
   return (
     <>
-      <Button
-        variant="primary"
-        size="sm"
+      <AddButton
+        label="Create API token"
         onClick={() => {
           setOpen(true);
         }}
-      >
-        Create API token
-      </Button>
+      />
       <Dialog
         open={open}
         onClose={close}
@@ -195,90 +192,111 @@ function CreateToken({ userName }: { userName: string }) {
   );
 }
 
+/** A quiet checkbox (Planner's toggle): a small square that fills honey, the words beside it. */
+function Toggle({ on, onChange, children }: { on: boolean; onChange: (on: boolean) => void; children: string }) {
+  return (
+    <button
+      type="button"
+      role="checkbox"
+      aria-checked={on}
+      className="pl-toggle"
+      onClick={() => {
+        onChange(!on);
+      }}
+    >
+      <span aria-hidden="true" className={cn("pl-toggle-box", on && "pl-toggle-on")}>
+        {on && <CheckIcon />}
+      </span>
+      <span className="whitespace-nowrap">{children}</span>
+    </button>
+  );
+}
+
+/** The row's "⋯" menu: Revoke (or Sign out for this session) behind its confirm dialog. */
+function TokenActions({ token: t }: { token: TokenOut }) {
+  const client = useQueryClient();
+  const revoke = useConfirmAction({
+    title: t.current ? "End this browser session?" : `Revoke ${t.name}?`,
+    description: t.current
+      ? "This is the session you are using now: you will be signed out."
+      : `${kindLabel(t.kind)} ${t.id} stops working at once (open log streams using it close too). There is no undo.`,
+    confirmLabel: t.current ? "Sign out" : "Revoke",
+    action: () => revokeToken(t.id),
+    done: (result) => {
+      void client.invalidateQueries({ queryKey: queryKeys.tokensAll });
+      return {
+        title: result.already_revoked ? `${t.name} was already revoked` : `${t.name} revoked`,
+      };
+    },
+  });
+  if (t.state !== "active") return null;
+  return (
+    <>
+      <RowMenu
+        label={`Actions for ${t.name} (${t.id})`}
+        items={[{ key: "revoke", label: "Revoke", name: `Revoke ${t.name} (${t.id})`, danger: true, onSelect: revoke.open }]}
+      />
+      {revoke.dialog}
+    </>
+  );
+}
+
 export function TokensPage({ isAdmin }: { isAdmin: boolean }) {
   useDocumentTitle("API tokens");
   const [all, setAll] = useState(false);
   const showAll = isAdmin && all;
   const tokens = useTokens(showAll);
-  const session = useSession();
-  const client = useQueryClient();
-  const userName = session.data?.user.name ?? "";
 
-  const columns: Column<TokenOut>[] = [
+  const columns: StColumn<TokenOut>[] = [
     {
       id: "name",
       header: "Name",
+      grow: true,
       cell: (t) => (
-        <span className="inline-flex items-center gap-2">
-          {t.name}
-          {t.current && <Badge tone="accent">this session</Badge>}
+        <span className="inline-flex min-w-0 items-center gap-2.5">
+          <span className="font-medium text-fg">{t.name}</span>
+          {t.current && <span className="st-tag">this session</span>}
         </span>
       ),
     },
     { id: "kind", header: "Kind", cell: (t) => kindLabel(t.kind) },
     ...(showAll ? [{ id: "user", header: "User", cell: (t: TokenOut) => t.user }] : []),
-    { id: "state", header: "State", cell: (t) => <Badge tone={TOKEN_TONES[t.state] ?? "unknown"}>{t.state}</Badge> },
-    { id: "created", header: "Created", cell: (t) => formatDateTime(t.created_at) },
-    { id: "used", header: "Last used", cell: (t) => formatDateTime(t.last_used_at) },
-    { id: "expires", header: "Expires", cell: (t) => expiresText(t) },
-    { id: "id", header: "Id", mono: true, cell: (t) => t.id },
+    { id: "state", header: "State", cell: (t) => <StateWord tone={TOKEN_TONES[t.state] ?? "unknown"}>{t.state}</StateWord> },
+    { id: "created", header: "Created", cell: (t) => <When iso={t.created_at} /> },
+    { id: "used", header: "Last used", cell: (t) => <When iso={t.last_used_at} /> },
     {
-      id: "actions",
-      header: <span className="sr-only">Actions</span>,
-      align: "right",
-      cell: (t) =>
-        t.state === "active" ? (
-          <ConfirmAction
-            label="Revoke"
-            triggerName={`Revoke ${t.name} (${t.id})`}
-            title={t.current ? "End this browser session?" : `Revoke ${t.name}?`}
-            description={
-              t.current
-                ? "This is the session you are using now: you will be signed out."
-                : `${kindLabel(t.kind)} ${t.id} stops working at once (open log streams using it close too). There is no undo.`
-            }
-            confirmLabel={t.current ? "Sign out" : "Revoke"}
-            action={() => revokeToken(t.id)}
-            done={(result) => {
-              void client.invalidateQueries({ queryKey: queryKeys.tokensAll });
-              return {
-                title: result.already_revoked ? `${t.name} was already revoked` : `${t.name} revoked`,
-              };
-            }}
-          />
-        ) : null,
+      id: "expires",
+      header: "Expires",
+      hint: "A browser session ends at whichever comes first: its idle timeout (idle) or its absolute expiry.",
+      cell: (t) => <Expires token={t} />,
     },
+    { id: "id", header: "Id", mono: true, cell: (t) => <MaskedId id={t.id} /> },
+    { id: "actions", header: <span className="sr-only">Actions</span>, align: "right", cell: (t) => <TokenActions token={t} /> },
   ];
 
+  const rows = tokens.data?.tokens ?? [];
+  const active = rows.filter((t) => t.state === "active").length;
   return (
-    <Card
-      title="API tokens and sessions"
-      actions={
-        <>
-          {isAdmin && (
-            <label className="flex items-center gap-1.5 text-sm text-fg-muted">
-              <input
-                type="checkbox"
-                checked={all}
-                onChange={(e) => {
-                  setAll(e.target.checked);
-                }}
-              />
-              Every user
-            </label>
-          )}
-          {userName !== "" && <CreateToken userName={userName} />}
-        </>
-      }
-      flush
-    >
+    <>
+      <Intro
+        actions={
+          <>
+            {isAdmin && (
+              <Toggle on={all} onChange={setAll}>
+                Every user
+              </Toggle>
+            )}
+            <CreateToken />
+          </>
+        }
+      >
+        API tokens let the CLI or a script act as you; browser sessions are your dashboard sign-ins. Revoking either stops it at
+        once.
+      </Intro>
       {tokens.isPending ? (
-        <p role="status" className="p-4 text-sm text-fg-muted">
-          Loading…
-        </p>
+        <Loading />
       ) : tokens.isError ? (
         <ErrorState
-          className="m-4"
           title="Could not load the tokens"
           error={tokens.error}
           onRetry={() => {
@@ -286,14 +304,19 @@ export function TokensPage({ isAdmin }: { isAdmin: boolean }) {
           }}
         />
       ) : (
-        <Table
-          caption={showAll ? "Every user's API tokens and browser sessions" : "Your API tokens and browser sessions"}
-          columns={columns}
-          rows={tokens.data.tokens}
-          rowKey={(t) => t.id}
-          empty="No API tokens. Create one for the CLI, or run `compute login` on a laptop."
-        />
+        <>
+          <SettingsList
+            caption={showAll ? "Every user's API tokens and browser sessions" : "Your API tokens and browser sessions"}
+            columns={columns}
+            rows={rows}
+            rowKey={(t) => t.id}
+            empty="No API tokens. Create one for the CLI, or run `compute login` on a laptop."
+          />
+          <Footnote title="A browser session ends at whichever comes first: its idle timeout or its absolute expiry. Expired and revoked tokens stay listed for a while.">
+            {`${String(rows.length)} listed · ${String(active)} active. The controller keeps only a token's hash.`}
+          </Footnote>
+        </>
       )}
-    </Card>
+    </>
   );
 }

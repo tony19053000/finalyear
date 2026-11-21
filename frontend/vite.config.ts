@@ -90,5 +90,8 @@ export default defineConfig(({ mode }) => ({
     setupFiles: ["./src/test/setup.ts"],
     include: ["src/**/*.test.{ts,tsx}"],
     restoreMocks: true,
+    // 5 s default is too tight for the heavy page tests (e.g. the 10 000-chunk grid)
+    // when the whole suite runs in parallel; 20 s still catches a real hang.
+    testTimeout: 20_000,
   },
 }));

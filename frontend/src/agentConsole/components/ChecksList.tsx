@@ -1,12 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 
-import { Badge } from "../../components/Status";
 import { Button } from "../../components/Button";
-import type { StatusTone } from "../../lib/status";
 import { consoleApi, consoleKeys, explain, type CheckView } from "../api";
-import { Problem } from "./fields";
+import { Dot, Problem } from "./fields";
 
-const TONE: Record<CheckView["status"], StatusTone> = { ok: "ok", warn: "degraded", missing: "unknown" };
+const TONE: Record<CheckView["status"], "ok" | "warn" | "off"> = { ok: "ok", warn: "warn", missing: "off" };
 const WORD: Record<CheckView["status"], string> = { ok: "OK", warn: "Needs attention", missing: "Not available" };
 
 export interface ChecksListProps {
@@ -29,26 +27,26 @@ export function ChecksList({ onRestart }: ChecksListProps) {
     return <Problem title="The checks could not run" message={message} fix={fix} />;
   }
   return (
-    <div className="flex flex-col gap-3">
-      <ul className="flex flex-col divide-y divide-border" aria-label="Checks">
+    <div className="flex flex-col gap-4">
+      <ul className="ac-checks flex flex-col" aria-label="Checks">
         {checks.data.checks.map((check) => (
-          <li key={check.id} className="flex flex-col gap-1 py-3" data-check={check.id} data-status={check.status}>
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-sm font-medium text-fg">{check.title}</span>
-              <Badge tone={TONE[check.status]}>{WORD[check.status]}</Badge>
-            </div>
-            <p className="text-sm text-fg-muted">{check.why}</p>
-            {check.fix !== "" && <p className="text-sm text-fg">{check.fix}</p>}
+          <li key={check.id} className="ac-check grid grid-cols-[minmax(0,1fr)_auto] gap-x-8 gap-y-1.5" data-check={check.id} data-status={check.status}>
+            <span className="ac-row-label">{check.title}</span>
+            <span className="ac-check-state text-sm">
+              <Dot tone={TONE[check.status]}>{WORD[check.status]}</Dot>
+            </span>
+            <p className="ac-row-help col-span-2">{check.why}</p>
+            {check.fix !== "" && <p className="ac-fix col-span-2">{check.fix}</p>}
             {check.action === "docker-access" && docker.data !== undefined && (
-              <details className="text-sm text-fg-muted">
+              <details className="ac-details col-span-2 text-sm text-fg-muted">
                 <summary className="cursor-pointer text-fg">Why does this need my password?</summary>
                 <p className="mt-1">{docker.data.explanation}</p>
                 <p className="mt-1 font-mono text-xs break-all">{docker.data.command}</p>
               </details>
             )}
             {check.action === "restart" && onRestart !== undefined && (
-              <div>
-                <Button size="sm" onClick={onRestart}>
+              <div className="col-span-2">
+                <Button size="sm" variant="ghost" className="ac-quiet" onClick={onRestart}>
                   Restart MeshForge
                 </Button>
               </div>
@@ -60,6 +58,7 @@ export function ChecksList({ onRestart }: ChecksListProps) {
         <Button
           size="sm"
           variant="ghost"
+          className="ac-quiet"
           loading={checks.isFetching}
           onClick={() => {
             void checks.refetch();

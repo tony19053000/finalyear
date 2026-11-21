@@ -1,16 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Suspense, lazy, useCallback, useState, type FormEvent } from "react";
+import { useState, type FormEvent, type ReactNode } from "react";
 
 import { Button } from "../../components/Button";
-import { Card } from "../../components/Card";
 import { consoleApi, consoleKeys, explain, type PolicyValues, type StatusView } from "../api";
 import { ChecksList } from "../components/ChecksList";
-import { INPUT, Problem } from "../components/fields";
+import { INPUT, Panel, Problem } from "../components/fields";
 import { PolicyForm } from "../components/PolicyForm";
 import { firstStep, nodeNameProblem, type WizardStep } from "../logic";
 
-// jsQR is ~130 kB: loaded only when the owner opts in to scanning (Q6).
-const QrScanner = lazy(() => import("../components/QrScanner").then((m) => ({ default: m.QrScanner })));
 
 const ORDER: WizardStep[] = ["welcome", "join", "policy", "checks", "done"];
 const TITLES: Record<WizardStep, string> = {
@@ -21,34 +18,64 @@ const TITLES: Record<WizardStep, string> = {
   done: "Done",
 };
 
+const HINTS: Record<WizardStep, string> = {
+  welcome: "What MeshForge does here",
+  join: "Paste the join code",
+  policy: "Limits you choose",
+  checks: "What this laptop offers",
+  done: "Ready",
+};
+
+/** The steps as a rail: done ones ticked, the current one in honey. */
 function Steps({ current }: { current: WizardStep }) {
   const at = ORDER.indexOf(current);
   return (
-    <ol className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-fg-muted" aria-label="Setup steps">
+    <ol className="ac-steps flex flex-col" aria-label="Setup steps">
       {ORDER.map((step, i) => (
-        <li key={step} aria-current={step === current ? "step" : undefined} className={i === at ? "font-semibold text-fg" : undefined}>
-          {i + 1}. {TITLES[step]}
+        <li
+          key={step}
+          aria-current={step === current ? "step" : undefined}
+          className="ac-step"
+          data-state={i < at ? "done" : i === at ? "now" : "next"}
+        >
+          <span aria-hidden="true" className="ac-step-mark">
+            {i < at ? "✓" : String(i + 1)}
+          </span>
+          <span className="flex min-w-0 flex-col">
+            <span className="ac-step-title">{TITLES[step]}</span>
+            <span className="ac-step-hint">{HINTS[step]}</span>
+          </span>
         </li>
       ))}
     </ol>
   );
 }
 
+/** One promise of the welcome step: a honey hex and a plain sentence. */
+function Pledge({ children }: { children: ReactNode }) {
+  return (
+    <li className="flex items-start gap-4">
+      <span aria-hidden="true" className="ac-hex mt-1.5" />
+      <span>{children}</span>
+    </li>
+  );
+}
+
 function Welcome({ status, next }: { status: StatusView; next: () => void }) {
   return (
-    <div className="flex flex-col gap-3 text-sm text-fg">
-      <p>
-        MeshForge lets the laptops of your group share their processors and graphics cards. This laptop (
-        <span className="font-medium">{status.hostname}</span>) can join a fabric so others can send it work - only
-        when you allow it, and only within limits you set.
+    <div className="flex flex-col gap-8">
+      <p className="ac-lead">
+        MeshForge lets the laptops of your group share their processors and graphics cards. This laptop,{" "}
+        <span className="font-mono text-[0.9375rem] text-fg">{status.hostname}</span>, can join a fabric so others can send it work:
+        only when you allow it, and only within the limits you set.
       </p>
-      <ul className="list-disc pl-5 text-fg-muted">
-        <li>Nothing runs here until you turn on &quot;Run jobs&quot; in the next steps.</li>
-        <li>You can change every setting later, or leave the fabric at any time.</li>
-        <li>This page is only reachable from this laptop.</li>
+      <ul className="flex flex-col gap-4 text-[0.9375rem] text-fg/85">
+        <Pledge>Nothing runs here until you turn on &quot;Run jobs&quot; in the next steps.</Pledge>
+        <Pledge>You can change every setting later, or leave the fabric at any time.</Pledge>
+        <Pledge>This page is only reachable from this laptop.</Pledge>
       </ul>
       <div>
-        <Button variant="primary" onClick={next}>
+        <Button variant="primary" className="ac-go" onClick={next}>
           Start
         </Button>
       </div>
@@ -59,34 +86,30 @@ function Welcome({ status, next }: { status: StatusView; next: () => void }) {
 function Join({ onJoined }: { onJoined: () => void }) {
   const [code, setCode] = useState("");
   const [host, setHost] = useState("");
-  const [scanning, setScanning] = useState(false);
   const discover = useQuery({ queryKey: consoleKeys.discover, queryFn: consoleApi.discover, staleTime: 15_000 });
   const join = useMutation({
     mutationFn: () => consoleApi.join(code.trim(), host === "" ? null : host),
     onSuccess: onJoined,
   });
-  const onScanned = useCallback((scanned: string) => {
-    setScanning(false);
-    setCode(scanned);
-  }, []);
   const submit = (e: FormEvent) => {
     e.preventDefault();
     if (code.trim() !== "") join.mutate();
   };
   const controllers = discover.data?.controllers ?? [];
   return (
-    <form onSubmit={submit} className="flex flex-col gap-4" aria-label="Join a fabric">
-      <p className="text-sm text-fg">
-        Ask the fabric admin for a join code: on the controller&apos;s dashboard, <span className="font-medium">Settings &gt; Invites &gt; New invite</span>. Paste it here, or scan its QR code with this laptop&apos;s camera.
+    <form onSubmit={submit} className="flex flex-col gap-8" aria-label="Join a fabric">
+      <p className="ac-lead">
+        Ask the fabric admin for a join code. On the controller&apos;s dashboard it is under{" "}
+        <span className="text-fg">Settings → Invites → New invite</span>. Paste it here.
       </p>
-      <div>
-        <label htmlFor="join-code" className="text-sm font-medium text-fg">
+      <div className="ac-field">
+        <label htmlFor="join-code" className="nd-label">
           Join code
         </label>
         <input
           id="join-code"
           name="code"
-          className={`${INPUT} mt-1 font-mono`}
+          className={`${INPUT} ac-input-code`}
           autoComplete="off"
           spellCheck={false}
           placeholder="mf1-…"
@@ -96,37 +119,14 @@ function Join({ onJoined }: { onJoined: () => void }) {
           }}
         />
       </div>
-      {scanning ? (
-        <Suspense fallback={<p role="status" className="text-sm text-fg-muted">Loading the scanner…</p>}>
-          <QrScanner
-            onCode={onScanned}
-            onCancel={() => {
-              setScanning(false);
-            }}
-          />
-        </Suspense>
-      ) : (
-        <div>
-          <Button
-            size="sm"
-            onClick={() => {
-              setScanning(true);
-            }}
-          >
-            Scan QR code with the camera
-          </Button>
-        </div>
-      )}
-      <div>
-        <label htmlFor="join-controller" className="text-sm font-medium text-fg">
+      <div className="ac-field">
+        <label htmlFor="join-controller" className="nd-label">
           Controller
         </label>
-        <p className="text-sm text-fg-muted">
-          The code already says where the controller is. Pick one found on this network only if its address changed.
-        </p>
+        <p className="ac-row-help">The code already says where the controller is. Pick one found on this network only if its address changed.</p>
         <select
           id="join-controller"
-          className={`${INPUT} mt-1 max-w-md`}
+          className={`${INPUT} ac-select max-w-md`}
           value={host}
           onChange={(e) => {
             setHost(e.target.value);
@@ -139,7 +139,7 @@ function Join({ onJoined }: { onJoined: () => void }) {
             </option>
           ))}
         </select>
-        <p className="mt-1 text-xs text-fg-subtle" role="status">
+        <p className="ac-note" role="status">
           {discover.isPending
             ? "Looking for controllers on this network…"
             : discover.isError
@@ -151,7 +151,7 @@ function Join({ onJoined }: { onJoined: () => void }) {
       </div>
       {join.isError && <Problem title="This laptop did not join" {...explain(join.error)} />}
       <div>
-        <Button type="submit" variant="primary" loading={join.isPending} disabled={code.trim() === ""}>
+        <Button type="submit" variant="primary" className="ac-go" loading={join.isPending} disabled={code.trim() === ""}>
           Join
         </Button>
       </div>
@@ -184,19 +184,19 @@ function PolicyStep({ status, next }: { status: StatusView; next: () => void }) 
   }
   if (policy.isError) return <Problem title="Could not load the settings" {...explain(policy.error)} />;
   return (
-    <div className="flex flex-col gap-4">
-      <p className="text-sm text-fg">
+    <div className="flex flex-col gap-8">
+      <p className="ac-lead">
         Choose what this laptop shares. The safe choices are already set: <span className="font-medium">no jobs</span>,{" "}
         <span className="font-medium">GPU not shared</span>, <span className="font-medium">at most half the CPU</span> per job.
       </p>
-      <div>
-        <label htmlFor="node-name" className="text-sm font-medium text-fg">
+      <div className="ac-field">
+        <label htmlFor="node-name" className="nd-label">
           Name of this laptop
         </label>
-        <p className="text-sm text-fg-muted">Shown in the fabric&apos;s dashboard next to its hostname ({status.hostname}). Optional.</p>
+        <p className="ac-row-help">Shown in the fabric&apos;s dashboard next to its hostname ({status.hostname}). Optional.</p>
         <input
           id="node-name"
-          className={`${INPUT} mt-1 max-w-md`}
+          className={`${INPUT} max-w-md`}
           value={name}
           aria-invalid={nameProblem !== null || undefined}
           aria-describedby={nameProblem !== null ? "node-name-error" : undefined}
@@ -205,7 +205,7 @@ function PolicyStep({ status, next }: { status: StatusView; next: () => void }) 
           }}
         />
         {nameProblem !== null && (
-          <p id="node-name-error" role="alert" className="mt-1 text-sm text-status-failed">
+          <p id="node-name-error" role="alert" className="mt-2 text-sm text-status-failed">
             {nameProblem}
           </p>
         )}
@@ -226,23 +226,34 @@ function PolicyStep({ status, next }: { status: StatusView; next: () => void }) 
 
 function Done({ status, finish, finishing, error }: { status: StatusView; finish: () => void; finishing: boolean; error: unknown }) {
   return (
-    <div className="flex flex-col gap-3 text-sm text-fg">
-      <p>
-        This laptop is in the fabric{status.fabric_id !== null && status.fabric_id !== undefined ? ` ${status.fabric_id}` : ""}. It
-        appears in the fabric&apos;s dashboard within a few seconds.
-      </p>
+    <div className="flex flex-col gap-8">
+      <div className="flex items-center gap-5">
+        <span aria-hidden="true" className="ac-done-hex">
+          {"✓"}
+        </span>
+        <p className="ac-lead">
+          This laptop is in the fabric
+          {status.fabric_id !== null && status.fabric_id !== undefined ? (
+            <>
+              {" "}
+              <span className="font-mono text-[0.9375rem] text-fg">{status.fabric_id}</span>
+            </>
+          ) : null}
+          . It appears in the fabric&apos;s dashboard within a few seconds.
+        </p>
+      </div>
       {status.dashboard_url !== null && status.dashboard_url !== undefined && (
-        <p>
-          Dashboard:{" "}
-          <a className="text-accent underline" href={status.dashboard_url} target="_blank" rel="noreferrer">
+        <div className="ac-field">
+          <span className="nd-label">Dashboard</span>
+          <a className="ac-link" href={status.dashboard_url} target="_blank" rel="noreferrer">
             {status.dashboard_url}
           </a>
-        </p>
+        </div>
       )}
-      <p className="text-fg-muted">You can open this page again from the MeshForge entry in the app menu.</p>
+      <p className="ac-note">You can open this page again from the MeshForge entry in the app menu.</p>
       {error !== null && error !== undefined && <Problem title="Could not finish" {...explain(error)} />}
       <div>
-        <Button variant="primary" loading={finishing} onClick={finish}>
+        <Button variant="primary" className="ac-go" loading={finishing} onClick={finish}>
           Finish
         </Button>
       </div>
@@ -263,9 +274,18 @@ export function Wizard({ status }: { status: StatusView }) {
   // The policy step cannot be skipped (Q26), and joining cannot be undone from here.
   const back = step === "join" ? "welcome" : step === "done" ? "checks" : null;
   return (
-    <div className="mx-auto flex w-full max-w-2xl flex-col gap-4 p-4">
-      <Steps current={step} />
-      <Card title={TITLES[step]}>
+    <div className="ac-wizard grid grid-cols-1 gap-10 lg:grid-cols-[16rem_minmax(0,1fr)] lg:gap-14">
+      <aside className="flex flex-col gap-8">
+        <div>
+          <p className="nd-label">Set up</p>
+          <p className="mt-3 font-display text-[2.25rem] leading-none font-bold tracking-[-0.035em] text-fg">
+            Join the <span className="font-serif font-normal italic text-[#ffc93c]">hive.</span>
+          </p>
+        </div>
+        <Steps current={step} />
+      </aside>
+      <div className="flex min-w-0 flex-col gap-5">
+      <Panel title={TITLES[step]} actions={<span className="ac-note">{`Step ${String(ORDER.indexOf(step) + 1)} of ${String(ORDER.length)}`}</span>}>
         {step === "welcome" && (
           <Welcome
             status={status}
@@ -291,8 +311,8 @@ export function Wizard({ status }: { status: StatusView }) {
           />
         )}
         {step === "checks" && (
-          <div className="flex flex-col gap-4">
-            <p className="text-sm text-fg">
+          <div className="flex flex-col gap-8">
+            <p className="ac-lead">
               What this laptop can offer right now. Nothing here stops it from joining: a missing item only means fewer
               kinds of jobs run here.
             </p>
@@ -304,6 +324,7 @@ export function Wizard({ status }: { status: StatusView }) {
             <div>
               <Button
                 variant="primary"
+                className="ac-go"
                 onClick={() => {
                   setStep("done");
                 }}
@@ -323,12 +344,13 @@ export function Wizard({ status }: { status: StatusView }) {
             }}
           />
         )}
-      </Card>
+      </Panel>
       {back !== null && (
         <div>
           <Button
             variant="ghost"
             size="sm"
+            className="ac-quiet"
             onClick={() => {
               setStep(back);
             }}
@@ -337,6 +359,7 @@ export function Wizard({ status }: { status: StatusView }) {
           </Button>
         </div>
       )}
+      </div>
     </div>
   );
 }

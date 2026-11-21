@@ -134,3 +134,43 @@ export function pointsCi(low: number | null | undefined, high: number | null | u
 export function factorText(value: number): string {
   return `×${value.toFixed(2)}`;
 }
+
+/* ------------------------------------------------------------ restyle (lights, headline) */
+
+/** A flat light's colour class per tone (no badges: a light and the word). */
+const LIGHT: Record<string, string> = {
+  ok: "bg-status-ok",
+  busy: "bg-status-busy",
+  degraded: "bg-status-degraded",
+  failed: "bg-status-failed",
+  accent: "bg-[#ffc93c]",
+  unknown: "bg-fg-subtle",
+  neutral: "bg-fg-subtle",
+};
+
+export function toneLight(tone: string): string {
+  return LIGHT[tone] ?? "bg-fg-subtle";
+}
+
+export function verdictLight(status: VerdictStatus): string {
+  return toneLight(VERDICT_TONE[status]);
+}
+
+/** A calibration version's status light: active ok, rejected failed, pinned honey, the rest quiet. */
+export function calibrationLight(status: string): string {
+  return toneLight(status === "active" ? "ok" : status === "rejected" ? "failed" : status === "pinned" ? "accent" : "neutral");
+}
+
+/**
+ * The calibration's held-out error as "within N % of measured": the error is
+ * the mean |ln(predicted / actual)| (planner/calibration.holdout_error), so
+ * e^error - 1 is the typical factor between estimate and measurement.
+ */
+export function withinPct(error: number | null | undefined): number | null {
+  return error == null || !Number.isFinite(error) || error < 0 ? null : (Math.exp(error) - 1) * 100;
+}
+
+/** "0.139" or "—" (a held-out error). */
+export function errorText(value: number | null | undefined): string {
+  return value == null || !Number.isFinite(value) ? "—" : value.toFixed(3);
+}

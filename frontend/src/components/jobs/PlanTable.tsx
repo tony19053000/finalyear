@@ -1,4 +1,6 @@
-import { Badge } from "../Status";
+import type { ReactNode } from "react";
+
+import type { StatusTone } from "../../lib/status";
 import { EmptyState } from "../States";
 import type { CandidateOut, DecisionOut } from "../../pages/jobs/jobsApi";
 import { cn } from "../../lib/cn";
@@ -33,6 +35,21 @@ const ATTEMPT_ENDED: ReadonlySet<string> = new Set(["done", "failed", "lost", "f
 const TH = "h-8 px-3 text-left text-2xs font-medium tracking-wide whitespace-nowrap text-fg-subtle uppercase";
 const TD = "h-9 px-3 text-xs";
 
+const LABEL_TONE: Record<StatusTone | "neutral" | "accent", string> = {
+  ok: "text-status-ok",
+  busy: "text-status-busy",
+  degraded: "text-status-degraded",
+  failed: "text-status-failed",
+  unknown: "text-fg-muted",
+  neutral: "text-fg-muted",
+  accent: "text-accent",
+};
+
+/** A small mono uppercase label in its tone's colour (text, never a pill). */
+function Label({ tone = "neutral", className, children }: { tone?: StatusTone | "neutral" | "accent"; className?: string; children: ReactNode }) {
+  return <span className={cn("jb-tag text-[0.625rem] whitespace-nowrap", LABEL_TONE[tone], className)}>{children}</span>;
+}
+
 function TermCell({ term }: { term: TermOut | undefined }) {
   if (term === undefined) return <span className="text-fg-subtle">—</span>;
   const calibrated = calibrationText(term);
@@ -42,11 +59,11 @@ function TermCell({ term }: { term: TermOut | undefined }) {
       <span className="inline-flex items-center gap-1 whitespace-nowrap">
         <span className="font-mono tabular-nums">{seconds(term.seconds)}</span>
         {/* Never show an assumption as a measurement (checklist 18). */}
-        <Badge tone={SOURCE_TONE[term.source] ?? "neutral"}>{term.source}</Badge>
+        <Label tone={SOURCE_TONE[term.source] ?? "neutral"}>{term.source}</Label>
         {calibrated != null && (
-          <Badge tone="accent" className="font-mono">
+          <Label tone="accent" className="font-mono">
             {calibrated}
-          </Badge>
+          </Label>
         )}
       </span>
       {term.note != null && <span className="max-w-56 text-2xs text-fg-muted">{term.note}</span>}
@@ -112,9 +129,9 @@ function CandidateRows({ decision }: { decision: DecisionOut }) {
                 <td className={cn(TD, "font-mono whitespace-nowrap")}>
                   {c.node_id}
                   {chosen && (
-                    <Badge tone="accent" className="ml-2">
+                    <Label tone="accent" className="ml-2">
                       chosen
-                    </Badge>
+                    </Label>
                   )}
                 </td>
                 <td className={TD}>{c.mode}</td>
@@ -217,7 +234,7 @@ function DecisionHeader({ decision }: { decision: DecisionOut }) {
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
         <span className="font-semibold">Attempt {d.attempt_no}</span>
         <span className="font-mono text-xs text-fg-muted">decision #{d.id}</span>
-        <Badge tone={d.outcome === "dispatched" ? "ok" : d.outcome === "failed" ? "failed" : "unknown"}>{d.outcome}</Badge>
+        <Label tone={d.outcome === "dispatched" ? "ok" : d.outcome === "failed" ? "failed" : "unknown"}>{d.outcome}</Label>
         <span className="text-fg-muted">
           policy <span className="font-mono text-fg">{d.policy}</span>
         </span>
@@ -230,19 +247,19 @@ function DecisionHeader({ decision }: { decision: DecisionOut }) {
           )}
         </span>
         {d.calibration_version != null ? (
-          <Badge tone="accent">calibration v{d.calibration_version}</Badge>
+          <Label tone="accent">calibration v{d.calibration_version}</Label>
         ) : (
-          <Badge>uncalibrated</Badge>
+          <Label>uncalibrated</Label>
         )}
         {ml != null && (
-          <Badge tone={d.ml_fallback != null ? "degraded" : "accent"} className="font-mono">
+          <Label tone={d.ml_fallback != null ? "degraded" : "accent"} className="font-mono">
             {ml}
-          </Badge>
+          </Label>
         )}
         {d.replay_version != null ? (
-          <Badge tone="ok">replay v{d.replay_version}</Badge>
+          <Label tone="ok">replay v{d.replay_version}</Label>
         ) : (
-          <Badge tone="degraded">no replay</Badge>
+          <Label tone="degraded">no replay</Label>
         )}
         <span className="text-fg-muted">
           chosen <span className="font-mono text-fg">{d.chosen_node_id ?? "none"}</span>

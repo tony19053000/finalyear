@@ -1,6 +1,5 @@
 import type { NodeSummary } from "../../api/endpoints";
-import { StatusDot } from "../../components/Status";
-import { stateTone } from "./nodeView";
+import { isSilent, STATE_LIGHT } from "./nodeLight";
 
 /**
  * The node's state, plus "no live stream" when the state alone would hide
@@ -8,11 +7,14 @@ import { stateTone } from "./nodeView";
  * separate facts, never folded into one "online" flag).
  */
 export function NodeStatus({ node }: { node: Pick<NodeSummary, "state" | "connected"> }) {
-  const silent = !node.connected && node.state !== "offline" && node.state !== "revoked";
+  const silent = isSilent(node);
   return (
     <span className="inline-flex flex-col" data-state={node.state} data-connected={node.connected}>
-      <StatusDot tone={stateTone(node)} label={node.state} />
-      {silent && <span className="pl-3.5 text-2xs text-fg-muted">no live stream</span>}
+      <span className="inline-flex items-center gap-2 capitalize">
+        <span aria-hidden="true" className={`nd-light nd-light-sm ${STATE_LIGHT[node.state] ?? "bg-status-unknown"}`} />
+        {node.state}
+      </span>
+      {silent && <span className="mt-1 pl-3.5 text-2xs text-fg-muted">no live stream</span>}
     </span>
   );
 }

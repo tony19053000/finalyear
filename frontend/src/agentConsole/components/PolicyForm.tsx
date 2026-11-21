@@ -33,9 +33,9 @@ export function PolicyForm({ view, wizard = false, saving, submitLabel, onSubmit
     onSubmit(result.values);
   };
   return (
-    <form onSubmit={submit} noValidate className="flex flex-col divide-y divide-border" aria-label="Owner settings">
-      <fieldset className="pb-3">
-        <legend className="mb-1 text-sm font-semibold text-fg">Jobs</legend>
+    <form onSubmit={submit} noValidate className="ac-policy flex flex-col" aria-label="Owner settings">
+      <fieldset className="ac-set">
+        <legend className="ac-legend">Jobs</legend>
         <Toggle
           name="accept_jobs"
           label="Run jobs from the fabric on this laptop"
@@ -76,8 +76,8 @@ export function PolicyForm({ view, wizard = false, saving, submitLabel, onSubmit
           error={errors.cpuJobs}
         />
       </fieldset>
-      <fieldset className="py-3">
-        <legend className="mb-1 text-sm font-semibold text-fg">GPU</legend>
+      <fieldset className="ac-set">
+        <legend className="ac-legend">GPU</legend>
         <Toggle
           name="gpu_jobs"
           label="Let jobs use this laptop's GPU"
@@ -104,8 +104,8 @@ export function PolicyForm({ view, wizard = false, saving, submitLabel, onSubmit
           error={errors.vramGib}
         />
       </fieldset>
-      <fieldset className="py-3">
-        <legend className="mb-1 text-sm font-semibold text-fg">Safety</legend>
+      <fieldset className="ac-set">
+        <legend className="ac-legend">Safety</legend>
         <Toggle
           name="allow_unsandboxed"
           label="Allow jobs without a container"
@@ -132,8 +132,8 @@ export function PolicyForm({ view, wizard = false, saving, submitLabel, onSubmit
           onChange={set("pauseBenchmarks")}
         />
       </fieldset>
-      <div className="pt-3">
-        <Button type="submit" variant="primary" loading={saving}>
+      <div className="pt-8">
+        <Button type="submit" variant="primary" className="ac-go" loading={saving}>
           {submitLabel}
         </Button>
       </div>

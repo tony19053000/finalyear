@@ -3,6 +3,7 @@
  * (server errors, hostile strings, empty/degenerate answers).
  */
 import { render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import contract from "./fixtures/explainContract.json";
@@ -100,6 +101,8 @@ describe("Planner page, failures", () => {
     );
     renderApp("/planner");
     expect((await screen.findAllByRole("alert")).length).toBeGreaterThan(0);
+    // the reports are the next tab: unaffected
+    await userEvent.click(screen.getByRole("tab", { name: "Evaluation" }));
     expect(await screen.findByTestId("eval-report-detail")).toBeTruthy();
   });
 
@@ -107,7 +110,7 @@ describe("Planner page, failures", () => {
     fakeController(
       routes({ "GET /v1/planner/eval-reports": () => json(500, { error: { code: "internal", message: "boom" } }) }),
     );
-    renderApp("/planner");
+    renderApp("/planner?tab=evaluation");
     expect(await screen.findByText("Could not load evaluation reports")).toBeTruthy();
     expect(screen.queryByText("Evaluation reports are not available")).toBeNull();
   });
@@ -121,7 +124,7 @@ describe("Planner page, failures", () => {
           json(404, { error: { code: "not_found", message: "gone", reason: UNKNOWN_EVAL_REPORT_REASON } }),
       }),
     );
-    renderApp("/planner");
+    renderApp("/planner?tab=evaluation");
     expect(await screen.findByText("Report #4 not found")).toBeTruthy();
     expect(screen.getByRole("navigation", { name: "Main" })).toBeTruthy();
   });

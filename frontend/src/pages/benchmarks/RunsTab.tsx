@@ -1,68 +1,27 @@
 import { useInfiniteQuery } from "@tanstack/react-query";
-import { useId, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
-import { Button } from "../../components/Button";
 import { ErrorState } from "../../components/States";
-import { Badge } from "../../components/Status";
-import { Table, type Column } from "../../components/Table";
+import { ListboxField, type ListboxOption } from "../../components/jobs/ListboxField";
 import { shortId } from "../../lib/format";
-import { RUN_STATES, listRuns, type RunList, type RunOut, type RunState } from "./benchApi";
+import { RUN_STATES, listRuns, type RunList, type RunState } from "./benchApi";
 import { benchKeys } from "./benchKeys";
-import { runTone } from "./campaignView";
+import { Light, Note } from "./benchUi";
+import { TH, dash, useNodeNames, useScrolled } from "./benchShared";
+import { runLight, strategyText } from "./campaignView";
 
-const COLUMNS: Column<RunOut>[] = [
-  { id: "seq", header: "#", align: "right", mono: true, cell: (r) => r.seq },
-  {
-    id: "group",
-    header: "Group",
-    mono: true,
-    cell: (r) => (
-      <span title={r.group_id}>
-        {shortId(r.group_id)} <span className="font-sans text-fg-muted">{r.family}</span>
-      </span>
-    ),
-  },
-  { id: "config", header: "Config", mono: true, cell: (r) => <span title={r.config_id}>{shortId(r.config_id)}</span> },
-  { id: "node", header: "Node", mono: true, cell: (r) => <span title={r.node_id}>{shortId(r.node_id)}</span> },
-  { id: "strategy", header: "Strategy", cell: (r) => r.strategy },
-  { id: "rep", header: "Rep", align: "right", mono: true, cell: (r) => r.repetition },
-  {
-    id: "state",
-    header: "State",
-    cell: (r) => (
-      <span className="inline-flex flex-col">
-        <Badge tone={runTone(r.state)}>{r.state}</Badge>
-        {r.detail != null && <span className="text-2xs text-fg-muted">{r.detail}</span>}
-      </span>
-    ),
-  },
-  { id: "tries", header: "Tries", align: "right", mono: true, cell: (r) => r.tries },
-  {
-    id: "failure",
-    header: "Last failure",
-    className: "max-w-64 break-words",
-    cell: (r) => (r.last_failure != null ? <span className="text-xs text-status-failed">{r.last_failure}</span> : "—"),
-  },
-  {
-    id: "job",
-    header: "Job",
-    mono: true,
-    cell: (r) =>
-      r.job_id != null ? (
-        <Link className="text-accent underline-offset-2 hover:underline" to={`/jobs/${encodeURIComponent(r.job_id)}`}>
-          {shortId(r.job_id)}
-        </Link>
-      ) : (
-        "—"
-      ),
-  },
-];
+const HEADERS = ["#", "Group", "Config", "Node", "Strategy", "Rep", "State", "Tries", "Last failure", "Job"] as const;
 
-/** Runs in execution order, keyset-paged by seq (`after`), with a state filter. */
+const STATE_OPTIONS: ListboxOption[] = [{ value: "", label: "all" }, ...RUN_STATES.map((s) => ({ value: s, label: s }))];
+
+/** Runs in execution order, keyset-paged by seq (`after`), with a state filter, in the frosted table. */
 export function RunsTab({ campaignId, runCount }: { campaignId: string; runCount: number }) {
   const [state, setState] = useState<RunState | null>(null);
   const filterId = useId();
+  const nameOf = useNodeNames();
+  const scroller = useRef<HTMLDivElement>(null);
+  const scrolled = useScrolled(scroller);
   const runs = useInfiniteQuery({
     queryKey: benchKeys.runs(campaignId, state),
     queryFn: ({ pageParam, signal }) => listRuns(campaignId, pageParam, state, signal),
@@ -71,56 +30,113 @@ export function RunsTab({ campaignId, runCount }: { campaignId: string; runCount
   });
   const rows = runs.data?.pages.flatMap((p) => p.runs) ?? [];
   return (
-    <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <label htmlFor={filterId} className="text-sm text-fg-muted">
-          State
-        </label>
-        <select
-          id={filterId}
-          className="h-8 rounded-md border border-border-strong bg-surface px-2 text-sm text-fg"
-          value={state ?? ""}
-          onChange={(e) => {
-            const v = e.target.value;
-            setState((RUN_STATES as readonly string[]).includes(v) ? (v as RunState) : null);
-          }}
-        >
-          <option value="">all</option>
-          {RUN_STATES.map((s) => (
-            <option key={s} value={s}>
-              {s}
-            </option>
-          ))}
-        </select>
-        <span className="text-sm text-fg-muted" data-testid="runs-shown">
+    <div className="flex flex-col gap-6">
+      <div className="flex flex-wrap items-end justify-between gap-6 px-2">
+        <div className="flex w-56 flex-col gap-1.5">
+          <label htmlFor={filterId} className="nd-label">
+            State
+          </label>
+          <ListboxField
+            id={filterId}
+            value={state ?? ""}
+            options={STATE_OPTIONS}
+            onChange={(v) => {
+              setState((RUN_STATES as readonly string[]).includes(v) ? (v as RunState) : null);
+            }}
+          />
+        </div>
+        <Note testId="runs-shown" className="pb-2">
           {`${String(rows.length)} shown${state === null ? ` of ${String(runCount)}` : ""}`}
-        </span>
+        </Note>
       </div>
       {runs.isError ? (
         <ErrorState title="Could not load runs" error={runs.error} onRetry={() => void runs.refetch()} />
       ) : runs.isPending ? (
-        <p role="status" className="text-sm text-fg-muted">
+        <p role="status" className="px-2 text-sm text-fg-muted">
           Loading runs…
         </p>
       ) : (
-        <Table
-          caption="Campaign runs in execution order"
-          columns={COLUMNS}
-          rows={rows}
-          rowKey={(r) => r.run_id}
-          empty={state === null ? "This campaign has no runs." : `No ${state} runs.`}
-        />
+        <section aria-label="Runs" className="nd-plain ov-table-fit nd-table bm-runs overflow-hidden pb-3">
+          <div ref={scroller} className="jb-scroll bm-tab-scroll overflow-auto" data-scrolled={scrolled ? "true" : "false"}>
+            <table className="w-full border-collapse">
+              <caption className="sr-only">Campaign runs in execution order</caption>
+              <thead>
+                <tr>
+                  {HEADERS.map((h) => (
+                    <th key={h} scope="col" className={TH}>
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r) => (
+                  <tr key={r.run_id}>
+                    <td className="font-mono text-[0.8125rem] text-fg-subtle tabular-nums">{r.seq}</td>
+                    <td className="font-mono text-[0.8125rem]">
+                      <span title={r.group_id}>
+                        {shortId(r.group_id)} <span className="font-sans text-fg-muted">{r.family}</span>
+                      </span>
+                    </td>
+                    <td className="font-mono text-[0.8125rem] text-fg-muted">
+                      <span title={r.config_id}>{shortId(r.config_id)}</span>
+                    </td>
+                    <td>
+                      <span className="block truncate" title={r.node_set != null && r.node_set.length > 0 ? r.node_set.map(nameOf).join(", ") : r.node_id}>
+                        {nameOf(r.node_id)}
+                      </span>
+                    </td>
+                    <td>
+                      <span className="jb-tag text-fg-muted">{strategyText(r.strategy)}</span>
+                    </td>
+                    <td className="font-mono text-[0.8125rem] tabular-nums">{r.repetition}</td>
+                    <td>
+                      <span className="inline-flex flex-col">
+                        <span className="inline-flex items-center gap-2.5">
+                          <Light className={runLight(r.state)} small />
+                          <span>{r.state}</span>
+                        </span>
+                        {r.detail != null && <span className="mt-1 text-2xs text-fg-muted">{r.detail}</span>}
+                      </span>
+                    </td>
+                    <td className="font-mono text-[0.8125rem] tabular-nums">{r.tries}</td>
+                    <td className="break-words">{r.last_failure != null ? <span className="text-xs text-status-failed" title={r.last_failure}>{r.last_failure}</span> : dash}</td>
+                    <td className="font-mono text-[0.8125rem]">
+                      {r.job_id != null ? (
+                        <Link className="text-fg-muted underline-offset-2 transition-colors duration-300 hover:text-accent hover:underline" to={`/jobs/${encodeURIComponent(r.job_id)}`}>
+                          {shortId(r.job_id)}
+                        </Link>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
+                  </tr>
+                ))}
+                {rows.length === 0 && (
+                  <tr>
+                    <td colSpan={HEADERS.length} className="text-center text-fg-muted">
+                      {state === null ? "This campaign has no runs." : `No ${state} runs.`}
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </section>
       )}
       {runs.hasNextPage && (
-        <div>
-          <Button
-            loading={runs.isFetchingNextPage}
+        <div className="flex justify-end px-2">
+          <button
+            type="button"
+            className="jb-quiet-btn"
+            disabled={runs.isFetchingNextPage}
+            aria-busy={runs.isFetchingNextPage || undefined}
             onClick={() => {
               void runs.fetchNextPage();
             }}
           >
             Load more runs
-          </Button>
+          </button>
         </div>
       )}
     </div>

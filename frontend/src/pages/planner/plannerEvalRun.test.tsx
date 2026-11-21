@@ -33,6 +33,12 @@ import { PREDICTIONS_LIMITS } from "./mlApi";
 import { calibrationGapText, plottedText, scatterOf } from "./mlView";
 import { failedText, parseCampaignIds } from "./plannerApi";
 
+/** The run form is the title row's round button's popover (Evaluation tab). */
+async function openRunForm(): Promise<HTMLElement> {
+  await userEvent.click(await screen.findByRole("button", { name: "New evaluation" }));
+  return screen.findByRole("form", { name: "Run an evaluation" });
+}
+
 beforeEach(() => {
   document.cookie = "mf_csrf=test-csrf";
 });
@@ -127,8 +133,8 @@ describe("start-then-poll (D378)", () => {
         "GET /v1/planner/eval-reports/6": () => json(200, RUNNING_RECORD),
       }),
     );
-    renderApp("/planner");
-    const form = await screen.findByRole("form", { name: "Run an evaluation" });
+    renderApp("/planner?tab=evaluation");
+    const form = await openRunForm();
     const button = within(form).getByRole("button", { name: "Run evaluation" });
     expect((button as HTMLButtonElement).disabled).toBe(true); // no campaign yet
     await userEvent.type(within(form).getByLabelText(/Campaigns/), "camp_a, camp_b camp_a");
@@ -148,8 +154,8 @@ describe("start-then-poll (D378)", () => {
         "GET /v1/planner/eval-reports/6": () => json(200, RUNNING_RECORD),
       }),
     );
-    renderApp("/planner");
-    const form = await screen.findByRole("form", { name: "Run an evaluation" });
+    renderApp("/planner?tab=evaluation");
+    const form = await openRunForm();
     const busy = await within(form).findByRole("button", { name: /Report #6 running/ });
     expect((busy as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByTestId("eval-running-note").textContent).toContain("One evaluation runs at a time");
@@ -164,8 +170,8 @@ describe("start-then-poll (D378)", () => {
           }),
       }),
     );
-    renderApp("/planner");
-    const form = await screen.findByRole("form", { name: "Run an evaluation" });
+    renderApp("/planner?tab=evaluation");
+    const form = await openRunForm();
     await userEvent.type(within(form).getByLabelText(/Campaigns/), "camp_a");
     await userEvent.click(within(form).getByRole("button", { name: "Run evaluation" }));
     const alert = await within(form.parentElement as HTMLElement).findByRole("alert");
@@ -174,9 +180,10 @@ describe("start-then-poll (D378)", () => {
 
   it("users never see the form", async () => {
     fakeController(routes(false));
-    renderApp("/planner");
+    renderApp("/planner?tab=evaluation");
     await screen.findByRole("table", { name: "Evaluation reports, newest first" });
     expect(screen.queryByRole("form", { name: "Run an evaluation" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "New evaluation" })).toBeNull();
   });
 
   it("pure helpers", () => {

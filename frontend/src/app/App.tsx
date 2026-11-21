@@ -37,6 +37,8 @@ const PAGE_LOADERS = {
   campaign: () => import("../pages/benchmarks/CampaignDetailPage"),
   // V0.14 G5: Planner (calibration + evaluation reports; recharts like Benchmarks).
   planner: () => import("../pages/planner/PlannerPage"),
+  // Product guide (the top bar's bell): what hive is and how to read the dashboard.
+  guide: () => import("../pages/guide/GuidePage"),
 };
 
 // V0.17 G2: the one-time "create fabric" page (outside the session shell).
@@ -51,6 +53,7 @@ const SubmitJobPage = lazy(() => PAGE_LOADERS.submit().then((m) => ({ default: m
 const BenchmarksPage = lazy(() => PAGE_LOADERS.benchmarks().then((m) => ({ default: m.BenchmarksPage })));
 const CampaignDetailPage = lazy(() => PAGE_LOADERS.campaign().then((m) => ({ default: m.CampaignDetailPage })));
 const PlannerPage = lazy(() => PAGE_LOADERS.planner().then((m) => ({ default: m.PlannerPage })));
+const GuidePage = lazy(() => PAGE_LOADERS.guide().then((m) => ({ default: m.GuidePage })));
 const SettingsRoutes = lazy(() => PAGE_LOADERS.settings().then((m) => ({ default: m.SettingsRoutes })));
 
 /**
@@ -156,6 +159,8 @@ export function AppRoutes({ socketFactory }: AppShellProps) {
         {/* ---- end V0.9 G6 ---- */}
         {/* ---- V0.14 G5: Planner (calibration, evaluation reports) ---- */}
         <Route path="planner" element={<Page><PlannerPage /></Page>} />
+        {/* ---- Product guide (opened by the top bar's bell) ---- */}
+        <Route path="guide" element={<Page><GuidePage /></Page>} />
         {/* ---- V0.8 G5: Settings (nested routes in pages/settings) ---- */}
         <Route path="settings/*" element={<Page><SettingsRoutes /></Page>} />
         {/* ---- end V0.8 G5 ---- */}

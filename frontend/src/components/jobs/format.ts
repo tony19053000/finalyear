@@ -60,6 +60,17 @@ export function localInputToIso(value: string): string {
   return Number.isNaN(date.getTime()) ? "" : date.toISOString();
 }
 
+const MONTHS_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"] as const;
+
+/** "18 Nov · 10:00" in the browser's zone (a filter's chosen time); "" for "" or bad input. */
+export function formatDayTime(iso: string): string {
+  if (iso === "") return "";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${String(date.getDate())} ${MONTHS_SHORT[date.getMonth()] ?? ""} · ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
 /** ISO 8601 -> an `<input type="datetime-local">` value in the local zone. */
 export function isoToLocalInput(iso: string): string {
   if (iso === "") return "";

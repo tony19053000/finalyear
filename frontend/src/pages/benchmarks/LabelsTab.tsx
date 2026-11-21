@@ -1,71 +1,25 @@
+import { useRef } from "react";
+
 import { ApiError } from "../../api/errors";
 import { EmptyState, ErrorState } from "../../components/States";
-import { Badge } from "../../components/Status";
-import { Table, type Column } from "../../components/Table";
 import { shortId } from "../../lib/format";
 import type { GroupLabel, LabelsOut } from "./benchApi";
 import { useLabels } from "./benchQueries";
-import { formatMargin, labelTone } from "./campaignView";
+import { Figure, Light, Note } from "./benchUi";
+import { TH, useNodeNames, useScrolled } from "./benchShared";
+import { formatMargin, labelLight, optionText, plannerAgreement } from "./campaignView";
 import { formatParams } from "./chartData";
 
-function bestConfig(g: GroupLabel): string {
+function bestConfig(g: GroupLabel, nameOf: (id: string) => string): string {
   if (g.best_config_id == null) return g.label === "tie" ? `tie: ${String(g.tied_config_ids.length)} configs` : "—";
-  const how =
-    g.best_strategy === "local"
-      ? "local on"
-      : g.best_strategy === "mode3"
-        ? "mode3, the set led by"
-        : `${g.best_strategy ?? "?"} →`;
-  return `${how} ${g.best_node_id ?? "?"}`;
+  return optionText(g.best_strategy, g.best_node_id == null ? "?" : nameOf(g.best_node_id));
 }
 
 function agrees(value: boolean | null | undefined): string {
   return value === true ? "yes" : value === false ? "no" : "—";
 }
 
-const COLUMNS: Column<GroupLabel>[] = [
-  {
-    id: "family",
-    header: "Family",
-    cell: (g) => (
-      <span className="flex flex-col">
-        <span>{g.family}</span>
-        <span className="font-mono text-2xs text-fg-muted" title={g.group_id}>
-          {shortId(g.group_id)}
-        </span>
-      </span>
-    ),
-  },
-  { id: "params", header: "Parameters", className: "text-xs", cell: (g) => formatParams(g.params) },
-  { id: "condition", header: "Condition", mono: true, cell: (g) => g.condition },
-  {
-    id: "label",
-    header: "Label",
-    cell: (g) => (
-      <span className="flex flex-col">
-        <Badge tone={labelTone(g.label)}>{g.label}</Badge>
-        {g.reason != null && <span className="text-2xs text-fg-muted">{g.reason}</span>}
-      </span>
-    ),
-  },
-  {
-    id: "best",
-    header: "Best config",
-    cell: (g) => (
-      <span className="font-mono text-xs" title={g.best_config_id ?? undefined}>
-        {bestConfig(g)}
-      </span>
-    ),
-  },
-  { id: "margin", header: "Margin", align: "right", mono: true, cell: (g) => formatMargin(g.margin_pct) },
-  {
-    id: "planner",
-    header: "Planner agrees",
-    cell: (g) => (
-      <span title={g.planner_node_id != null ? `planner prefers ${g.planner_node_id}` : undefined}>{agrees(g.planner_agrees)}</span>
-    ),
-  },
-];
+const HEADERS = ["Family", "Parameters", "Condition", "Label", "Best config", "Margin", "Planner agrees"] as const;
 
 export function LabelsSummary({ labels }: { labels: LabelsOut }) {
   return (
@@ -88,6 +42,76 @@ export function LabelsError({ error, onRetry }: { error: unknown; onRetry: () =>
   return <ErrorState title="Could not load labels" error={error} onRetry={onRetry} />;
 }
 
+function LabelsTable({ groups }: { groups: readonly GroupLabel[] }) {
+  const nameOf = useNodeNames();
+  const scroller = useRef<HTMLDivElement>(null);
+  const scrolled = useScrolled(scroller);
+  return (
+    <section aria-label="Labels" className="ov-card ov-frost nd-glass ov-table-fit nd-table bm-labels overflow-hidden pb-3">
+      <div ref={scroller} className="jb-scroll bm-tab-scroll overflow-auto" data-scrolled={scrolled ? "true" : "false"}>
+        <table className="w-full border-collapse">
+          <caption className="sr-only">Per-group labels</caption>
+          <thead>
+            <tr>
+              {HEADERS.map((h) => (
+                <th key={h} scope="col" className={TH}>
+                  {h}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {groups.map((g) => (
+              <tr key={g.group_id}>
+                <td>
+                  <span className="flex flex-col">
+                    <span className="text-[0.9375rem] font-medium text-fg">{g.family}</span>
+                    <span className="mt-1 font-mono text-[0.6875rem] text-fg-muted" title={g.group_id}>
+                      {shortId(g.group_id)}
+                    </span>
+                  </span>
+                </td>
+                <td className="font-mono text-[0.875rem] text-fg">{formatParams(g.params)}</td>
+                <td className="text-[0.9375rem] text-fg">{g.condition}</td>
+                <td>
+                  <span className="flex flex-col">
+                    <span className="inline-flex items-center gap-2.5">
+                      <Light className={labelLight(g.label)} small />
+                      <span className="text-[0.9375rem] text-fg">{g.label}</span>
+                    </span>
+                    {g.reason != null && <span className="mt-1 text-[0.6875rem] text-fg-muted">{g.reason}</span>}
+                  </span>
+                </td>
+                <td>
+                  <span className="text-[0.9375rem] text-fg" title={g.best_config_id ?? undefined}>
+                    {bestConfig(g, nameOf)}
+                  </span>
+                </td>
+                <td className="font-mono text-[0.875rem] text-fg tabular-nums">{formatMargin(g.margin_pct)}</td>
+                <td>
+                  <span
+                    className={`text-[0.9375rem] ${g.planner_agrees === false ? "text-status-degraded" : "text-fg"}`}
+                    title={g.planner_node_id != null ? `planner prefers ${nameOf(g.planner_node_id)}` : undefined}
+                  >
+                    {agrees(g.planner_agrees)}
+                  </span>
+                </td>
+              </tr>
+            ))}
+            {groups.length === 0 && (
+              <tr>
+                <td colSpan={HEADERS.length} className="text-center text-fg-muted">
+                  No groups yet: labels appear once the campaign has run records.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
 /** Per-group labels (derived on demand from the run records; docs/TELEMETRY.md "Labels"). */
 export function LabelsTab({ campaignId }: { campaignId: string }) {
   const labels = useLabels(campaignId);
@@ -100,22 +124,31 @@ export function LabelsTab({ campaignId }: { campaignId: string }) {
   }
   if (labels.isError) return <LabelsError error={labels.error} onRetry={() => void labels.refetch()} />;
   const data = labels.data;
+  const planner = plannerAgreement(data);
   return (
-    <div className="flex flex-col gap-3">
-      <LabelsSummary labels={data} />
-      <Table
-        caption="Per-group labels"
-        columns={COLUMNS}
-        rows={data.groups}
-        rowKey={(g) => g.group_id}
-        empty="No groups yet: labels appear once the campaign has run records."
-      />
-      <p className="text-xs text-fg-muted">
-        best = the lowest-median configuration&apos;s CI (total time) lies strictly below every other
-        configuration&apos;s CI; tie = the CIs overlap; insufficient = a configuration has fewer than 3 measured
-        repetitions; pending = runs of the group are still open. Margin = how much higher the runner-up&apos;s median
-        is, in % of the best&apos;s. Planner agrees = the planner&apos;s preferred node for the group is the best one.
-      </p>
+    <div className="flex flex-col gap-8">
+      <dl className="nd-stagger grid grid-cols-5 gap-x-12 px-2">
+        <Figure label="Groups" value={String(data.groups.length)} sub={`from ${String(data.rows)} run records`} />
+        <Figure label="Best" value={String(data.counts.best)} sub="a clear winner" />
+        <Figure label="Tie" value={String(data.counts.tie)} sub="overlapping CIs" />
+        <Figure label="Open" value={String(data.counts.insufficient + data.counts.pending)} sub={`${String(data.counts.insufficient)} insufficient · ${String(data.counts.pending)} pending`} />
+        <Figure
+          label="Planner agrees"
+          value={planner.judged === 0 ? "—" : String(Math.round((planner.agrees * 100) / planner.judged))}
+          unit="%"
+          sub={planner.judged === 0 ? "no clear best yet" : `${String(planner.agrees)} of ${String(planner.judged)} groups`}
+        />
+      </dl>
+      <div className="px-2">
+        <LabelsSummary labels={data} />
+      </div>
+      <LabelsTable groups={data.groups} />
+      <Note caps={false} className="max-w-5xl px-2 leading-5">
+        best = the lowest-median configuration&apos;s CI (total time) lies strictly below every other configuration&apos;s
+        CI; tie = the CIs overlap; insufficient = a configuration has fewer than 3 measured repetitions; pending = runs of
+        the group are still open. Margin = how much higher the runner-up&apos;s median is, in % of the best&apos;s. Planner
+        agrees = the planner&apos;s preferred node for the group is the best one.
+      </Note>
     </div>
   );
 }
