@@ -12,7 +12,9 @@ from typer.main import get_command
 pytestmark = pytest.mark.unit
 
 REPO = Path(__file__).resolve().parents[2]
-ISS = (REPO / "packaging" / "windows" / "meshforge-agent.iss").read_text(encoding="utf-8")
+ISS = (REPO / "packaging" / "windows" / "meshforge-agent.iss").read_text(
+    encoding="utf-8"
+)
 
 
 def _walk(cmd, path):  # type: ignore[no-untyped-def]
@@ -36,9 +38,7 @@ def test_no_command_help_text_says_meshforge(which: str) -> None:
     for path, cmd in _walk(get_command(app), which):
         texts = [cmd.help or "", getattr(cmd, "short_help", "") or ""]
         texts += [getattr(p, "help", "") or "" for p in cmd.params]
-        for t in texts:
-            if "MeshForge" in t:
-                offenders.append((path, t[:80]))
+        offenders.extend((path, t[:80]) for t in texts if "MeshForge" in t)
     assert not offenders, offenders
 
 
@@ -53,7 +53,9 @@ def test_install_delete_only_removes_the_two_old_shortcuts() -> None:
     section = re.search(r"^\[InstallDelete\]\n(.*?)(?=^\[)", ISS, re.M | re.S)
     assert section
     entries = [
-        ln for ln in section.group(1).splitlines() if ln.strip() and not ln.startswith(";")
+        ln
+        for ln in section.group(1).splitlines()
+        if ln.strip() and not ln.startswith(";")
     ]
     assert sorted(entries) == sorted(
         [
@@ -72,5 +74,7 @@ def test_old_shortcut_names_match_what_the_previous_release_created() -> None:
 
 def test_desktop_file_exec_and_icon_unchanged() -> None:
     d = (REPO / "packaging/linux/desktop/meshforge.desktop").read_text(encoding="utf-8")
-    assert "Exec=env MESHFORGE_INSTALL_MODE=system /usr/bin/meshforge-console-open\n" in d
+    assert (
+        "Exec=env MESHFORGE_INSTALL_MODE=system /usr/bin/meshforge-console-open\n" in d
+    )
     assert "Icon=meshforge\n" in d
