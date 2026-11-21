@@ -21,7 +21,7 @@ import { MODE_TEXT, isTerminal, planView, progressOf, startedAt, type PlanView }
 import { getSplit, isSplitJob, type SplitProgress } from "./splitApi";
 
 const SPLIT_POLL_MS = 10_000;
-const BAR_H = 18;
+const BAR_H = 8;
 
 /** Frame B's thick bar: a deep→honey fill with a rounded end over the dark track (SVG width attribute: no inline style). */
 function HoneyBar({ percent }: { percent: number | null }) {
@@ -35,7 +35,7 @@ function HoneyBar({ percent }: { percent: number | null }) {
       aria-valuemax={100}
       aria-valuenow={percent === null ? undefined : Math.round(p)}
     >
-      <svg aria-hidden="true" className="ov-hatch block h-[18px] w-full rounded-full">
+      <svg aria-hidden="true" className="ov-hatch block h-[8px] w-full rounded-full">
         <defs>
           <linearGradient id={`jbfill${id}`} x1="0" x2="1" y1="0" y2="0">
             <stop offset="0" className="ov-stop-deep" />
@@ -117,22 +117,22 @@ function LaneRows({ progress, nameOf }: { progress: SplitProgress; nameOf: (id: 
   const total = progress.items_total;
   return (
     <div>
-      <div className="grid grid-cols-[minmax(0,1fr)_8rem_8rem_8rem] items-baseline gap-x-8 pb-3">
-        <span className="nd-label">Node</span>
-        <span className="nd-label text-right">Working on</span>
-        <span className="nd-label text-right">Done</span>
-        <span className="nd-label text-right">Share</span>
+      <div className="jb-lane-h jb-lane-grid pb-5">
+        <span>Node</span>
+        <span className="text-center">Working on</span>
+        <span className="text-center">Done</span>
+        <span className="text-right">Share</span>
       </div>
       <ul aria-label="Nodes of the split" className="nd-hair-t divide-y divide-[#ffffff0f]">
         {progress.lanes.map((l) => (
-          <li key={l.attempt_id} className="grid grid-cols-[minmax(0,1fr)_8rem_8rem_8rem] items-baseline gap-x-8 py-3.5" data-lane-row={l.node_id}>
+          <li key={l.attempt_id} className="jb-lane-grid py-4" data-lane-row={l.node_id}>
             <span className="truncate text-[0.9375rem] font-medium text-fg" title={l.node_id}>
               {nameOf(l.node_id)}
             </span>
-            <span className="text-right font-mono text-[0.6875rem] tracking-[0.12em] text-fg-muted uppercase">
+            <span className="text-center font-mono text-[0.75rem] tracking-[0.12em] text-fg-muted uppercase">
               {l.current.length > 0 ? l.current.map((c) => `chunk #${String(c.chunk_index)}`).join(" · ") : l.state}
             </span>
-            <span className="text-right font-mono text-sm text-fg tabular-nums">
+            <span className="text-center font-mono text-sm text-fg tabular-nums">
               {l.chunks_done}
               <span className="text-fg-muted"> chunks</span>
             </span>

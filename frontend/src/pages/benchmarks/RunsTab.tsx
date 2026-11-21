@@ -56,7 +56,7 @@ export function RunsTab({ campaignId, runCount }: { campaignId: string; runCount
           Loading runs…
         </p>
       ) : (
-        <section aria-label="Runs" className="ov-card ov-frost ov-table-fit nd-table bm-runs overflow-hidden pb-3">
+        <section aria-label="Runs" className="nd-plain ov-table-fit nd-table bm-runs overflow-hidden pb-3">
           <div ref={scroller} className="jb-scroll bm-tab-scroll overflow-auto" data-scrolled={scrolled ? "true" : "false"}>
             <table className="w-full border-collapse">
               <caption className="sr-only">Campaign runs in execution order</caption>
@@ -100,7 +100,7 @@ export function RunsTab({ campaignId, runCount }: { campaignId: string; runCount
                       </span>
                     </td>
                     <td className="font-mono text-[0.8125rem] tabular-nums">{r.tries}</td>
-                    <td className="break-words">{r.last_failure != null ? <span className="text-xs text-status-failed">{r.last_failure}</span> : dash}</td>
+                    <td className="break-words">{r.last_failure != null ? <span className="text-xs text-status-failed" title={r.last_failure}>{r.last_failure}</span> : dash}</td>
                     <td className="font-mono text-[0.8125rem]">
                       {r.job_id != null ? (
                         <Link className="text-fg-muted underline-offset-2 transition-colors duration-300 hover:text-accent hover:underline" to={`/jobs/${encodeURIComponent(r.job_id)}`}>

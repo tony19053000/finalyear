@@ -57,6 +57,19 @@ const STATE_SWATCH: Record<string, string> = {
   offline: "bg-[#2a241b] ring-1 ring-[#5c4e38]",
 };
 
+/**
+ * A pointer position in the canvas's own css px. The page is zoomed
+ * (--mf-zoom), so the client rect is scaled while the scene draws in
+ * unscaled px: divide the scale out, or the hit test misses the cells.
+ */
+function local(e: { clientX: number; clientY: number; currentTarget: HTMLCanvasElement }): [number, number] {
+  const el = e.currentTarget;
+  const r = el.getBoundingClientRect();
+  const sx = r.width > 0 ? el.clientWidth / r.width : 1;
+  const sy = r.height > 0 ? el.clientHeight / r.height : 1;
+  return [(e.clientX - r.left) * sx, (e.clientY - r.top) * sy];
+}
+
 export function HoneycombCard({ nodes, cores }: HoneycombCardProps) {
   const wrap = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
@@ -119,8 +132,8 @@ export function HoneycombCard({ nodes, cores }: HoneycombCardProps) {
   const pick = (e: { clientX: number; clientY: number; currentTarget: HTMLCanvasElement }) => {
     const s = scene.current;
     if (s === null) return null;
-    const r = e.currentTarget.getBoundingClientRect();
-    return s.hitTest(e.clientX - r.left, e.clientY - r.top);
+    const [x, y] = local(e);
+    return s.hitTest(x, y);
   };
 
   const tipNode = tip === null ? undefined : list.find((n) => n.node_id === tip.id);
@@ -145,8 +158,9 @@ export function HoneycombCard({ nodes, cores }: HoneycombCardProps) {
               setTip(null);
               return;
             }
-            const r = e.currentTarget.getBoundingClientRect();
-            setTip({ id, x: e.clientX - r.left, y: e.clientY - r.top, flip: e.clientX - r.left > r.width - 210, h: r.height });
+            const [x, y] = local(e);
+            const el = e.currentTarget;
+            setTip({ id, x, y, flip: x > el.clientWidth - 210, h: el.clientHeight });
           }}
           onPointerLeave={() => {
             scene.current?.setHovered(null);
@@ -165,7 +179,7 @@ export function HoneycombCard({ nodes, cores }: HoneycombCardProps) {
         {tip !== null && tipNode !== undefined && tipLoad !== null && (
           <svg aria-hidden="true" className="pointer-events-none absolute inset-0 h-full w-full overflow-visible">
             <foreignObject x={tip.flip ? tip.x - 206 : tip.x + 14} y={Math.min(tip.y + 14, tip.h - 130)} width={192} height={128}>
-          <div className="ov-tooltip px-3 py-2.5 text-xs" data-testid="comb-tooltip">
+          <div key={tip.id} className="ov-tooltip ov-comb-tip px-3 py-2.5 text-xs" data-testid="comb-tooltip">
             <p className="truncate text-sm font-medium text-fg">{tipNode.display_name || tipNode.hostname}</p>
             <p className="mb-2 text-xs text-fg-muted" data-testid="comb-tooltip-state">
               {tipNode.state}

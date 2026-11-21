@@ -167,7 +167,7 @@ function Criterion({ v }: { v: VerdictOut }) {
         <span className="truncate">{v.status.replaceAll("_", " ")}</span>
         {would !== null && <span className="shrink-0 text-[0.9375rem] text-fg-muted">{would}</span>}
       </span>
-      <span className="mt-3 line-clamp-2 cursor-help font-mono text-2xs leading-5 text-fg-muted" title={v.detail}>
+      <span className="mt-3 line-clamp-3 cursor-help font-mono text-2xs leading-5 text-fg-muted" title={v.detail}>
         {v.detail}
       </span>
     </li>
@@ -254,9 +254,9 @@ function Summary({ record }: { record: DoneEvalRecord }) {
       title={`Report #${String(record.id)}`}
       hint="How good the planner's choices were: every recorded run replayed under every policy, against the best measured configuration of each group."
       meta={<PlNote>{formatTime(record.created_at)}</PlNote>}
-      className="pl-fill flex flex-col"
+      className="pl-report-card pl-fill flex flex-col"
     >
-      <div className="pl-body flex min-h-0 flex-1 flex-col justify-center gap-12">
+      <div className="pl-body flex min-h-0 flex-1 flex-col gap-10 pt-2 pb-4">
         {r.leaked && <LeakedNote />}
         <ul aria-label="Verdicts" className="grid grid-cols-3 gap-x-10 pt-5">
           {r.verdicts.map((v) => (
@@ -461,7 +461,7 @@ function Details({ record }: { record: DoneEvalRecord }) {
     );
   }
   return (
-    <section aria-label="Report details" className="ov-card ov-frost col-span-2 min-w-0 pb-4">
+    <section aria-label="Report details" className="ov-card ov-frost nd-glass col-span-2 min-w-0 pb-4">
       <header className="pl-head flex items-end justify-between gap-x-8">
         <TextTabs
           label="Report details"
@@ -594,12 +594,12 @@ export function EvaluationTab({ selected, onSelect }: { selected: number | null;
   }
   const shown = selected ?? reports[0]?.id ?? null;
   return (
-    <div className="grid grid-cols-[minmax(0,38fr)_minmax(0,62fr)] gap-6">
+    <div className="grid grid-cols-[minmax(0,45fr)_minmax(0,55fr)] gap-6">
       <PlCard
         title="Reports"
         hint="The newest evaluation reports, newest first. Verdicts: criterion 1 (picks within the threshold of the best), 2 (better than every rule policy), 3 (decision time)."
         meta={<PlNote>{`${String(reports.length)} newest`}</PlNote>}
-        className="pl-fill flex flex-col"
+        className="nd-glass pl-fill pl-reports-card flex flex-col"
       >
         <PlTable
           caption="Evaluation reports, newest first"

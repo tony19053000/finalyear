@@ -47,7 +47,7 @@ function LabelsTable({ groups }: { groups: readonly GroupLabel[] }) {
   const scroller = useRef<HTMLDivElement>(null);
   const scrolled = useScrolled(scroller);
   return (
-    <section aria-label="Labels" className="ov-card ov-frost ov-table-fit nd-table bm-labels overflow-hidden pb-3">
+    <section aria-label="Labels" className="ov-card ov-frost nd-glass ov-table-fit nd-table bm-labels overflow-hidden pb-3">
       <div ref={scroller} className="jb-scroll bm-tab-scroll overflow-auto" data-scrolled={scrolled ? "true" : "false"}>
         <table className="w-full border-collapse">
           <caption className="sr-only">Per-group labels</caption>
@@ -65,32 +65,32 @@ function LabelsTable({ groups }: { groups: readonly GroupLabel[] }) {
               <tr key={g.group_id}>
                 <td>
                   <span className="flex flex-col">
-                    <span className="font-medium text-fg">{g.family}</span>
-                    <span className="font-mono text-2xs text-fg-muted" title={g.group_id}>
+                    <span className="text-[0.9375rem] font-medium text-fg">{g.family}</span>
+                    <span className="mt-1 font-mono text-[0.6875rem] text-fg-muted" title={g.group_id}>
                       {shortId(g.group_id)}
                     </span>
                   </span>
                 </td>
-                <td className="font-mono text-[0.8125rem] text-fg-muted">{formatParams(g.params)}</td>
-                <td className="font-mono text-[0.8125rem]">{g.condition}</td>
+                <td className="font-mono text-[0.875rem] text-fg">{formatParams(g.params)}</td>
+                <td className="text-[0.9375rem] text-fg">{g.condition}</td>
                 <td>
                   <span className="flex flex-col">
                     <span className="inline-flex items-center gap-2.5">
                       <Light className={labelLight(g.label)} small />
-                      <span>{g.label}</span>
+                      <span className="text-[0.9375rem] text-fg">{g.label}</span>
                     </span>
-                    {g.reason != null && <span className="mt-1 text-2xs text-fg-muted">{g.reason}</span>}
+                    {g.reason != null && <span className="mt-1 text-[0.6875rem] text-fg-muted">{g.reason}</span>}
                   </span>
                 </td>
                 <td>
-                  <span className="text-[0.875rem]" title={g.best_config_id ?? undefined}>
+                  <span className="text-[0.9375rem] text-fg" title={g.best_config_id ?? undefined}>
                     {bestConfig(g, nameOf)}
                   </span>
                 </td>
-                <td className="font-mono text-[0.8125rem] tabular-nums">{formatMargin(g.margin_pct)}</td>
+                <td className="font-mono text-[0.875rem] text-fg tabular-nums">{formatMargin(g.margin_pct)}</td>
                 <td>
                   <span
-                    className={g.planner_agrees === false ? "text-status-degraded" : undefined}
+                    className={`text-[0.9375rem] ${g.planner_agrees === false ? "text-status-degraded" : "text-fg"}`}
                     title={g.planner_node_id != null ? `planner prefers ${nameOf(g.planner_node_id)}` : undefined}
                   >
                     {agrees(g.planner_agrees)}

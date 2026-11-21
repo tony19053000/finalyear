@@ -67,7 +67,7 @@ function Configs({ report }: { report: QualityReport }) {
     <FrostCard
       title="Configurations"
       meta={<Note>{`${String(s.configs)} configurations · ${String(s.flagged_configs)} flagged`}</Note>}
-      className="ov-table-fit nd-table bm-quality overflow-hidden pb-3"
+      className="nd-glass ov-table-fit nd-table bm-quality bm-q2 overflow-hidden pb-3"
     >
       <div ref={scroller} className="jb-scroll bm-tab-scroll overflow-auto" data-scrolled={scrolled ? "true" : "false"}>
         <table className="w-full border-collapse">
@@ -146,7 +146,7 @@ function Records({ report }: { report: QualityReport }) {
   const buckets = recordBuckets(s);
   const total = buckets.reduce((a, b) => a + b.count, 0);
   return (
-    <FrostCard title="Run records">
+    <FrostCard title="Run records" className="bm-plain bm-q-records">
       <div className="px-10 pt-5 pb-8">
         <table className="w-full border-collapse" aria-label="Run records by bucket">
           <tbody>
@@ -157,7 +157,7 @@ function Records({ report }: { report: QualityReport }) {
                   {b.by !== undefined && b.count > 0 && <span className="mt-0.5 block font-mono text-xs text-fg-muted">{countList(b.by)}</span>}
                 </th>
                 <td
-                  className={cn("py-3 text-right align-top font-mono text-[0.9375rem] tabular-nums", b.count === 0 ? "text-fg-subtle" : "text-fg")}
+                  className={cn("py-3 text-right align-top font-mono text-[0.9375rem] tabular-nums", b.count === 0 ? "text-fg-muted" : "text-fg")}
                   data-testid={`quality-bucket-${b.id}`}
                 >
                   {b.count}
@@ -190,7 +190,7 @@ function Records({ report }: { report: QualityReport }) {
 function Report({ report }: { report: QualityReport }) {
   const s = report.summary;
   return (
-    <div className="nd-stagger flex flex-col gap-8">
+    <div className="bm-ov nd-stagger flex flex-col gap-12">
       {s.pending && (
         <p role="status" className="px-2 text-sm text-fg-muted">
           The campaign is still running: these numbers and verdicts are provisional.

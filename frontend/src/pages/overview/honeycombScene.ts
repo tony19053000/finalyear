@@ -44,6 +44,8 @@ interface Cell {
   fade: number;
   /** Hover amount 0..1 (eased). */
   hk: number;
+  /** 0..1 linear hover progress; hk is its eased value. */
+  hp: number;
   /** Part of the framed core (the camera fits these; the rest spreads past the edges). */
   core: boolean;
   /** For enrolling: when it started rising (scene time). */
@@ -122,6 +124,8 @@ const HONEY_SIDE: RGB = [132, 86, 20];
 
 export interface SceneOptions {
   reduced: boolean;
+  /** Scale on top of the fitted one (the sign-in page fills the screen: > 1). */
+  zoom?: number;
 }
 
 export class HoneycombScene {
@@ -141,6 +145,7 @@ export class HoneycombScene {
   private yaw = 0.42;
   /** 0..1: how much a hover dims the rest of the comb (eased). */
   private focus = 0;
+  private focusP = 0;
 
   constructor(
     private canvas: HTMLCanvasElement,
@@ -212,6 +217,7 @@ export class HoneycombScene {
         phase: node ? hash(node.id) * Math.PI * 2 : rnd() * Math.PI * 2,
         shade: 0.9 + rnd() * 0.18,
         hk: 0,
+        hp: 0,
         core: i < coreCount || node !== null,
         fade: node ? 1 : clamp(1.1 - (dist / far) * 0.7, 0.4, 1),
         born: old ? old.born : this.t,
@@ -241,7 +247,7 @@ export class HoneycombScene {
       maxZ = Math.max(maxZ, Math.abs(c.z) + R);
     }
     const s = Math.min((this.w * 0.53) / (maxX * 1.02), (this.h * 0.56) / (maxZ * TILT + 0.9 * VERT + 0.3));
-    this.scale = clamp(s, 14, 110);
+    this.scale = clamp(s * (this.opts.zoom ?? 1), 14, 110 * (this.opts.zoom ?? 1));
     this.cx = this.w / 2;
     this.cy = this.h * 0.56 + this.scale * 0.35;
   }
@@ -273,13 +279,15 @@ export class HoneycombScene {
       this.last = now;
       this.t += dt;
       const k = 1 - Math.exp(-dt * 1.6);
-      const kh = 1 - Math.exp(-dt * 4.5);
       for (const c of this.cells) {
         c.dh += (c.h - c.dh) * k;
         const want = c.node !== null && c.node.id === this.hovered ? 1 : 0;
-        c.hk += (want - c.hk) * kh;
+        // a steady 0.55 s glide in and out, eased at both ends (no snap)
+        c.hp = clamp(c.hp + (want > c.hp ? dt : -dt) / 0.55, 0, 1);
+        c.hk = ease(c.hp);
       }
-      this.focus += ((this.hovered === null ? 0 : 1) - this.focus) * kh;
+      this.focusP = clamp(this.focusP + ((this.hovered === null ? 0 : 1) > this.focusP ? dt : -dt) / 0.55, 0, 1);
+      this.focus = ease(this.focusP);
       this.yaw = 0.42 + Math.sin(this.t * 0.05) * 0.07;
       this.draw();
       this.raf = requestAnimationFrame(frame);
@@ -324,7 +332,7 @@ export class HoneycombScene {
     const idle = this.opts.reduced ? 0 : Math.sin(this.t * 0.7 + c.phase * 3.1) * (c.node === null ? 0.1 : 0.05);
     const hk = this.opts.reduced ? (c.node !== null && c.node.id === this.hovered ? 1 : 0) : c.hk;
     // hovered: lifts with a small overshoot-free ease and a gentle bob
-    return Math.max(0.02, c.dh + idle) + hk * (0.32 + (this.opts.reduced ? 0 : 0.06 * Math.sin(this.t * 1.1 + c.phase)));
+    return Math.max(0.02, c.dh + idle) + hk * (0.32 + (this.opts.reduced ? 0 : 0.025 * Math.sin(this.t * 0.8 + c.phase)));
   }
 
   private project(x: number, y: number, z: number): [number, number] {
@@ -481,4 +489,9 @@ function inside(poly: [number, number][], x: number, y: number): boolean {
     if (a[1] > y !== b[1] > y && x < ((b[0] - a[0]) * (y - a[1])) / (b[1] - a[1]) + a[0]) hit = !hit;
   }
   return hit;
+}
+
+/** Smootherstep: zero speed at both ends. */
+function ease(u: number): number {
+  return u * u * u * (u * (u * 6 - 15) + 10);
 }

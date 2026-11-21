@@ -335,7 +335,7 @@ export function JobDetailPage({ logSocketFactory }: JobDetailPageProps) {
   else if (tab === "outputs") panel = <JobArtifacts jobId={data.job_id} attempts={data.attempts} terminal={terminal} names={names} />;
   else if (tab === "manifest")
     panel = (
-      <section aria-label="Manifest" className="ov-card ov-frost px-9 py-8">
+      <section aria-label="Manifest" className="ov-card ov-frost nd-glass px-9 py-8">
         <pre aria-label="Job manifest (canonical)" tabIndex={0} className="jb-log max-h-[32rem] text-fg">
           <code>{JSON.stringify(data.manifest, null, 2)}</code>
         </pre>

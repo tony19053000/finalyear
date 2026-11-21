@@ -115,7 +115,7 @@ function FactorsCard({ view }: { view: CalibrationView }) {
       label="Calibration factors"
       hint="Each factor scales the planner's estimate of a term: actual ≈ factor × predicted, fitted per key (every node, one node, or one node and family) from the matched runs; n is how many."
       meta={meta}
-      className="pl-fill flex flex-col"
+      className="nd-glass pl-fill flex flex-col"
     >
       {shown == null ? (
         <EmptyState title="No calibration yet" className="m-8">
@@ -242,7 +242,7 @@ function VersionsCard({ view, onSelect }: { view: CalibrationView; onSelect: (v:
       title="Versions"
       hint="The latest fitted versions, newest first: the active one, the ones it superseded, and fits the held-out gate rejected (with why). Pick one to see its factors."
       meta={<PlNote>{`${String(view.recent.length)} fitted`}</PlNote>}
-      className="pl-versions-card flex min-h-0 flex-1 flex-col"
+      className="nd-glass pl-versions-card flex min-h-0 flex-1 flex-col"
     >
       <PlTable
         caption="Calibration versions, newest first"

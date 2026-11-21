@@ -14,7 +14,10 @@ export function FrostTable({
   className,
   children,
   testId,
+  variant = "frost",
 }: {
+  /** "plain": no card, like the Jobs list; "glass": the Benchmarks glass card. */
+  variant?: "frost" | "plain" | "glass";
   title?: string;
   meta?: ReactNode;
   className?: string;
@@ -24,7 +27,12 @@ export function FrostTable({
   return (
     <section
       aria-label={title}
-      className={cn("ov-card ov-frost ov-table-fit nd-table min-w-0 overflow-hidden", className)}
+      className={cn(
+        "ov-table-fit nd-table min-w-0 overflow-hidden",
+        variant === "plain" ? "nd-plain" : "ov-card ov-frost",
+        variant === "glass" && "nd-glass",
+        className,
+      )}
       data-testid={testId}
     >
       {title !== undefined && (

@@ -82,7 +82,11 @@ export function AppShell({ socketFactory }: AppShellProps) {
       <Header streamStatus={streamStatus} onSigningOut={markSigningOut} />
       <main id="main" tabIndex={-1} className="min-w-0 flex-1 px-6 py-5 outline-none">
         <StreamStatusContext.Provider value={streamStatus}>
-          <Outlet />
+          {/* a fresh page (Overview, Nodes, Jobs, ...) glides in; tabs and
+              detail pages inside one section don't re-animate */}
+          <div key={location.pathname.split("/")[1] ?? ""} className="mf-page-in">
+            <Outlet />
+          </div>
         </StreamStatusContext.Provider>
       </main>
     </div>

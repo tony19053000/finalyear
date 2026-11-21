@@ -2,10 +2,10 @@ import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { Navigate, useLocation, useNavigate } from "react-router-dom";
 
 import { useLogin, useSession } from "../api/hooks";
-import { LogoMark } from "../app/icons";
+import { Brand } from "../app/MainNav";
 import { Button } from "../components/Button";
-import { PRODUCT_NAME } from "../config";
 import { useDocumentTitle } from "../app/useDocumentTitle";
+import { LoginComb } from "./LoginComb";
 import { loginErrorMessage, type LoginState } from "./loginMessages";
 
 export function LoginPage() {
@@ -53,77 +53,83 @@ export function LoginPage() {
         : null;
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-bg px-4">
-      <main className="w-full max-w-sm">
-        <div className="mb-6 flex items-center gap-2">
-          <LogoMark />
-          <span className="text-lg font-semibold text-fg">{PRODUCT_NAME}</span>
+    <div className="mf-app mf-login relative flex min-h-screen overflow-hidden bg-bg text-fg">
+      <LoginComb />
+      <main className="mf-login-in relative z-10 m-auto flex w-full max-w-[25rem] flex-col items-center px-4 py-16">
+        <div className="mb-8">
+          <Brand />
         </div>
         <form
           onSubmit={onSubmit}
           aria-labelledby="login-title"
-          className="flex flex-col gap-4 rounded-lg border border-border bg-surface p-6"
+          className="ov-card ov-frost nd-glass mf-login-card flex w-full flex-col px-9 pt-9 pb-8"
           noValidate
         >
-          <h1 id="login-title" className="text-xl font-semibold text-fg">
+          <h1 id="login-title" className="text-[1.375rem] leading-none font-semibold text-fg">
             Sign in
           </h1>
           {notice !== null && (
-            <p role="status" className="text-sm text-fg-muted">
+            <p role="status" className="mt-5 flex items-center gap-2.5 text-sm text-fg">
+              <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-[#ffc93c]" />
               {notice}
             </p>
           )}
-          <div className="flex flex-col gap-1.5">
-            <label htmlFor="login-name" className="text-sm font-medium text-fg">
-              User name
-            </label>
-            <input
-              ref={nameRef}
-              id="login-name"
-              name="username"
-              autoComplete="username"
-              autoCapitalize="none"
-              spellCheck={false}
-              required
-              maxLength={64}
-              value={name}
-              onChange={(e) => {
-                setName(e.target.value);
-              }}
-              aria-describedby={login.isError ? errorId : undefined}
-              className="h-9 rounded-md border border-border-strong bg-surface-sunken px-3 text-base text-fg"
-            />
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <label htmlFor="login-password" className="text-sm font-medium text-fg">
-              Password
-            </label>
-            <input
-              id="login-password"
-              name="password"
-              type="password"
-              autoComplete="current-password"
-              required
-              value={password}
-              onChange={(e) => {
-                setPassword(e.target.value);
-              }}
-              aria-describedby={login.isError ? errorId : undefined}
-              className="h-9 rounded-md border border-border-strong bg-surface-sunken px-3 text-base text-fg"
-            />
+          <div className="mt-8 flex flex-col gap-7">
+            <div className="mf-login-field flex flex-col gap-2">
+              <label htmlFor="login-name" className="nd-label">
+                User name
+              </label>
+              <input
+                ref={nameRef}
+                id="login-name"
+                name="username"
+                autoComplete="username"
+                autoCapitalize="none"
+                spellCheck={false}
+                required
+                maxLength={64}
+                value={name}
+                onChange={(e) => {
+                  setName(e.target.value);
+                }}
+                aria-describedby={login.isError ? errorId : undefined}
+                className="mf-login-input"
+              />
+            </div>
+            <div className="mf-login-field flex flex-col gap-2">
+              <label htmlFor="login-password" className="nd-label">
+                Password
+              </label>
+              <input
+                id="login-password"
+                name="password"
+                type="password"
+                autoComplete="current-password"
+                required
+                value={password}
+                onChange={(e) => {
+                  setPassword(e.target.value);
+                }}
+                aria-describedby={login.isError ? errorId : undefined}
+                className="mf-login-input"
+              />
+            </div>
           </div>
           {login.isError && (
-            <p id={errorId} role="alert" className="text-sm text-status-failed">
+            <p id={errorId} role="alert" className="mt-6 text-sm text-status-failed">
               {loginErrorMessage(login.error)}
             </p>
           )}
-          <Button type="submit" variant="primary" loading={login.isPending} disabled={name.trim() === "" || password === ""}>
+          <Button
+            type="submit"
+            variant="primary"
+            loading={login.isPending}
+            disabled={name.trim() === "" || password === ""}
+            className="mf-login-btn mt-9"
+          >
             Sign in
           </Button>
         </form>
-        <p className="mt-4 text-xs text-fg-subtle">
-          Accounts are created on the controller host with <code className="font-mono">meshforge-controller user create</code>.
-        </p>
       </main>
     </div>
   );

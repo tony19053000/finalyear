@@ -88,7 +88,8 @@
        scrollbars take the honey/warm palette instead of the browser's blue/grey. */
     accent-color: var(--mf-accent);
     caret-color: var(--mf-accent);
-    scrollbar-color: var(--mf-border-strong) var(--mf-bg);
+    scrollbar-width: thin;
+    scrollbar-color: rgb(255 255 255 / 0.1) transparent;
   }
 
   body {
@@ -124,7 +125,8 @@
 
   /* Scrollable panels (logs, tables) get warm thumbs too. */
   * {
-    scrollbar-color: var(--mf-border-strong) transparent;
+    scrollbar-width: thin;
+    scrollbar-color: rgb(255 255 255 / 0.1) transparent;
   }
 
   select option {
@@ -916,9 +918,35 @@ progress.mf-progress::-moz-progress-bar {
 .nd-cache.ov-table-fit th:nth-child(3) { width: 28%; }
 .nd-policy.ov-table-fit th:nth-child(1) { width: 58%; }
 .nd-policy.ov-table-fit th:nth-child(2) { width: 42%; }
-.nd-scores.ov-table-fit th:nth-child(1) { width: 44%; }
-.nd-scores.ov-table-fit th:nth-child(2) { width: 32%; }
-.nd-scores.ov-table-fit th:nth-child(3) { width: 24%; }
+/* Measured scores: the same look as Nodes / Jobs / Benchmarks — small mono
+   muted headings, metric left, value centred, status (dot + word) right. */
+.nd-scores.ov-table-fit th:nth-child(1) { width: 40%; }
+.nd-scores.ov-table-fit th:nth-child(2) { width: 30%; }
+.nd-scores.ov-table-fit th:nth-child(3) { width: 30%; }
+.nd-net.ov-table-fit th,
+.nd-scores.ov-table-fit th {
+  padding-top: 1.4rem;
+  padding-bottom: 1.4rem;
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  color: var(--mf-fg-muted);
+}
+.nd-scores.ov-table-fit th:first-child,
+.nd-scores.ov-table-fit td:first-child { padding-left: 2.5rem; text-align: left; }
+.nd-scores.ov-table-fit th:nth-child(2),
+.nd-scores.ov-table-fit td:nth-child(2) { text-align: center; }
+.nd-scores.ov-table-fit th:last-child,
+.nd-scores.ov-table-fit td:last-child { padding-right: 2.5rem; text-align: right; }
+.nd-scores.ov-table-fit td:nth-child(2) > * { justify-content: center; }
+/* Peer links: same; peer left, the rest centred, last probe failure right */
+.nd-net.ov-table-fit th:first-child,
+.nd-net.ov-table-fit td:first-child { padding-left: 2.5rem; text-align: left; }
+.nd-net.ov-table-fit th:not(:first-child):not(:last-child),
+.nd-net.ov-table-fit td:not(:first-child):not(:last-child) { text-align: center; }
+.nd-net.ov-table-fit th:last-child,
+.nd-net.ov-table-fit td:last-child { padding-right: 2.5rem; text-align: right; }
 .nd-table.ov-table-fit td {
   padding-top: 1rem;
   padding-bottom: 1rem;
@@ -976,8 +1004,11 @@ progress.mf-progress::-moz-progress-bar {
    page padding and title row above it take ~12rem; the card's own bottom
    padding and the 24px below it the rest). vh is divided by the page zoom. */
 .jb-list-scroll {
-  max-height: calc(100vh / var(--mf-zoom) - 14.5rem);
+  max-height: calc(100vh / var(--mf-zoom) - 15.75rem);
   container-type: inline-size;
+  /* with the page zoom, Chromium otherwise counts the scrolled-away rows in the
+     page height, so the window scrolls into empty space below the card */
+  contain: paint;
 }
 /* the header stays on top while a long list scrolls inside the card; it is
    clear at the top and takes the card's tone only once rows pass under it */
@@ -1045,12 +1076,28 @@ progress.mf-progress::-moz-progress-bar {
 }
 .jb-explain th {
   font-family: var(--font-mono);
-  font-size: 0.625rem;
+  font-size: 0.75rem;
   font-weight: 500;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--mf-fg-subtle);
+  color: var(--mf-fg-muted);
+  padding-top: 1rem;
+  padding-bottom: 1rem;
 }
+/* Benchmarks-like spacing: one even gap between columns, values on one line */
+.jb-explain table { width: 100%; }
+.jb-explain th,
+.jb-explain td {
+  padding-left: 0.9rem;
+  padding-right: 0.9rem;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+.jb-explain td { padding-top: 0.85rem; padding-bottom: 0.85rem; }
+.jb-explain th:first-child,
+.jb-explain td:first-child { padding-left: 1rem; }
+.jb-explain th:last-child,
+.jb-explain td:last-child { padding-right: 0; }
 .jb-explain thead tr,
 .jb-explain tbody tr {
   border-color: rgb(255 255 255 / 0.07);
@@ -2833,11 +2880,11 @@ html { zoom: var(--mf-zoom); background: var(--mf-bg); }
   mask-image: linear-gradient(to bottom, #000 0%, rgb(0 0 0 / 0.85) 70%, transparent 100%);
 }
 .ov-card.ov-frost.bm-list {
-  background-color: rgb(255 255 255 / 0.025);
+  background-color: rgb(30 28 24 / 0.45);
   background-image: linear-gradient(150deg, rgb(255 255 255 / 0.08), rgb(255 255 255 / 0.015) 45%, rgb(255 255 255 / 0.03));
   background-size: 100% 100%;
-  backdrop-filter: blur(5px) saturate(1.4) brightness(1.6);
-  -webkit-backdrop-filter: blur(5px) saturate(1.4) brightness(1.6);
+  backdrop-filter: blur(10px) saturate(1.4) brightness(1.3);
+  -webkit-backdrop-filter: blur(10px) saturate(1.4) brightness(1.3);
   border: 1px solid rgb(255 255 255 / 0.08);
   box-shadow:
     inset 0 1px 0 rgb(255 255 255 / 0.14),
@@ -2848,9 +2895,12 @@ html { zoom: var(--mf-zoom); background: var(--mf-bg); }
   .ov-card.ov-frost.bm-list { background-color: rgb(26 24 20 / 0.95); }
 }
 .bm-list-scroll[data-scrolled="true"] th {
-  background: rgb(20 18 15 / 0.5);
-  backdrop-filter: blur(5px) saturate(1.3);
-  -webkit-backdrop-filter: blur(5px) saturate(1.3);
+  background: linear-gradient(to bottom,
+    rgb(30 28 24 / 0.96) 0%, rgb(30 28 24 / 0.96) 100%);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  -webkit-mask-image: linear-gradient(to bottom, #000 72%, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 72%, transparent 100%);
 }
 .bm-list tbody tr { border-bottom: 1px solid rgb(255 255 255 / 0.05); }
 .bm-list tbody tr:last-child { border-bottom: 0; }
@@ -2895,3 +2945,1019 @@ html { zoom: var(--mf-zoom); background: var(--mf-bg); }
 /* campaign column reserves room for long names; centre the heading over the name and id */
 .bm-list.ov-table-fit th:first-child { padding-right: 3.9rem; }
 .jb-list.ov-table-fit th:first-child { padding-right: 2.5rem; }
+
+/* Node detail: Caches as a plain table like the Jobs list (no card, a hairline
+   under the headings), Owner policy as the Benchmarks glass card. */
+.nd-plain { background: transparent; border: 0; box-shadow: none; }
+.nd-plain > header { padding-left: 0; padding-right: 0; }
+.nd-plain.ov-table-fit thead th { box-shadow: inset 0 -1px 0 rgb(255 255 255 / 0.08); }
+.nd-plain.ov-table-fit thead tr { border-bottom: 0; }
+.nd-plain.ov-table-fit th:first-child,
+.nd-plain.ov-table-fit td:first-child { padding-left: 0; }
+.nd-plain.ov-table-fit th:last-child,
+.nd-plain.ov-table-fit td:last-child { padding-right: 0; }
+.ov-card.ov-frost.nd-glass {
+  background-color: rgb(30 28 24 / 0.45);
+  background-image: linear-gradient(150deg, rgb(255 255 255 / 0.08), rgb(255 255 255 / 0.015) 45%, rgb(255 255 255 / 0.03));
+  background-size: 100% 100%;
+  backdrop-filter: blur(10px) saturate(1.4) brightness(1.3);
+  -webkit-backdrop-filter: blur(10px) saturate(1.4) brightness(1.3);
+  border: 1px solid rgb(255 255 255 / 0.08);
+}
+.nd-cache.ov-table-fit th,
+.nd-policy.ov-table-fit th {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  color: var(--mf-fg-muted);
+}
+.nd-cache.ov-table-fit th:nth-child(2),
+.nd-cache.ov-table-fit td:nth-child(2) { text-align: center; }
+/* Caches & policy: compact rows on the glass card, and the plain Caches table
+   stretched to the card's height so the two end on the same level (its four
+   rows share the space evenly). */
+.nd-policy.ov-table-fit td { padding-top: 0.7rem; padding-bottom: 0.7rem; }
+.nd-policy.ov-table-fit th { padding-top: 0.9rem; padding-bottom: 0.9rem; }
+.nd-cache.ov-table-fit th { padding-top: 0.9rem; padding-bottom: 0.9rem; }
+.nd-plain.nd-cache { display: flex; flex-direction: column; }
+.nd-plain.nd-cache > div { flex: 1; display: flex; flex-direction: column; padding-bottom: 0; }
+.nd-plain.nd-cache > div > * { flex: 1; }
+.nd-plain.nd-cache table { height: 100%; }
+/* Node detail tables are read-only (no clickable rows): no row hover. */
+.nd-table.ov-table-fit tbody tr:hover {
+  background-color: transparent;
+  box-shadow: none;
+}
+/* Submit a job: Options as plain as the Jobs list (no card) */
+.sj-card.sj-plain { background: transparent; border: 0; box-shadow: none; backdrop-filter: none; }
+/* Submit a job, Options: placeholders and chosen values read clearly, not faint */
+.sj-plain input::placeholder { color: var(--mf-fg-muted); }
+.sj-plain button > span.text-fg-subtle,
+.sj-plain [role="combobox"] span { color: var(--mf-fg); }
+/* Job progress: the split's node table headings as the Benchmarks list */
+.jb-lane-h > span {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--mf-fg-muted);
+}
+/* the four columns sized to their content, the space between them shared
+   out equally (same gap between every two columns) */
+.jb-lane-grid {
+  display: grid;
+  grid-template-columns: 7.5rem 6rem 6rem 3rem;
+  justify-content: space-between;
+  align-items: baseline;
+}
+/* Job Chunks tab, Nodes table: the Benchmarks look — mono muted headings at
+   the list size, every column sized to its content and the spare width shared
+   equally between them (rows as display:contents of one grid). */
+.jb-lanes table {
+  display: grid;
+  grid-template-columns: repeat(9, max-content);
+  justify-content: space-between;
+  padding-inline: 2.25rem;
+}
+.jb-lanes thead,
+.jb-lanes tbody,
+.jb-lanes tr { display: contents; }
+.jb-lanes.ov-table-fit th,
+.jb-lanes.ov-table-fit td { width: auto; padding-left: 0; padding-right: 0; }
+.jb-lanes.ov-table-fit th {
+  padding-top: 1rem;
+  padding-bottom: 1.1rem;
+  font-size: 0.8125rem;
+  letter-spacing: 0.12em;
+  color: var(--mf-fg-muted);
+  text-align: center;
+  border-bottom: 1px solid rgb(255 255 255 / 0.06);
+}
+.jb-lanes.ov-table-fit td {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-bottom: 1px solid rgb(255 255 255 / 0.05);
+}
+.jb-lanes.ov-table-fit th:first-child,
+.jb-lanes.ov-table-fit th:nth-child(9n+1) { text-align: left; }
+.jb-lanes.ov-table-fit td:nth-child(9n+1) { justify-content: flex-start; }
+.jb-lanes.ov-table-fit th:nth-child(9n),
+.jb-lanes.ov-table-fit td:nth-child(9n) { text-align: right; justify-content: flex-end; }
+.jb-lanes.ov-table-fit tbody tr:last-child td { border-bottom: 0; }
+/* Plan tab option headings: the list heading size, clearly readable */
+.jb-opt-h > span {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--mf-fg) 72%, transparent);
+}
+/* Plan tab facts (Decided for, Policy, ...): the same clear heading as the options */
+.jb-fact-label {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--mf-fg) 72%, transparent);
+}
+/* the "show the full explanation" button: readable at rest */
+.jb-quiet-btn {
+  height: 2.25rem;
+  padding: 0 1rem;
+  font-size: 0.875rem;
+  color: color-mix(in srgb, var(--mf-fg) 85%, transparent);
+  border-color: color-mix(in srgb, var(--mf-fg) 22%, transparent);
+}
+/* the explanation fits the card: the node list wraps, the MEASURED / HISTORY
+   tag sits under its time, and the summary line above reads clearly */
+.jb-explain th,
+.jb-explain td { padding-left: 0.7rem; padding-right: 0.7rem; }
+.jb-explain td:nth-child(4) { white-space: normal; min-width: 12rem; max-width: 18rem; }
+.jb-explain td .inline-flex.whitespace-nowrap {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.2rem;
+}
+.jb-explain .text-fg-muted { color: color-mix(in srgb, var(--mf-fg) 72%, transparent); }
+/* Plan tab: the round honey toggle; its chevron turns over when open */
+.jb-explain-toggle svg { transition: transform 0.45s cubic-bezier(0.22, 1, 0.36, 1); }
+.jb-explain-toggle-open svg { transform: rotate(180deg); }
+/* Plan tab: a small round "i" that itself grows into the explanation card
+   (width first, then height), and shrinks back into the button on close. */
+.ov-card.jb-morph {
+  position: relative;
+  display: grid;
+  grid-template-rows: 0fr;
+  width: 2.75rem;
+  min-height: 2.75rem;
+  padding: 0;
+  border-radius: 9999px;
+  overflow: hidden;
+  /* closing: the height folds first, then the width eases back into the button */
+  transition:
+    grid-template-rows 0.6s cubic-bezier(0.65, 0, 0.35, 1),
+    width 0.55s cubic-bezier(0.65, 0, 0.35, 1) 0.45s,
+    border-radius 0.45s ease 0.5s;
+}
+.ov-card.jb-morph.jb-morph-open {
+  width: 100%;
+  grid-template-rows: 1fr;
+  border-radius: 1.75rem;
+  transition:
+    width 0.5s cubic-bezier(0.22, 1, 0.36, 1),
+    grid-template-rows 0.55s cubic-bezier(0.22, 1, 0.36, 1) 0.2s,
+    border-radius 0.3s ease;
+}
+.jb-morph-body { min-height: 0; overflow: hidden; }
+.jb-morph-body > div { opacity: 0; transition: opacity 0.4s ease; }
+.jb-morph-open .jb-morph-body > div { opacity: 1; transition: opacity 0.35s ease 0.4s; }
+.jb-morph-btn {
+  position: absolute;
+  top: 0.5rem;
+  left: 0.5rem;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 9999px;
+  color: #ffc93c;
+  transition: background-color 0.3s ease, top 0.4s ease, left 0.4s ease;
+}
+.jb-morph:not(.jb-morph-open) .jb-morph-btn { top: 0.5rem; left: 0.5rem; }
+.jb-morph-open .jb-morph-btn { top: 1.1rem; left: 1.25rem; background: rgb(255 201 60 / 0.12); }
+.jb-morph-btn:hover { background: rgb(255 201 60 / 0.18); }
+/* Attempts tab: the Benchmarks look, as the Chunks tab's Nodes table — 7
+   columns sized to their content, equal gaps, first left / last right. */
+.jb-att table {
+  display: grid;
+  grid-template-columns: repeat(7, max-content);
+  justify-content: space-between;
+  padding-inline: 2.25rem;
+}
+.jb-att thead,
+.jb-att tbody,
+.jb-att tr { display: contents; }
+.jb-att.ov-table-fit th,
+.jb-att.ov-table-fit td { width: auto; padding-left: 0; padding-right: 0; }
+.jb-att.ov-table-fit th {
+  padding-top: 1rem;
+  padding-bottom: 1.1rem;
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  color: var(--mf-fg-muted);
+  text-align: center;
+  border-bottom: 1px solid rgb(255 255 255 / 0.06);
+}
+.jb-att.ov-table-fit td {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+  border-bottom: 1px solid rgb(255 255 255 / 0.05);
+}
+.jb-att.ov-table-fit th:nth-child(7n+1) { text-align: left; }
+.jb-att.ov-table-fit td:nth-child(7n+1) { align-items: flex-start; text-align: left; }
+.jb-att.ov-table-fit th:nth-child(7n) { text-align: right; }
+.jb-att.ov-table-fit td:nth-child(7n) { align-items: flex-end; text-align: right; }
+.jb-att.ov-table-fit tbody tr:last-child td { border-bottom: 0; }
+/* Timeline tab: plain like the Jobs list — no card, Jobs headings, a hairline
+   under them, four columns with equal gaps (At left, Time in state right). */
+.jb-states table {
+  display: grid;
+  grid-template-columns: repeat(4, max-content);
+  justify-content: space-between;
+}
+.jb-states thead,
+.jb-states tbody,
+.jb-states tr { display: contents; }
+.jb-states.ov-table-fit th,
+.jb-states.ov-table-fit td { width: auto; padding-left: 0; padding-right: 0; }
+.jb-states.ov-table-fit th {
+  padding-top: 0.5rem;
+  padding-bottom: 1.1rem;
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  color: var(--mf-fg-muted);
+  text-align: center;
+  border-bottom: 1px solid rgb(255 255 255 / 0.08);
+}
+.jb-states.ov-table-fit td {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-bottom: 1px solid rgb(255 255 255 / 0.05);
+}
+.jb-states.ov-table-fit th:nth-child(4n+1) { text-align: left; }
+.jb-states.ov-table-fit td:nth-child(4n+1) { justify-content: flex-start; }
+.jb-states.ov-table-fit th:nth-child(4n) { text-align: right; }
+.jb-states.ov-table-fit td:nth-child(4n) { justify-content: flex-end; }
+.jb-states.ov-table-fit tbody tr:last-child td { border-bottom: 0; }
+/* Timeline dividers: one unbroken line under the headings and between rows,
+   drawn across the whole table (cells in a grid would break it at each gap). */
+.jb-states.ov-table-fit th,
+.jb-states.ov-table-fit td { border-bottom: 0; box-sizing: border-box; }
+.jb-states.ov-table-fit th { height: 3rem; padding-top: 0; padding-bottom: 0; display: flex; align-items: center; }
+.jb-states.ov-table-fit th:nth-child(4n+1) { justify-content: flex-start; }
+.jb-states.ov-table-fit th:nth-child(4n+2),
+.jb-states.ov-table-fit th:nth-child(4n+3) { justify-content: center; }
+.jb-states.ov-table-fit th:nth-child(4n) { justify-content: flex-end; }
+.jb-states.ov-table-fit td { height: 3.875rem; padding-top: 0; padding-bottom: 0; }
+.jb-states table {
+  background-image:
+    linear-gradient(rgb(255 255 255 / 0.08), rgb(255 255 255 / 0.08)),
+    repeating-linear-gradient(to bottom, transparent 0, transparent calc(3.875rem - 1px), rgb(255 255 255 / 0.05) calc(3.875rem - 1px), rgb(255 255 255 / 0.05) 3.875rem);
+  background-size: 100% 1px, 100% calc(100% - 3rem - 3.875rem);
+  background-position: 0 calc(3rem - 1px), 0 3rem;
+  background-repeat: no-repeat;
+}
+/* ---- Attempts + Timeline: exactly the Jobs list — a real table (rows draw
+   one unbroken line), Jobs headings, and columns sized so the gap between
+   every two columns' contents is the same: first/last get half a gap,
+   the middle ones a whole gap. g = (width - contents) / (columns - 1). ---- */
+.jb-att,
+.jb-states { container-type: inline-size; }
+.jb-att table,
+.jb-states table {
+  display: table;
+  width: 100%;
+  table-layout: fixed;
+  padding: 0;
+  background-image: none;
+}
+.jb-att thead, .jb-states thead { display: table-header-group; }
+.jb-att tbody, .jb-states tbody { display: table-row-group; }
+.jb-att tr, .jb-states tr { display: table-row; }
+.jb-att.ov-table-fit th, .jb-att.ov-table-fit td,
+.jb-states.ov-table-fit th, .jb-states.ov-table-fit td {
+  display: table-cell;
+  height: auto;
+  padding: 1.1rem 0;
+  border: 0;
+  vertical-align: middle;
+  text-align: center;
+}
+.jb-att.ov-table-fit th, .jb-states.ov-table-fit th { padding: 0.5rem 0 1.1rem; }
+.jb-att.ov-table-fit thead tr, .jb-states.ov-table-fit thead tr { border-bottom: 1px solid rgb(255 255 255 / 0.08); }
+.jb-att.ov-table-fit tbody tr, .jb-states.ov-table-fit tbody tr { border-bottom: 1px solid rgb(255 255 255 / 0.05); }
+.jb-att.ov-table-fit tbody tr:last-child, .jb-states.ov-table-fit tbody tr:last-child { border-bottom: 0; }
+.jb-att.ov-table-fit th:first-child, .jb-att.ov-table-fit td:first-child,
+.jb-states.ov-table-fit th:first-child, .jb-states.ov-table-fit td:first-child { text-align: left; }
+.jb-att.ov-table-fit th:last-child, .jb-att.ov-table-fit td:last-child,
+.jb-states.ov-table-fit th:last-child, .jb-states.ov-table-fit td:last-child { text-align: right; }
+.jb-att td > *, .jb-states td > * { margin-inline: auto; }
+.jb-att td:first-child > *, .jb-states td:first-child > * { margin-left: 0; }
+.jb-att td:last-child > *, .jb-states td:last-child > * { margin-right: 0; }
+/* Timeline: at 11 · state 7.5 · from 6.5 · time 8.5 (33.5rem) */
+.jb-states { --g: max(1.5rem, calc((100cqw - 33.5rem) / 3)); }
+.jb-states.ov-table-fit th:nth-child(1) { width: calc(11rem + var(--g) / 2); }
+.jb-states.ov-table-fit th:nth-child(2) { width: calc(7.5rem + var(--g)); }
+.jb-states.ov-table-fit th:nth-child(3) { width: calc(6.5rem + var(--g)); }
+.jb-states.ov-table-fit th:nth-child(4) { width: calc(8.5rem + var(--g) / 2); }
+/* Attempts: attempt 9 · node 8 · state 5 · result 4 · started 11 · ran 4.5 · logs 8 (49.5rem) */
+.jb-att { --g: max(1.25rem, calc((100cqw - 49.5rem) / 6)); }
+.jb-att.ov-table-fit th:nth-child(1) { width: calc(9rem + var(--g) / 2); }
+.jb-att.ov-table-fit th:nth-child(2) { width: calc(8rem + var(--g)); }
+.jb-att.ov-table-fit th:nth-child(3) { width: calc(5rem + var(--g)); }
+.jb-att.ov-table-fit th:nth-child(4) { width: calc(4rem + var(--g)); }
+.jb-att.ov-table-fit th:nth-child(5) { width: calc(11rem + var(--g)); }
+.jb-att.ov-table-fit th:nth-child(6) { width: calc(4.5rem + var(--g)); }
+.jb-att.ov-table-fit th:nth-child(7) { width: calc(8rem + var(--g) / 2); }
+/* Campaign overview, Failures + Budget: plain like Jobs (no card), a hairline
+   above the pair and a hairline between the two. */
+.bm-pair { border-top: 1px solid rgb(255 255 255 / 0.08); }
+.ov-card.bm-plain {
+  background: none;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.ov-card.bm-plain > * { padding-left: 0; padding-right: 0; }
+.ov-card.bm-plain-divided { border-left: 1px solid rgb(255 255 255 / 0.08); }
+/* Campaign overview polish: labels at the list-heading size in a readable
+   tone, values a step up, notes legible, even rhythm between sections. */
+.bm-ov .nd-label {
+  font-size: 0.75rem;
+  letter-spacing: 0.12em;
+  color: color-mix(in srgb, var(--mf-fg) 70%, transparent);
+}
+.bm-ov dd { font-size: 1.0625rem; }
+.bm-ov dd.ov-figure { font-size: 1.75rem; }
+.bm-ov [data-testid="overview-done"] { font-size: 3.5rem; }
+.bm-ov p.font-mono.text-fg-muted,
+.bm-ov .font-mono.text-2xs.text-fg-muted {
+  font-size: 0.75rem;
+  color: color-mix(in srgb, var(--mf-fg) 70%, transparent);
+}
+.bm-ov .ov-card-title { font-size: 1.125rem; }
+.bm-ov [data-testid="overview-result"] .text-sm { font-size: 0.9375rem; color: color-mix(in srgb, var(--mf-fg) 85%, transparent); }
+.bm-ov .bm-pair { padding-top: 0.5rem; }
+.bm-ov .bm-pair .ov-card.bm-plain > header { padding-top: 2rem; }
+/* Campaign Runs tab: the Jobs list look — no card, Jobs headings with a
+   hairline, # left, Job right, the rest centred, and one equal gap between
+   every two columns' contents (first/last take half a gap).
+   contents: # 1.5 · group 12 · config 7 · node 7 · strategy 6 · rep 2 ·
+   state 4.5 · tries 2.5 · last failure 8 · job 7 (57.5rem) */
+.bm-runs { container-type: inline-size; --g: max(1rem, calc((100cqw - 57.5rem - 14px) / 9.5)); }
+.bm-runs .bm-tab-scroll { padding-right: 2px; }
+.bm-runs .bm-tab-scroll { container-type: normal; }
+.bm-runs.ov-table-fit table { table-layout: fixed; }
+.bm-runs.ov-table-fit th,
+.bm-runs.ov-table-fit td { padding-left: 0; padding-right: 0; text-align: center; }
+.bm-runs.ov-table-fit th {
+  padding-top: 0.75rem;
+  padding-bottom: 1.1rem;
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  color: var(--mf-fg-muted);
+  box-shadow: inset 0 -1px 0 rgb(255 255 255 / 0.08);
+}
+.bm-runs.ov-table-fit tbody tr { border-bottom: 1px solid rgb(255 255 255 / 0.05); }
+.bm-runs.ov-table-fit tbody tr:last-child { border-bottom: 0; }
+.bm-runs.ov-table-fit th:first-child, .bm-runs.ov-table-fit td:first-child { text-align: left; }
+.bm-runs.ov-table-fit th:last-child, .bm-runs.ov-table-fit td:last-child { text-align: center; }
+.bm-runs td > .flex, .bm-runs td > .inline-flex { justify-content: center; }
+.bm-runs td:first-child > .flex { justify-content: flex-start; }
+.bm-runs td:last-child > .flex { justify-content: center; }
+.bm-runs.ov-table-fit th:nth-child(1) { width: calc(1.5rem + var(--g) / 2); }
+.bm-runs.ov-table-fit th:nth-child(2) { width: calc(12rem + var(--g)); }
+.bm-runs.ov-table-fit th:nth-child(3) { width: calc(7rem + var(--g)); }
+.bm-runs.ov-table-fit th:nth-child(4) { width: calc(7rem + var(--g)); }
+.bm-runs.ov-table-fit th:nth-child(5) { width: calc(6rem + var(--g)); }
+.bm-runs.ov-table-fit th:nth-child(6) { width: calc(2rem + var(--g)); }
+.bm-runs.ov-table-fit th:nth-child(7) { width: calc(4.5rem + var(--g)); }
+.bm-runs.ov-table-fit th:nth-child(8) { width: calc(2.5rem + var(--g)); }
+.bm-runs.ov-table-fit th:nth-child(9) { width: calc(8rem + var(--g)); }
+.bm-runs.ov-table-fit th:nth-child(10) { width: calc(7rem + var(--g)); }
+.bm-runs .bm-tab-scroll[data-scrolled="true"] th {
+  background: linear-gradient(to bottom, var(--mf-bg) 0%, var(--mf-bg) 70%, transparent 100%);
+}
+/* Runs tab, exact even gaps: every column as wide as its real content, the
+   spare width shared equally between them (grid, rows as display:contents).
+   Row lines are painted across the whole table so they never break; rows
+   have a fixed height for that, so the failure text stays on one line. */
+.bm-runs.ov-table-fit table {
+  display: grid;
+  grid-template-columns: repeat(10, max-content);
+  justify-content: space-between;
+  table-layout: auto;
+  min-width: 100%;
+  background-image:
+    linear-gradient(rgb(255 255 255 / 0.08), rgb(255 255 255 / 0.08)),
+    repeating-linear-gradient(to bottom, transparent 0, transparent calc(3.5rem - 1px), rgb(255 255 255 / 0.05) calc(3.5rem - 1px), rgb(255 255 255 / 0.05) 3.5rem);
+  background-size: 100% 1px, 100% calc(100% - 3rem - 3.5rem);
+  background-position: 0 calc(3rem - 1px), 0 3rem;
+  background-repeat: no-repeat;
+}
+.bm-runs thead, .bm-runs tbody, .bm-runs tr { display: contents; }
+.bm-runs.ov-table-fit th,
+.bm-runs.ov-table-fit td { width: auto !important; border: 0; display: flex; align-items: center; justify-content: center; white-space: nowrap; }
+.bm-runs.ov-table-fit th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  height: 3rem;
+  padding: 0;
+  box-shadow: none;
+}
+.bm-runs.ov-table-fit td { height: 3.5rem; padding: 0; }
+.bm-runs.ov-table-fit th:nth-child(10n+1), .bm-runs.ov-table-fit td:nth-child(10n+1) { justify-content: flex-start; }
+.bm-runs.ov-table-fit th:nth-child(10n), .bm-runs.ov-table-fit td:nth-child(10n) { justify-content: flex-end; }
+.bm-runs td:nth-child(9) > * { display: block; max-width: 9rem; overflow: hidden; text-overflow: ellipsis; }
+.bm-runs .bm-tab-scroll[data-scrolled="true"] th { background: var(--mf-bg); }
+/* Runs tab: Job centred over its ids like the middle columns; the heading
+   row gets one full-width backing strip (page colour + hairline) so scrolled
+   rows never show between the headings. */
+.bm-runs.ov-table-fit th:nth-child(10n), .bm-runs.ov-table-fit td:nth-child(10n) { justify-content: center; }
+.bm-runs.ov-table-fit th { background: none; }
+.bm-runs .bm-tab-scroll[data-scrolled="true"] th { background: none; }
+.bm-runs.ov-table-fit th:first-child::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: calc(100cqw - 16px);
+  z-index: -1;
+  background: var(--mf-bg);
+  border-bottom: 1px solid rgb(255 255 255 / 0.08);
+  pointer-events: none;
+}
+.bm-runs.ov-table-fit table { background-image:
+    repeating-linear-gradient(to bottom, transparent 0, transparent calc(3.5rem - 1px), rgb(255 255 255 / 0.05) calc(3.5rem - 1px), rgb(255 255 255 / 0.05) 3.5rem);
+  background-size: 100% calc(100% - 3rem - 3.5rem);
+  background-position: 0 3rem; }
+/* Dropdowns: plain like the Jobs-style tables — page-dark panel, a hairline
+   edge, rows split by hairlines, no glass; room for a short list unscrolled. */
+.jb-float {
+  border-radius: 10px;
+  background-color: var(--mf-bg);
+  background-image: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border: 1px solid rgb(255 255 255 / 0.1);
+  box-shadow: 0 18px 40px rgb(0 0 0 / 0.55);
+}
+.jb-listbox { max-height: 22rem; padding: 0.25rem 0; }
+.jb-opt { min-height: 2.75rem; border-radius: 0; padding-left: 1rem; padding-right: 1rem; }
+.jb-opt + .jb-opt { box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.05); }
+/* Campaign Labels tab: Benchmarks glass, Benchmarks headings, family left,
+   planner-agrees right, the rest centred, one equal gap between columns.
+   contents: family 6.5 · params 7 · condition 6 · label 5 · best 11 ·
+   margin 4.5 · agrees 8 (48rem) inside 2.25rem side padding */
+.bm-labels { container-type: inline-size; --g: max(1rem, calc((100cqw - 48rem - 4.5rem - 14px) / 6)); }
+.bm-labels .bm-tab-scroll { padding-inline: 2.25rem; }
+.bm-labels.ov-table-fit table { table-layout: fixed; }
+.bm-labels.ov-table-fit th,
+.bm-labels.ov-table-fit td { padding-left: 0; padding-right: 0; text-align: center; }
+.bm-labels.ov-table-fit th {
+  padding-top: 1.4rem;
+  padding-bottom: 1.2rem;
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  color: var(--mf-fg-muted);
+}
+.bm-labels.ov-table-fit th:first-child, .bm-labels.ov-table-fit td:first-child { text-align: left; }
+.bm-labels.ov-table-fit th:last-child, .bm-labels.ov-table-fit td:last-child { text-align: right; }
+.bm-labels td > .flex, .bm-labels td > .inline-flex { justify-content: center; }
+.bm-labels td:first-child > .flex { justify-content: flex-start; align-items: flex-start; }
+.bm-labels td > .flex-col { align-items: center; }
+.bm-labels td:first-child > .flex-col { align-items: flex-start; }
+.bm-labels.ov-table-fit th:nth-child(1) { width: calc(6.5rem + var(--g) / 2); }
+.bm-labels.ov-table-fit th:nth-child(2) { width: calc(7rem + var(--g)); }
+.bm-labels.ov-table-fit th:nth-child(3) { width: calc(6rem + var(--g)); }
+.bm-labels.ov-table-fit th:nth-child(4) { width: calc(5rem + var(--g)); }
+.bm-labels.ov-table-fit th:nth-child(5) { width: calc(11rem + var(--g)); }
+.bm-labels.ov-table-fit th:nth-child(6) { width: calc(4.5rem + var(--g)); }
+.bm-labels.ov-table-fit th:nth-child(7) { width: calc(8rem + var(--g) / 2); }
+/* the legend under the Labels table: readable */
+.bm-labels + p { font-size: 0.75rem; color: color-mix(in srgb, var(--mf-fg) 70%, transparent); }
+
+/* Labels v2: Jobs-size headings, one gap, centred last column */
+.bm-labels { --g: max(1rem, calc((100cqw - 45.5rem - 4.5rem - 14px) / 6)); }
+.bm-labels.ov-table-fit th { font-size: 0.6875rem; letter-spacing: 0.14em; padding-top: 1.6rem; padding-bottom: 1.3rem; }
+.bm-labels.ov-table-fit th:last-child, .bm-labels.ov-table-fit td:last-child { text-align: center; }
+.bm-labels.ov-table-fit td { padding-top: 1.05rem; padding-bottom: 1.05rem; }
+.bm-labels.ov-table-fit tbody tr + tr { border-top: 1px solid rgb(255 255 255 / 0.06); }
+.bm-labels.ov-table-fit th:nth-child(1) { width: calc(7rem + var(--g) / 2); }
+.bm-labels.ov-table-fit th:nth-child(2) { width: calc(6rem + var(--g)); }
+.bm-labels.ov-table-fit th:nth-child(3) { width: calc(4rem + var(--g)); }
+.bm-labels.ov-table-fit th:nth-child(4) { width: calc(6rem + var(--g)); }
+.bm-labels.ov-table-fit th:nth-child(5) { width: calc(11rem + var(--g)); }
+.bm-labels.ov-table-fit th:nth-child(6) { width: calc(4.5rem + var(--g)); }
+.bm-labels.ov-table-fit th:nth-child(7) { width: calc(7rem + var(--g) / 2); }
+.bm-labels + p { font-size: 0.75rem; color: color-mix(in srgb, var(--mf-fg) 78%, transparent); }
+
+/* Charts tab: plain Jobs-style sections, one hairline between them, lighter weight */
+.ov-card.bm-chart > header { padding-top: 0; }
+.ov-card.bm-chart > div { padding-top: 1.75rem; padding-bottom: 0; }
+.ov-card.bm-chart-divided { border-top: 1px solid rgb(255 255 255 / 0.08); border-radius: 0; padding-top: 2.75rem; }
+.bm-chart figcaption { font-size: 0.875rem; font-weight: 400; color: color-mix(in srgb, var(--mf-fg) 85%, transparent); }
+.bm-chart .bm-track { fill: color-mix(in srgb, var(--mf-fg) 5%, transparent); }
+
+/* Quality tab: Run records plain (Jobs), Configurations on glass with
+   Jobs-size headings, centred columns, bright cells and row lines */
+.bm-q-records > header { padding-top: 0; }
+.bm-q-records > div { padding-top: 1rem; padding-bottom: 0; }
+.bm-q2 .bm-tab-scroll { padding-inline: 2.25rem; }
+.bm-q2.ov-table-fit th {
+  font-family: var(--font-mono); font-size: 0.6875rem; font-weight: 500;
+  letter-spacing: 0.14em; color: var(--mf-fg-muted);
+  padding-top: 1.5rem; padding-bottom: 1.2rem; text-align: center;
+}
+.bm-q2.ov-table-fit td { text-align: center; padding-top: 1rem; padding-bottom: 1rem; color: var(--mf-fg); }
+.bm-q2.ov-table-fit td .text-fg-muted, .bm-q2.ov-table-fit td.text-fg-muted { color: color-mix(in srgb, var(--mf-fg) 72%, transparent); }
+.bm-q2.ov-table-fit th:first-child, .bm-q2.ov-table-fit td:first-child { text-align: left; padding-left: 0; }
+.bm-q2.ov-table-fit th:last-child, .bm-q2.ov-table-fit td:last-child { text-align: right; padding-right: 0; }
+.bm-q2 td > .flex-col { align-items: center; }
+.bm-q2 td:first-child > .flex-col { align-items: flex-start; }
+.bm-q2 td:last-child > .flex-col { align-items: flex-end; }
+.bm-q2.ov-table-fit tbody tr + tr { border-top: 1px solid rgb(255 255 255 / 0.06); }
+.bm-q2.ov-table-fit tbody tr:hover { background: transparent; box-shadow: none; }
+/* Quality Configurations = the Benchmarks list: its heading size and band,
+   one even gap (--bm-s) between columns and at both ends, its row lines.
+   content: group 8.5 · runs 15 · n 1.5 · median 7.2 · cv 4 · ci 9.5 ·
+   per-iter 7.8 · outliers 4.8 · flags 5 · missing 8.4 (sum 71.7) */
+.bm-q2 { container-type: inline-size; --bm-s: max(1.25rem, calc((100cqw - 71.7rem - 14px) / 11)); }
+.bm-q2 .bm-tab-scroll { padding-inline: 0; }
+.bm-q2.ov-table-fit table { table-layout: fixed; }
+.bm-q2.ov-table-fit th { font-size: 0.8125rem; letter-spacing: 0.12em; padding-top: 1.6rem; padding-bottom: 1.75rem; padding-left: 0; padding-right: 0; }
+.bm-q2.ov-table-fit td { padding: 0.9375rem 0; }
+.bm-q2.ov-table-fit th:first-child, .bm-q2.ov-table-fit td:first-child { padding-left: var(--bm-s); }
+.bm-q2.ov-table-fit th:last-child, .bm-q2.ov-table-fit td:last-child { padding-right: var(--bm-s); }
+.bm-q2.ov-table-fit th:nth-child(1) { width: calc(8.5rem + 1.5 * var(--bm-s)); }
+.bm-q2.ov-table-fit th:nth-child(2) { width: calc(15rem + var(--bm-s)); }
+.bm-q2.ov-table-fit th:nth-child(3) { width: calc(1.5rem + var(--bm-s)); }
+.bm-q2.ov-table-fit th:nth-child(4) { width: calc(7.2rem + var(--bm-s)); }
+.bm-q2.ov-table-fit th:nth-child(5) { width: calc(4rem + var(--bm-s)); }
+.bm-q2.ov-table-fit th:nth-child(6) { width: calc(9.5rem + var(--bm-s)); }
+.bm-q2.ov-table-fit th:nth-child(7) { width: calc(7.8rem + var(--bm-s)); }
+.bm-q2.ov-table-fit th:nth-child(8) { width: calc(4.8rem + var(--bm-s)); }
+.bm-q2.ov-table-fit th:nth-child(9) { width: calc(5rem + var(--bm-s)); }
+.bm-q2.ov-table-fit th:nth-child(10) { width: auto; }
+.bm-q2.ov-table-fit tbody tr + tr { border-top: 0; }
+.bm-q2.ov-table-fit tbody tr { border-bottom: 1px solid rgb(255 255 255 / 0.05); }
+.bm-q2.ov-table-fit tbody tr:last-child { border-bottom: 0; }
+.bm-q2 .bm-tab-scroll[data-scrolled="true"] th {
+  background: rgb(30 28 24 / 0.96);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  -webkit-mask-image: linear-gradient(to bottom, #000 72%, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 72%, transparent 100%);
+}
+.bm-q2 > header { padding-left: 3rem; padding-right: 3rem; }
+
+/* Planner Calibration tables = the Benchmarks list: glass card, mono heads
+   in a readable tone, one even gap (--pl-s) between contents, term/version
+   left, last column right, the rest centred, the list's row lines and band.
+   factors: term 6 · level 6 · node 7.5 · family 4.5 · factor 4 · n 2.5 · median 6 (36.5)
+   versions: version 3 · created 7.5 · status 7 · error 8 · reason 6 (31.5) */
+.pl-factors { --pl-s: max(1.25rem, calc((100cqw - 36.5rem - 4.5rem) / 6)); }
+.pl-versions { --pl-s: max(1.25rem, calc((100cqw - 33rem - 4.5rem) / 4)); }
+:is(.pl-factors, .pl-versions).ov-table-fit :is(th, td) { padding-left: 0; padding-right: 0; text-align: center; }
+:is(.pl-factors, .pl-versions).ov-table-fit :is(th, td):first-child { padding-left: 2.25rem; text-align: left; }
+:is(.pl-factors, .pl-versions).ov-table-fit :is(th, td):last-child { padding-right: 2.25rem; text-align: right; }
+:is(.pl-factors, .pl-versions) td > .flex, :is(.pl-factors, .pl-versions) td > .inline-flex { justify-content: center; }
+:is(.pl-factors, .pl-versions) td:first-child > .flex { justify-content: flex-start; }
+.pl-factors.ov-table-fit th:nth-child(1) { width: calc(8.25rem + var(--pl-s) / 2); }
+.pl-factors.ov-table-fit th:nth-child(2) { width: calc(6rem + var(--pl-s)); }
+.pl-factors.ov-table-fit th:nth-child(3) { width: calc(7.5rem + var(--pl-s)); }
+.pl-factors.ov-table-fit th:nth-child(4) { width: calc(4.5rem + var(--pl-s)); }
+.pl-factors.ov-table-fit th:nth-child(5) { width: calc(4rem + var(--pl-s)); }
+.pl-factors.ov-table-fit th:nth-child(6) { width: calc(2.5rem + var(--pl-s)); }
+.pl-versions.ov-table-fit th:nth-child(1) { width: calc(6.75rem + var(--pl-s) / 2); }
+.pl-versions.ov-table-fit th:nth-child(2) { width: calc(7.5rem + var(--pl-s)); }
+.pl-versions.ov-table-fit th:nth-child(3) { width: calc(7rem + var(--pl-s)); }
+.pl-versions.ov-table-fit th:nth-child(4) { width: calc(8rem + var(--pl-s)); }
+:is(.pl-factors, .pl-versions).ov-table-fit th {
+  font-size: 0.75rem; letter-spacing: 0.12em; font-weight: 500;
+  color: color-mix(in srgb, var(--mf-fg) 62%, transparent);
+  padding-top: 1.4rem; padding-bottom: 1.4rem;
+}
+:is(.pl-factors, .pl-versions).ov-table-fit td { padding-top: 0.9375rem; padding-bottom: 0.9375rem; font-size: 0.9375rem; }
+:is(.pl-factors, .pl-versions) td .text-fg-muted, :is(.pl-factors, .pl-versions) td .text-fg-subtle { color: color-mix(in srgb, var(--mf-fg) 72%, transparent); }
+:is(.pl-factors, .pl-versions) td .font-mono.text-2xs { font-size: 0.6875rem; }
+:is(.pl-factors, .pl-versions) tbody tr { border-bottom: 1px solid rgb(255 255 255 / 0.05); }
+:is(.pl-factors, .pl-versions) tbody tr:last-child { border-bottom: 0; }
+:is(.pl-factors, .pl-versions) .pl-scroll[data-scrolled="true"] th {
+  background: rgb(30 28 24 / 0.96);
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  -webkit-mask-image: linear-gradient(to bottom, #000 72%, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 72%, transparent 100%);
+}
+.pl-versions td:last-child .block.truncate { margin-left: auto; max-width: 100%; }
+
+/* Planner Evaluation: Reports = the Benchmarks list (as Factors / Versions).
+   reports: report 6.5 · status 5.5 · campaigns 9 · groups 4.25 · verdicts 5.5 (30.75) */
+.pl-reports { --pl-s: max(1.25rem, calc((100cqw - 30.75rem - 4.5rem) / 4)); }
+.pl-reports.ov-table-fit :is(th, td) { padding-left: 0; padding-right: 0; text-align: center; }
+.pl-reports.ov-table-fit :is(th, td):first-child { padding-left: 2.25rem; text-align: left; }
+.pl-reports.ov-table-fit :is(th, td):last-child { padding-right: 2.25rem; text-align: right; }
+.pl-reports td > .flex-col { align-items: center; }
+.pl-reports td:first-child > .flex-col { align-items: flex-start; }
+.pl-reports.ov-table-fit th:nth-child(1) { width: calc(8.75rem + var(--pl-s) / 2); }
+.pl-reports.ov-table-fit th:nth-child(2) { width: calc(5.5rem + var(--pl-s)); }
+.pl-reports.ov-table-fit th:nth-child(3) { width: calc(9rem + var(--pl-s)); }
+.pl-reports.ov-table-fit th:nth-child(4) { width: calc(4.25rem + var(--pl-s)); }
+.pl-reports.ov-table-fit th {
+  font-size: 0.75rem; letter-spacing: 0.12em; font-weight: 500;
+  color: color-mix(in srgb, var(--mf-fg) 62%, transparent);
+  padding-top: 1.4rem; padding-bottom: 1.4rem;
+}
+.pl-reports.ov-table-fit td { padding-top: 0.9375rem; padding-bottom: 0.9375rem; font-size: 0.9375rem; }
+.pl-reports td .text-fg-muted { color: color-mix(in srgb, var(--mf-fg) 72%, transparent); }
+.pl-reports td .font-mono.text-2xs { font-size: 0.6875rem; }
+.pl-reports tbody tr { border-bottom: 1px solid rgb(255 255 255 / 0.05); }
+.pl-reports tbody tr:last-child { border-bottom: 0; }
+.pl-reports .pl-scroll[data-scrolled="true"] th {
+  background: rgb(30 28 24 / 0.96);
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  -webkit-mask-image: linear-gradient(to bottom, #000 72%, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 72%, transparent 100%);
+}
+/* report figures: the number never clips; the "of N" unit gives way first */
+.pl-figs .ov-figure > .truncate { overflow: visible; text-overflow: clip; flex-shrink: 0; }
+.pl-figs .ov-figure > span.shrink-0 { flex-shrink: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pl-reports td > .flex-col { align-items: stretch; text-align: center; }
+.pl-reports td:first-child > .flex-col { text-align: left; }
+.pl-reports.ov-table-fit td { overflow: hidden; text-overflow: ellipsis; }
+.pl-reports td > .inline-flex { max-width: 100%; }
+
+/* Evaluation v2: wider Reports (status / verdicts room), report on glass */
+.pl-reports { --pl-s: max(1.25rem, calc((100cqw - 34.75rem - 4.5rem) / 4)); }
+.pl-reports.ov-table-fit th:nth-child(2) { width: calc(7.5rem + var(--pl-s)); }
+.pl-reports.ov-table-fit th:nth-child(3) { width: calc(10rem + var(--pl-s)); }
+.pl-report-card .pl-figs { column-gap: 1.75rem; row-gap: 2rem; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.pl-report-card .pl-figs p { -webkit-line-clamp: 3; }
+.pl-report-card ul[aria-label="Verdicts"] { padding-top: 0.5rem; }
+/* Evaluation v3: the five report figures in one even row again (the unit
+   rule keeps numbers whole); notes up to 3 lines, softer */
+.pl-report-card .pl-figs { grid-template-columns: repeat(5, minmax(0, 1fr)); column-gap: 1.5rem; }
+.pl-report-card .pl-figs .ov-figure { font-size: 2rem; }
+.pl-report-card .pl-figs p { color: color-mix(in srgb, var(--mf-fg) 60%, transparent); }
+.pl-report-card .pl-body { justify-content: flex-start; gap: 2.75rem; }
+
+/* Report #N in the Jobs style: no card, title flush, hairlines between bands;
+   a figure's "of N" drops under the number rather than clipping */
+.pl-report-card > header { padding-left: 0; padding-right: 0; }
+.pl-report-card > .pl-body { padding-left: 0; padding-right: 0; }
+.pl-report-card .pl-figs .ov-figure { flex-wrap: wrap; row-gap: 0.25rem; }
+.pl-report-card .pl-figs .ov-figure > span.shrink-0 { overflow: visible; text-overflow: clip; }
+
+/* Evaluation: the Reports card and the report end with their content (no
+   window-high fill and its empty band under the last row) */
+.pl-reports-card, .pl-report-card { height: auto; align-self: start; }
+/* Planner Models tables = the Benchmarks list (as Calibration / Evaluation):
+   readable mono heads, one even gap (--pl-s), first left / last right / rest
+   centred, brighter cells, list row lines and band.
+   metrics: term 6 · algo 5.5 · rows 4.6 · families 5.3 · selected 5.3 ·
+   cv 7.5 · interval 5.3 · held 5.8 · error 11.5 · coverage 5.3 · usable 4.5 ·
+   failed 4 · reason 9 (79.6)
+   sets: set 7 · status 6.5 · terms 16 · reason 13 · (pin 3) */
+.pl-metrics { --pl-s: max(1rem, calc((100cqw - 79.6rem - 4.5rem) / 12)); }
+.pl-sets { --pl-s: max(1.25rem, calc((100cqw - 45.5rem - 4.5rem) / 3)); }
+.pl-sets.pl-sets-admin { --pl-s: max(1.25rem, calc((100cqw - 45.5rem - 4.5rem) / 4)); }
+:is(.pl-metrics, .pl-sets).ov-table-fit :is(th, td) { padding-left: 0; padding-right: 0; text-align: center; }
+:is(.pl-metrics, .pl-sets).ov-table-fit :is(th, td):first-child { padding-left: 2.25rem; text-align: left; }
+:is(.pl-metrics, .pl-sets).ov-table-fit :is(th, td):last-child { padding-right: 2.25rem; text-align: right; }
+:is(.pl-metrics, .pl-sets) td > .flex, :is(.pl-metrics, .pl-sets) td > .inline-flex { justify-content: center; }
+:is(.pl-metrics, .pl-sets) td:first-child > .flex { justify-content: flex-start; }
+:is(.pl-metrics, .pl-sets) td:last-child > * { margin-left: auto; }
+.pl-metrics.ov-table-fit th:nth-child(1) { width: calc(8.25rem + var(--pl-s) / 2); }
+.pl-metrics.ov-table-fit th:nth-child(2) { width: calc(5.5rem + var(--pl-s)); }
+.pl-metrics.ov-table-fit th:nth-child(3) { width: calc(4.6rem + var(--pl-s)); }
+.pl-metrics.ov-table-fit th:nth-child(4) { width: calc(5.3rem + var(--pl-s)); }
+.pl-metrics.ov-table-fit th:nth-child(5) { width: calc(5.3rem + var(--pl-s)); }
+.pl-metrics.ov-table-fit th:nth-child(6) { width: calc(7.5rem + var(--pl-s)); }
+.pl-metrics.ov-table-fit th:nth-child(7) { width: calc(5.3rem + var(--pl-s)); }
+.pl-metrics.ov-table-fit th:nth-child(8) { width: calc(5.8rem + var(--pl-s)); }
+.pl-metrics.ov-table-fit th:nth-child(9) { width: calc(11.5rem + var(--pl-s)); }
+.pl-metrics.ov-table-fit th:nth-child(10) { width: calc(5.3rem + var(--pl-s)); }
+.pl-metrics.ov-table-fit th:nth-child(11) { width: calc(4.5rem + var(--pl-s)); }
+.pl-metrics.ov-table-fit th:nth-child(12) { width: calc(4rem + var(--pl-s)); }
+.pl-sets.ov-table-fit th:nth-child(1) { width: calc(9.25rem + var(--pl-s) / 2); }
+.pl-sets.ov-table-fit th:nth-child(2) { width: calc(6.5rem + var(--pl-s)); }
+.pl-sets.ov-table-fit th:nth-child(3) { width: calc(16rem + var(--pl-s)); }
+.pl-sets.pl-sets-admin.ov-table-fit th:nth-child(4) { width: calc(13rem + var(--pl-s)); }
+:is(.pl-metrics, .pl-sets).ov-table-fit th {
+  font-size: 0.75rem; letter-spacing: 0.12em; font-weight: 500;
+  color: color-mix(in srgb, var(--mf-fg) 62%, transparent);
+  padding-top: 1.4rem; padding-bottom: 1.4rem;
+}
+:is(.pl-metrics, .pl-sets).ov-table-fit td { padding-top: 0.9375rem; padding-bottom: 0.9375rem; }
+:is(.pl-metrics, .pl-sets) td .text-fg-muted, :is(.pl-metrics, .pl-sets) td .text-fg-subtle { color: color-mix(in srgb, var(--mf-fg) 72%, transparent); }
+:is(.pl-metrics, .pl-sets) td .font-mono.text-2xs { font-size: 0.6875rem; }
+:is(.pl-metrics, .pl-sets) tbody tr { border-bottom: 1px solid rgb(255 255 255 / 0.05); }
+:is(.pl-metrics, .pl-sets) tbody tr:last-child { border-bottom: 0; }
+:is(.pl-metrics, .pl-sets) .pl-scroll[data-scrolled="true"] th {
+  background: rgb(30 28 24 / 0.96);
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  -webkit-mask-image: linear-gradient(to bottom, #000 72%, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 72%, transparent 100%);
+}
+/* the two "how often ML acted" tables: the same heads */
+.pl-mini.ov-table-fit th { font-size: 0.75rem; letter-spacing: 0.12em; color: color-mix(in srgb, var(--mf-fg) 62%, transparent); }
+
+/* the comb's hover card fades and rises in softly */
+.ov-comb-tip { animation: ov-comb-tip-in 0.42s cubic-bezier(0.22, 1, 0.36, 1) both; }
+@keyframes ov-comb-tip-in { from { opacity: 0; transform: translateY(6px) scale(0.98); } }
+@media (prefers-reduced-motion: reduce) { .ov-comb-tip { animation: none; } }
+
+/* Page change: the new section fades up out of a soft blur, its content
+   following a beat behind (no transform left once it settles, so sticky
+   headers and fixed layers behave). */
+.mf-page-in { animation: mf-page-in 0.6s cubic-bezier(0.22, 1, 0.36, 1) both; }
+@keyframes mf-page-in {
+  from { opacity: 0; transform: translateY(14px) scale(0.995); filter: blur(6px); }
+  60% { filter: blur(0); }
+}
+@media (prefers-reduced-motion: reduce) { .mf-page-in { animation: none; } }
+
+/* Sign in: the dashboard's skin - comb behind, the glass card, hairline
+   fields that warm to honey on focus, one round honey button. */
+.mf-login-in { animation: mf-page-in 0.8s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.mf-login-input {
+  height: 2.75rem;
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid rgb(255 255 255 / 0.14);
+  background: transparent;
+  padding: 0 0.125rem;
+  font-size: 1rem;
+  color: var(--mf-fg);
+  outline: none;
+  transition: border-color 260ms ease, box-shadow 260ms ease;
+}
+.mf-login-input:hover { border-bottom-color: rgb(255 255 255 / 0.24); }
+.mf-login-input:focus { border-bottom-color: #ffc93c; box-shadow: 0 1px 0 0 #ffc93c; }
+.mf-login-field:focus-within .nd-label { color: #ffc93c; }
+.mf-login-field .nd-label { transition: color 260ms ease; }
+.mf-login-input:-webkit-autofill {
+  -webkit-text-fill-color: var(--mf-fg);
+  -webkit-box-shadow: 0 0 0 100px rgb(30 28 24) inset;
+  caret-color: var(--mf-fg);
+}
+.mf-login-btn { height: 3rem; width: 100%; border-radius: 9999px; font-size: 0.9375rem; font-weight: 600; }
+.mf-login-btn:disabled { opacity: 0.45; }
+.mf-login .mf-backdrop { height: 100%; }
+@media (prefers-reduced-motion: reduce) { .mf-login-in { animation: none; } }
+
+/* Sign in v2: the comb fills the screen; a dark wash from the left keeps the
+   form readable while the honey pillars stand out on the right */
+.mf-login-comb { left: 22%; }
+.mf-login-shade {
+  background:
+    linear-gradient(90deg, var(--mf-bg) 0%, rgb(11 10 8 / 0.92) 28%, rgb(11 10 8 / 0.35) 52%, transparent 72%),
+    radial-gradient(ellipse at 70% 110%, transparent 40%, rgb(11 10 8 / 0.6) 100%);
+}
+
+/* Sign in v3: one centred card; the comb is a faint watermark behind it */
+.mf-login-comb { left: 0; opacity: 0.22; filter: saturate(0.7); }
+.mf-login-in { animation-duration: 0.5s; }
+.ov-card.ov-frost.nd-glass.mf-login-card {
+  background-color: rgb(30 28 24 / 0.28);
+  backdrop-filter: blur(14px) saturate(1.3);
+  -webkit-backdrop-filter: blur(14px) saturate(1.3);
+}
+/* Sign in v4: frosted glass - a milky, heavily blurred pane, not a clear one */
+.ov-card.ov-frost.nd-glass.mf-login-card {
+  background-color: rgb(58 54 46 / 0.42);
+  background-image: linear-gradient(150deg, rgb(255 255 255 / 0.12), rgb(255 255 255 / 0.04) 45%, rgb(255 255 255 / 0.07));
+  backdrop-filter: blur(28px) saturate(1.2) brightness(1.15);
+  -webkit-backdrop-filter: blur(28px) saturate(1.2) brightness(1.15);
+  border-color: rgb(255 255 255 / 0.14);
+}
+/* Sign in v5: classic glassmorphism (uxpilot recipe): a light white tint,
+   ~16px blur, a thin white rim brighter on the lit (top) edge, soft shadow */
+.ov-card.ov-frost.nd-glass.mf-login-card {
+  background-color: rgb(255 255 255 / 0.1);
+  background-image: linear-gradient(135deg, rgb(255 255 255 / 0.14), rgb(255 255 255 / 0.03) 60%);
+  backdrop-filter: blur(16px) saturate(1.4);
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
+  border: 1px solid rgb(255 255 255 / 0.18);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.28), 0 12px 40px rgb(0 0 0 / 0.35);
+  transform: translateZ(0);
+}
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .ov-card.ov-frost.nd-glass.mf-login-card { background-color: rgb(40 37 31 / 0.92); }
+}
+.mf-login-card h1, .mf-login-card .nd-label { text-shadow: 0 1px 1px rgb(0 0 0 / 0.35); }
+/* the sign-in entrance must not use `filter` (a filtered ancestor cuts the
+   card's backdrop blur off from the comb): opacity + rise only */
+.mf-login-in { animation: mf-login-rise 0.5s cubic-bezier(0.22, 1, 0.36, 1); }
+@keyframes mf-login-rise { from { opacity: 0; transform: translateY(10px); } }
+/* Sign in v6: black glass (same frosted blur and lit rim), larger crisp type */
+.ov-card.ov-frost.nd-glass.mf-login-card {
+  background-color: rgb(8 7 6 / 0.55);
+  background-image: linear-gradient(135deg, rgb(255 255 255 / 0.06), rgb(255 255 255 / 0) 55%);
+  border-color: rgb(255 255 255 / 0.12);
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.14), 0 16px 48px rgb(0 0 0 / 0.5);
+}
+.mf-login-card h1 { font-size: 1.75rem; color: var(--mf-fg); }
+.mf-login-card .nd-label { font-size: 0.8125rem; letter-spacing: 0.12em; color: color-mix(in srgb, var(--mf-fg) 82%, transparent); }
+.mf-login-field:focus-within .nd-label { color: #ffc93c; }
+.mf-login-input { font-size: 1.0625rem; height: 3rem; border-bottom-color: rgb(255 255 255 / 0.22); }
+.mf-login-btn { font-size: 1rem; height: 3.25rem; }
+.mf-login-card p[role] { font-size: 0.9375rem; }
+
+/* ------------------------------------------------------------------ */
+/* Agent console (the laptop owner's local page): the dashboard's      */
+/* language - comb backdrop, glass panels, hairline fields, switches,  */
+/* dots with words, round honey actions. Prefix ac-.                    */
+/* ------------------------------------------------------------------ */
+.ac-in { animation: mf-login-rise 0.5s cubic-bezier(0.22, 1, 0.36, 1); }
+.ac-host {
+  border-left: 1px solid rgb(255 255 255 / 0.12);
+  padding-left: 1rem;
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  letter-spacing: 0.04em;
+  color: var(--mf-fg-muted);
+}
+.ac-conn { font-size: 0.8125rem; color: color-mix(in srgb, var(--mf-fg) 80%, transparent); }
+.ac-round.mf-btn, .ac-round { height: 2.75rem; border-radius: 9999px; padding-inline: 1.1rem; border: 1px solid var(--mf-border); }
+.ac-loading { font-size: 0.9375rem; color: var(--mf-fg-muted); }
+
+/* panels */
+.ac-panel { padding: 2rem 2.25rem 2.25rem; }
+.ac-panel > .ac-panel-head { padding-bottom: 1.5rem; }
+.ac-plain { padding: 0.25rem 0 0; }
+.ac-plain > .ac-panel-head { padding-bottom: 1rem; border-bottom: 1px solid rgb(255 255 255 / 0.08); }
+.ac-lead { font-size: 1.0625rem; line-height: 1.7; color: color-mix(in srgb, var(--mf-fg) 88%, transparent); max-width: 46rem; }
+.ac-note { font-family: var(--font-mono); font-size: 0.75rem; letter-spacing: 0.03em; color: var(--mf-fg-muted); }
+.ac-fix { font-size: 0.875rem; color: var(--mf-fg); }
+.ac-link { color: #ffc93c; text-decoration: none; border-bottom: 1px solid rgb(255 201 60 / 0.35); transition: border-color 0.25s ease; }
+.ac-link:hover { border-bottom-color: #ffc93c; }
+
+/* fields */
+.ac-field { display: flex; flex-direction: column; gap: 0.625rem; }
+.ac-field .nd-label, .ac-legend, .ac-kv .nd-label { font-size: 0.75rem; letter-spacing: 0.12em; color: color-mix(in srgb, var(--mf-fg) 72%, transparent); }
+.ac-field:focus-within > .nd-label { color: #ffc93c; }
+.ac-input {
+  height: 2.875rem;
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid rgb(255 255 255 / 0.18);
+  background: transparent;
+  padding: 0 0.125rem;
+  font-size: 1rem;
+  color: var(--mf-fg);
+  outline: none;
+  border-radius: 0;
+  transition: border-color 260ms ease, box-shadow 260ms ease;
+}
+.ac-input::placeholder { color: color-mix(in srgb, var(--mf-fg) 35%, transparent); }
+.ac-input:hover { border-bottom-color: rgb(255 255 255 / 0.3); }
+.ac-input:focus { border-bottom-color: #ffc93c; box-shadow: 0 1px 0 0 #ffc93c; }
+.ac-input-code { font-family: var(--font-mono); font-size: 1.25rem; letter-spacing: 0.06em; height: 3.25rem; }
+.ac-input-num { text-align: right; font-family: var(--font-mono); font-size: 1rem; }
+.ac-input-bad { border-bottom-color: var(--mf-status-failed, #e5484d); }
+.ac-select { appearance: none; cursor: pointer; padding-right: 1.75rem;
+  background-image: linear-gradient(45deg, transparent 50%, currentColor 50%), linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position: right 0.6rem center, right 0.25rem center; background-size: 0.35rem 0.35rem; background-repeat: no-repeat; }
+.ac-select option { background: var(--mf-bg); color: var(--mf-fg); }
+
+/* rows (toggles, numbers) */
+.ac-row { padding: 1.125rem 0; border-top: 1px solid rgb(255 255 255 / 0.06); }
+.ac-set .ac-row:first-of-type { border-top: 0; }
+.ac-row-label { font-size: 0.9875rem; font-weight: 500; color: var(--mf-fg); }
+.ac-row-help { margin-top: 0.35rem; font-size: 0.875rem; line-height: 1.55; color: color-mix(in srgb, var(--mf-fg) 62%, transparent); max-width: 40rem; }
+.ac-set { padding: 1.75rem 0 0.5rem; border-top: 1px solid rgb(255 255 255 / 0.08); }
+.ac-set:first-child { border-top: 0; padding-top: 0.25rem; }
+.ac-legend { display: block; margin-bottom: 0.5rem; font-family: var(--font-mono); font-weight: 500; text-transform: uppercase; }
+
+/* switch: a checkbox drawn as a pill track with a round knob */
+.ac-switch {
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  width: 2.75rem;
+  height: 1.5rem;
+  border-radius: 9999px;
+  background: rgb(255 255 255 / 0.12);
+  border: 1px solid rgb(255 255 255 / 0.14);
+  cursor: pointer;
+  transition: background-color 0.3s ease, border-color 0.3s ease;
+}
+.ac-switch::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 1.125rem;
+  height: 1.125rem;
+  border-radius: 9999px;
+  background: var(--mf-fg);
+  transition: transform 0.32s cubic-bezier(0.22, 1, 0.36, 1), background-color 0.3s ease;
+}
+.ac-switch:checked { background: #ffc93c; border-color: #ffc93c; }
+.ac-switch:checked::after { transform: translateX(1.25rem); background: #1a1611; }
+.ac-switch:focus-visible { outline: 2px solid #ffc93c; outline-offset: 3px; }
+.ac-switch:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* dots */
+.ac-dot { width: 0.5rem; height: 0.5rem; border-radius: 9999px; flex-shrink: 0; }
+.ac-dot-ok { background: #4ade80; }
+.ac-dot-warn { background: #f5a524; }
+.ac-dot-failed { background: #ef5350; }
+.ac-dot-honey { background: #ffc93c; }
+.ac-dot-off { background: transparent; border: 1px solid color-mix(in srgb, var(--mf-fg) 45%, transparent); }
+
+/* actions */
+.ac-go.mf-btn, .ac-go { height: 3rem; border-radius: 9999px; padding-inline: 2rem; font-size: 0.9375rem; font-weight: 600; }
+.ac-quiet.mf-btn, .ac-quiet { height: 2.5rem; border-radius: 9999px; padding-inline: 1.25rem; border: 1px solid var(--mf-border); color: color-mix(in srgb, var(--mf-fg) 85%, transparent); }
+.ac-quiet:hover { border-color: var(--mf-border-strong); color: var(--mf-fg); }
+
+/* problems and notices: a coloured edge, no filled box */
+.ac-problem { border-left: 2px solid #ef5350; background: rgb(239 83 80 / 0.07); border-radius: 0 0.75rem 0.75rem 0; padding: 1rem 1.25rem; }
+.ac-warnbox { border-left: 2px solid #f5a524; background: rgb(245 165 36 / 0.07); border-radius: 0 0.75rem 0.75rem 0; padding: 1rem 1.25rem; font-size: 0.875rem; }
+.ac-danger .ov-card-title { color: #ef5350; }
+
+/* wizard rail */
+.ac-step { display: flex; gap: 1rem; position: relative; padding-bottom: 1.75rem; }
+.ac-step:last-child { padding-bottom: 0; }
+.ac-step:not(:last-child)::before {
+  content: "";
+  position: absolute;
+  left: 1rem;
+  top: 2.25rem;
+  bottom: 0.25rem;
+  width: 1px;
+  background: rgb(255 255 255 / 0.1);
+}
+.ac-step[data-state="done"]:not(:last-child)::before { background: rgb(255 201 60 / 0.45); }
+.ac-step-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2.25rem;
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  color: var(--mf-fg-muted);
+  background: rgb(255 255 255 / 0.06);
+  clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
+  transition: background-color 0.35s ease, color 0.35s ease;
+}
+.ac-step[data-state="now"] .ac-step-mark { background: #ffc93c; color: #1a1611; font-weight: 600; }
+.ac-step[data-state="done"] .ac-step-mark { background: rgb(255 201 60 / 0.18); color: #ffc93c; }
+.ac-step-title { font-size: 0.9375rem; font-weight: 500; color: color-mix(in srgb, var(--mf-fg) 60%, transparent); padding-top: 0.25rem; transition: color 0.3s ease; }
+.ac-step[data-state="now"] .ac-step-title { color: var(--mf-fg); }
+.ac-step[data-state="done"] .ac-step-title { color: color-mix(in srgb, var(--mf-fg) 82%, transparent); }
+.ac-step-hint { font-family: var(--font-mono); font-size: 0.6875rem; letter-spacing: 0.03em; color: color-mix(in srgb, var(--mf-fg) 45%, transparent); margin-top: 0.2rem; }
+.ac-hex { width: 0.6rem; height: 0.7rem; flex-shrink: 0; background: #ffc93c; clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%); }
+.ac-done-hex {
+  display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0;
+  width: 3.5rem; height: 4rem; font-size: 1.5rem; font-weight: 700; color: #1a1611; background: #ffc93c;
+  clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
+}
+
+/* checks */
+.ac-check { padding: 1.125rem 0; border-top: 1px solid rgb(255 255 255 / 0.06); }
+.ac-check:first-child { border-top: 0; padding-top: 0.5rem; }
+.ac-check-state { color: color-mix(in srgb, var(--mf-fg) 85%, transparent); white-space: nowrap; }
+.ac-details summary { list-style: none; width: fit-content; border-bottom: 1px dashed rgb(255 255 255 / 0.25); }
+
+/* home */
+.ac-figure { font-size: 1.75rem; font-weight: 300; letter-spacing: -0.02em; color: var(--mf-fg); line-height: 1.15; }
+.ac-figures { padding: 1.75rem 0; border-top: 1px solid rgb(255 255 255 / 0.08); border-bottom: 1px solid rgb(255 255 255 / 0.08); }
+.ac-kv { padding: 0.9rem 0; border-top: 1px solid rgb(255 255 255 / 0.06); }
+.ac-kvs .ac-kv:first-child { border-top: 0; padding-top: 0.25rem; }
+
+/* logs */
+.ac-line { padding: 0.65rem 0; border-top: 1px solid rgb(255 255 255 / 0.05); }
+.ac-line:first-child { border-top: 0; }
+.ac-lines .ac-dot + span { text-transform: uppercase; letter-spacing: 0.08em; font-size: 0.75rem; }
+@media (prefers-reduced-motion: reduce) { .ac-in { animation: none; } .ac-switch::after { transition: none; } }
+.ac-figure { font-size: 1.5rem; }
+/* console vibe: the landing's 3D comb as a faint watermark behind every
+   page, and the dashboard's honey highlight card on Home */
+.ac-comb { z-index: 0; }
+.ac-comb .mf-login-comb { opacity: 0.16; }
+.ac-hero { min-height: 13rem; padding: 1.75rem 2rem; border-radius: 28px; }
+.ac-hero-label { font-family: var(--font-mono); font-size: 0.75rem; letter-spacing: 0.14em; text-transform: uppercase; color: rgb(11 10 8 / 0.7); }
+.ac-hero-big { font-family: var(--font-display); font-size: 3.5rem; line-height: 1; font-weight: 700; letter-spacing: -0.04em; color: #0b0a08; }
+.ac-hero-sub { margin-top: 0.75rem; font-size: 0.9375rem; color: rgb(11 10 8 / 0.75); }
+.ac-figures { border-top: 0; border-bottom: 0; padding: 0.5rem 0; }
+/* console v2: the Overview's matte frame-B cards (grain, 28px corners,
+   notched corner buttons), big light figures */
+.ov-card.ac-panel { padding: 1.75rem 2rem 2rem; }
+.ac-fig-card { min-height: 13rem; padding: 1.5rem 1.75rem; }
+.ac-fig-big { font-size: 3.5rem; font-weight: 300; line-height: 1; color: var(--mf-fg); display: flex; align-items: baseline; }
+.ac-fig-text { font-size: 2rem; letter-spacing: -0.02em; word-break: break-all; }
+.ac-hero { min-height: 13rem; }

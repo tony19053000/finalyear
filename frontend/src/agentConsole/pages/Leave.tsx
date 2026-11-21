@@ -3,11 +3,10 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { Button } from "../../components/Button";
-import { Card } from "../../components/Card";
 import { Dialog } from "../../components/Dialog";
 import { useToast } from "../../components/toastContext";
 import { consoleApi, consoleKeys, explain, type StatusView } from "../api";
-import { Problem } from "../components/fields";
+import { Panel, Problem } from "../components/fields";
 
 export function Leave({ status }: { status: StatusView }) {
   const client = useQueryClient();
@@ -24,19 +23,24 @@ export function Leave({ status }: { status: StatusView }) {
     },
   });
   return (
-    <Card title="Leave this fabric">
-      <div className="flex flex-col gap-3 text-sm text-fg">
-        <p>
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-8">
+    <div>
+      <p className="nd-label">Leave</p>
+      <p className="mt-3 font-display text-[3rem] leading-none font-bold tracking-[-0.04em] text-fg">Leave the hive</p>
+    </div>
+    <Panel title="Leave this fabric" className="ac-danger">
+      <div className="flex flex-col gap-6">
+        <p className="ac-lead">
           This laptop stops taking jobs at once, disconnects from the fabric
           {status.fabric_id !== null && status.fabric_id !== undefined ? ` ${status.fabric_id}` : ""} and forgets its key and
           certificate. Jobs running here now are stopped.
         </p>
-        <p className="text-fg-muted">
+        <p className="ac-row-help">
           To come back later you need a new join code; the laptop then appears as a new node. Your settings on this laptop are kept.
           The fabric admin may also remove the old entry from the dashboard.
         </p>
         <div>
-          <Button variant="danger" onClick={() => { setOpen(true); }}>
+          <Button variant="danger" className="ac-go" onClick={() => { setOpen(true); }}>
             Leave the fabric…
           </Button>
         </div>
@@ -57,6 +61,7 @@ export function Leave({ status }: { status: StatusView }) {
       >
         {leave.isError && <Problem title="Could not leave" {...explain(leave.error)} />}
       </Dialog>
-    </Card>
+    </Panel>
+    </div>
   );
 }

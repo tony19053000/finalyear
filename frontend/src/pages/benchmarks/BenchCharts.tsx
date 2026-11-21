@@ -79,11 +79,11 @@ export function CompareBars({ bars, format, label }: { bars: readonly CompareBar
       {bars.map((b) => (
         <li key={b.key} className="grid grid-cols-[minmax(0,15rem)_minmax(0,1fr)] items-center gap-x-8">
           <span className="flex min-w-0 flex-col">
-            <span className={cn("truncate text-[0.9375rem]", b.tone === "hive" ? "font-medium text-fg" : "text-fg-muted")} title={b.label}>
+            <span className={cn("truncate text-[0.9375rem]", b.tone === "hive" ? "font-medium text-fg" : "text-fg")} title={b.label}>
               {b.label}
             </span>
             {b.sub !== undefined && (
-              <span className={cn("jb-tag mt-0.5 text-[0.625rem]", b.tone === "hive" ? "text-[#ffc93c]" : "text-fg-subtle")}>{b.sub}</span>
+              <span className={cn("jb-tag mt-0.5 text-[0.625rem]", b.tone === "hive" ? "text-[#ffc93c]" : "text-fg-muted")}>{b.sub}</span>
             )}
           </span>
           <svg aria-hidden="true" className={cn("block h-6 w-full overflow-visible", barClass(b.tone))}>
@@ -214,17 +214,17 @@ export function LineChart({
           {yTicks.map((t) => (
             <g key={`y${String(t)}`}>
               <line x1={PAD.l} x2={width - PAD.r} y1={y(t)} y2={y(t)} stroke="#ffffff" strokeOpacity={t === yTicks[0] ? 0.1 : 0.05} />
-              <text x={PAD.l - 10} y={y(t) + 3} textAnchor="end" className="fill-fg-subtle font-mono text-[10px]">
+              <text x={PAD.l - 10} y={y(t) + 3} textAnchor="end" className="fill-fg-muted font-mono text-[11px]">
                 {formatY(t)}
               </text>
             </g>
           ))}
           {xs.map((v) => (
-            <text key={`x${String(v)}`} x={x(v)} y={height - 12} textAnchor="middle" className="fill-fg-subtle font-mono text-[10px]">
+            <text key={`x${String(v)}`} x={x(v)} y={height - 12} textAnchor="middle" className="fill-fg-muted font-mono text-[11px]">
               {formatX(v)}
             </text>
           ))}
-          <text x={width - PAD.r} y={height - 1} textAnchor="end" className="fill-fg-subtle font-mono text-[9px] tracking-[0.12em] uppercase">
+          <text x={width - PAD.r} y={height - 1} textAnchor="end" className="fill-fg-muted font-mono text-[10px] tracking-[0.12em] uppercase">
             {xLabel}
             {logX ? " · log" : ""}
           </text>

@@ -19,15 +19,15 @@ export function useNodeNames(): (id: string) => string {
 export function useScrolled(ref: RefObject<HTMLElement | null>): boolean {
   const [scrolled, setScrolled] = useState(false);
   useEffect(() => {
-    const el = ref.current;
-    if (el === null) return;
-    const update = () => {
-      setScrolled(el.scrollTop > 2);
+    // listen on the document (scroll does not bubble, so capture): the
+    // scroll box often mounts after this effect ran (it waits for data)
+    const update = (event: Event) => {
+      const el = ref.current;
+      if (el !== null && event.target === el) setScrolled(el.scrollTop > 2);
     };
-    update();
-    el.addEventListener("scroll", update, { passive: true });
+    document.addEventListener("scroll", update, { capture: true, passive: true });
     return () => {
-      el.removeEventListener("scroll", update);
+      document.removeEventListener("scroll", update, { capture: true });
     };
   }, [ref]);
   return scrolled;

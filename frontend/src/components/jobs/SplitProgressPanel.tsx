@@ -55,10 +55,20 @@ function seconds(value: number | null | undefined): string {
 
 function rate(value: number | null | undefined): string {
   if (value == null || !Number.isFinite(value)) return "—";
-  return value >= 100 ? `${value.toFixed(0)} items/s` : `${value.toPrecision(3)} items/s`;
+  return value >= 100
+    ? `${value.toFixed(0)} items/s`
+    : `${value.toPrecision(3)} items/s`;
 }
 
-function Stat({ label, children, field }: { label: string; children: ReactNode; field: string }) {
+function Stat({
+  label,
+  children,
+  field,
+}: {
+  label: string;
+  children: ReactNode;
+  field: string;
+}) {
   return (
     <div className="flex min-w-0 flex-col gap-2">
       <dt className="nd-label">{label}</dt>
@@ -72,17 +82,26 @@ function Stat({ label, children, field }: { label: string; children: ReactNode; 
 function Overview({ progress }: { progress: SplitProgress }) {
   const now = useServerNow();
   const { chunks } = progress;
-  const percent = progress.items_total > 0 ? (progress.items_done * 100) / progress.items_total : null;
+  const percent =
+    progress.items_total > 0
+      ? (progress.items_done * 100) / progress.items_total
+      : null;
   const elapsed = liveElapsed(progress, now);
-  const combining = progress.job_state === "collecting" && progress.queue_state === "done";
+  const combining =
+    progress.job_state === "collecting" && progress.queue_state === "done";
   return (
     <section aria-label="Progress" className="flex flex-col gap-6">
       <div className="flex items-end justify-between gap-6 px-2">
         <p className="ov-figure text-[3.5rem] text-fg">
-          <span data-field="percent">{percent == null ? "—" : `${Math.floor(percent).toString()}%`}</span>
+          <span data-field="percent">
+            {percent == null ? "—" : `${Math.floor(percent).toString()}%`}
+          </span>
         </p>
         <span className="mb-2 inline-flex items-center gap-2.5 font-mono text-[0.6875rem] tracking-[0.14em] text-fg-muted uppercase">
-          <span aria-hidden="true" className={`nd-light ${stateLight(progress.job_state)}`} />
+          <span
+            aria-hidden="true"
+            className={`nd-light ${stateLight(progress.job_state)}`}
+          />
           {progress.job_state}
         </span>
       </div>
@@ -109,7 +128,11 @@ function Overview({ progress }: { progress: SplitProgress }) {
           {rate(progress.rate_items_s)}
         </Stat>
         <Stat label="ETA" field="eta">
-          {progress.ended_at != null ? "—" : progress.eta_s == null ? "not measured yet" : seconds(progress.eta_s)}
+          {progress.ended_at != null
+            ? "—"
+            : progress.eta_s == null
+              ? "not measured yet"
+              : seconds(progress.eta_s)}
         </Stat>
         <Stat label="Elapsed / predicted" field="makespan">
           {seconds(elapsed)} / {seconds(progress.predicted_s)}
@@ -122,19 +145,22 @@ function Overview({ progress }: { progress: SplitProgress }) {
       </dl>
       {combining && (
         <p role="status" className="px-2 text-sm text-fg-muted">
-          Every chunk is done; the chunk results are being combined into the job&apos;s output.
+          Every chunk is done; the chunk results are being combined into the
+          job&apos;s output.
         </p>
       )}
       {progress.queue_state == null && (
         <p role="status" className="px-2 text-sm text-fg-muted">
-          Not placed yet: the chunks are created when the planner places the job.
+          Not placed yet: the chunks are created when the planner places the
+          job.
         </p>
       )}
       {progress.warnings.length > 0 && (
         <ul aria-label="Split warnings" className="flex flex-col gap-1 px-2">
           {progress.warnings.map((w) => (
             <li key={w.code} className="text-sm">
-              <span className="font-mono text-status-degraded">{w.code}</span> ×{w.count}
+              <span className="font-mono text-status-degraded">{w.code}</span> ×
+              {w.count}
             </li>
           ))}
         </ul>
@@ -146,13 +172,21 @@ function Overview({ progress }: { progress: SplitProgress }) {
 function Legend({ map }: { map: string }) {
   const counts = mapCounts(map);
   return (
-    <ul aria-label="Chunk states" className="flex flex-wrap gap-x-8 gap-y-2 font-mono text-[0.6875rem] tracking-[0.06em] text-fg-muted">
+    <ul
+      aria-label="Chunk states"
+      className="flex flex-wrap gap-x-8 gap-y-2 font-mono text-[0.6875rem] tracking-[0.06em] text-fg-muted"
+    >
       {(Object.keys(counts) as ChunkMapChar[]).map((ch) => (
-        <li key={ch} className="inline-flex items-center gap-2" data-legend={ch}>
+        <li
+          key={ch}
+          className="inline-flex items-center gap-2"
+          data-legend={ch}
+        >
           <svg aria-hidden="true" width="10" height="10">
             <rect width="10" height="10" rx="2" className={CELL_CLASS[ch]} />
           </svg>
-          {CHUNK_STATE_LABEL[ch]} <span className="tabular-nums">{counts[ch]}</span>
+          {CHUNK_STATE_LABEL[ch]}{" "}
+          <span className="tabular-nums">{counts[ch]}</span>
         </li>
       ))}
     </ul>
@@ -183,10 +217,15 @@ function ChunkDetail({ jobId, index }: { jobId: string; index: number }) {
     );
   }
   const c = chunk.data;
-  if (c === null) return <p className="text-sm text-fg-muted">No chunk {index}.</p>;
-  const lastItem = c.first_item == null ? null : c.first_item + c.item_count - 1;
+  if (c === null)
+    return <p className="text-sm text-fg-muted">No chunk {index}.</p>;
+  const lastItem =
+    c.first_item == null ? null : c.first_item + c.item_count - 1;
   return (
-    <dl aria-label={`Chunk ${String(index)}`} className="grid grid-cols-5 gap-x-10 gap-y-6">
+    <dl
+      aria-label={`Chunk ${String(index)}`}
+      className="grid grid-cols-5 gap-x-10 gap-y-6"
+    >
       <Stat label="Chunk" field="chunk-index">
         #{c.chunk_index}
       </Stat>
@@ -194,7 +233,9 @@ function ChunkDetail({ jobId, index }: { jobId: string; index: number }) {
         {c.state}
       </Stat>
       <Stat label="Items" field="chunk-items">
-        {c.first_item == null ? `${String(c.item_count)} items` : `${String(c.first_item)}–${String(lastItem)} (${String(c.item_count)})`}
+        {c.first_item == null
+          ? `${String(c.item_count)} items`
+          : `${String(c.first_item)}–${String(lastItem)} (${String(c.item_count)})`}
       </Stat>
       <Stat label="Node" field="chunk-node">
         <span className="font-mono text-[0.8125rem]">{c.node_id ?? "—"}</span>
@@ -204,25 +245,36 @@ function ChunkDetail({ jobId, index }: { jobId: string; index: number }) {
         {c.speculations > 0 ? ` (+${String(c.speculations)} speculative)` : ""}
       </Stat>
       <Stat label="Done at" field="chunk-done-at">
-        <span className="font-mono text-[0.8125rem]">{formatTime(c.done_at)}</span>
+        <span className="font-mono text-[0.8125rem]">
+          {formatTime(c.done_at)}
+        </span>
       </Stat>
       <Stat label="Result" field="chunk-result">
-        <span className="font-mono text-[0.8125rem]">{shortDigest(c.result_digest)}</span>
+        <span className="font-mono text-[0.8125rem]">
+          {shortDigest(c.result_digest)}
+        </span>
       </Stat>
       {c.failed_kind != null && (
         <Stat label="Failed as" field="chunk-failed">
-          <span className="font-mono text-[0.8125rem] text-status-failed">{c.failed_kind}</span>
+          <span className="font-mono text-[0.8125rem] text-status-failed">
+            {c.failed_kind}
+          </span>
         </Stat>
       )}
       {c.failed_nodes.length > 0 && (
         <Stat label="Failed on" field="chunk-failed-nodes">
-          <span className="font-mono text-[0.8125rem]">{c.failed_nodes.join(", ")}</span>
+          <span className="font-mono text-[0.8125rem]">
+            {c.failed_nodes.join(", ")}
+          </span>
         </Stat>
       )}
       {c.leases.length > 0 && (
         <Stat label="Held by" field="chunk-leases">
           {c.leases.map((l) => (
-            <span key={l.lease_seq} className="block font-mono text-[0.8125rem]">
+            <span
+              key={l.lease_seq}
+              className="block font-mono text-[0.8125rem]"
+            >
               {l.node_id} (lease {l.lease_seq}
               {l.speculative ? ", speculative" : ""})
             </span>
@@ -270,7 +322,10 @@ function ChunkTriesList({ jobId, index }: { jobId: string; index: number }) {
     return <p className="mt-6 text-sm text-fg-muted">No recorded try yet.</p>;
   }
   return (
-    <ol aria-label={`Tries of chunk ${String(index)}`} className="mt-7 flex flex-col divide-y divide-[#ffffff0f] text-sm">
+    <ol
+      aria-label={`Tries of chunk ${String(index)}`}
+      className="mt-7 flex flex-col divide-y divide-[#ffffff0f] text-sm"
+    >
       {tries.data.tries.map((t) => (
         <li key={t.lease_seq} data-field="chunk-try" className="py-4">
           <p className="font-mono text-[0.8125rem] text-fg">
@@ -281,10 +336,14 @@ function ChunkTriesList({ jobId, index }: { jobId: string; index: number }) {
             {t.exit_code != null ? ` · exit ${String(t.exit_code)}` : ""}
           </p>
           <p className="mt-1 font-mono text-2xs text-fg-muted">
-            stage {ms(t.stage_ms)} · run {ms(t.run_ms)} · upload {ms(t.upload_ms)}
+            stage {ms(t.stage_ms)} · run {ms(t.run_ms)} · upload{" "}
+            {ms(t.upload_ms)}
           </p>
           {t.stderr_tail != null && (
-            <pre data-field="chunk-stderr" className="jb-log mt-3 max-h-48 break-all whitespace-pre-wrap text-status-degraded">
+            <pre
+              data-field="chunk-stderr"
+              className="jb-log mt-3 max-h-48 break-all whitespace-pre-wrap text-status-degraded"
+            >
               {t.stderr_tail}
             </pre>
           )}
@@ -294,15 +353,27 @@ function ChunkTriesList({ jobId, index }: { jobId: string; index: number }) {
   );
 }
 
-function Chunks({ jobId, progress }: { jobId: string; progress: SplitProgress }) {
+function Chunks({
+  jobId,
+  progress,
+}: {
+  jobId: string;
+  progress: SplitProgress;
+}) {
   const [selected, setSelected] = useState<number | null>(null);
   const inputId = useId();
   const map = progress.chunk_map ?? "";
   return (
-    <section aria-label={`Chunks (${String(map.length)})`} className="ov-card ov-frost flex flex-col gap-6 px-9 pt-7 pb-8">
+    <section
+      aria-label={`Chunks (${String(map.length)})`}
+      className="flex flex-col gap-6 pt-2 pb-4"
+    >
       <header className="flex flex-wrap items-center justify-between gap-x-8 gap-y-3">
         <h2 className="ov-card-title">
-          Chunks <span className="ml-1 font-mono text-[0.75rem] font-normal text-fg-subtle tabular-nums">{map.length}</span>
+          Chunks{" "}
+          <span className="ml-1 font-mono text-[0.75rem] font-normal text-fg-subtle tabular-nums">
+            {map.length}
+          </span>
         </h2>
         {map.length > 0 && <Legend map={map} />}
       </header>
@@ -310,7 +381,15 @@ function Chunks({ jobId, progress }: { jobId: string; progress: SplitProgress })
         <p className="text-sm text-fg-muted">No chunks yet.</p>
       ) : (
         <>
-          <ChunkGrid map={map} selected={selected} onSelect={setSelected} />
+          <ChunkGrid
+            map={map}
+            selected={selected}
+            onSelect={setSelected}
+            onToggle={(i) => {
+              // a second click on the open chunk collapses its details
+              setSelected((cur) => (cur === i ? null : i));
+            }}
+          />
           <div className="flex items-end gap-4 text-sm">
             <label htmlFor={inputId} className="nd-label pb-2.5">
               Chunk #
@@ -323,16 +402,30 @@ function Chunks({ jobId, progress }: { jobId: string; progress: SplitProgress })
               value={selected ?? ""}
               onChange={(event) => {
                 const n = Number.parseInt(event.target.value, 10);
-                setSelected(Number.isInteger(n) && n >= 0 && n < map.length ? n : null);
+                setSelected(
+                  Number.isInteger(n) && n >= 0 && n < map.length ? n : null,
+                );
               }}
               className="jb-field w-24 tabular-nums"
             />
-            {selected == null && <span className="pb-2.5 text-xs text-fg-muted">click a cell or type a number</span>}
+            {selected == null && (
+              <span className="pb-2.5 text-xs text-fg-muted">
+                click a cell or type a number
+              </span>
+            )}
           </div>
           {selected != null && (
             <div className="nd-hair-t nd-in pt-7">
-              <ChunkDetail key={`${String(selected)}:${String(progress.chunks.done)}`} jobId={jobId} index={selected} />
-              <ChunkTriesList key={`tries:${String(selected)}:${String(progress.chunks.done)}:${String(progress.chunks.failed)}`} jobId={jobId} index={selected} />
+              <ChunkDetail
+                key={`${String(selected)}:${String(progress.chunks.done)}`}
+                jobId={jobId}
+                index={selected}
+              />
+              <ChunkTriesList
+                key={`tries:${String(selected)}:${String(progress.chunks.done)}:${String(progress.chunks.failed)}`}
+                jobId={jobId}
+                index={selected}
+              />
             </div>
           )}
         </>
@@ -341,13 +434,30 @@ function Chunks({ jobId, progress }: { jobId: string; progress: SplitProgress })
   );
 }
 
-function Lanes({ progress, names }: { progress: SplitProgress; names?: ReadonlyMap<string, string> }) {
+function Lanes({
+  progress,
+  names,
+}: {
+  progress: SplitProgress;
+  names?: ReadonlyMap<string, string>;
+}) {
   const total = progress.items_total;
-  const header = ["Node", "Lane", "Chunks", "Items", "Share", "Rate", "Running now", "Failed tries", "Last chunk"];
+  const header = [
+    "Node",
+    "Lane",
+    "Chunks",
+    "Items",
+    "Share",
+    "Rate",
+    "Running now",
+    "Failed tries",
+    "Last chunk",
+  ];
   return (
     <FrostTable
       title="Nodes"
       className="jb-lanes"
+      variant="glass"
       testId="lanes-card"
       meta={
         <span className="font-mono text-[0.6875rem] tracking-[0.12em] text-fg-subtle uppercase">
@@ -360,11 +470,17 @@ function Lanes({ progress, names }: { progress: SplitProgress; names?: ReadonlyM
       ) : (
         <>
           <table className="w-full border-collapse">
-            <caption className="sr-only">One row per lane: the node, what it committed and runs now</caption>
+            <caption className="sr-only">
+              One row per lane: the node, what it committed and runs now
+            </caption>
             <thead>
               <tr>
                 {header.map((h) => (
-                  <th key={h} scope="col" className="text-left font-mono font-medium tracking-[0.14em] whitespace-nowrap text-fg-subtle uppercase">
+                  <th
+                    key={h}
+                    scope="col"
+                    className="text-left font-mono font-medium tracking-[0.14em] whitespace-nowrap text-fg-subtle uppercase"
+                  >
                     {h}
                   </th>
                 ))}
@@ -378,12 +494,22 @@ function Lanes({ progress, names }: { progress: SplitProgress; names?: ReadonlyM
                     <td>
                       <span className="flex min-w-0 flex-col">
                         <span className="truncate">{name ?? lane.node_id}</span>
-                        {name !== undefined && <span className="truncate font-mono text-2xs text-fg-muted">{lane.node_id}</span>}
+                        {name !== undefined && (
+                          <span className="truncate font-mono text-2xs text-fg-muted">
+                            {lane.node_id}
+                          </span>
+                        )}
                       </span>
                     </td>
                     <td>
                       <span className="inline-flex items-center gap-2.5">
-                        <span aria-hidden="true" className={cn("nd-light", LANE_LIGHT[lane.state] ?? "bg-status-unknown")} />
+                        <span
+                          aria-hidden="true"
+                          className={cn(
+                            "nd-light",
+                            LANE_LIGHT[lane.state] ?? "bg-status-unknown",
+                          )}
+                        />
                         {lane.state}
                       </span>
                     </td>
@@ -393,15 +519,31 @@ function Lanes({ progress, names }: { progress: SplitProgress; names?: ReadonlyM
                     <td className="tabular-nums" data-field="lane-items">
                       {lane.items_done}
                     </td>
-                    <td className="tabular-nums">{total > 0 ? `${Math.round((lane.items_done * 100) / total).toString()}%` : "—"}</td>
-                    <td className="whitespace-nowrap tabular-nums">{rate(lane.rate_items_s)}</td>
-                    <td className="font-mono text-[0.8125rem]" data-field="lane-current">
+                    <td className="tabular-nums">
+                      {total > 0
+                        ? `${Math.round((lane.items_done * 100) / total).toString()}%`
+                        : "—"}
+                    </td>
+                    <td className="whitespace-nowrap tabular-nums">
+                      {rate(lane.rate_items_s)}
+                    </td>
+                    <td
+                      className="font-mono text-[0.8125rem]"
+                      data-field="lane-current"
+                    >
                       {lane.current.length === 0
                         ? "—"
-                        : lane.current.map((c) => `#${String(c.chunk_index)}${c.speculative ? "*" : ""}`).join(" ")}
+                        : lane.current
+                            .map(
+                              (c) =>
+                                `#${String(c.chunk_index)}${c.speculative ? "*" : ""}`,
+                            )
+                            .join(" ")}
                     </td>
                     <td className="tabular-nums">{lane.failed_tries}</td>
-                    <td className="font-mono text-[0.8125rem] whitespace-nowrap">{formatTime(lane.last_commit_at)}</td>
+                    <td className="font-mono text-[0.8125rem] whitespace-nowrap">
+                      {formatTime(lane.last_commit_at)}
+                    </td>
                   </tr>
                 );
               })}
@@ -409,7 +551,8 @@ function Lanes({ progress, names }: { progress: SplitProgress; names?: ReadonlyM
           </table>
           {progress.lanes_total > progress.lanes.length && (
             <p className="px-9 pt-2 text-xs text-fg-muted">
-              Showing the {progress.lanes.length} newest lanes of {progress.lanes_total}.
+              Showing the {progress.lanes.length} newest lanes of{" "}
+              {progress.lanes_total}.
             </p>
           )}
         </>
@@ -426,7 +569,11 @@ export interface SplitProgressPanelProps {
   names?: ReadonlyMap<string, string>;
 }
 
-export function SplitProgressPanel({ jobId, terminal, names }: SplitProgressPanelProps) {
+export function SplitProgressPanel({
+  jobId,
+  terminal,
+  names,
+}: SplitProgressPanelProps) {
   const split = useQuery({
     queryKey: jobKeys.split(jobId),
     queryFn: ({ signal }) => getSplit(jobId, signal),

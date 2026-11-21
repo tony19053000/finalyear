@@ -49,7 +49,7 @@ export function AttemptsTable({ attempts, names }: { attempts: readonly AttemptS
   const nameOf = (id: string) => names?.get(id);
   return (
     <div className="flex flex-col gap-12">
-      <FrostTable className="jb-att" testId="attempts-card">
+      <FrostTable className="jb-att" variant="plain" testId="attempts-card">
         <table className="w-full border-collapse">
           <caption className="sr-only">Attempts, newest first</caption>
           <Head titles={["Attempt", "Node", "State", "Result", "Started", "Ran for", "Logs"]} />

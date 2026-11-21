@@ -34,7 +34,7 @@ export function JobArtifacts({
   }
   return (
     <div className="flex flex-col gap-10">
-      <section aria-label="Outputs" className="ov-card ov-frost px-9 pt-7 pb-3">
+      <section aria-label="Outputs" className="ov-card ov-frost nd-glass px-9 pt-7 pb-3">
         <h2 className="ov-card-title">Outputs</h2>
         <ul className="mt-4 divide-y divide-[#ffffff0f]">
           {withOutputs.map((a) => {
@@ -47,9 +47,9 @@ export function JobArtifacts({
                     Attempt {a.fencing_token}
                     {a.role === "combine" ? " (combined output)" : ""} on{" "}
                     <span className="font-medium">{names?.get(a.node_id) ?? a.node_id}</span>
-                    <span className="ml-2 font-mono text-[0.6875rem] tracking-[0.12em] text-fg-muted uppercase">{a.state}</span>
+                    <span className="ml-2 font-mono text-[0.75rem] tracking-[0.12em] text-fg uppercase">{a.state}</span>
                   </span>
-                  <span className="mt-1.5 block font-mono text-2xs break-all text-fg-muted">{digest}</span>
+                  <span className="mt-1.5 block font-mono text-xs break-all text-fg/80">{digest}</span>
                   {(a.missing_outputs ?? []).length > 0 && (
                     <span className="mt-1 block text-xs text-fg-muted">
                       Declared but not found: {(a.missing_outputs ?? []).join(", ")}

@@ -42,7 +42,7 @@ function tickNumber(value: number): string {
 function DataTable({ caption, head, rows }: { caption: string; head: string[]; rows: { key: string; cells: string[] }[] }) {
   return (
     <details className="bm-numbers">
-      <summary className="cursor-pointer font-mono text-[0.625rem] font-medium tracking-[0.14em] text-fg-subtle uppercase transition-colors duration-300 hover:text-fg">
+      <summary className="cursor-pointer font-mono text-[0.625rem] font-medium tracking-[0.14em] text-fg-muted uppercase transition-colors duration-300 hover:text-fg">
         Numbers ({rows.length})
       </summary>
       <table className="mt-4 w-full border-collapse" data-testid="chart-numbers">
@@ -50,7 +50,7 @@ function DataTable({ caption, head, rows }: { caption: string; head: string[]; r
         <thead>
           <tr>
             {head.map((h) => (
-              <th key={h} scope="col" className="py-2 pr-6 text-left font-mono text-[0.625rem] font-medium tracking-[0.12em] text-fg-subtle uppercase">
+              <th key={h} scope="col" className="py-2 pr-6 text-left font-mono text-[0.6875rem] font-medium tracking-[0.12em] text-fg-muted uppercase">
                 {h}
               </th>
             ))}
@@ -60,7 +60,7 @@ function DataTable({ caption, head, rows }: { caption: string; head: string[]; r
           {rows.map((r) => (
             <tr key={r.key} className="nd-hair-t">
               {r.cells.map((c, i) => (
-                <td key={`${String(i)}-${head[i] ?? ""}`} className="py-2 pr-6 font-mono text-xs text-fg-muted tabular-nums">
+                <td key={`${String(i)}-${head[i] ?? ""}`} className="py-2 pr-6 font-mono text-[0.8125rem] text-fg/85 tabular-nums">
                   {c}
                 </td>
               ))}
@@ -183,8 +183,8 @@ function Charts({ labels }: { labels: LabelsOut }) {
   const origin = originOf(labels, family);
   const drawable = charts.filter(plottable);
   return (
-    <div className="flex flex-col gap-8">
-      <div className="flex w-72 flex-col gap-1.5 px-2">
+    <div className="flex flex-col gap-10">
+      <div className="flex w-72 flex-col gap-1.5">
         <label htmlFor={familyId} className="nd-label">
           Family
         </label>
@@ -198,7 +198,7 @@ function Charts({ labels }: { labels: LabelsOut }) {
           }}
         />
       </div>
-      <FrostCard title="Runtime vs parameter">
+      <FrostCard title="Runtime vs parameter" className="bm-plain bm-chart">
         <div className="px-10 pt-6 pb-9">
           {drawable.length === 0 ? (
             <EmptyState title="Not enough data for this chart">
@@ -217,6 +217,7 @@ function Charts({ labels }: { labels: LabelsOut }) {
       </FrostCard>
       <FrostCard
         title="Strategy comparison"
+        className="bm-plain bm-chart bm-chart-divided"
         meta={
           group === undefined ? undefined : (
             <div className="flex w-80 max-w-full flex-col gap-1.5">

@@ -30,15 +30,15 @@ export function JobLogPanel({ snapshot, maxLines, onPause, onResume, downloadHre
   const end = snapshot.end;
   const gapStreams = end === null ? [] : Object.entries(end.gaps).filter(([, ranges]) => ranges.length > 0);
   return (
-    <section aria-label="Job log" className="ov-card ov-frost flex flex-col gap-5 px-9 pt-7 pb-8">
+    <section aria-label="Job log" className="ov-card ov-frost nd-glass flex flex-col gap-5 px-9 pt-7 pb-8">
       <header className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
         <div className="flex items-center gap-6">
           <h2 className="ov-card-title">Log</h2>
-          <span className="flex items-center gap-2 font-mono text-[0.6875rem] tracking-[0.14em] text-fg-muted uppercase" data-testid="log-status">
+          <span className="flex items-center gap-2 font-mono text-[0.75rem] tracking-[0.14em] text-fg uppercase" data-testid="log-status">
             <span aria-hidden="true" className={`nd-light nd-light-sm ${status.light} ${status.breathe === true ? "nd-breathe" : ""}`} />
             {status.label}
           </span>
-          <span className="font-mono text-[0.6875rem] tracking-[0.08em] text-fg-subtle uppercase">
+          <span className="font-mono text-[0.75rem] tracking-[0.08em] text-fg-muted uppercase">
             stdout {formatBytes(snapshot.offsets.stdout)} · stderr {formatBytes(snapshot.offsets.stderr)}
           </span>
         </div>
@@ -70,7 +70,7 @@ export function JobLogPanel({ snapshot, maxLines, onPause, onResume, downloadHre
       )}
       <LogView label="Job output" lines={snapshot.lines} maxLines={maxLines} className="h-[28rem]" viewClassName="jb-log h-full min-h-40" />
       {end !== null && (
-        <p className="font-mono text-[0.6875rem] tracking-[0.06em] text-fg-muted" data-testid="log-end">
+        <p className="font-mono text-[0.8125rem] tracking-[0.06em] text-fg" data-testid="log-end">
           Job {end.state ?? "ended"}
           {end.exitCode !== null ? ` · exit code ${end.exitCode}` : ""}
           {end.failureType !== null ? ` · ${end.failureType}` : ""}

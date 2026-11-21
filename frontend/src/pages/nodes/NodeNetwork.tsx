@@ -11,7 +11,6 @@ import { Link } from "react-router-dom";
 import type { NodeSummary } from "../../api/endpoints";
 import { useNetwork } from "../../api/fabric";
 import { ErrorState } from "../../components/States";
-import { Badge } from "../../components/Status";
 import { Table, type Column } from "../../components/Table";
 import { formatAgo, formatMs, formatRate, shortId } from "../../lib/format";
 import { FrostTable } from "./FrostTable";
@@ -95,10 +94,15 @@ export function NodeNetwork({ nodeId, nodes }: { nodeId: string; nodes: readonly
         r.link ? (
           <span className="inline-flex items-center gap-2.5">
             <span className="text-fg-muted">{formatAgo(r.link.age_s)}</span>
-            {r.link.stale && <Badge tone="degraded">stale</Badge>}
+            {r.link.stale && (
+              <span className="inline-flex items-center gap-1.5 text-status-degraded">
+                <span aria-hidden="true" className="nd-light nd-light-sm bg-status-degraded" />
+                stale
+              </span>
+            )}
           </span>
         ) : (
-          <Badge tone="unknown">unknown</Badge>
+          <span className="text-fg-subtle">unknown</span>
         ),
     },
     {
@@ -137,7 +141,7 @@ export function NodeNetwork({ nodeId, nodes }: { nodeId: string; nodes: readonly
         />
       </FrostTable>
 
-      <div className="grid grid-cols-1 gap-10 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+      <div className="grid grid-cols-1 gap-10 px-10 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
         <section aria-label="Controller to this node">
           <h2 className="nd-label">Controller → this node</h2>
           {controller ? (
@@ -151,13 +155,13 @@ export function NodeNetwork({ nodeId, nodes }: { nodeId: string; nodes: readonly
             <p className="mt-4 text-sm text-fg-muted">Not measured yet - no transfer from the controller to this node so far.</p>
           )}
         </section>
-        <section aria-label="Staleness">
+        <section aria-label="Staleness" className="md:text-right">
           <h2 className="nd-label">Staleness</h2>
           <p className="ov-figure mt-4 text-[2.25rem] whitespace-nowrap text-fg sm:text-[2.75rem]">
             {Math.round(data.stale_after_s)}
             <span className="ml-1.5 text-[1.25rem] font-light tracking-normal text-fg-muted">s</span>
           </p>
-          <p className="mt-2.5 text-sm text-fg-muted">
+          <p className="mt-2.5 text-sm text-fg-muted md:ml-auto md:max-w-[26rem]">
             Measurements older than this are stale: the planner ignores them until the next probe.
           </p>
         </section>

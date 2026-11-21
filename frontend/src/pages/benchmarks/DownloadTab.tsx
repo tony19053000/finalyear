@@ -81,7 +81,7 @@ export function DownloadTab({ campaignId }: { campaignId: string }) {
 
   return (
     <div className="nd-stagger flex flex-col gap-8">
-      <FrostCard label="Downloads" className="grid grid-cols-2 gap-x-16 px-10 py-9">
+      <FrostCard label="Downloads" className="nd-glass grid grid-cols-2 gap-x-16 px-10 py-9">
         <FileBlock
           title="Run records"
           file={recordsFileName(campaignId)}
@@ -105,7 +105,7 @@ export function DownloadTab({ campaignId }: { campaignId: string }) {
           One row per (group, configuration) with its costs and the group&apos;s label.
         </FileBlock>
       </FrostCard>
-      <FrostCard title="Read the files">
+      <FrostCard title="Read the files" className="nd-glass">
         <div className="px-10 pt-5 pb-9">
           <pre aria-label="read the files" tabIndex={0} className="jb-log text-fg">
             <code>{`import pyarrow.parquet as pq\nrecords = pq.read_table("${recordsFileName(campaignId)}")\nlabels = pq.read_table("${labelsFileName(campaignId)}")`}</code>

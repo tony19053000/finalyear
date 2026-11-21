@@ -408,9 +408,29 @@ function demoAttempts(job: Record<string, unknown>) {
   const ended = String(job.updated_at);
   const started = new Date(created + 9_200).toISOString();
   if (id === "job_demo_split") {
-    return ["node_demo_asha", "node_demo_lab07", "node_demo_ravi"].map((node, k) =>
-      attempt(k + 1, node, { attempt_id: `att_split_${String(k)}`, role: "lane", started_at: started, logs: { stdout: { bytes: 18_400 + k * 3_100, truncated: false, digest: null } } }),
-    );
+    // demo: each lane uploaded a verified output archive, plus the combined result
+    const outs = ["5a1f09c3d2", "b7e24c18f0", "0c9d3a6e71"];
+    return [
+      ...["node_demo_asha", "node_demo_lab07", "node_demo_ravi"].map((node, k) =>
+        attempt(k + 1, node, {
+          attempt_id: `att_split_${String(k)}`,
+          role: "lane",
+          started_at: started,
+          output_digest: `sha256:${(outs[k] ?? "").repeat(6)}4be2`,
+          logs: { stdout: { bytes: 18_400 + k * 3_100, truncated: false, digest: null } },
+        }),
+      ),
+      attempt(4, "node_demo_asha", {
+        attempt_id: "att_split_combine",
+        role: "combine",
+        state: "succeeded",
+        exit_code: 0,
+        started_at: started,
+        ended_at: ended,
+        output_digest: DEMO_OUT,
+        missing_outputs: ["renders/preview.gif"],
+      }),
+    ];
   }
   if (id === "job_demo_send") {
     return [

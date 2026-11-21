@@ -14,7 +14,7 @@ export function JobTimeline({ transitions, terminal, now }: { transitions: reado
   const ordered = [...transitions].sort((a, b) => a.seq - b.seq);
   if (ordered.length === 0) return <p className="text-sm text-fg-muted">No state changes recorded.</p>;
   return (
-    <FrostTable className="jb-states" testId="timeline-card">
+    <FrostTable className="jb-states" variant="plain" testId="timeline-card">
       <table className="w-full border-collapse">
         <caption className="sr-only">State timeline</caption>
         <thead>
@@ -47,7 +47,7 @@ export function JobTimeline({ transitions, terminal, now }: { transitions: reado
                   ) : (
                     <>
                       {formatDuration(spent)}
-                      {next === undefined && <span className="text-fg-muted"> so far</span>}
+                      {next === undefined && <span className="ml-1.5 text-fg-muted"> so far</span>}
                     </>
                   )}
                 </td>

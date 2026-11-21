@@ -28,7 +28,7 @@ function seconds(value: number | null | undefined): string {
   return value == null ? "—" : `${String(value)} s`;
 }
 
-const BAR_H = 18;
+const BAR_H = 8;
 
 /** Frame B's thick bar: a deep→honey fill over the hatched track (SVG width attribute: no inline style). */
 function HoneyBar({ percent }: { percent: number | null }) {
@@ -36,7 +36,7 @@ function HoneyBar({ percent }: { percent: number | null }) {
   const id = useId().replace(/[^a-zA-Z0-9]/g, "");
   return (
     <div role="progressbar" aria-label="Campaign progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent === null ? undefined : Math.round(p)}>
-      <svg aria-hidden="true" className="ov-hatch block h-[18px] w-full rounded-full">
+      <svg aria-hidden="true" className="ov-hatch block h-[8px] w-full rounded-full">
         <defs>
           <linearGradient id={`bmfill${id}`} x1="0" x2="1" y1="0" y2="0">
             <stop offset="0" className="ov-stop-deep" />
@@ -60,14 +60,14 @@ function Progress({ campaign, status }: { campaign: CampaignDetail; status: Camp
   const pct = formatDonePercent(status?.done_percent);
   const number = pct.endsWith(" %") ? pct.slice(0, -2) : pct;
   return (
-    <section aria-label="Progress" className="ov-card ov-frost flex flex-col gap-9 px-10 pt-9 pb-10">
-      <div className="flex flex-col gap-5">
+    <section aria-label="Progress" className="ov-card ov-frost nd-glass flex flex-col gap-7 px-10 pt-7 pb-8">
+      <div className="flex flex-col gap-4">
         <div className="flex items-end justify-between gap-6">
-          <p className="ov-figure flex items-baseline text-[5rem] font-light text-fg" data-testid="overview-done">
+          <p className="ov-figure flex items-baseline text-[3.5rem] font-light text-fg" data-testid="overview-done">
             {number}
-            {pct.endsWith(" %") && <span className="ml-1.5 text-2xl font-light text-fg-muted">{" %"}</span>}
+            {pct.endsWith(" %") && <span className="ml-1.5 text-xl font-light text-fg-muted">{" %"}</span>}
           </p>
-          <dl className="mb-3 grid grid-cols-2 gap-x-12 text-right">
+          <dl className="mb-2 grid grid-cols-2 gap-x-12 text-right">
             <div>
               <dt className="nd-label">ETA</dt>
               <dd className="mt-2 text-[0.9375rem] text-fg tabular-nums" data-testid="overview-eta">
@@ -87,7 +87,7 @@ function Progress({ campaign, status }: { campaign: CampaignDetail; status: Camp
           <div key={state} className="min-w-0">
             <dt className="nd-label">{COUNT_LABEL[state] ?? state}</dt>
             <dd
-              className={`ov-figure mt-2.5 text-[2.25rem] font-light ${state === "failed" && counts.failed > 0 ? "text-status-failed" : "text-fg"}`}
+              className={`ov-figure mt-2 text-[1.75rem] font-light ${state === "failed" && counts.failed > 0 ? "text-status-failed" : "text-fg"}`}
               data-testid={`count-${state}`}
             >
               {counts[state]}
@@ -120,7 +120,7 @@ function Result({ campaignId }: { campaignId: string }) {
       tone: c.config_id === speed.best.config_id ? "hive" : c.config_id === speed.baseline.config_id ? "base" : "other",
     }));
   return (
-    <section aria-label="Result" className="ov-card ov-frost grid grid-cols-[minmax(0,16rem)_minmax(0,1fr)] items-center gap-x-14 px-10 py-9" data-testid="overview-result">
+    <section aria-label="Result" className="grid grid-cols-[minmax(0,16rem)_minmax(0,1fr)] items-center gap-x-14 py-6" data-testid="overview-result">
       <div className="flex flex-col gap-3">
         <p className="nd-label">Best speed-up</p>
         <p className="ov-figure flex items-baseline text-[4.25rem] font-light text-[#ffc93c]" data-testid="overview-speedup">
@@ -137,13 +137,13 @@ function Result({ campaignId }: { campaignId: string }) {
   );
 }
 
-const grid = "grid grid-cols-4 gap-x-10 gap-y-8";
+const grid = "grid gap-x-10 gap-y-8";
 
 /** Overview: run counts, progress, ETA, failure numbers, budget, throttle, how it finished, the spec. */
 export function OverviewTab({ campaign, status }: { campaign: CampaignDetail; status: CampaignStatus | undefined }) {
   const budget = specBudget(campaign.spec);
   return (
-    <div className="nd-stagger flex flex-col gap-8">
+    <div className="bm-ov nd-stagger flex flex-col gap-12">
       {status?.runner_degraded === true && (
         <p role="alert" className="text-sm text-status-degraded">
           The controller&apos;s benchmark runner is degraded (its last ticks crashed); it retries with backoff. See the
@@ -152,8 +152,8 @@ export function OverviewTab({ campaign, status }: { campaign: CampaignDetail; st
       )}
       <Progress campaign={campaign} status={status} />
       <Result campaignId={campaign.campaign_id} />
-      <div className="grid grid-cols-2 gap-8">
-        <FrostCard title="Failures">
+      <div className="bm-pair grid grid-cols-2">
+        <FrostCard title="Failures" className="bm-plain pr-12">
           <dl className={`${grid} grid-cols-3 px-10 pt-6 pb-9`}>
             <Fact label="Infra failure rate" testId="overview-infra-rate">
               {formatFraction(status?.infra_failure_rate)}
@@ -168,7 +168,7 @@ export function OverviewTab({ campaign, status }: { campaign: CampaignDetail; st
           </dl>
           <Note caps={false} className="px-10 pb-8">The infra failure rate excludes owner pre-emptions.</Note>
         </FrostCard>
-        <FrostCard title="Budget and throttle">
+        <FrostCard title="Budget and throttle" className="bm-plain bm-plain-divided pl-12">
           <dl className={`${grid} grid-cols-3 px-10 pt-6 pb-9`}>
             <Fact label="Planned runs">{campaign.run_count}</Fact>
             <Fact label="Estimated">{`${campaign.summary.estimated_hours.toFixed(1)} h`}</Fact>
@@ -193,6 +193,7 @@ export function OverviewTab({ campaign, status }: { campaign: CampaignDetail; st
       </div>
       <FrostCard
         title="Spec"
+        className="nd-glass"
         meta={
           <Note caps={false}>
             {`${String(campaign.summary.dropped)} dropped · ${String(campaign.summary.duplicates)} duplicates · ${String(campaign.summary.unsupported)} unsupported (skipped)`}

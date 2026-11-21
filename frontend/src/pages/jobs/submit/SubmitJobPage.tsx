@@ -339,12 +339,12 @@ export function SubmitJobPage() {
       <Link to="/jobs" className="sj-back">
         ← All jobs
       </Link>
-      <PageHeader title="Submit a job" description="A project folder or .zip with compute.yaml or main.py." />
+      <PageHeader title="Submit a job" />
 
       <div className="grid grid-cols-[minmax(0,3fr)_minmax(0,2fr)] items-stretch gap-8">
         <section
           aria-label="Project"
-          className="ov-card ov-frost sj-card"
+          className="ov-card ov-frost nd-glass sj-card"
           onDragOver={(event) => {
             event.preventDefault();
             if (!busy) setDragging(true);
@@ -451,7 +451,14 @@ export function SubmitJobPage() {
                 </div>
               </dl>
             ) : (
-              <div className={cn("sj-drop", dragging && "sj-drop-over")}>
+              <div
+                className={cn("sj-drop cursor-pointer", dragging && "sj-drop-over")}
+                onClick={(event) => {
+                  // anywhere in the drop area (not the two links) opens the folder picker
+                  if (busy || (event.target as HTMLElement).closest("button")) return;
+                  folderInput.current?.click();
+                }}
+              >
                 <svg
                   aria-hidden="true"
                   viewBox="0 0 32 32"
@@ -504,10 +511,7 @@ export function SubmitJobPage() {
           )}
 
           <div className="mt-6 flex flex-col">
-            <div className="flex items-baseline justify-between gap-6">
-              <p className="text-xs text-fg-subtle">
-                Same rules as <code className="font-mono">compute run</code>; only what the controller lacks is uploaded.
-              </p>
+            <div className="flex items-baseline justify-end gap-6">
               <button
                 type="button"
                 className="sj-link inline-flex shrink-0 items-center gap-1"
@@ -537,7 +541,7 @@ export function SubmitJobPage() {
           </div>
         </section>
 
-        <section aria-label="Options" className="ov-card ov-frost sj-card">
+        <section aria-label="Options" className="sj-card sj-plain">
           <div className="flex h-7 items-center">
             <h2 className="ov-card-title">Options</h2>
           </div>

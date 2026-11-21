@@ -18,10 +18,12 @@ export interface ChunkGridProps {
   map: string;
   selected: number | null;
   onSelect: (index: number) => void;
+  /** a click on a cell; defaults to onSelect */
+  onToggle?: (index: number) => void;
   className?: string;
 }
 
-export function ChunkGrid({ map, selected, onSelect, className }: ChunkGridProps) {
+export function ChunkGrid({ map, selected, onSelect, onToggle, className }: ChunkGridProps) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const [width, setWidth] = useState(0);
   useEffect(() => {
@@ -60,7 +62,7 @@ export function ChunkGrid({ map, selected, onSelect, className }: ChunkGridProps
         data-chunk={index}
         className={cn(CELL_CLASS[ch], "cursor-pointer", selected === index && "stroke-accent stroke-2")}
         onClick={() => {
-          onSelect(index);
+          (onToggle ?? onSelect)(index);
         }}
       >
         <title>{`chunk ${String(index)}: ${CHUNK_STATE_LABEL[ch]}`}</title>

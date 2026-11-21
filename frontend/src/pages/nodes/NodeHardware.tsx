@@ -12,10 +12,10 @@ import type { ReactNode } from "react";
 
 import { useNodeResources, type NodeDetail } from "../../api/fabric";
 import { ErrorState } from "../../components/States";
-import { Badge } from "../../components/Status";
 import { Table } from "../../components/Table";
 import { cn } from "../../lib/cn";
 import { formatBytes, formatDateTime, percentOf, toNumber } from "../../lib/format";
+import { Light } from "../benchmarks/benchUi";
 import { FrostTable } from "./FrostTable";
 import { PcSetupScene } from "./PcSetupScene";
 
@@ -180,8 +180,12 @@ function Scores({ node }: { node: NodeDetail }) {
                 header: "Status",
                 align: "right",
                 cell: (m) => (
-                  <span title={m.reason ?? undefined}>
-                    <Badge tone={m.status === "ok" ? "ok" : m.status === "failed" ? "failed" : "unknown"}>{m.status}</Badge>
+                  <span title={m.reason ?? undefined} className={cn("inline-flex items-center gap-2", m.status !== "ok" && "text-fg-muted")}>
+                    <Light
+                      small
+                      className={m.status === "ok" ? "bg-status-ok" : m.status === "failed" ? "bg-status-failed" : "bg-fg-subtle"}
+                    />
+                    {m.status}
                   </span>
                 ),
               },

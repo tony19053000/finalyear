@@ -53,6 +53,7 @@ export function NodeCaches({ node }: { node: NodeDetail }) {
       title="Caches"
       testId="caches-card"
       className="nd-cache"
+      variant="plain"
       meta={
         kinds.length > 0 ? (
           <span className="font-mono text-[0.6875rem] tracking-[0.12em] text-fg-subtle uppercase tabular-nums">
@@ -89,6 +90,7 @@ export function NodePolicy({ node }: { node: NodeDetail }) {
       title="Owner policy"
       testId="policy-card"
       className="nd-policy"
+      variant="glass"
       meta={<span className="font-mono text-[0.6875rem] tracking-[0.12em] text-fg-subtle uppercase">read-only</span>}
     >
       {policy == null ? (
