@@ -17,8 +17,8 @@ section: net
 priority: optional
 maintainer: MeshForge team <meshforge@example.org>
 description: |-
-  MeshForge controller (compute fabric for personal devices)
-   The control plane of a MeshForge fabric: accepts laptops into the fabric,
+  Hive controller (compute fabric for personal devices)
+   The control plane of a Hive fabric: accepts laptops into the fabric,
    plans and dispatches work to them, and serves the dashboard and REST API.
    Runs as the system service meshforge-controller with its own bundled
    PostgreSQL 16 database and Python runtime - no Docker, no system database.

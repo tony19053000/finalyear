@@ -7,10 +7,10 @@
      (app menu: MeshForge > Give Docker access) asks for an admin password every
      time (auth_admin, no keep): the docker group is root-equivalent. -->
 <policyconfig>
-  <vendor>MeshForge</vendor>
+  <vendor>Hive</vendor>
   <action id="org.meshforge.docker-access">
-    <description>Give the MeshForge service access to Docker</description>
-    <message>MeshForge wants to run jobs in Docker containers. Docker access gives full control of this computer, so an administrator must allow it.</message>
+    <description>Give the Hive service access to Docker</description>
+    <message>Hive wants to run jobs in Docker containers. Docker access gives full control of this computer, so an administrator must allow it.</message>
     <defaults>
       <allow_any>no</allow_any>
       <allow_inactive>no</allow_inactive>
