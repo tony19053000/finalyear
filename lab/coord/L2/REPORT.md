@@ -120,3 +120,12 @@ result: take 1 joined node_01M81JE9JRJ7BGYYDZH2WKTM3V 17:47 (video not good, ide
 when: 2026-11-22 18:20 (local)
 result: Hive console "What this laptop shares" on node_01M81K4K8DGSYFMT04YRQWGD5H: run jobs ON, CPU limit none, RAM limit none, jobs at once 1,
     GPU jobs ON, share GPU (Mode 2/4) OFF, VRAM limit none, without container ON, network OFF, pause benchmarks OFF -> same as team setup.
+
+### V-4 - GPU job refused after re-join ("no Docker, no torch") - check - OK (L2 side), controller side open
+when: 2026-11-22 18:22 (local)
+commands: HUMAN-approved UAC (Admin): Get-Content config\config.toml; meshforge-agent policy show; meshforge-agent doctor
+result: config.toml unchanged (2026-11-15 18:25) with [agent.envs] extra_index_urls = cu126. Policy accept_jobs True (fixed by human in console
+    after LEAD 18:16 cue), allow_unsandboxed True, GPU jobs one per GPU. doctor: version 0.17.5-4, joined OK, docker WARN not installed
+    (never was - see N3), gpu OK RTX 3050 A, cuda OK 13.1, disk 258 GiB, firewall OK, "nothing needs attention".
+BUG?: controller refuses cuda-pytorch job for node_01M81K4K8DGSYFMT04YRQWGD5H "no Docker and agent Python has no torch", but the old L2
+    node ran GPU jobs the same way (venv + cu126). Maybe the new node lacks a capability/score row the old one had. LEAD to check.
