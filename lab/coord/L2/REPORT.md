@@ -107,3 +107,11 @@ when: 2026-11-22 17:37 (local)
 commands: HUMAN-approved UAC (Admin): meshforge-agent identity reset (refused without --yes); identity reset --yes; identity show; Get-Service
 result: old revoked node_01M7Z6SD26ZBNYKR65JB9YDFPB removed; new local node_01M81JE9JRJ7BGYYDZH2WKTM3V, enrolled False, service Running.
     Cue lab/chat/20261122-173534-LEAD-to-L2.md. Next: human opens Hive join screen + recorder, then join on Aayush's GO.
+
+### V-2 - Video join scene: re-join on camera - OK
+when: 2026-11-22 17:56 (local)
+commands: HUMAN joined in Hive console (code typed by human, never seen by agent), recorded with Snipping Tool;
+    HUMAN-approved UAC (Admin): identity reset --yes (2nd, video retake); identity show; agent.log
+result: take 1 joined node_01M81JE9JRJ7BGYYDZH2WKTM3V 17:47 (video not good, identity reset -> needs LEAD revoke);
+    take 2 joined node_01M81K4K8DGSYFMT04YRQWGD5H, enrolled True, cert until 2026-12-22T12:25Z, session ONLINE (hello_accepted), service Running.
+    Video Desktop\presentation\L2-join.mp4 (9.4 MB). Note: after a service restart the console link shows "not signed in" - open Hive from Start menu.
