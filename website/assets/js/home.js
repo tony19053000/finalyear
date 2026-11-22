@@ -17,11 +17,17 @@
   function safe(fn) { try { fn(); } catch (e) { if (win.console) console.warn('[hive]', e); } }
   function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
   function smooth(a, b, v) { var t = clamp((v - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); }
-  /* the dark beats (T = 1 "Most laptops sit idle", T = 2 "So pool them"): 1 while they are on screen,
-     0 elsewhere. Every laptop is dark then: no honey cells, no warm light. On T = 1 there is nothing
-     else; on T = 2 only the thin honey network between the laptops is lit (see linksOf). The warm
-     light comes back as "Then hive decides" (T = 3) arrives. */
-  function idleOf(T) { return smooth(0.45, 0.85, T) * (1 - smooth(2.4, 2.85, T)); }
+  /* the dark look: 1 from "Most laptops sit idle" (T = 1) through the three decisions (T = 6), 0 for the
+     resting hive and as it locks (T = 7). Every laptop is dark then: no honey cells, no warm light, a cool
+     dim edge light. On T = 1 there is nothing else; from T = 2 the thin honey network between the laptops
+     is lit (see linksOf). Through the decisions only the laptops doing a job light up (their own honey
+     glow, never the shared lights). The warm light comes back as the hive locks. */
+  function idleOf(T) { return smooth(0.45, 0.85, T) * (1 - smooth(6.3, 6.75, T)); }
+  /* the decisions' framing (T = 3..6): the field spreads wider across the page, reaching in under the text
+     column (dimmed there, see --veil), so the network fills more of the screen */
+  function wideOf(T) { return smooth(2.45, 2.95, T) * (1 - smooth(6.3, 6.8, T)); }
+  /* how far the text column's dark veil eases off: only under the short step texts (T = 4..6) */
+  function veilOf(T) { return 1 - 0.3 * smooth(3.35, 3.75, T) * (1 - smooth(6.3, 6.7, T)); }
   /* the network: thin honey links between every laptop. Drawn outward as T = 2 arrives (over about
      half a beat), carried through the three decisions (the jobs ride them), gone as the hive locks. */
   function linksOf(T) { return clamp((T - 1.5) / 0.5, 0, 1) * (1 - smooth(6.38, 6.68, T)); }
@@ -144,10 +150,11 @@
     function stageFade(T) { var o = 1 - smooth(7.55, 7.97, T); stage.style.setProperty('--fade', o.toFixed(3)); stage.style.visibility = o < 0.01 ? 'hidden' : ''; }
     story.subs.push(stageFade);
     stageFade(story.T);
-    // warm accents behind / instead of the comb (stage glow, fallback honey cells) go out on the idle beat
+    // warm accents behind / instead of the comb (stage glow, fallback honey cells) go out with the dark look (T = 1..6)
     function stageWarm(T) {
       stage.style.setProperty('--warm', (1 - idleOf(T)).toFixed(3));
       stage.style.setProperty('--links', smooth(0, 1, linksOf(T)).toFixed(3)); // the fallback's honey links
+      stage.style.setProperty('--veil', veilOf(T).toFixed(3));
     }
     story.subs.push(stageWarm);
     stageWarm(story.T);
@@ -172,7 +179,7 @@
     scene.add(new THREE.HemisphereLight(0xF2EDE4, 0x0B0A08, 0.42));
     var key = new THREE.DirectionalLight(0xFFE9C2, 1.05); key.position.set(-7, 9, 9); scene.add(key);
     var rim = new THREE.DirectionalLight(0xF5A623, 1.5); rim.position.set(9, -3, -7); scene.add(rim);
-    var rimWarm = new THREE.Color(0xF5A623), rimIdle = new THREE.Color(0x3C4048); // idle beat: a cool, dim edge light
+    var rimWarm = new THREE.Color(0xF5A623), rimIdle = new THREE.Color(0x3C4048); // dark look: a cool, dim edge light
     var fillL = new THREE.DirectionalLight(0x9AA6B8, 0.18); fillL.position.set(6, 2, 10); scene.add(fillL);
 
     var outer = new THREE.Group(), comb = new THREE.Group();
@@ -281,15 +288,19 @@
     // reversed paths and path edges, worked out once (the render loop must not allocate)
     var sendRev = sendPath.slice().reverse(), splitRev = splitPaths.map(function (p) { return p.slice().reverse(); });
     var sendPE = pathEdges(sendPath), splitPE = splitPaths.map(pathEdges);
+    var isSplit = new Uint8Array(cells.length); // the laptops that take a piece of the split
+    splitTo.forEach(function (i) { isSplit[i] = 1; });
 
     var mesh = new THREE.InstancedMesh(geo, mat, COUNT);
     if (mesh.instanceMatrix.setUsage) mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     comb.add(mesh);
 
     var E = edges.length;
-    var g = new Float32Array(COUNT), hot = new Float32Array(E); // per-frame glow, reused
+    var g = new Float32Array(COUNT), hot = new Float32Array(E), fl = new Float32Array(COUNT); // per-frame glow, link heat, finish flash (reused)
     /* the links: one thin quad per link, turned to face the camera every frame and sized in screen pixels,
-       so a link reads as a crisp ~1.3 px honey line with a soft glow at any zoom (GL lines are 1 device px). */
+       so a link reads as a crisp ~1.3 px honey line with a soft glow at any zoom (GL lines are 1 device px).
+       They are drawn after the cells with no depth test: the network sits on top of the field, every link
+       whole from one laptop's top face to the next, never cut into stubs by a cell in front. */
     var LINK_HALF = 3.5; // px from the centre line to the edge of the glow
     var LINK_Y = 0.03; // links sit just above each cell's live top face
     var lineGeo = new THREE.BufferGeometry();
@@ -305,17 +316,12 @@
     lineGeo.setIndex(lineIdx);
     if (lineGeo.attributes.position.setUsage) { lineGeo.attributes.position.setUsage(THREE.DynamicDrawUsage); lineGeo.attributes.aInt.setUsage(THREE.DynamicDrawUsage); }
     var lineMat = new THREE.ShaderMaterial({
-      uniforms: { uCol: { value: new THREE.Color(0xFFC93C) }, uHot: { value: new THREE.Color(0xFFF1C4) }, uHalf: { value: LINK_HALF }, uBias: { value: 0 } },
+      uniforms: { uCol: { value: new THREE.Color(0xFFC93C) }, uHot: { value: new THREE.Color(0xFFF1C4) }, uHalf: { value: LINK_HALF } },
       vertexShader: [
-        'uniform float uBias; attribute float aInt; attribute float aAcross; varying float vInt; varying float vAcross;',
+        'attribute float aInt; attribute float aAcross; varying float vInt; varying float vAcross;',
         'void main() {',
         '  vInt = aInt; vAcross = aAcross;',
-        '  vec4 mv = modelViewMatrix * vec4(position, 1.0);',
-        '  gl_Position = projectionMatrix * mv;',
-        // depth only: test as if uBias nearer the camera, so a link climbing down to a lower neighbour is not
-        // swallowed by its own cell's top, while cells well in front still hide it
-        '  vec4 nb = projectionMatrix * vec4(mv.xyz * max(0.0, 1.0 - uBias / max(length(mv.xyz), 0.001)), 1.0);',
-        '  gl_Position.z = nb.z / nb.w * gl_Position.w;',
+        '  gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);',
         '}'
       ].join('\n'),
       fragmentShader: [
@@ -328,11 +334,11 @@
         '  gl_FragColor = vec4(mix(uCol, uHot, clamp(vInt - 1.0, 0.0, 1.0) * core), a);',
         '}'
       ].join('\n'),
-      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide
+      transparent: true, depthTest: false, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide
     });
     var lines = new THREE.Mesh(lineGeo, lineMat);
     lines.frustumCulled = false;
-    lines.renderOrder = 1;
+    lines.renderOrder = 2; // after the cells and the job chunks
     comb.add(lines);
     var camL = new THREE.Vector3(), invComb = new THREE.Matrix4(), pxK = 0.001; // camera in comb space; local units per px per unit distance
 
@@ -343,16 +349,17 @@
     chunks.frustumCulled = false;
     comb.add(chunks);
 
-    var cDark = new THREE.Color(0x2E2920), cHoney = new THREE.Color(0xFFC93C), tmpC = new THREE.Color();
-    if (cDark.convertSRGBToLinear) { cDark.convertSRGBToLinear(); cHoney.convertSRGBToLinear(); }
+    var cDark = new THREE.Color(0x2E2920), cHoney = new THREE.Color(0xFFC93C), cDone = new THREE.Color(0xFFF1C4), tmpC = new THREE.Color();
+    if (cDark.convertSRGBToLinear) { cDark.convertSRGBToLinear(); cHoney.convertSRGBToLinear(); cDone.convertSRGBToLinear(); }
     var dummy = new THREE.Object3D();
     function ease(p) { return p < 0.5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2; }
     function lerp(a, b, t) { return a + (b - a) * t; }
 
     var visW = 20, visH = 10, pointer = { x: 0, y: 0 }, Ts = 0, lastSpawn = 0, textShift = 0;
     var bobPhase = 0, pulsePhase = 0; // accumulated, so speeding up never jumps
-    // framing (wide screens): x as a share of the visible width, scale, height, tilt
-    var POSE = { hx: 0.31, sx: 0.22, big: 2.6, apart: 1.35, hy: -0.7, sy: 0.15, tilt: 0.72, tiltApart: 0.98 };
+    // framing (wide screens): x as a share of the visible width, scale, height, tilt;
+    // wx / wide / wy: the decisions' wider framing (see wideOf)
+    var POSE = { hx: 0.31, sx: 0.22, big: 2.6, apart: 1.35, hy: -0.7, sy: 0.15, tilt: 0.72, tiltApart: 0.98, wx: 0.06, wide: 1.25, wy: 0.08 };
 
     function putChunk(i, x, y, z, sc) {
       if (sc <= 0.001) { dummy.position.set(0, -60, 0); dummy.scale.set(0.001, 0.001, 0.001); }
@@ -415,22 +422,23 @@
       var lock = smooth(6.55, 7.05, T) * (1 - smooth(7.2, 7.7, T));
       var exitP = smooth(7.1, 7.95, T);
       var links = linksOf(T), linkA = smooth(0, 1, links) * (1 - exitP); // links: how far drawn; linkA: how bright
-      var idle = idleOf(T), warm = 1 - idle; // idle beat: every laptop dark (see idleOf)
-      /* energy climbs through the three decisions (local: calm, hand off: livelier, split: the most)
-         and settles again as the hive locks. All of it is a function of T, so it scrubs both ways. */
+      var idle = idleOf(T), warm = 1 - idle; // dark look: every laptop dark unless it is doing a job (see idleOf)
+      var W = wideOf(T);
+      /* energy climbs through the decisions (local: calm like the network beat, hand off: livelier,
+         split: the most) and settles again as the hive locks. All of it is a function of T, so it scrubs both ways. */
       var calm = 1 - smooth(6.3, 6.9, T);
       var shake = smooth(5.4, 5.8, T) * calm;
-      var energy = (0.18 * smooth(3.4, 3.9, T) + 0.32 * smooth(4.4, 4.9, T) + 0.5 * smooth(5.4, 5.8, T)) * calm;
+      var energy = (0.32 * smooth(4.4, 4.9, T) + 0.5 * smooth(5.4, 5.8, T)) * calm;
       if (!reduced) { bobPhase += dt * (0.6 + 2.2 * energy); pulsePhase += dt * (1.6 + 8 * energy); }
 
       /* pose of the whole group: a giant comb cropped by the right edge of the page,
          a still-large field of laptops while apart, giant again when it locks */
       var wide = camera.aspect > 1.25;
       var u = visH / 10.72; // keeps the framing the same at any viewport height
-      var hx = wide ? visW * (POSE.hx + textShift) : 0, sx = wide ? visW * (POSE.sx + textShift) : 0;
-      var gx = lerp(lerp(hx, sx, smooth(0, 1, T)), hx, smooth(6.3, 7, T)) + (wide ? visW * 0.24 * exitP : 0); // drifts away from the text as it sinks
-      var gs = u * lerp(wide ? POSE.big : 1.05, wide ? POSE.apart : 0.62, S) * (1 - 0.3 * exitP);
-      var gy = u * (lerp(POSE.hy, POSE.sy, S) - exitP * 2.2);
+      var hx = wide ? visW * (POSE.hx + textShift) : 0, sx = wide ? visW * (POSE.sx + textShift) : 0, wx = wide ? visW * POSE.wx : 0;
+      var gx = lerp(lerp(lerp(hx, sx, smooth(0, 1, T)), wx, W), hx, smooth(6.3, 7, T)) + (wide ? visW * 0.24 * exitP : 0); // drifts away from the text as it sinks
+      var gs = u * lerp(wide ? POSE.big : 1.05, wide ? lerp(POSE.apart, POSE.wide, W) : 0.62, S) * (1 - 0.3 * exitP);
+      var gy = u * (lerp(POSE.hy, wide ? lerp(POSE.sy, POSE.wy, W) : POSE.sy, S) - exitP * 2.2);
       var tilt = lerp(POSE.tilt, POSE.tiltApart, S);
       outer.position.set(gx, gy, 0);
       outer.scale.set(gs, gs, gs);
@@ -442,7 +450,7 @@
 
       /* the job's journey, scrubbed by scroll */
       var k;
-      g.fill(0); hot.fill(0);
+      g.fill(0); hot.fill(0); fl.fill(0);
       for (k = 0; k < CH; k++) putChunk(k, 0, 0, 0, 0);
 
       // positions first (the chunks ride on them)
@@ -464,10 +472,13 @@
 
       var cy = cells[you];
       var u1 = clamp(T - 3.5, 0, 1), u2 = clamp(T - 4.5, 0, 1), u3 = clamp(T - 5.5, 0, 1);
-      if (T > 3.5 && T < 4.5) { // stay local: a job drops into your laptop
-        var d1 = ease(clamp((u1 - 0.12) / 0.45, 0, 1));
-        putChunk(0, cy.px, cy.py + cy.ph + lerp(3.2, 0.3, d1), cy.pz, smooth(0.05, 0.15, u1) * (1 - smooth(0.58, 0.66, u1)));
-        g[you] = smooth(0.55, 0.68, u1) * (1 - smooth(0.88, 0.99, u1));
+      if (T > 3.5 && T < 4.5) { // stay local: one job drops onto your laptop, runs there (only that cell glows), finishes
+        var d1 = ease(clamp((u1 - 0.1) / 0.3, 0, 1));
+        putChunk(0, cy.px, cy.top + lerp(3, 0.04, d1), cy.pz, smooth(0.06, 0.14, u1) * (1 - smooth(0.38, 0.46, u1))); // sinks into the top face
+        var run = smooth(0.36, 0.44, u1) * (1 - smooth(0.66, 0.71, u1));
+        var fin = smooth(0.66, 0.7, u1) * (1 - smooth(0.73, 0.86, u1)); // the finish: one bright pulse
+        g[you] = Math.max(run * (0.8 + (reduced ? 0 : 0.12 * Math.sin(t * 3.2))), fin, 0.3 * smooth(0.72, 0.84, u1)); // then softly lit
+        fl[you] = fin;
       } else if (T >= 4.5 && T < 5.5) { // hand off: along the links to another laptop, and back
         var pe = sendPE, go = clamp((u2 - 0.08) / 0.38, 0, 1), back = clamp((u2 - 0.7) / 0.24, 0, 1);
         g[you] = 0.3 * (1 - smooth(0.1, 0.2, u2)) + smooth(0.9, 0.97, u2) * 0.9 * (1 - smooth(0.98, 1, u2));
@@ -488,8 +499,8 @@
           for (var m = 0; m < spe.length; m++) hot[spe[m]] = Math.max(hot[spe[m]], smooth(0.14, 0.2, u3) * (1 - smooth(0.46, 0.52, u3)), smooth(0.64, 0.7, u3) * (1 - smooth(0.88, 0.94, u3)));
         }
       }
-      // split: honey light flickers across the whole field
-      if (shake > 0 && !reduced) for (k = 0; k < COUNT; k++) g[k] = Math.max(g[k], shake * 0.3 * Math.pow(0.5 + 0.5 * Math.sin(t * 5.5 + cells[k].phase * 7), 3));
+      // split: honey light flickers across the laptops working on a piece (and nowhere else)
+      if (shake > 0 && !reduced) for (k = 0; k < COUNT; k++) if (isSplit[k]) g[k] = Math.max(g[k], shake * 0.3 * Math.pow(0.5 + 0.5 * Math.sin(t * 5.5 + cells[k].phase * 7), 3));
       // resting hive: a slow wave of honey light rolls across it, always
       if (!reduced) { var rest = (1 - S) * (1 - exitP) * warm; for (k = 0; k < COUNT; k++) g[k] = Math.max(g[k], rest * 0.22 * Math.pow(Math.max(0, Math.sin(t * 0.45 - cells[k].x * 0.55 - cells[k].z * 0.25)), 8)); }
       // together: every cell lights as the hive locks
@@ -515,14 +526,15 @@
         // the few honey cells of the resting hive go dark while it is apart, so only the job glows
         tmpC.copy(cDark).multiplyScalar(cc.shade);
         if (cc.honey) tmpC.lerp(cHoney, (1 - smooth(0.1, 0.6, S)) * warm);
-        tmpC.lerp(cHoney, gl * (1 - cc.exit) * warm);
+        tmpC.lerp(cHoney, gl * (1 - cc.exit)); // a job's glow shows even in the dark look: it is the only light there
+        if (fl[i] > 0) tmpC.lerp(cDone, fl[i] * (1 - cc.exit));
         mesh.setColorAt(i, tmpC);
         var breathe = reduced ? 1 : 1 + 0.12 * Math.sin(t * 0.7 + cc.phase + cc.x * 0.4) * (1 - 0.6 * S);
         var es = 1 - cc.exit;
         dummy.position.set(cc.px, cc.py + lift + cc.glow * 0.16 - cc.exit * 2.4, cc.pz);
         dummy.rotation.set(cc.exit * 0.8, mix * 0.6 + S * cc.phase * 0.15, 0);
         var scl = (1 - mix * 0.18) * Math.max(0.001, es);
-        dummy.scale.set(scl, Math.max(0.001, cc.ph * breathe * (1 - mix * 0.55) * es), scl);
+        dummy.scale.set(scl, Math.max(0.001, cc.ph * breathe * (1 - mix * 0.55) * (1 + 0.1 * fl[i]) * es), scl);
         dummy.updateMatrix();
         mesh.setMatrixAt(i, dummy.matrix);
         cc.top = dummy.position.y + dummy.scale.y; // the live top of the cell (the bees land here)
@@ -539,7 +551,7 @@
         var ax = A.px, ay = A.top + LINK_Y, az = A.pz;
         var bx = lerp(ax, B.px, gw), by = lerp(ay, B.top + LINK_Y, gw), bz = lerp(az, B.pz, gw);
         var pulse = reduced ? 0 : (0.1 + 0.25 * energy) * Math.pow(Math.max(0, Math.sin(pulsePhase - edgeRank[k] * 6)), 2 + 3 * energy);
-        var inten = grow > 0.001 ? linkA * (0.4 + 0.15 * energy + pulse) * (1 - Math.max(A.exit, B.exit)) + hot[k] * (1.3 + 0.4 * energy) * warm : 0;
+        var inten = grow > 0.001 ? linkA * (0.4 + 0.15 * energy + pulse) * (1 - Math.max(A.exit, B.exit)) + hot[k] * (1.3 + 0.4 * energy) : 0;
         // side vector: across the link, facing the camera; its length is LINK_HALF px at each end
         var dx = bx - ax, dy = by - ay, dz = bz - az;
         var mx = (ax + bx) / 2 - camL.x, my = (ay + by) / 2 - camL.y, mz = (az + bz) / 2 - camL.z;
@@ -558,7 +570,6 @@
       lineGeo.attributes.position.needsUpdate = true;
       lineGeo.attributes.aInt.needsUpdate = true;
       lines.visible = linkA > 0.002;
-      lineMat.uniforms.uBias.value = 0.75 * gs; // about one and a half cell radii, in world units
 
       mesh.instanceMatrix.needsUpdate = true;
       chunks.instanceMatrix.needsUpdate = true;
