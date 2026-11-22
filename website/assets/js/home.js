@@ -2,7 +2,8 @@
    - smooth scroll (Lenis, optional), line reveals, magnetic buttons
    - one sticky three.js honeycomb tells the opening story, scrubbed by scroll (reversible):
        the hive -> laptops drift apart (dark) -> a thin honey network links them all -> a job rides the links
-       (stay local / hand off / split) -> everything locks back into one glowing hive -> it sinks away
+       (stay local / hand off) -> split: the laptops pack into one big comb, a job breaks into pieces that fly
+       out to twelve cells and come home as one answer -> the comb glows as one locked hive -> it sinks away
    - benchmark bars, count-up stats, live mini-UIs for the four parts
    The bees (Buzz) live in assets/js/bees.js on their own overlay; the comb shares a small API (HIVE.comb).
    (bees.js is not loaded for now; HIVE.comb stays, unused, so the bees can come back unchanged.)
@@ -21,7 +22,8 @@
      resting hive and as it locks (T = 7). Every laptop is dark then: no honey cells, no warm light, a cool
      dim edge light. On T = 1 there is nothing else; from T = 2 the thin honey network between the laptops
      is lit (see linksOf). Through the decisions only the laptops doing a job light up (their own honey
-     glow, never the shared lights). The warm light comes back as the hive locks. */
+     glow, never the shared lights; the split's packed comb is dark honey and gets back some warm edge light).
+     The warm light comes back as the hive locks. */
   function idleOf(T) { return smooth(0.45, 0.85, T) * (1 - smooth(6.3, 6.75, T)); }
   /* the decisions' framing (T = 3..6): the field spreads wider across the page, reaching in under the text
      column (dimmed there, see --veil), so the network fills more of the screen */
@@ -30,7 +32,11 @@
   function veilOf(T) { return 1 - 0.3 * smooth(3.35, 3.75, T) * (1 - smooth(6.3, 6.7, T)); }
   /* the network: thin honey links between every laptop. Drawn outward as T = 2 arrives (over about
      half a beat), carried through the three decisions (the jobs ride them), gone as the hive locks. */
-  function linksOf(T) { return clamp((T - 1.5) / 0.5, 0, 1) * (1 - smooth(6.38, 6.68, T)); }
+  function linksOf(T) { return clamp((T - 1.5) / 0.5, 0, 1) * (1 - smooth(5.42, 5.68, T)); }
+  /* the split (T = 6) packs every laptop back into one tight comb: from the end of the hand-off the
+     spread network closes in (the links shrink and fade as neighbours touch) and the comb is framed big,
+     filling most of the screen. It stays packed into the lock (T = 7), which only lights it up. */
+  function packOf(T) { return smooth(5.4, 5.75, T); }
   function whenVisible(el, onShow, onHide, threshold) {
     if (!hasIO) { onShow(); return null; }
     var io = new IntersectionObserver(function (en) {
@@ -279,24 +285,38 @@
     var edgeRank = edges.map(function (e) { return (depth[e[0]] + rnd() * 0.6) / Math.max(1, meshInfo.maxDepth); });
     function pathTo(target) { var p = [target]; while (parent[p[0]]) p.unshift(parent[p[0]].n); return p; }
     function pathEdges(path) { var ks = []; for (var i = 1; i < path.length; i++) ks.push(parent[path[i]].k); return ks; }
-    // hand-off target: two hops away; split targets: up to twelve laptops at one or two hops
+    // hand-off target: two hops away on the network
     var two = [], one = [];
     cells.forEach(function (c, i) { if (depth[i] === 2) two.push(i); if (depth[i] === 1) one.push(i); });
     var sendTo = (two.length ? two : one)[0];
-    var splitTo = one.concat(two).slice(0, 12);
-    var sendPath = pathTo(sendTo), splitPaths = splitTo.map(pathTo);
-    // reversed paths and path edges, worked out once (the render loop must not allocate)
-    var sendRev = sendPath.slice().reverse(), splitRev = splitPaths.map(function (p) { return p.slice().reverse(); });
-    var sendPE = pathEdges(sendPath), splitPE = splitPaths.map(pathEdges);
-    var isSplit = new Uint8Array(cells.length); // the laptops that take a piece of the split
-    splitTo.forEach(function (i) { isSplit[i] = 1; });
+    var sendPath = pathTo(sendTo);
+    // reversed path and path edges, worked out once (the render loop must not allocate)
+    var sendRev = sendPath.slice().reverse();
+    var sendPE = pathEdges(sendPath);
+    /* split targets: twelve cells of the packed comb, one in each 30-degree slice around your cell
+       (alternately the second and the outer ring, picked at random inside the slice), so the pieces fan
+       out evenly across the whole comb. In order round the comb, so they leave in a sweep. */
+    var splitTo = [];
+    for (var sl0 = 0; sl0 < 12; sl0++) {
+      var pool = [], want = sl0 % 2 ? N : 2;
+      for (var ci0 = 0; ci0 < COUNT; ci0++) {
+        var c0 = cells[ci0];
+        if (ci0 === you || c0.ring < 2) continue;
+        var ang = (Math.atan2(c0.z, c0.x) + Math.PI * 2) % (Math.PI * 2);
+        if (Math.floor(ang / (Math.PI / 6) + 1e-6) % 12 === sl0) pool.push(ci0);
+      }
+      var pref = pool.filter(function (i) { return cells[i].ring === want; });
+      var from = pref.length ? pref : pool;
+      if (from.length) splitTo.push(from[Math.floor(rnd() * from.length)]);
+    }
+    meshInfo.split = splitTo.length;
 
     var mesh = new THREE.InstancedMesh(geo, mat, COUNT);
     if (mesh.instanceMatrix.setUsage) mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     comb.add(mesh);
 
     var E = edges.length;
-    var g = new Float32Array(COUNT), hot = new Float32Array(E), fl = new Float32Array(COUNT); // per-frame glow, link heat, finish flash (reused)
+    var g = new Float32Array(COUNT), hot = new Float32Array(E), fl = new Float32Array(COUNT), am = new Float32Array(COUNT); // per-frame glow, link heat, finish flash, amber share (reused)
     /* the links: one thin quad per link, turned to face the camera every frame and sized in screen pixels,
        so a link reads as a crisp ~1.3 px honey line with a soft glow at any zoom (GL lines are 1 device px).
        They are drawn after the cells with no depth test: the network sits on top of the field, every link
@@ -349,8 +369,8 @@
     chunks.frustumCulled = false;
     comb.add(chunks);
 
-    var cDark = new THREE.Color(0x2E2920), cHoney = new THREE.Color(0xFFC93C), cDone = new THREE.Color(0xFFF1C4), tmpC = new THREE.Color();
-    if (cDark.convertSRGBToLinear) { cDark.convertSRGBToLinear(); cHoney.convertSRGBToLinear(); cDone.convertSRGBToLinear(); }
+    var cDark = new THREE.Color(0x2E2920), cHoney = new THREE.Color(0xFFC93C), cDone = new THREE.Color(0xFFF1C4), cAmber = new THREE.Color(0xF5A623), tmpC = new THREE.Color(), tmpH = new THREE.Color();
+    if (cDark.convertSRGBToLinear) { cDark.convertSRGBToLinear(); cHoney.convertSRGBToLinear(); cDone.convertSRGBToLinear(); cAmber.convertSRGBToLinear(); }
     var dummy = new THREE.Object3D();
     function ease(p) { return p < 0.5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2; }
     function lerp(a, b, t) { return a + (b - a) * t; }
@@ -359,7 +379,9 @@
     var bobPhase = 0, pulsePhase = 0; // accumulated, so speeding up never jumps
     // framing (wide screens): x as a share of the visible width, scale, height, tilt;
     // wx / wide / wy: the decisions' wider framing (see wideOf)
-    var POSE = { hx: 0.31, sx: 0.22, big: 2.6, apart: 1.35, hy: -0.7, sy: 0.15, tilt: 0.72, tiltApart: 0.98, wx: 0.06, wide: 1.25, wy: 0.08 };
+    // kx / kbig / ky / kTilt: the split's packed comb, framed big (narrow screens: kNarrow)
+    var POSE = { hx: 0.31, sx: 0.22, big: 2.6, apart: 1.35, hy: -0.7, sy: 0.15, tilt: 0.72, tiltApart: 0.98, wx: 0.06, wide: 1.25, wy: 0.08,
+      kx: 0.07, kbig: 2.3, ky: -1.3, kTilt: 0.95, kNarrow: 1.2 };
 
     function putChunk(i, x, y, z, sc) {
       if (sc <= 0.001) { dummy.position.set(0, -60, 0); dummy.scale.set(0.001, 0.001, 0.001); }
@@ -367,6 +389,14 @@
       dummy.rotation.set(0, x * 0.4, 0);
       dummy.updateMatrix();
       chunks.setMatrixAt(i, dummy.matrix);
+    }
+    // a point flying in an arc from the top of cell a to the top of cell b (u 0..1): the split's pieces
+    function arcTo(a, b, u, out) {
+      out = out || AP;
+      var A = cells[a], B = cells[b], t = ease(clamp(u, 0, 1));
+      out[0] = lerp(A.px, B.px, t); out[2] = lerp(A.pz, B.pz, t);
+      out[1] = lerp(A.top + 0.25, B.top + 0.04, t) + Math.sin(Math.PI * t) * 1.1;
+      return out;
     }
     // a point travelling along a path of laptops (u 0..1), riding the links like a bead on a string
     // (the chunk is centred on the link, which runs between the cells' live top faces of the last frame)
@@ -418,7 +448,9 @@
       stageFade(Tg);
 
       /* how far apart the laptops are (0 = one hive, 1 = spread out) */
-      var S = smooth(0.15, 1.0, T) * (1 - 0.22 * smooth(1.4, 2.2, T)) * (1 - smooth(6.35, 7.0, T));
+      var pack = packOf(T);
+      var S = smooth(0.15, 1.0, T) * (1 - 0.22 * smooth(1.4, 2.2, T)) * (1 - pack);
+      var K = pack * (1 - smooth(6.4, 7.0, T)); // the split's big framing, handing over to the lock's
       var lock = smooth(6.55, 7.05, T) * (1 - smooth(7.2, 7.7, T));
       var exitP = smooth(7.1, 7.95, T);
       var links = linksOf(T), linkA = smooth(0, 1, links) * (1 - exitP); // links: how far drawn; linkA: how bright
@@ -427,7 +459,6 @@
       /* energy climbs through the decisions (local: calm like the network beat, hand off: livelier,
          split: the most) and settles again as the hive locks. All of it is a function of T, so it scrubs both ways. */
       var calm = 1 - smooth(6.3, 6.9, T);
-      var shake = smooth(5.4, 5.8, T) * calm;
       var energy = (0.32 * smooth(4.4, 4.9, T) + 0.5 * smooth(5.4, 5.8, T)) * calm;
       if (!reduced) { bobPhase += dt * (0.6 + 2.2 * energy); pulsePhase += dt * (1.6 + 8 * energy); }
 
@@ -440,6 +471,12 @@
       var gs = u * lerp(wide ? POSE.big : 1.05, wide ? lerp(POSE.apart, POSE.wide, W) : 0.62, S) * (1 - 0.3 * exitP);
       var gy = u * (lerp(POSE.hy, wide ? lerp(POSE.sy, POSE.wy, W) : POSE.sy, S) - exitP * 2.2);
       var tilt = lerp(POSE.tilt, POSE.tiltApart, S);
+      if (K > 0) { // the split: one packed comb, big, mid-page (reaching in under the text, dimmed by the veil)
+        gx = lerp(gx, wide ? visW * POSE.kx : 0, K);
+        gs = lerp(gs, u * (wide ? POSE.kbig : POSE.kNarrow), K);
+        gy = lerp(gy, u * POSE.ky, K);
+        tilt = lerp(tilt, POSE.kTilt, K);
+      }
       outer.position.set(gx, gy, 0);
       outer.scale.set(gs, gs, gs);
       outer.rotation.x = tilt + pointer.y * 0.08;
@@ -450,20 +487,15 @@
 
       /* the job's journey, scrubbed by scroll */
       var k;
-      g.fill(0); hot.fill(0); fl.fill(0);
+      g.fill(0); hot.fill(0); fl.fill(0); am.fill(0);
       for (k = 0; k < CH; k++) putChunk(k, 0, 0, 0, 0);
 
       // positions first (the chunks ride on them)
       for (var i = 0; i < COUNT; i++) {
         var c = cells[i];
         var sp = smooth(0, 1, clamp(S * 1.25 - c.drop * 0.25, 0, 1)); // laptops leave and return in a light stagger
-        var wider = 1 + 0.18 * shake; // the split pushes the laptops further apart
-        c.px = lerp(c.x, c.sx * wider, sp); c.pz = lerp(c.z, c.sz * wider, sp);
+        c.px = lerp(c.x, c.sx, sp); c.pz = lerp(c.z, c.sz, sp);
         c.py = lerp(0, c.sy, sp) + (reduced ? 0 : Math.sin(bobPhase + c.phase) * (0.12 + 0.45 * energy) * sp);
-        if (shake > 0 && !reduced) { // under the split every laptop trembles with work
-          var jit = 0.07 * shake * sp;
-          c.px += Math.sin(t * 23 + c.phase * 5) * jit; c.pz += Math.cos(t * 19 + c.phase * 3) * jit; c.py += Math.sin(t * 29 + c.phase) * jit;
-        }
         c.ph = lerp(c.h, 0.42 + (c.h - 0.45) * 0.25, sp);
         // exit: cells drop away one by one
         var dropT = clamp((exitP - c.drop * 0.5) / 0.5, 0, 1);
@@ -486,21 +518,28 @@
         g[sendTo] = smooth(0.44, 0.52, u2) * (1 - smooth(0.72, 0.8, u2));
         if (u2 > 0.7 && u2 < 0.95) { var pB = alongPath(sendRev, back); putChunk(1, pB[0], pB[1], pB[2], 0.65); }
         for (k = 0; k < pe.length; k++) hot[pe[k]] = Math.max(smooth(0.05, 0.15, u2) * (1 - smooth(0.5, 0.6, u2)), smooth(0.68, 0.75, u2) * (1 - smooth(0.94, 1, u2)));
-      } else if (T >= 5.5 && T < 6.5) { // split: pieces fan out along the links and come home as one answer
-        var big = smooth(0, 0.08, u3) * (1 - smooth(0.14, 0.2, u3));
-        putChunk(0, cy.px, cy.py + cy.ph + 0.5, cy.pz, 1.5 * big);
-        g[you] = 0.3 * smooth(0.08, 0.16, u3) * (1 - smooth(0.22, 0.3, u3)) + smooth(0.86, 0.94, u3);
-        for (var n = 0; n < splitPaths.length; n++) {
-          var path = splitPaths[n], spe = splitPE[n];
-          var out = clamp((u3 - 0.16 - n * 0.015) / 0.3, 0, 1), home = clamp((u3 - 0.66 - n * 0.012) / 0.22, 0, 1), tgt = path[path.length - 1];
-          if (u3 > 0.16 && out < 1) { var p1 = alongPath(path, out); putChunk(1 + n, p1[0], p1[1], p1[2], 0.6); }
-          else if (u3 > 0.66 && home < 1) { var p2 = alongPath(splitRev[n], home); putChunk(1 + n, p2[0], p2[1], p2[2], 0.45); }
-          g[tgt] = Math.max(g[tgt], smooth(0.44 + n * 0.01, 0.5 + n * 0.01, u3) * (1 - smooth(0.64, 0.7, u3)));
-          for (var m = 0; m < spe.length; m++) hot[spe[m]] = Math.max(hot[spe[m]], smooth(0.14, 0.2, u3) * (1 - smooth(0.46, 0.52, u3)), smooth(0.64, 0.7, u3) * (1 - smooth(0.88, 0.94, u3)));
+      } else if (T >= 5.5 && T < 7.1) { // split, on the packed comb: one big job breaks into pieces that fly out
+        // at once to twelve cells, which light up while they work; the pieces fly home and merge into one answer
+        var v3 = T - 5.5; // runs on past 1, so your cell hands its glow over to the lock smoothly
+        var big = smooth(0.14, 0.2, u3) * (1 - smooth(0.25, 0.29, u3));
+        putChunk(0, cy.px, cy.top + 0.3 + 0.08 * smooth(0.2, 0.27, u3), cy.pz, 1.35 * big * (1 + 0.15 * smooth(0.22, 0.27, u3)));
+        g[you] = 0.45 * smooth(0.16, 0.22, u3) * (1 - smooth(0.27, 0.33, u3));
+        for (var n = 0; n < splitTo.length; n++) {
+          var tgt = splitTo[n], d0 = n * 0.005, d1 = n * 0.005;
+          var out = clamp((u3 - 0.26 - d0) / 0.12, 0, 1), home = clamp((u3 - 0.7 - d1) / 0.14, 0, 1);
+          if (u3 > 0.26 + d0 && out < 1) { var p1 = arcTo(you, tgt, out); putChunk(1 + n, p1[0], p1[1], p1[2], 0.6 * (1 - smooth(0.85, 1, out))); }
+          else if (u3 > 0.7 + d1 && home < 1) { var p2 = arcTo(tgt, you, home); putChunk(1 + n, p2[0], p2[1], p2[2], 0.5 * smooth(0, 0.12, home) * (1 - smooth(0.9, 1, home))); }
+          var busy = smooth(0.36 + d0, 0.4 + d0, u3) * (1 - smooth(0.69 + d1, 0.73 + d1, u3)); // working on its piece
+          var flick = reduced ? 0.8 : 0.68 + 0.14 * Math.sin(t * 6.5 + cells[tgt].phase * 7);
+          g[tgt] = Math.max(g[tgt], busy * flick);
+          am[tgt] = busy * 0.85; // a deeper honey while working, so it stays warm (not lemon) under the text veil
+          fl[tgt] = Math.max(fl[tgt], 0.1 * busy * (reduced ? 1 : 0.5 + 0.5 * Math.sin(t * 4.1 + cells[tgt].phase * 5))); // warm highlights
         }
+        // the rest of the packed comb: dark honey, not black (it is one hive again, just not working)
+        for (k = 0; k < COUNT; k++) g[k] = Math.max(g[k], 0.16 * K);
+        fl[you] = 0.35 * smooth(0.84, 0.87, u3) * (1 - smooth(0.9, 1.0, v3)); // the one answer: a bright flash at your cell
+        g[you] = Math.max(g[you], smooth(0.84, 0.88, u3) * (1 - 0.3 * smooth(0.92, 1.1, v3)) * (1 - smooth(1.35, 1.6, v3)));
       }
-      // split: honey light flickers across the laptops working on a piece (and nowhere else)
-      if (shake > 0 && !reduced) for (k = 0; k < COUNT; k++) if (isSplit[k]) g[k] = Math.max(g[k], shake * 0.3 * Math.pow(0.5 + 0.5 * Math.sin(t * 5.5 + cells[k].phase * 7), 3));
       // resting hive: a slow wave of honey light rolls across it, always
       if (!reduced) { var rest = (1 - S) * (1 - exitP) * warm; for (k = 0; k < COUNT; k++) g[k] = Math.max(g[k], rest * 0.22 * Math.pow(Math.max(0, Math.sin(t * 0.45 - cells[k].x * 0.55 - cells[k].z * 0.25)), 8)); }
       // together: every cell lights as the hive locks
@@ -526,7 +565,7 @@
         // the few honey cells of the resting hive go dark while it is apart, so only the job glows
         tmpC.copy(cDark).multiplyScalar(cc.shade);
         if (cc.honey) tmpC.lerp(cHoney, (1 - smooth(0.1, 0.6, S)) * warm);
-        tmpC.lerp(cHoney, gl * (1 - cc.exit)); // a job's glow shows even in the dark look: it is the only light there
+        tmpC.lerp(am[i] > 0 ? tmpH.copy(cHoney).lerp(cAmber, am[i]) : cHoney, gl * (1 - cc.exit)); // a job's glow shows even in the dark look: it is the only light there
         if (fl[i] > 0) tmpC.lerp(cDone, fl[i] * (1 - cc.exit));
         mesh.setColorAt(i, tmpC);
         var breathe = reduced ? 1 : 1 + 0.12 * Math.sin(t * 0.7 + cc.phase + cc.x * 0.4) * (1 - 0.6 * S);
@@ -573,10 +612,12 @@
 
       mesh.instanceMatrix.needsUpdate = true;
       chunks.instanceMatrix.needsUpdate = true;
+      chunkMat.emissiveIntensity = 0.75 + 0.45 * K; // the split's pieces stay bright over the big, darker comb
       if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
       glow.intensity = ((2.1 + (reduced ? 0 : Math.sin(t * 0.9) * 0.5)) * (1 - 0.5 * S) + lock * 1.8 + energy * 2.6) * warm;
-      rim.color.copy(rimWarm).lerp(rimIdle, idle);
-      rim.intensity = 1.5 * (1 - 0.85 * idle);
+      var idleL = idle * (1 - 0.55 * K); // the packed comb gets back some of the warm edge light
+      rim.color.copy(rimWarm).lerp(rimIdle, idleL);
+      rim.intensity = 1.5 * (1 - 0.85 * idleL);
       glow.position.set(lerp(0, cy.px, S), 2.6, lerp(0, cy.pz, S));
       glow.distance = 9 * Math.max(1, gs / 0.86); // light range in world units grows with the comb
     }
