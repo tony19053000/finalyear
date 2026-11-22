@@ -99,3 +99,5 @@ commands:
     Stop-Service MeshForgeAgent -Force at 23:51:00; Start-Service MeshForgeAgent at 23:55:00
 result: armed 23:46:09.554; stopping 23:51:00.057; Stopped 23:51:02.912; starting 23:55:00.195; Running 23:55:00.915.
     "ready" sent 23:46:24. Stop/start times were NOT sent to L1 at the time (sent now). Job result: see L1 report.
+
+STOPPED 2026-11-22 17:34 (human "stop") - last step R2A-2; open: LEAD ML per-part gate task (new session, not this one)
