@@ -5,6 +5,7 @@
        (stay local / hand off / split) -> everything locks back into one glowing hive -> it sinks away
    - benchmark bars, count-up stats, live mini-UIs for the four parts
    The bees (Buzz) live in assets/js/bees.js on their own overlay; the comb shares a small API (HIVE.comb).
+   (bees.js is not loaded for now; HIVE.comb stays, unused, so the bees can come back unchanged.)
    Everything degrades: no WebGL -> static SVG; reduced motion -> still frames per scroll position. */
 (function () {
   'use strict';
@@ -16,6 +17,10 @@
   function safe(fn) { try { fn(); } catch (e) { if (win.console) console.warn('[hive]', e); } }
   function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
   function smooth(a, b, v) { var t = clamp((v - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); }
+  /* the "idle" beat (T = 1, "Most laptops sit idle"): 1 while it is on screen, 0 elsewhere.
+     Every laptop is dark then: no honey cells, no warm light, no threads; the honey comes back as
+     the story moves on to "So pool them" (T = 2). */
+  function idleOf(T) { return smooth(0.45, 0.85, T) * (1 - smooth(1.3, 1.75, T)); }
   function whenVisible(el, onShow, onHide, threshold) {
     if (!hasIO) { onShow(); return null; }
     var io = new IntersectionObserver(function (en) {
@@ -135,6 +140,10 @@
     function stageFade(T) { var o = 1 - smooth(7.55, 7.97, T); stage.style.setProperty('--fade', o.toFixed(3)); stage.style.visibility = o < 0.01 ? 'hidden' : ''; }
     story.subs.push(stageFade);
     stageFade(story.T);
+    // warm accents behind / instead of the comb (stage glow, fallback honey cells) go out on the idle beat
+    function stageWarm(T) { stage.style.setProperty('--warm', (1 - idleOf(T)).toFixed(3)); }
+    story.subs.push(stageWarm);
+    stageWarm(story.T);
     var THREE = win.THREE;
     if (!THREE || !THREE.WebGLRenderer || !THREE.InstancedMesh) {
       fail();
@@ -156,6 +165,7 @@
     scene.add(new THREE.HemisphereLight(0xF2EDE4, 0x0B0A08, 0.42));
     var key = new THREE.DirectionalLight(0xFFE9C2, 1.05); key.position.set(-7, 9, 9); scene.add(key);
     var rim = new THREE.DirectionalLight(0xF5A623, 1.5); rim.position.set(9, -3, -7); scene.add(rim);
+    var rimWarm = new THREE.Color(0xF5A623), rimIdle = new THREE.Color(0x3C4048); // idle beat: a cool, dim edge light
     var fillL = new THREE.DirectionalLight(0x9AA6B8, 0.18); fillL.position.set(6, 2, 10); scene.add(fillL);
 
     var outer = new THREE.Group(), comb = new THREE.Group();
@@ -341,6 +351,7 @@
       var threads = smooth(1.35, 2.25, T) * (1 - smooth(6.3, 6.85, T));
       var lock = smooth(6.55, 7.05, T) * (1 - smooth(7.2, 7.7, T));
       var exitP = smooth(7.1, 7.95, T);
+      var idle = idleOf(T), warm = 1 - idle; // idle beat: every laptop dark (see idleOf)
       /* energy climbs through the three decisions (local: calm, hand off: livelier, split: the most)
          and settles again as the hive locks. All of it is a function of T, so it scrubs both ways. */
       var calm = 1 - smooth(6.3, 6.9, T);
@@ -416,7 +427,7 @@
       // split: honey light flickers across the whole field
       if (shake > 0 && !reduced) for (k = 0; k < COUNT; k++) g[k] = Math.max(g[k], shake * 0.3 * Math.pow(0.5 + 0.5 * Math.sin(t * 5.5 + cells[k].phase * 7), 3));
       // resting hive: a slow wave of honey light rolls across it, always
-      if (!reduced) { var rest = (1 - S) * (1 - exitP); for (k = 0; k < COUNT; k++) g[k] = Math.max(g[k], rest * 0.22 * Math.pow(Math.max(0, Math.sin(t * 0.45 - cells[k].x * 0.55 - cells[k].z * 0.25)), 8)); }
+      if (!reduced) { var rest = (1 - S) * (1 - exitP) * warm; for (k = 0; k < COUNT; k++) g[k] = Math.max(g[k], rest * 0.22 * Math.pow(Math.max(0, Math.sin(t * 0.45 - cells[k].x * 0.55 - cells[k].z * 0.25)), 8)); }
       // together: every cell lights as the hive locks
       if (lock > 0) for (k = 0; k < COUNT; k++) g[k] = Math.max(g[k], lock * (0.35 + 0.35 * (1 - cells[k].ring / N)));
       flashGlow(t); // where the bees pick up and drop jobs
@@ -439,8 +450,8 @@
         var gl = Math.max(mix * 0.8, cc.glow);
         // the few honey cells of the resting hive go dark while it is apart, so only the job glows
         tmpC.copy(cDark).multiplyScalar(cc.shade);
-        if (cc.honey) tmpC.lerp(cHoney, 1 - smooth(0.1, 0.6, S));
-        tmpC.lerp(cHoney, gl * (1 - cc.exit));
+        if (cc.honey) tmpC.lerp(cHoney, (1 - smooth(0.1, 0.6, S)) * warm);
+        tmpC.lerp(cHoney, gl * (1 - cc.exit) * warm);
         mesh.setColorAt(i, tmpC);
         var breathe = reduced ? 1 : 1 + 0.12 * Math.sin(t * 0.7 + cc.phase + cc.x * 0.4) * (1 - 0.6 * S);
         var es = 1 - cc.exit;
@@ -461,7 +472,7 @@
         linePos[k * 6] = A.px; linePos[k * 6 + 1] = ya; linePos[k * 6 + 2] = A.pz;
         linePos[k * 6 + 3] = lerp(A.px, B.px, grow); linePos[k * 6 + 4] = lerp(ya, yb, grow); linePos[k * 6 + 5] = lerp(A.pz, B.pz, grow);
         var pulse = reduced ? 0 : (0.12 + 0.3 * energy) * Math.pow(Math.max(0, Math.sin(pulsePhase - edgeRank[k] * 9)), 1 + 3 * energy);
-        var inten = threads * (0.22 + 0.25 * energy + pulse) + hot[k] * (0.95 + 0.5 * energy);
+        var inten = (threads * (0.22 + 0.25 * energy + pulse) + hot[k] * (0.95 + 0.5 * energy)) * warm;
         for (var v = 0; v < 2; v++) { lineCol[k * 6 + v * 3] = HL[0] * inten; lineCol[k * 6 + v * 3 + 1] = HL[1] * inten; lineCol[k * 6 + v * 3 + 2] = HL[2] * inten; }
       }
       lineGeo.attributes.position.needsUpdate = true;
@@ -471,7 +482,9 @@
       mesh.instanceMatrix.needsUpdate = true;
       chunks.instanceMatrix.needsUpdate = true;
       if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-      glow.intensity = (2.1 + (reduced ? 0 : Math.sin(t * 0.9) * 0.5)) * (1 - 0.5 * S) + lock * 1.8 + energy * 2.6;
+      glow.intensity = ((2.1 + (reduced ? 0 : Math.sin(t * 0.9) * 0.5)) * (1 - 0.5 * S) + lock * 1.8 + energy * 2.6) * warm;
+      rim.color.copy(rimWarm).lerp(rimIdle, idle);
+      rim.intensity = 1.5 * (1 - 0.85 * idle);
       glow.position.set(lerp(0, cy.px, S), 2.6, lerp(0, cy.pz, S));
       glow.distance = 9 * Math.max(1, gs / 0.86); // light range in world units grows with the comb
     }
