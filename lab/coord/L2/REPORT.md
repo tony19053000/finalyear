@@ -91,3 +91,11 @@ result: RTX 3050 A Laptop GPU, driver 592.82: current/requested power limit 48.9
     (query power.limit [N/A], known). clocks.max.graphics 3105 MHz. Idle draw 1-6 W. On AC (BatteryStatus 2, 100%),
     ORIGINAL HP charger (human confirmed). Power plan High performance. -> no power cap (unlike L4's 30 W).
     Reading: likely the "3050 A" GPU variant itself (different chip from L1/L4 RTX 3050) - not verified.
+
+### R2A-2 - Run 2A kill test (stop L2 agent mid-job) - OK
+when: 2026-11-18 23:46-23:55 (local); recorded late 2026-11-22 17:34 (session ended before the report)
+commands:
+    HUMAN-approved UAC (Admin) timer script $HOME\mf-tools\killtest.ps1 (cue lab/chat/20261118-233720-L1-to-L2.md):
+    Stop-Service MeshForgeAgent -Force at 23:51:00; Start-Service MeshForgeAgent at 23:55:00
+result: armed 23:46:09.554; stopping 23:51:00.057; Stopped 23:51:02.912; starting 23:55:00.195; Running 23:55:00.915.
+    "ready" sent 23:46:24. Stop/start times were NOT sent to L1 at the time (sent now). Job result: see L1 report.
