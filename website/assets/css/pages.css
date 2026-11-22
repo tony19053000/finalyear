@@ -44,11 +44,9 @@
 .numbered li { counter-increment: n; position: relative; padding: 14px 0 14px 54px; color: var(--muted); border-bottom: 1px solid var(--line); }
 .numbered li b { color: var(--text); font-weight: 600; }
 .numbered li::before { content: counter(n, decimal-leading-zero); position: absolute; left: 0; top: 14px; font: 500 13px/1.6 var(--f-mono); color: var(--honey); }
-.linux-more { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr); gap: 28px; margin-top: 40px; }
-.linux-more .cmd pre { font-size: 12.5px; }
 .ctrl-card { border-color: rgba(255, 201, 60, .25); }
 @media (max-width: 900px) {
-  .dl-grid, .dl-grid.two, .linux-more { grid-template-columns: 1fr; }
+  .dl-grid, .dl-grid.two { grid-template-columns: 1fr; }
 }
 @media (max-width: 520px) {
   .tabs { display: flex; width: 100%; }
@@ -218,7 +216,7 @@ details.more .cmd { margin-bottom: 16px; }
 }
 .dl-card .cmd pre { white-space: pre-wrap; word-break: break-all; }
 /* grid children must be allowed to shrink below their longest command line */
-.dl-grid > *, .linux-more > *, .up-grid > *, .stuck-card > *, .docs-layout > *, .help-cards > *, .support-hero .wrap > *, .faq .ans { min-width: 0; }
+.dl-grid > *, .up-grid > *, .stuck-card > *, .docs-layout > *, .help-cards > *, .support-hero .wrap > *, .faq .ans { min-width: 0; }
 
 /* ---------- open style (round 3): no pills, far fewer boxes ---------- */
 .ver-pill, .honey-pill { border: 0; padding: 0; border-radius: 0; color: var(--dim); }

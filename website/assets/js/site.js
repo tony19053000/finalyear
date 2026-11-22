@@ -17,8 +17,7 @@
   HIVE.downloads = {
     windows: REL + 'MeshForge-Agent-Setup-0.17.5-1.exe',
     agentDeb: REL + 'meshforge-agent_0.17.5-1_amd64.deb',
-    controllerDeb: REL + 'meshforge-controller_0.17.5-1_amd64.deb',
-    sums: REL + 'SHA256SUMS'
+    controllerDeb: REL + 'meshforge-controller_0.17.5-1_amd64.deb'
   };
 
   /* ---------- OS detection ---------- */

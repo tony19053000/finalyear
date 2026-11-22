@@ -10,8 +10,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,300;12..96,400;12..96,500;12..96,600;12..96,700&family=Geist:wght@300;400;500;600&family=Geist+Mono:wght@400;500;700&family=Instrument+Serif:ital@1&display=swap">
-  <link rel="stylesheet" href="assets/css/site.css?v=20261122f">
-  <link rel="stylesheet" href="assets/css/pages.css?v=20261122f">
+  <link rel="stylesheet" href="assets/css/site.css?v=20261122g">
+  <link rel="stylesheet" href="assets/css/pages.css?v=20261122g">
   <script>document.documentElement.classList.add('js');</script>
 </head>
 <body>
@@ -139,22 +139,6 @@
               <p class="fine">Next: <a href="docs.html#create-a-fabric">Create a fabric &rarr;</a></p>
             </article>
           </div>
-
-          <div class="linux-more">
-            <div class="reveal">
-              <h3 class="mini-h">Check a download <span class="muted">(optional)</span></h3>
-              <p class="muted">In the download folder, with <a href="https://github.com/tony19053000/finalyear/releases/download/v0.17.5/SHA256SUMS" id="download-sha256sums" data-dl="sums"><code>SHA256SUMS</code></a> next to the files, this must say <code>OK</code>:</p>
-              <div class="cmd" data-label="checksum command"><pre><code><span class="p">$ </span>sha256sum -c SHA256SUMS --ignore-missing</code></pre></div>
-            </div>
-            <div class="reveal" style="--d:.08s">
-              <h3 class="mini-h">Is it running?</h3>
-              <div class="cmd" data-label="status commands"><pre><code>systemctl status meshforge-agent     <span class="c"># or meshforge-controller</span>
-meshforge-agent doctor               <span class="c"># version, joined or not, last upgrade, Docker/GPU/disk checks</span>
-sudo meshforge-controller doctor     <span class="c"># the controller's own checks</span>
-journalctl -u meshforge-agent -n 50  <span class="c"># the agent's recent log</span></code></pre></div>
-            </div>
-          </div>
-          <p class="note reveal">One computer may have both packages: the controller can share its own CPU too. You do <strong>not</strong> need Python, Docker, PostgreSQL or a source checkout. Only Ubuntu 22.04/24.04 packages are built and tested.</p>
         </div>
       </div>
     </section>
@@ -212,7 +196,7 @@ journalctl -u meshforge-agent -n 50  <span class="c"># the agent's recent log</s
     <div class="footer-mark" aria-hidden="true"><span>hive<i>.</i></span></div>
   </footer>
 
-  <script src="assets/js/site.js?v=20261122f"></script>
+  <script src="assets/js/site.js?v=20261122g"></script>
   <script>
     /* OS tabs: auto-select by OS, #windows / #linux in the URL win, arrow keys move between tabs. */
     (function () {
