@@ -50,15 +50,15 @@
 
 [Setup]
 AppId={#AppId}
-AppName=MeshForge Agent
+AppName=Hive Agent
 AppVersion={#AppVersion}
-AppVerName=MeshForge Agent {#AppVersion}
-AppPublisher=MeshForge team
+AppVerName=Hive Agent {#AppVersion}
+AppPublisher=Hive team
 AppPublisherURL=https://github.com/tony19053000/finalyear
 AppSupportURL=https://github.com/tony19053000/finalyear
 VersionInfoVersion={#NumericVersion}
-VersionInfoProductName=MeshForge Agent
-VersionInfoDescription=MeshForge Agent Setup
+VersionInfoProductName=Hive Agent
+VersionInfoDescription=Hive Agent Setup
 DefaultDirName={autopf}\MeshForge
 UsePreviousAppDir=yes
 AppendDefaultDirName=yes
@@ -86,24 +86,30 @@ CloseApplications=no
 RestartApplications=no
 ; winservice setup edits the machine PATH; Setup broadcasts the change at the end.
 ChangesEnvironment=yes
-UninstallDisplayName=MeshForge Agent
+UninstallDisplayName=Hive Agent
 UninstallDisplayIcon={app}\{#VersionDir}\python\pythonw.exe
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Messages]
-FinishedHeadingLabel=MeshForge setup finished
+FinishedHeadingLabel=Hive setup finished
 
 [Files]
 Source: "{#BundleDir}\*"; DestDir: "{app}\{#VersionDir}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
+[InstallDelete]
+; The Start-menu entries were named "MeshForge" before the product was shown as
+; "Hive": an in-place upgrade removes the old ones (they point at an old version).
+Type: files; Name: "{autoprograms}\MeshForge.lnk"
+Type: files; Name: "{autoprograms}\MeshForge - give Docker access.lnk"
+
 [Icons]
-Name: "{autoprograms}\MeshForge"; Filename: "{app}\{#VersionDir}\python\pythonw.exe"; Parameters: "-I -m meshforge.agent.console.launcher"; WorkingDir: "{app}"; Comment: "Open the MeshForge console of this computer"
-Name: "{autoprograms}\MeshForge - give Docker access"; Filename: "{app}\{#VersionDir}\python\pythonw.exe"; Parameters: "-I -m meshforge.agent.console.launcher --docker-access"; WorkingDir: "{app}"; Comment: "Let MeshForge run jobs in Docker (asks for an administrator)"
+Name: "{autoprograms}\Hive"; Filename: "{app}\{#VersionDir}\python\pythonw.exe"; Parameters: "-I -m meshforge.agent.console.launcher"; WorkingDir: "{app}"; Comment: "Open the Hive console of this computer"
+Name: "{autoprograms}\Hive - give Docker access"; Filename: "{app}\{#VersionDir}\python\pythonw.exe"; Parameters: "-I -m meshforge.agent.console.launcher --docker-access"; WorkingDir: "{app}"; Comment: "Let Hive run jobs in Docker (asks for an administrator)"
 
 [Run]
-Filename: "{app}\{#VersionDir}\python\pythonw.exe"; Parameters: "-I -m meshforge.agent.console.launcher"; WorkingDir: "{app}"; Description: "Open MeshForge"; Flags: postinstall nowait skipifsilent runasoriginaluser; Check: ServiceHealthy
+Filename: "{app}\{#VersionDir}\python\pythonw.exe"; Parameters: "-I -m meshforge.agent.console.launcher"; WorkingDir: "{app}"; Description: "Open Hive"; Flags: postinstall nowait skipifsilent runasoriginaluser; Check: ServiceHealthy
 
 [UninstallDelete]
 ; {app} always ends in "MeshForge" (checked before install), so this removes
@@ -133,12 +139,12 @@ procedure InitializeWizard();
 begin
   SharePage := CreateOutputMsgPage(wpSelectDir,
     'What this computer will share',
-    'MeshForge runs in the background as the ' + '{#ServiceName}' + ' service.',
-    'MeshForge starts with Windows and keeps running when you sign out, so the ' +
+    'Hive runs in the background as the ' + '{#ServiceName}' + ' service.',
+    'Hive starts with Windows and keeps running when you sign out, so the ' +
     'fabric you join can use this computer''s spare CPU (and, if you allow it, ' +
     'its GPU).' + #13#10#13#10 +
     'It will NOT run anyone''s jobs until you turn on "accept jobs" in the ' +
-    'MeshForge console. GPU sharing is off and CPU use is capped at 50 % until ' +
+    'Hive console. GPU sharing is off and CPU use is capped at 50 % until ' +
     'you change it there.' + #13#10#13#10 +
     'At the end of the installation the console opens in your browser, so this ' +
     'computer can join your fabric with the code (or QR code) from the ' +
@@ -200,7 +206,7 @@ begin
         '''Stopped'', ''00:01:30'')"',
         '', SW_HIDE, ewWaitUntilTerminated, Code) or (Code <> 0) then
       Result := 'The ' + '{#ServiceName}' + ' service did not stop within 90 s. ' +
-        'Wait for running MeshForge jobs to finish, then run the installer again.';
+        'Wait for running Hive jobs to finish, then run the installer again.';
   end;
 end;
 
@@ -215,13 +221,13 @@ begin
   Params := '-I -m meshforge.agent.winservice setup --result-file "' + ResultFile +
     '" --message-file "' + MessageFile + '"';
   WizardForm.StatusLabel.Caption :=
-    'Starting MeshForge and checking that it runs (up to a minute)...';
+    'Starting Hive and checking that it runs (up to a minute)...';
   Log('Setup step: ' + SetupPython() + ' ' + Params);
   if not Exec(SetupPython(), Params, ExpandConstant('{app}'), SW_HIDE,
       ewWaitUntilTerminated, SetupResultCode) then
   begin
-    SetupMessage := 'The MeshForge setup step could not run (' +
-      SysErrorMessage(SetupResultCode) + '). MeshForge is NOT running.';
+    SetupMessage := 'The Hive setup step could not run (' +
+      SysErrorMessage(SetupResultCode) + '). Hive is NOT running.';
     SetupResultCode := -1;
   end
   else if LoadStringsFromFile(MessageFile, Lines) then
@@ -234,8 +240,8 @@ begin
     end;
   end
   else
-    SetupMessage := Format('The MeshForge setup step ended with exit code %d and no ' +
-      'message; see %s. MeshForge may NOT be running.', [SetupResultCode, ResultFile]);
+    SetupMessage := Format('The Hive setup step ended with exit code %d and no ' +
+      'message; see %s. Hive may NOT be running.', [SetupResultCode, ResultFile]);
   Log(Format('Setup step exit code: %d', [SetupResultCode]));
   SetupRan := True;
 end;
@@ -282,9 +288,9 @@ begin
     if CompareText(ParamStr(I), '/REMOVEDATA') = 0 then
       RemoveData := True;
   if (not RemoveData) and (not UninstallSilent()) then
-    RemoveData := MsgBox('Also remove all MeshForge data from this computer?' + #13#10#13#10 +
+    RemoveData := MsgBox('Also remove all Hive data from this computer?' + #13#10#13#10 +
       'This deletes this computer''s node identity (it would join ' +
-      'as a NEW node if MeshForge is installed again), its caches and logs in ' +
+      'as a NEW node if Hive is installed again), its caches and logs in ' +
       ExpandConstant('{commonappdata}') + '\MeshForge.' + #13#10#13#10 +
       'Choose No to keep them (recommended).',
       mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES;
@@ -308,7 +314,7 @@ begin
   begin
     Log('No ' + Python + ': the service cannot be removed by its own helper');
     if not UninstallSilent() then
-      MsgBox('MeshForge''s files are incomplete, so its service may stay installed. ' +
+      MsgBox('Hive''s files are incomplete, so its service may stay installed. ' +
         'In an administrator prompt run: sc.exe delete {#ServiceName}', mbError, MB_OK);
     exit;
   end;
@@ -317,7 +323,7 @@ begin
   begin
     Log(Format('Teardown exit code: %d', [Code]));
     if not UninstallSilent() then
-      MsgBox('MeshForge could not remove its service completely (exit code ' +
+      MsgBox('Hive could not remove its service completely (exit code ' +
         IntToStr(Code) + '). See ' + ExpandConstant('{%TEMP}') +
         '\meshforge-uninstall.json; an administrator can run: sc.exe delete ' +
         '{#ServiceName}', mbError, MB_OK);

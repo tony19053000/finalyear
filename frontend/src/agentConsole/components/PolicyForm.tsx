@@ -109,7 +109,7 @@ export function PolicyForm({ view, wizard = false, saving, submitLabel, onSubmit
         <Toggle
           name="allow_unsandboxed"
           label="Allow jobs without a container"
-          description="Without Docker, jobs run as the MeshForge user directly on this laptop. Only turn this on if you trust everyone in the fabric."
+          description="Without Docker, jobs run as the Hive user directly on this laptop. Only turn this on if you trust everyone in the fabric."
           checked={form.unsandboxed}
           onChange={set("unsandboxed")}
         />

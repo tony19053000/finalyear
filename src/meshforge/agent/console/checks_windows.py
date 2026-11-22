@@ -39,7 +39,7 @@ __all__ = [
 ]
 
 PEER_RULE: Final = "MeshForge-Agent-Peer"
-DOCKER_ACCESS_MENU: Final = "Start menu -> MeshForge -> MeshForge - give Docker access"
+DOCKER_ACCESS_MENU: Final = "Start menu -> Hive -> Hive - give Docker access"
 FIREWALL_PS: Final = (
     "$ErrorActionPreference = 'SilentlyContinue'; "
     f"Get-NetFirewallRule -DisplayName '{PEER_RULE}' | ForEach-Object {{ "
@@ -171,7 +171,7 @@ def firewall_verdict(
     public = _public(facts.networks)
     if not peer_on:
         why = (
-            "MeshForge only makes outgoing connections (peer file sharing is off), "
+            "Hive only makes outgoing connections (peer file sharing is off), "
             "which the Windows firewall allows; no rule is needed."
         )
         return Verdict("ok", why)
@@ -189,7 +189,7 @@ def firewall_verdict(
     if any(r.profiles & {"public", "any"} for r in matching):
         return Verdict(
             "warn",
-            f"The firewall rule {PEER_RULE} also allows Public networks; MeshForge "
+            f"The firewall rule {PEER_RULE} also allows Public networks; Hive "
             "never opens a port on Public networks.",
             f"In an administrator prompt run {firewall_sync_command(python_exe)} "
             "(Private and Domain only).",
@@ -198,7 +198,7 @@ def firewall_verdict(
         return Verdict(
             "warn",
             f"The network {', '.join(public)} is set to Public, so Windows blocks "
-            "other laptops from reaching this one there (MeshForge's rule is for "
+            "other laptops from reaching this one there (Hive's rule is for "
             "Private and Domain networks only).",
             "If this is your home or team network: Windows Settings > Network & "
             "internet > (your Wi-Fi or Ethernet) > Network profile type > Private.",

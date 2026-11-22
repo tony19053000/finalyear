@@ -80,7 +80,7 @@ def test_refusal_texts_name_both_versions_and_the_fix() -> None:
     old = check_agent_version("0.15.2", "0.17.0").reason("asha-laptop")
     assert old.startswith(f"{VERSION_UNSUPPORTED}: ")
     assert "0.15.2" in old and "0.17.0" in old and "0.16" in old
-    assert "upgrade the MeshForge agent on asha-laptop" in old
+    assert "upgrade the Hive agent on asha-laptop" in old
     new = check_agent_version("0.18.0", "0.17.0").reason("x")
     assert "upgrade the controller first" in new
     unknown = check_agent_version("weird", "0.17.0").reason()
@@ -162,7 +162,7 @@ def _manager(controller_version: str, floor: str = "") -> Any:
 @pytest.mark.parametrize(
     ("agent", "fix"),
     [
-        ("0.15.0", "upgrade the MeshForge agent on asha-laptop"),
+        ("0.15.0", "upgrade the Hive agent on asha-laptop"),
         ("0.18.0", "upgrade the controller first"),
         ("not-a-version", "agent_version"),
     ],

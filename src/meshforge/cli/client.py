@@ -672,7 +672,7 @@ class ControllerClient:
         if not isinstance(body, dict):
             raise ControllerError(
                 f"the controller answered {path} with a body that is not a JSON "
-                "object; is this URL really a MeshForge controller?",
+                "object; is this URL really a Hive controller?",
                 failure_type=FailureType.INTERNAL_ERROR,
                 details={"status": response.status_code},
             )

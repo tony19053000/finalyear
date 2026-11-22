@@ -51,7 +51,7 @@ PROG_NAME = "meshforge-controller"
 
 app = typer.Typer(
     name=PROG_NAME,
-    help="MeshForge controller (control plane) process.",
+    help="Hive controller (control plane) process.",
     add_completion=False,
 )
 token_app = typer.Typer(

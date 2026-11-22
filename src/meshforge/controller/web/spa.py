@@ -55,8 +55,8 @@ DEFAULT_DIST: Final = DIST_DIR
 IMMUTABLE: Final = "public, max-age=31536000, immutable"
 NO_CACHE: Final = "no-cache"
 NOT_BUILT_HTML: Final = """<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><title>MeshForge</title></head>
-<body><h1>MeshForge dashboard not built</h1>
+<html lang="en"><head><meta charset="utf-8"><title>Hive</title></head>
+<body><h1>Hive dashboard not built</h1>
 <p>The controller and its API (<code>/v1</code>) are running, but this
 installation has no built dashboard. Build it once:
 <code>cd frontend &amp;&amp; npm ci &amp;&amp; npm run build</code>, then reload.

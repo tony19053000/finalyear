@@ -47,7 +47,7 @@ export function ChecksList({ onRestart }: ChecksListProps) {
             {check.action === "restart" && onRestart !== undefined && (
               <div className="col-span-2">
                 <Button size="sm" variant="ghost" className="ac-quiet" onClick={onRestart}>
-                  Restart MeshForge
+                  Restart Hive
                 </Button>
               </div>
             )}

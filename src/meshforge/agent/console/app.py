@@ -115,8 +115,8 @@ _NOT_NULLABLE: Final = frozenset(
 """Policy keys a PUT may not set to ``null`` (only limits can be removed)."""
 _IMMUTABLE: Final = "public, max-age=31536000, immutable"
 NOT_BUILT_HTML: Final = """<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><title>MeshForge</title></head>
-<body><h1>MeshForge console not built</h1>
+<html lang="en"><head><meta charset="utf-8"><title>Hive</title></head>
+<body><h1>Hive console not built</h1>
 <p>The agent is running, but this installation has no built console UI.
 Developers: <code>cd frontend &amp;&amp; npm ci &amp;&amp; npm run build</code>.</p>
 </body></html>
@@ -191,9 +191,8 @@ class GuardMiddleware:
             response = _error(
                 421,
                 "wrong_host",
-                "The MeshForge console answers only at http://127.0.0.1 on this "
-                "laptop.",
-                "Open it from the MeshForge entry in the app menu.",
+                "The Hive console answers only at http://127.0.0.1 on this laptop.",
+                "Open it from the Hive entry in the app menu.",
             )
             await response(scope, receive, with_headers)
             return
@@ -257,7 +256,7 @@ def _write_problem(request: Request, auth: ConsoleAuth) -> ConsoleHTTPError | No
             401,
             "signed_out",
             "You are not signed in to this console.",
-            "Open MeshForge from the app menu.",
+            "Open Hive from the app menu.",
         )
     return None
 
@@ -508,7 +507,7 @@ def create_app(ctx: ConsoleContext) -> FastAPI:
                 401,
                 "link_expired",
                 "This console link has expired or was already used.",
-                "Open MeshForge from the app menu again.",
+                "Open Hive from the app menu again.",
             )
         session = auth.new_session()
         response = JSONResponse(OkView().model_dump())
@@ -676,26 +675,26 @@ def create_app(ctx: ConsoleContext) -> FastAPI:
         if sys.platform == "win32":
             return DockerAccessView(
                 supported=system,
-                menu_action="MeshForge - give Docker access",
+                menu_action="Hive - give Docker access",
                 command=docker_access_command(),
                 explanation=(
-                    "Docker access lets MeshForge run jobs in containers. It is the "
+                    "Docker access lets Hive run jobs in containers. It is the "
                     "same as full admin rights on this computer, so only an "
                     "administrator can turn it on: use the Start-menu entry (Windows "
                     "asks for an administrator's OK) or run the command in an "
-                    "administrator PowerShell. MeshForge restarts by itself "
+                    "administrator PowerShell. Hive restarts by itself "
                     "afterwards; open it again from the Start menu."
                 ),
             )
         return DockerAccessView(
             supported=system,
-            menu_action="MeshForge: Give Docker access",
+            menu_action="Hive: Give Docker access",
             command=DOCKER_ACCESS_COMMAND,
             explanation=(
-                "Docker access lets MeshForge run jobs in containers. It is the "
+                "Docker access lets Hive run jobs in containers. It is the "
                 "same as full admin rights on this laptop, so only you can turn it "
                 "on: use the app-menu entry (it asks for your password) or run the "
-                "command in a terminal. MeshForge restarts by itself afterwards; "
+                "command in a terminal. Hive restarts by itself afterwards; "
                 "open it again from the app menu."
             ),
         )
@@ -719,7 +718,7 @@ def create_app(ctx: ConsoleContext) -> FastAPI:
     @app.post(f"{API_PREFIX}/restart", response_model=OkView)
     async def restart(c: _Session) -> OkView:
         c.supervisor.request("restart")
-        return OkView(message="MeshForge is restarting its connection to the fabric.")
+        return OkView(message="Hive is restarting its connection to the fabric.")
 
     @app.post(f"{API_PREFIX}/leave", response_model=OkView)
     async def leave(_body: LeaveRequest, c: _Session) -> OkView:

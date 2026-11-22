@@ -185,13 +185,17 @@ describe("ConsoleApp", () => {
     expect(exchanges).toEqual([{ method: "POST", path: "/session", body: { code: "launch_code_1" } }]);
   });
 
-  it("an expired link says to open MeshForge from the menu again", async () => {
+  it("an expired link says to open Hive from the menu again", async () => {
     window.history.replaceState(null, "", "/#c=old");
     fakeAgent({
       "POST /session": () => ({ status: 401, json: { error: { code: "link_expired", message: "expired", fix: "" } } }),
     });
     render(<ConsoleApp client={client()} />);
     expect(await screen.findByText("This link has expired")).toBeTruthy();
+    // C2: the console lockup is the "hive." wordmark only (no mark), named "Hive"
+    const lockup = screen.getByRole("img", { name: "Hive" });
+    expect(lockup.querySelector("svg")).toBeNull();
+    expect(within(lockup).getByTestId("hive-wordmark").className).toContain("text-[34px]");
   });
 
   it("wizard: join error is said in plain words; a good code moves on to the policy step, which saves the safe defaults", async () => {
@@ -265,14 +269,14 @@ describe("ConsoleApp", () => {
       "GET /docker-access": () => ({ json: { supported: true, menu_action: "x", command: "y", explanation: "z" } }),
     });
     render(<ConsoleApp client={client()} />);
-    expect(await screen.findByText("MeshForge is stopped on this laptop")).toBeTruthy();
+    expect(await screen.findByText("Hive is stopped on this laptop")).toBeTruthy();
     expect(screen.getByText(/leave the fabric here and join again/)).toBeTruthy();
     expect(screen.getByRole("navigation", { name: "Console" })).toBeTruthy();
   });
 
   it("V0.17 G5: a version_unsupported stop says which side to upgrade", async () => {
     const reason =
-      "version_unsupported: agent 0.15.0 is too old for controller 0.17.0 (it accepts agents 0.16 or newer); upgrade the MeshForge agent on lab-a";
+      "version_unsupported: agent 0.15.0 is too old for controller 0.17.0 (it accepts agents 0.16 or newer); upgrade the Hive agent on lab-a";
     fakeAgent({
       "GET /status": () => ({
         json: status({
@@ -288,7 +292,7 @@ describe("ConsoleApp", () => {
     render(<ConsoleApp client={client()} />);
     expect(await screen.findByText(reason)).toBeTruthy();
     expect(screen.getByText(/upgrade the controller first/)).toBeTruthy();
-    expect(screen.getByText(/install the newer MeshForge on this laptop/)).toBeTruthy();
+    expect(screen.getByText(/install the newer Hive on this laptop/)).toBeTruthy();
   });
 
   it("V0.17 G5: a rolled-back upgrade is shown with what to do; 'in progress' is not alarming", async () => {

@@ -88,7 +88,7 @@ def explain(exc: JoinError, *, address: str | None = None) -> JoinProblem:
     if reason is JoinReason.BAD_CODE:
         return JoinProblem(
             "bad_code",
-            "That is not a complete MeshForge join code.",
+            "That is not a complete Hive join code.",
             "Check for a missing or mistyped part (codes start with mf1-), or scan "
             "the QR code instead.",
         )
@@ -109,8 +109,7 @@ def explain(exc: JoinError, *, address: str | None = None) -> JoinProblem:
     if reason is JoinReason.TLS_ERROR:
         return JoinProblem(
             "not_a_controller",
-            f"Something answered{where}, but it is not a MeshForge controller's join "
-            "port.",
+            f"Something answered{where}, but it is not a Hive controller's join port.",
             "Pick the controller from the list found on this network, or ask the "
             "admin for a new code.",
         )

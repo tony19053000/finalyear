@@ -119,7 +119,7 @@ class VersionVerdict:
         if self.compatibility is Compatibility.TOO_OLD:
             text = (
                 f"agent {agent} is too old for controller {ctl} (it accepts "
-                f"agents {self.minimum} or newer); upgrade the MeshForge agent{where}"
+                f"agents {self.minimum} or newer); upgrade the Hive agent{where}"
             )
         elif self.compatibility is Compatibility.TOO_NEW:
             text = (

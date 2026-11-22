@@ -19,8 +19,8 @@ section: net
 priority: optional
 maintainer: MeshForge team <meshforge@example.org>
 description: |-
-  MeshForge node agent (compute fabric for personal devices)
-   Shares this computer's CPU and GPU with a MeshForge fabric: runs offloaded
+  Hive node agent (compute fabric for personal devices)
+   Shares this computer's CPU and GPU with a Hive fabric: runs offloaded
    jobs, task-split parts and remote GPU work sent by the fabric's controller,
    within the limits the owner sets. Runs as the system service
    meshforge-agent under its own user, with a bundled Python runtime.

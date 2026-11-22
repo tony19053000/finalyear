@@ -69,7 +69,7 @@ function IssuedCode({ issued, onDone }: { issued: InviteCreated; onDone: () => v
         </dl>
       </div>
       <div className="flex flex-col gap-1.5 text-sm text-fg-muted">
-        <span>On the new laptop (with the MeshForge agent installed), run one of these and paste the code when asked:</span>
+        <span>On the new laptop (with the Hive agent installed), run one of these and paste the code when asked:</span>
         <CodeBlock className="st-code" label="join commands" code={"meshforge-agent join\ncompute fabric join"} />
         <span>The code works once. The controller keeps only its hash; it cannot show it again.</span>
       </div>

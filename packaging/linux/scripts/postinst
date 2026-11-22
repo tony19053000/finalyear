@@ -206,10 +206,10 @@ fi
 if [ -n "$installer" ] && [ "$installer" != root ] && getent passwd "$installer" >/dev/null; then
 	if ! id -nG "$installer" | tr ' ' '\n' | grep -qx "$ADMIN_GROUP"; then
 		usermod -a -G "$ADMIN_GROUP" "$installer"
-		say "$installer may now open the MeshForge console (group $ADMIN_GROUP)."
+		say "$installer may now open the Hive console (group $ADMIN_GROUP)."
 	fi
 elif [ "$fresh" -eq 1 ]; then
-	say "to let a user open the MeshForge console: sudo usermod -aG $ADMIN_GROUP <user>"
+	say "to let a user open the Hive console: sudo usermod -aG $ADMIN_GROUP <user>"
 fi
 
 if [ "$systemd_running" -ne 1 ]; then
@@ -236,7 +236,7 @@ if healthy "$MF_VERSION" "$started_at"; then
 	mf_upgrade_done
 	say "service $UNIT is running version $MF_VERSION (logs: journalctl -u meshforge-agent)"
 	if [ ! -e "$ENROLMENT" ]; then
-		say "this laptop has not joined a fabric yet: open \"MeshForge\" from the app menu"
+		say "this laptop has not joined a fabric yet: open \"Hive\" from the app menu"
 		say "(or run meshforge-console-open), or join from a terminal: sudo meshforge-agent join <code>"
 	fi
 else
@@ -249,7 +249,7 @@ else
 			say "UPGRADE FAILED: version $MF_VERSION did not become healthy: $failed_why."
 			say "ROLLED BACK: the previous version $from runs again ($MF_OPT/current -> $(mf_current_target));"
 			say "the identity, settings and jobs are unchanged. \`meshforge-agent doctor\` shows this until"
-			say "an upgrade succeeds. Send the log above to the MeshForge team."
+			say "an upgrade succeeds. Send the log above to the Hive team."
 		else
 			say "UPGRADE FAILED: version $MF_VERSION did not become healthy: $failed_why."
 			say "the rollback to $from did not help either: $why"
@@ -267,7 +267,7 @@ fi
 
 if getent group docker >/dev/null && ! id -nG meshforge | tr ' ' '\n' | grep -qx docker; then
 	say "docker: no access for the service (the docker group is root-equivalent, so it is not added by default)."
-	say "to let jobs use Docker: app menu > MeshForge > Give Docker access (asks for an admin password),"
+	say "to let jobs use Docker: app menu > Hive > Give Docker access (asks for an admin password),"
 	say "or: sudo usermod -aG docker meshforge && sudo systemctl restart $UNIT"
 fi
 

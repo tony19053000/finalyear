@@ -71,7 +71,7 @@ use_safe_installers()
 
 app = typer.Typer(
     name=PROG_NAME,
-    help="MeshForge compute fabric command-line tool.",
+    help="Hive compute fabric command-line tool.",
     add_completion=True,
     no_args_is_help=True,
     rich_markup_mode=None,

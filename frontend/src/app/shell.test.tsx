@@ -119,6 +119,10 @@ describe("login", () => {
     renderApp("/nodes");
 
     expect(await screen.findByRole("heading", { name: "Sign in" })).toBeTruthy();
+    // C2: the login card shows only the larger "hive." wordmark (no mark), still linking home
+    const loginBrand = screen.getByRole("link", { name: "Hive home" });
+    expect(loginBrand.querySelector("svg")).toBeNull();
+    expect(within(loginBrand).getByTestId("hive-wordmark").className).toContain("text-[40px]");
     const name = screen.getByLabelText("User name");
     expect(document.activeElement).toBe(name);
     await userEvent.type(name, "alice");
@@ -168,11 +172,17 @@ describe("shell", () => {
     renderApp("/");
     expect(await screen.findByRole("heading", { level: 1, name: "Overview" })).toBeTruthy();
     expect(screen.getByRole("link", { name: "Skip to content" }).getAttribute("href")).toBe("#main");
+    // C2: the top bar brand is the "hive." wordmark only (no mark), linking home
+    const brand = screen.getByRole("link", { name: "Hive home" });
+    expect(brand.getAttribute("href")).toBe("/");
+    expect(brand.querySelector("svg")).toBeNull();
+    expect(brand.textContent).toBe("hive");
+    expect(within(brand).getByTestId("hive-wordmark").className).toContain("text-[34px]");
     const nav = screen.getByRole("navigation", { name: "Main" });
     await userEvent.click(within(nav).getByRole("link", { name: "Jobs" }));
     expect(await screen.findByRole("heading", { level: 1, name: "Jobs" })).toBeTruthy();
     expect(within(nav).getByRole("link", { name: "Jobs" }).getAttribute("aria-current")).toBe("page");
-    expect(document.title).toBe("Jobs · MeshForge");
+    expect(document.title).toBe("Jobs · Hive");
   });
 
   it("the bell opens the product guide at /guide", async () => {
@@ -187,7 +197,7 @@ describe("shell", () => {
     expect(screen.getByRole("heading", { level: 2, name: "Five ways a job can run" })).toBeTruthy();
     expect(screen.getByText("Remote GPU")).toBeTruthy();
     expect(within(screen.getByRole("article")).getByRole("link", { name: "Planner" }).getAttribute("href")).toBe("/planner");
-    expect(document.title).toBe("Product guide · MeshForge");
+    expect(document.title).toBe("Product guide · Hive");
   });
 
   it("unknown paths show a not-found page inside the shell", async () => {

@@ -76,7 +76,7 @@ def bind_console_socket(port: int) -> socket.socket:
         sock.close()
         raise ConfigError(
             f"cannot listen on {CONSOLE_HOST}:{port} for the local console "
-            f"({exc.strerror or exc}); is another MeshForge agent running here?",
+            f"({exc.strerror or exc}); is another Hive agent running here?",
             details={"port": port},
         ) from None
     except ConfigError:

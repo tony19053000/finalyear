@@ -164,7 +164,7 @@ export function installConsoleDemo(): void {
         return json({
           supported: true,
           command: "sudo usermod -aG docker $USER",
-          explanation: "The MeshForge service cannot add itself to the docker group.",
+          explanation: "The Hive service cannot add itself to the docker group.",
           menu_action: "Open a terminal and run the command, then sign out and back in.",
         });
       case "GET /logs":

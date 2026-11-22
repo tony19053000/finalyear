@@ -51,7 +51,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     });
   } catch (err) {
     throw new NetworkError(
-      `MeshForge on this laptop did not answer (${err instanceof Error ? err.message : String(err)}). It may be restarting.`,
+      `Hive on this laptop did not answer (${err instanceof Error ? err.message : String(err)}). It may be restarting.`,
     );
   }
   const data: unknown = await response.json().catch(() => null);

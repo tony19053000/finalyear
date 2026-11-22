@@ -186,14 +186,14 @@ class SetupResult:
     def summary(self) -> str:
         """One headline for the installer's last page."""
         return {
-            SetupOutcome.OK: "MeshForge is installed and running.",
+            SetupOutcome.OK: "Hive is installed and running.",
             SetupOutcome.NEEDS_ATTENTION: (
-                "MeshForge is installed but NOT running yet - see below."
+                "Hive is installed but NOT running yet - see below."
             ),
             SetupOutcome.ROLLED_BACK: (
                 "The new version did not start; the previous version runs again."
             ),
-            SetupOutcome.FAILED: "MeshForge is installed but NOT running.",
+            SetupOutcome.FAILED: "Hive is installed but NOT running.",
         }[self.outcome]
 
 
@@ -419,7 +419,7 @@ def _setup(
     if running and not ops.stop_service(STOP_TIMEOUT_S):
         lines.append(
             f"the running {SERVICE_NAME} service did not stop within "
-            f"{STOP_TIMEOUT_S:.0f} s; nothing was changed - close MeshForge "
+            f"{STOP_TIMEOUT_S:.0f} s; nothing was changed - close Hive "
             "jobs and run the installer again"
         )
         result.service_state = ops.service_status().state
@@ -462,7 +462,7 @@ def _setup(
             f"identity migration failed unexpectedly ({type(exc).__name__}: {exc}); "
             "nothing was copied or started - run the installer again, and if it "
             "fails again send C:\\ProgramData\\MeshForge\\logs\\setup-result.json "
-            "to the MeshForge team"
+            "to the Hive team"
         ]
     lines.extend(migration_lines)
     _console_access(ops, lines)
@@ -545,11 +545,11 @@ def _finish_ok(
     result.node_id = ops.node_id()
     if ops.enrolled():
         result.lines.append(
-            f"MeshForge {version_dir} is running as node {result.node_id or '?'}."
+            f"Hive {version_dir} is running as node {result.node_id or '?'}."
         )
     else:
         result.lines.append(
-            f"MeshForge {version_dir} is running. Open MeshForge from the Start "
+            f"Hive {version_dir} is running. Open Hive from the Start "
             "menu to join a fabric."
         )
     return result
@@ -604,7 +604,7 @@ def _roll_back(
         log.warning("agent.service.upgrade_records_failed", error=str(exc))
     lines.append(
         f"the previous version ({previous_dir or previous}) runs again; the new "
-        "files stay installed - send the log above to the MeshForge team"
+        "files stay installed - send the log above to the Hive team"
     )
     return result
 

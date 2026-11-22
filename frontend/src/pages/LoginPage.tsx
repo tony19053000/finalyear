@@ -59,7 +59,7 @@ export function LoginPage() {
       <LoginComb />
       <main className="mf-login-in relative z-10 m-auto flex w-full max-w-[25rem] flex-col items-center px-4 py-16">
         <div className="mb-8">
-          <Brand />
+          <Brand size="login" />
         </div>
         <form
           onSubmit={onSubmit}
