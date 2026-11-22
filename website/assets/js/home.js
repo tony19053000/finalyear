@@ -1,7 +1,7 @@
 /* hive. — home page
    - smooth scroll (Lenis, optional), line reveals, magnetic buttons
    - one sticky three.js honeycomb tells the opening story, scrubbed by scroll (reversible):
-       the hive -> laptops drift apart -> honey threads connect them -> a job travels the threads
+       the hive -> laptops drift apart (dark) -> a thin honey network links them all -> a job rides the links
        (stay local / hand off / split) -> everything locks back into one glowing hive -> it sinks away
    - benchmark bars, count-up stats, live mini-UIs for the four parts
    The bees (Buzz) live in assets/js/bees.js on their own overlay; the comb shares a small API (HIVE.comb).
@@ -17,10 +17,14 @@
   function safe(fn) { try { fn(); } catch (e) { if (win.console) console.warn('[hive]', e); } }
   function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
   function smooth(a, b, v) { var t = clamp((v - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); }
-  /* the "idle" beat (T = 1, "Most laptops sit idle"): 1 while it is on screen, 0 elsewhere.
-     Every laptop is dark then: no honey cells, no warm light, no threads; the honey comes back as
-     the story moves on to "So pool them" (T = 2). */
-  function idleOf(T) { return smooth(0.45, 0.85, T) * (1 - smooth(1.3, 1.75, T)); }
+  /* the dark beats (T = 1 "Most laptops sit idle", T = 2 "So pool them"): 1 while they are on screen,
+     0 elsewhere. Every laptop is dark then: no honey cells, no warm light. On T = 1 there is nothing
+     else; on T = 2 only the thin honey network between the laptops is lit (see linksOf). The warm
+     light comes back as "Then hive decides" (T = 3) arrives. */
+  function idleOf(T) { return smooth(0.45, 0.85, T) * (1 - smooth(2.4, 2.85, T)); }
+  /* the network: thin honey links between every laptop. Drawn outward as T = 2 arrives (over about
+     half a beat), carried through the three decisions (the jobs ride them), gone as the hive locks. */
+  function linksOf(T) { return clamp((T - 1.5) / 0.5, 0, 1) * (1 - smooth(6.38, 6.68, T)); }
   function whenVisible(el, onShow, onHide, threshold) {
     if (!hasIO) { onShow(); return null; }
     var io = new IntersectionObserver(function (en) {
@@ -141,7 +145,10 @@
     story.subs.push(stageFade);
     stageFade(story.T);
     // warm accents behind / instead of the comb (stage glow, fallback honey cells) go out on the idle beat
-    function stageWarm(T) { stage.style.setProperty('--warm', (1 - idleOf(T)).toFixed(3)); }
+    function stageWarm(T) {
+      stage.style.setProperty('--warm', (1 - idleOf(T)).toFixed(3));
+      stage.style.setProperty('--links', smooth(0, 1, linksOf(T)).toFixed(3)); // the fallback's honey links
+    }
     story.subs.push(stageWarm);
     stageWarm(story.T);
     var THREE = win.THREE;
@@ -216,14 +223,28 @@
       }
     });
 
-    /* ---- threads: each laptop to its two nearest, all reachable from yours; ordered outward from you ---- */
+    /* ---- the network: one clean, connected mesh over every laptop ----
+       A Gabriel graph on the spread-out field: a and b are linked when no other laptop sits inside the
+       circle whose diameter is a-b. That is a subgraph of the Delaunay triangulation, so no two links
+       cross, and it contains the minimum spanning tree, so every laptop is reachable. Long, thin links
+       along the outside are then dropped unless the tree needs them: three to five links per laptop. */
+    function d2(i, j) { var dx = cells[i].sx - cells[j].sx, dz = cells[i].sz - cells[j].sz; return dx * dx + dz * dz; }
+    var cand = [];
+    cells.forEach(function (c, i) {
+      for (var j = i + 1; j < cells.length; j++) {
+        var dij = d2(i, j), ok = true;
+        for (var m = 0; m < cells.length && ok; m++) if (m !== i && m !== j && d2(i, m) + d2(j, m) < dij) ok = false;
+        if (ok) cand.push({ a: i, b: j, d: dij });
+      }
+    });
+    cand.sort(function (x, y) { return x.d - y.d; });
+    var root = cells.map(function (c, i) { return i; });
+    function find(i) { while (root[i] !== i) { root[i] = root[root[i]]; i = root[i]; } return i; }
+    cand.forEach(function (e) { var ra = find(e.a), rb = find(e.b); e.tree = ra !== rb; if (e.tree) root[ra] = rb; }); // Kruskal
+    var medD = cand[Math.floor(cand.length / 2)].d, LONG = 1.4 * 1.4; // squared lengths
     var edges = [], seen = {};
     function addEdge(a, b) { var k = a < b ? a + '-' + b : b + '-' + a; if (seen[k] || a === b) return; seen[k] = 1; edges.push([a, b]); }
-    cells.forEach(function (c, i) {
-      var ds = cells.map(function (o, j) { var dx = o.sx - c.sx, dz = o.sz - c.sz; return { j: j, d: dx * dx + dz * dz }; })
-        .filter(function (e) { return e.j !== i; }).sort(function (a, b) { return a.d - b.d; });
-      addEdge(i, ds[0].j); addEdge(i, ds[1].j);
-    });
+    cand.forEach(function (e) { if (e.tree || e.d <= medD * LONG) addEdge(e.a, e.b); });
     var adj = cells.map(function () { return []; });
     edges.forEach(function (e, k) { adj[e[0]].push({ n: e[1], k: k }); adj[e[1]].push({ n: e[0], k: k }); });
     var depth = cells.map(function () { return -1; }), parent = cells.map(function () { return null; });
@@ -236,17 +257,19 @@
       }
     }
     bfs();
-    // join any island to the nearest reached laptop
+    // safety net (the spanning tree already guarantees it): join any island to the nearest reached laptop
     cells.forEach(function (c, i) {
       if (depth[i] >= 0) return;
       var best = -1, bd = 1e9;
-      cells.forEach(function (o, j) { if (depth[j] < 0) return; var dx = o.sx - c.sx, dz = o.sz - c.sz, d = dx * dx + dz * dz; if (d < bd) { bd = d; best = j; } });
+      cells.forEach(function (o, j) { if (depth[j] < 0) return; var d = d2(i, j); if (d < bd) { bd = d; best = j; } });
       var k = edges.length; edges.push([best, i]); adj[best].push({ n: i, k: k }); adj[i].push({ n: best, k: k }); bfs();
     });
-    // order threads outward from your laptop, so the web grows from you
-    var edgeOrder = edges.map(function (e, k) { return { k: k, d: Math.min(depth[e[0]], depth[e[1]]) + rnd() * 0.5 }; })
-      .sort(function (a, b) { return a.d - b.d; });
-    var edgeRank = []; edgeOrder.forEach(function (o, r) { edgeRank[o.k] = r / edgeOrder.length; });
+    // every link starts at the end nearer your laptop, so the network draws outward from you
+    edges.forEach(function (e) { if (depth[e[1]] < depth[e[0]]) { var t0 = e[0]; e[0] = e[1]; e[1] = t0; } });
+    var meshInfo = { cells: COUNT, edges: edges.length, connected: depth.every(function (d) { return d >= 0; }),
+      maxDepth: Math.max.apply(null, depth) };
+    // when each link starts drawing (0 = first, 1 = last): by hops from your laptop, a little jitter inside a ring
+    var edgeRank = edges.map(function (e) { return (depth[e[0]] + rnd() * 0.6) / Math.max(1, meshInfo.maxDepth); });
     function pathTo(target) { var p = [target]; while (parent[p[0]]) p.unshift(parent[p[0]].n); return p; }
     function pathEdges(path) { var ks = []; for (var i = 1; i < path.length; i++) ks.push(parent[path[i]].k); return ks; }
     // hand-off target: two hops away; split targets: up to twelve laptops at one or two hops
@@ -265,13 +288,53 @@
 
     var E = edges.length;
     var g = new Float32Array(COUNT), hot = new Float32Array(E); // per-frame glow, reused
+    /* the links: one thin quad per link, turned to face the camera every frame and sized in screen pixels,
+       so a link reads as a crisp ~1.3 px honey line with a soft glow at any zoom (GL lines are 1 device px). */
+    var LINK_HALF = 3.5; // px from the centre line to the edge of the glow
+    var LINK_Y = 0.03; // links sit just above each cell's live top face
     var lineGeo = new THREE.BufferGeometry();
-    var linePos = new Float32Array(E * 6), lineCol = new Float32Array(E * 6);
+    var linePos = new Float32Array(E * 12), lineInt = new Float32Array(E * 4), lineAcross = new Float32Array(E * 4);
+    var lineIdx = [];
+    for (var li = 0; li < E; li++) {
+      lineAcross.set([-1, 1, -1, 1], li * 4);
+      lineIdx.push(li * 4, li * 4 + 1, li * 4 + 2, li * 4 + 2, li * 4 + 1, li * 4 + 3);
+    }
     lineGeo.setAttribute('position', new THREE.BufferAttribute(linePos, 3));
-    lineGeo.setAttribute('color', new THREE.BufferAttribute(lineCol, 3));
-    var lines = new THREE.LineSegments(lineGeo, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
+    lineGeo.setAttribute('aInt', new THREE.BufferAttribute(lineInt, 1));
+    lineGeo.setAttribute('aAcross', new THREE.BufferAttribute(lineAcross, 1));
+    lineGeo.setIndex(lineIdx);
+    if (lineGeo.attributes.position.setUsage) { lineGeo.attributes.position.setUsage(THREE.DynamicDrawUsage); lineGeo.attributes.aInt.setUsage(THREE.DynamicDrawUsage); }
+    var lineMat = new THREE.ShaderMaterial({
+      uniforms: { uCol: { value: new THREE.Color(0xFFC93C) }, uHot: { value: new THREE.Color(0xFFF1C4) }, uHalf: { value: LINK_HALF }, uBias: { value: 0 } },
+      vertexShader: [
+        'uniform float uBias; attribute float aInt; attribute float aAcross; varying float vInt; varying float vAcross;',
+        'void main() {',
+        '  vInt = aInt; vAcross = aAcross;',
+        '  vec4 mv = modelViewMatrix * vec4(position, 1.0);',
+        '  gl_Position = projectionMatrix * mv;',
+        // depth only: test as if uBias nearer the camera, so a link climbing down to a lower neighbour is not
+        // swallowed by its own cell's top, while cells well in front still hide it
+        '  vec4 nb = projectionMatrix * vec4(mv.xyz * max(0.0, 1.0 - uBias / max(length(mv.xyz), 0.001)), 1.0);',
+        '  gl_Position.z = nb.z / nb.w * gl_Position.w;',
+        '}'
+      ].join('\n'),
+      fragmentShader: [
+        'uniform vec3 uCol; uniform vec3 uHot; uniform float uHalf; varying float vInt; varying float vAcross;',
+        'void main() {',
+        '  float d = abs(vAcross) * uHalf;', // px from the centre line
+        '  float core = 1.0 - smoothstep(0.3, 1.0, d);',
+        '  float halo = exp(-d * d * 0.32) * 0.38;',
+        '  float a = clamp((core * 0.85 + halo) * min(vInt, 1.0), 0.0, 1.0);',
+        '  gl_FragColor = vec4(mix(uCol, uHot, clamp(vInt - 1.0, 0.0, 1.0) * core), a);',
+        '}'
+      ].join('\n'),
+      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide
+    });
+    var lines = new THREE.Mesh(lineGeo, lineMat);
     lines.frustumCulled = false;
+    lines.renderOrder = 1;
     comb.add(lines);
+    var camL = new THREE.Vector3(), invComb = new THREE.Matrix4(), pxK = 0.001; // camera in comb space; local units per px per unit distance
 
     var CH = 1 + splitTo.length; // the whole job + one piece per split target
     var chunkMat = new THREE.MeshStandardMaterial({ color: 0xFFC93C, emissive: 0xF5A623, emissiveIntensity: 0.75, metalness: 0.3, roughness: 0.35, flatShading: true });
@@ -282,7 +345,6 @@
 
     var cDark = new THREE.Color(0x2E2920), cHoney = new THREE.Color(0xFFC93C), tmpC = new THREE.Color();
     if (cDark.convertSRGBToLinear) { cDark.convertSRGBToLinear(); cHoney.convertSRGBToLinear(); }
-    var HL = [1.0, 0.72, 0.2]; // thread colour (linear-ish honey)
     var dummy = new THREE.Object3D();
     function ease(p) { return p < 0.5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2; }
     function lerp(a, b, t) { return a + (b - a) * t; }
@@ -299,7 +361,8 @@
       dummy.updateMatrix();
       chunks.setMatrixAt(i, dummy.matrix);
     }
-    // a point travelling along a path of laptops (u 0..1), riding just above the threads
+    // a point travelling along a path of laptops (u 0..1), riding the links like a bead on a string
+    // (the chunk is centred on the link, which runs between the cells' live top faces of the last frame)
     var AP = [0, 0, 0]; // scratch result, so the render loop does not allocate
     function alongPath(path, u, out) {
       out = out || AP;
@@ -307,7 +370,7 @@
       if (segs < 1) { var c0 = cells[path[0]]; out[0] = c0.px; out[1] = c0.py + c0.ph + 0.35; out[2] = c0.pz; return out; }
       var f = clamp(u, 0, 1) * segs, si = Math.min(segs - 1, Math.floor(f)), t = ease(f - si);
       var a = cells[path[si]], b = cells[path[si + 1]];
-      out[0] = lerp(a.px, b.px, t); out[1] = lerp(a.py + a.ph, b.py + b.ph, t) + 0.35 + Math.sin(Math.PI * t) * 0.5; out[2] = lerp(a.pz, b.pz, t);
+      out[0] = lerp(a.px, b.px, t); out[1] = lerp(a.top, b.top, t) + LINK_Y - 0.09 + Math.sin(Math.PI * t) * 0.06; out[2] = lerp(a.pz, b.pz, t);
       return out;
     }
 
@@ -330,6 +393,7 @@
       rect: function () { return canvas.getBoundingClientRect(); },
       free: function (i) { var c = cells[i]; return !!c && !c.busy && c.drift < 0 && c.exit < 0.01; },
       busy: function (i, on) { if (cells[i]) cells[i].busy = !!on; },
+      stats: function () { meshInfo.frameMs = Math.round(frameMs * 100) / 100; return meshInfo; }, // the network + scene cost per frame
       flash: function (i, k) { if (cells[i] && flashes.length < 24) flashes.push({ i: i, t0: clock, k: k == null ? 1 : k }); },
       screen: function (i, out, r) { // the top centre of cell i, in viewport px
         var c = cells[i];
@@ -348,9 +412,9 @@
 
       /* how far apart the laptops are (0 = one hive, 1 = spread out) */
       var S = smooth(0.15, 1.0, T) * (1 - 0.22 * smooth(1.4, 2.2, T)) * (1 - smooth(6.35, 7.0, T));
-      var threads = smooth(1.35, 2.25, T) * (1 - smooth(6.3, 6.85, T));
       var lock = smooth(6.55, 7.05, T) * (1 - smooth(7.2, 7.7, T));
       var exitP = smooth(7.1, 7.95, T);
+      var links = linksOf(T), linkA = smooth(0, 1, links) * (1 - exitP); // links: how far drawn; linkA: how bright
       var idle = idleOf(T), warm = 1 - idle; // idle beat: every laptop dark (see idleOf)
       /* energy climbs through the three decisions (local: calm, hand off: livelier, split: the most)
          and settles again as the hive locks. All of it is a function of T, so it scrubs both ways. */
@@ -404,14 +468,14 @@
         var d1 = ease(clamp((u1 - 0.12) / 0.45, 0, 1));
         putChunk(0, cy.px, cy.py + cy.ph + lerp(3.2, 0.3, d1), cy.pz, smooth(0.05, 0.15, u1) * (1 - smooth(0.58, 0.66, u1)));
         g[you] = smooth(0.55, 0.68, u1) * (1 - smooth(0.88, 0.99, u1));
-      } else if (T >= 4.5 && T < 5.5) { // hand off: along the threads to another laptop, and back
+      } else if (T >= 4.5 && T < 5.5) { // hand off: along the links to another laptop, and back
         var pe = sendPE, go = clamp((u2 - 0.08) / 0.38, 0, 1), back = clamp((u2 - 0.7) / 0.24, 0, 1);
         g[you] = 0.3 * (1 - smooth(0.1, 0.2, u2)) + smooth(0.9, 0.97, u2) * 0.9 * (1 - smooth(0.98, 1, u2));
         if (u2 < 0.5) { var pA = alongPath(sendPath, go); putChunk(0, pA[0], pA[1], pA[2], smooth(0, 0.08, u2) * (1 - smooth(0.46, 0.5, u2))); }
         g[sendTo] = smooth(0.44, 0.52, u2) * (1 - smooth(0.72, 0.8, u2));
         if (u2 > 0.7 && u2 < 0.95) { var pB = alongPath(sendRev, back); putChunk(1, pB[0], pB[1], pB[2], 0.65); }
         for (k = 0; k < pe.length; k++) hot[pe[k]] = Math.max(smooth(0.05, 0.15, u2) * (1 - smooth(0.5, 0.6, u2)), smooth(0.68, 0.75, u2) * (1 - smooth(0.94, 1, u2)));
-      } else if (T >= 5.5 && T < 6.5) { // split: pieces fan out along the threads and come home as one answer
+      } else if (T >= 5.5 && T < 6.5) { // split: pieces fan out along the links and come home as one answer
         var big = smooth(0, 0.08, u3) * (1 - smooth(0.14, 0.2, u3));
         putChunk(0, cy.px, cy.py + cy.ph + 0.5, cy.pz, 1.5 * big);
         g[you] = 0.3 * smooth(0.08, 0.16, u3) * (1 - smooth(0.22, 0.3, u3)) + smooth(0.86, 0.94, u3);
@@ -464,20 +528,37 @@
         cc.top = dummy.position.y + dummy.scale.y; // the live top of the cell (the bees land here)
       }
 
-      // threads grow outward from your laptop; the ones carrying work glow brighter
+      /* the links draw outward from your laptop and follow the laptops as they drift; the ones
+         carrying work glow brighter. Each is a camera-facing quad, LINK_HALF px either side of the line. */
+      outer.updateMatrixWorld(true);
+      camL.copy(camera.position).applyMatrix4(invComb.copy(comb.matrixWorld).invert());
       for (k = 0; k < E; k++) {
         var ed = edges[k], A = cells[ed[0]], B = cells[ed[1]];
-        var grow = clamp((threads * 1.5 - edgeRank[k] * 0.5), 0, 1);
-        var ya = A.py + A.ph + 0.02, yb = B.py + B.ph + 0.02;
-        linePos[k * 6] = A.px; linePos[k * 6 + 1] = ya; linePos[k * 6 + 2] = A.pz;
-        linePos[k * 6 + 3] = lerp(A.px, B.px, grow); linePos[k * 6 + 4] = lerp(ya, yb, grow); linePos[k * 6 + 5] = lerp(A.pz, B.pz, grow);
-        var pulse = reduced ? 0 : (0.12 + 0.3 * energy) * Math.pow(Math.max(0, Math.sin(pulsePhase - edgeRank[k] * 9)), 1 + 3 * energy);
-        var inten = (threads * (0.22 + 0.25 * energy + pulse) + hot[k] * (0.95 + 0.5 * energy)) * warm;
-        for (var v = 0; v < 2; v++) { lineCol[k * 6 + v * 3] = HL[0] * inten; lineCol[k * 6 + v * 3 + 1] = HL[1] * inten; lineCol[k * 6 + v * 3 + 2] = HL[2] * inten; }
+        var grow = clamp((links - edgeRank[k] * 0.55) / 0.45, 0, 1);
+        var gw = ease(grow);
+        var ax = A.px, ay = A.top + LINK_Y, az = A.pz;
+        var bx = lerp(ax, B.px, gw), by = lerp(ay, B.top + LINK_Y, gw), bz = lerp(az, B.pz, gw);
+        var pulse = reduced ? 0 : (0.1 + 0.25 * energy) * Math.pow(Math.max(0, Math.sin(pulsePhase - edgeRank[k] * 6)), 2 + 3 * energy);
+        var inten = grow > 0.001 ? linkA * (0.4 + 0.15 * energy + pulse) * (1 - Math.max(A.exit, B.exit)) + hot[k] * (1.3 + 0.4 * energy) * warm : 0;
+        // side vector: across the link, facing the camera; its length is LINK_HALF px at each end
+        var dx = bx - ax, dy = by - ay, dz = bz - az;
+        var mx = (ax + bx) / 2 - camL.x, my = (ay + by) / 2 - camL.y, mz = (az + bz) / 2 - camL.z;
+        var sx3 = dy * mz - dz * my, sy3 = dz * mx - dx * mz, sz3 = dx * my - dy * mx;
+        var sl = Math.sqrt(sx3 * sx3 + sy3 * sy3 + sz3 * sz3);
+        if (sl < 1e-6 || inten <= 0) { sx3 = sy3 = sz3 = 0; inten = 0; } else { sx3 /= sl; sy3 /= sl; sz3 /= sl; }
+        var wa = LINK_HALF * pxK * Math.sqrt((ax - camL.x) * (ax - camL.x) + (ay - camL.y) * (ay - camL.y) + (az - camL.z) * (az - camL.z));
+        var wb = LINK_HALF * pxK * Math.sqrt((bx - camL.x) * (bx - camL.x) + (by - camL.y) * (by - camL.y) + (bz - camL.z) * (bz - camL.z));
+        var o = k * 12;
+        linePos[o] = ax - sx3 * wa; linePos[o + 1] = ay - sy3 * wa; linePos[o + 2] = az - sz3 * wa;
+        linePos[o + 3] = ax + sx3 * wa; linePos[o + 4] = ay + sy3 * wa; linePos[o + 5] = az + sz3 * wa;
+        linePos[o + 6] = bx - sx3 * wb; linePos[o + 7] = by - sy3 * wb; linePos[o + 8] = bz - sz3 * wb;
+        linePos[o + 9] = bx + sx3 * wb; linePos[o + 10] = by + sy3 * wb; linePos[o + 11] = bz + sz3 * wb;
+        lineInt[k * 4] = lineInt[k * 4 + 1] = lineInt[k * 4 + 2] = lineInt[k * 4 + 3] = inten;
       }
       lineGeo.attributes.position.needsUpdate = true;
-      lineGeo.attributes.color.needsUpdate = true;
-      lines.visible = threads > 0.002 || T > 4;
+      lineGeo.attributes.aInt.needsUpdate = true;
+      lines.visible = linkA > 0.002;
+      lineMat.uniforms.uBias.value = 0.75 * gs; // about one and a half cell radii, in world units
 
       mesh.instanceMatrix.needsUpdate = true;
       chunks.instanceMatrix.needsUpdate = true;
@@ -498,6 +579,7 @@
       camera.updateProjectionMatrix();
       visH = 2 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2)) * camera.position.z;
       visW = visH * camera.aspect;
+      pxK = visH / camera.position.z / h; // world (= comb-local, the scale cancels) units per px, per unit of distance
       // where the story text column ends (share of the width): the comb keeps clear of it
       var edge = 0.44;
       doc.querySelectorAll('.story .chapter .tone, .story .chapter-in .tone, .story .step, .story .hero-sub').forEach(function (el) {
@@ -514,7 +596,7 @@
     }
     if (!reduced) win.addEventListener('mousemove', onMove, { passive: true });
 
-    var running = false, raf = 0, inView = true, clock = 6, last = 0, shown = false, dead = false, io = null;
+    var running = false, raf = 0, inView = true, clock = 6, last = 0, shown = false, dead = false, io = null, frameMs = 0;
     function draw() {
       if (dead) return;
       renderer.render(scene, camera);
@@ -524,8 +606,10 @@
       if (!running) return;
       var dt = Math.min(0.05, (now - last) / 1000);
       last = now; clock += dt;
+      var t0 = performance.now();
       update(clock, dt, false);
       draw();
+      frameMs += (performance.now() - t0 - frameMs) * 0.05;
       raf = requestAnimationFrame(frame);
     }
     function start() {
