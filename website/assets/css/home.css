@@ -46,6 +46,9 @@ html.has-lenis { scroll-behavior: auto !important; }
 /* the five hero bees (assets/js/bees.js): one overlay under the sticky header, faded out by the story timeline.
    .bees-still holds the no-WebGL still images, placed and faded the same way. */
 .bees-gl { position: fixed; inset: 0; width: 100%; height: 100%; display: block; z-index: 40; pointer-events: none; }
+/* the hero's text and buttons sit above the bees (40) and under the sticky header (50): a bee weaving along
+   the headline passes behind the letters, and the bees round Download never cover it */
+.home .hero { z-index: 45; }
 .bees-still { position: fixed; inset: 0; z-index: 40; pointer-events: none; user-select: none; -webkit-user-select: none; }
 .bees-still img { position: absolute; display: block; max-width: none; filter: drop-shadow(0 8px 16px rgba(0, 0, 0, .45)); }
 
