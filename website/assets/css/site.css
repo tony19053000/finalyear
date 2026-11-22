@@ -71,11 +71,10 @@ html:not(.js) .lines .ln > span { transform: none; }
 .honey { color: var(--honey); }
 .muted { color: var(--muted); }
 
-/* ---------- wordmark + mark ---------- */
+/* ---------- wordmark ---------- */
+/* Same "hive." wordmark as the dashboard top bar (frontend/src/app/Wordmark.tsx, size "bar" = 34px): no symbol, honey hex as the dot */
 .brand { display: inline-flex; align-items: baseline; gap: 9px; text-decoration: none; color: var(--text); }
-/* "Stack" mark: bottom edge on the wordmark baseline; the cubes' lower tips overshoot it slightly, as round/pointed letters do */
-.brand svg, .brand .brand-mark { width: 24px; height: 24px; flex: none; align-self: baseline; transform: translateY(2px); shape-rendering: geometricPrecision; }
-.wordmark { font: 700 25px/1 var(--f-display); letter-spacing: -.045em; display: inline-flex; align-items: baseline; }
+.wordmark { font: 700 34px/1 var(--f-display); letter-spacing: -.045em; display: inline-flex; align-items: baseline; white-space: nowrap; }
 .wordmark .dot { display: inline-block; width: .3em; height: .34em; margin-left: .06em; background: var(--honey); clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%); }
 
 /* ---------- buttons ---------- */
