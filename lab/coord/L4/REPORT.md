@@ -696,3 +696,6 @@ run_heavy by hand 15.7/15.8 s at 30 W (was 13.3 s at 75 W). OMEN Performance did
 
 ## 2026-11-18 18:35 GPU fixed, READY
 After reboot + OMEN Performance: limit 67 W, heavy chunk 13.4/12.8 s (baseline 13.3). Removed OmenCommandCenterBackground from Free-RAM close list. Sent ready to L1.
+
+## 2026-11-22 18:07 No live stream
+Before: session reconnect loop every ~6 s (INTERNAL execute_batch from Core, replay_dropped ~6860). Restarted service 18:05: ONLINE, replay 0, 0.17.5, cert valid to 2026-12-03. Sent to LEAD.
