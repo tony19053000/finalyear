@@ -6,8 +6,8 @@
        rides the links -> split: they pack again, a job breaks into pieces that fly out to twelve cells and come
        home as one answer -> the comb glows as one locked hive -> it sinks away
    - benchmark bars, count-up stats, live mini-UIs for the four parts
-   The bees (Buzz) live in assets/js/bees.js on their own overlay; the comb shares a small API (HIVE.comb).
-   (bees.js is not loaded for now; HIVE.comb stays, unused, so the bees can come back unchanged.)
+   The four hero bees (Buzz) live in assets/js/bees.js on their own overlay; they read the story timeline
+   (HIVE.story) to leave after the hero, and the comb shares a small API with them (HIVE.comb).
    Everything degrades: no WebGL -> static SVG; reduced motion -> still frames per scroll position. */
 (function () {
   'use strict';
@@ -95,6 +95,7 @@
      exactly when the sticky stage lets go. Everything below reads T, so the
      story is fully reversible. */
   var story = { T: 0, subs: [] }; // subs: called with T after every scroll update
+  HIVE.story = story; // the hero bees (bees.js) follow it
   safe(function timeline() {
     var storyEl = doc.querySelector('.story');
     var chs = Array.prototype.slice.call(doc.querySelectorAll('.story .ch[data-t]'));

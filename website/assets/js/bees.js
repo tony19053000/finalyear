@@ -1,55 +1,136 @@
-/* hive. — the bees (home page only)
-   Eight Buzz bees, all equals, live on ONE transparent fixed WebGL overlay above the whole page
-   (pointer-events: none, DPR capped at 1.5, paused while the tab is hidden).
+/* hive. — the hero bees (home page only)
+   Four Buzz robot bees live in the hero, around the packed honeycomb on the right, and nowhere else.
+   They sit on ONE transparent fixed WebGL overlay (pointer-events: none, DPR capped at 1.5, under the
+   sticky header) and stay inside a "fly zone": right of the hero text on wide screens, the band under the
+   buttons on narrow ones, so they never cover the headline, the text or the buttons.
 
-   Each bee runs its own small state machine and picks its next task from what is on screen:
-     carry   take a honey job from one comb cell to another (the comb flashes where it lands)
-     cell    inspect a comb cell: hover beside it, tilt down, curious, then thinking
-     weave   thread through a headline line, in front of some letters and behind others
-     visit   perch on a letter, a heading, a big number or a bar, or inspect a small UI
-     wander  a short glide to a free spot
-     follow  trail the visitor while they scroll; on the way some peel off to the next section
-     cursor  now and then a nearby bee notices the pointer, follows it a little, then goes back to work
-     flee    chased too often, it gets angry and darts away
-   Movement is steering (arrive + separation), with facing turns, pitch, banking and a gentle bob.
+   Each bee hovers around its own spot with a gentle buzz (bob, small drifts, blinks, a look around) and
+   now and then moves to a new spot. One bee at a time visits a comb cell: it flies to the cell's top,
+   settles on it, the cell glows (HIVE.comb.flash) and the bee looks happy, then it takes off again.
 
-   Depth among letters: the overlay sits above the text, so a bee is in front of everything by default.
-   To pass BEHIND a letter, that letter is redrawn above the overlay: .bees-front holds one absolutely
-   positioned copy per headline glyph, placed on the original glyph's own box (Range rects, so kerning and
-   letter-spacing match). Depth is decided per WORD: a threading bee passes wholly behind one word and wholly
-   in front of the next (or flies above / below a word); while it overlaps a word it is behind, that word's
-   copies are shown, otherwise they stay hidden. It never switches depth inside a word.
+   Hero only, driven by the story timeline (HIVE.story.T, from home.js): full in the hero (T < 0.45),
+   flying out to the right and fading as the first story beat comes in (gone by T = 0.8). Scrolling back
+   up brings them back. While they are gone the loop stops, so later beats pay nothing for them.
 
-   Degrades: GLB fails -> flat Buzz sprites; no WebGL -> no bees (the stage's still SVG Buzz stays);
-   reduced motion -> a few still bees perched around the page, no chasing, no clock. */
+   Degrades: GLB fails -> flat Buzz sprites on the same overlay; no WebGL -> four still Buzz images in the
+   fly zone (fading with the same timeline); reduced motion -> four still bees, no flying, no clock. */
 (function () {
   'use strict';
   var doc = document, win = window, HIVE = win.HIVE || (win.HIVE = {});
+  if (!doc.body || !doc.body.classList.contains('home')) return;
   var THREE = win.THREE;
-  if (!doc.body || !doc.body.classList.contains('home') || !THREE || !THREE.WebGLRenderer) return;
   var reduced = !!HIVE.reduced || !!(win.matchMedia && win.matchMedia('(prefers-reduced-motion: reduce)').matches);
-  var fine = !!(win.matchMedia && win.matchMedia('(pointer: fine)').matches);
+  var COUNT = 4;
 
   function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
   function lerp(a, b, t) { return a + (b - a) * t; }
   function rnd(a, b) { return a + Math.random() * (b - a); }
   function hyp(x, y) { return Math.sqrt(x * x + y * y); }
   function damp(k, dt) { return 1 - Math.exp(-k * dt); }
-  function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+  function smooth(a, b, v) { var t = clamp((v - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); }
   function warn(e) { if (win.console) console.warn('[hive bees]', e); }
+
+  /* ---------------- hero only: how present the bees are at story time T ---------------- */
+  function storyT() {
+    var s = HIVE.story;
+    if (s && typeof s.T === 'number') return s.T;
+    return (win.scrollY || win.pageYOffset || 0) / Math.max(1, win.innerHeight); // no timeline: one screen of scroll
+  }
+  function outOf(T) { return smooth(0.45, 0.8, T); }      // 0 in the hero, 1 once beat 1 is in: they fly off right
+  function alphaOf(T) { return 1 - smooth(0.55, 0.8, T); } // and fade out on the way
+
+  /* ---------------- sizes and the fly zone (viewport px) ---------------- */
+  var W = 1, H = 1, LEN = 90, BH = 63;
+  var MLEN = 0.885, MHT = 0.62; // model length / height in model units (measured when the GLB loads)
+  var Z = { l: 0, r: 1, t: 0, b: 1, side: true };
+  function measure() {
+    W = win.innerWidth || doc.documentElement.clientWidth || 1;
+    H = win.innerHeight || doc.documentElement.clientHeight || 1;
+    LEN = W < 760 ? clamp(W * 0.15, 46, 66) : Math.min(clamp(H * 0.1, 64, 112), W * 0.12);
+    BH = LEN * MHT / MLEN;
+  }
+  // the hero text (headline, line, buttons) is measured in page coordinates: the hero starts at the top of
+  // the page, so at scroll 0 these are viewport coordinates, and as the page scrolls the text only moves up,
+  // away from the zone
+  function zone() {
+    var sy = win.scrollY || win.pageYOffset || 0, right = 0, bottom = 0, top = 68;
+    var hdr = doc.querySelector('.site-header');
+    if (hdr) top = Math.max(0, hdr.getBoundingClientRect().bottom + Math.min(sy, 0));
+    // the ink, not the boxes: the headline lines and the buttons are measured one by one (their blocks span the page)
+    doc.querySelectorAll('.hero-title .ln > span, .hero-sub, .hero-cta .btn').forEach(function (el) {
+      var r = el.getBoundingClientRect();
+      if (!r.width) return;
+      right = Math.max(right, r.right); bottom = Math.max(bottom, r.bottom + sy);
+    });
+    var l = right + LEN * 0.75, rr = W - LEN * 0.65;
+    if (rr - l > LEN * 3.2) Z = { l: l, r: rr, t: top + BH * 1.0, b: H - BH * 0.9, side: true };
+    else { // narrow: the band under the buttons, the comb's lower part
+      var t = Math.max(top + BH, bottom + BH * 0.95), b = H - BH * 0.75;
+      if (b - t < BH * 1.8) t = b - BH * 1.8;
+      Z = { l: LEN * 0.65, r: W - LEN * 0.65, t: t, b: b, side: false };
+    }
+  }
+  function zx(f) { return lerp(Z.l, Z.r, f); }
+  function zy(f) { return lerp(Z.t, Z.b, f); }
+  function inZone(x, y, m) { return x > Z.l + m && x < Z.r - m && y > Z.t + m && y < Z.b - m; }
+  // the four home spots (shares of the zone, and the way each bee faces when still), spread out
+  var SPOTS_SIDE = [[0.16, 0.2, -1], [0.74, 0.1, -1], [0.36, 0.68, 1], [0.88, 0.58, -1]];
+  var SPOTS_BAND = [[0.1, 0.3, 1], [0.38, 0.8, 1], [0.64, 0.22, -1], [0.92, 0.72, -1]];
+  function spots() { return Z.side ? SPOTS_SIDE : SPOTS_BAND; }
+
+  /* ---------------- no WebGL: four still Buzz images in the fly zone ---------------- */
+  var imgs = null;
+  function stillImages() {
+    if (imgs) return;
+    var box = doc.createElement('div');
+    box.className = 'bees-still';
+    box.setAttribute('aria-hidden', 'true');
+    imgs = { box: box, list: [] };
+    var names = ['c1', 'c1-happy', 'c1', 'c1-think'];
+    for (var i = 0; i < COUNT; i++) {
+      var im = doc.createElement('img');
+      im.src = 'assets/bee-v2/' + names[i] + '.svg'; im.alt = ''; im.decoding = 'async';
+      box.appendChild(im); imgs.list.push(im);
+    }
+    doc.body.appendChild(box);
+    placeImages();
+    if (HIVE.story && HIVE.story.subs) HIVE.story.subs.push(fadeImages);
+    else win.addEventListener('scroll', function () { fadeImages(storyT()); }, { passive: true });
+    fadeImages(storyT());
+    var it = 0;
+    win.addEventListener('resize', function () { clearTimeout(it); it = setTimeout(placeImages, 150); });
+    if (doc.fonts && doc.fonts.ready) doc.fonts.ready.then(placeImages);
+    HIVE.bees = { mode: function () { return 'images'; }, zone: function () { return Z; },
+      visible: function () { return imgs.box.style.visibility === 'hidden' ? 0 : imgs.list.length; } };
+  }
+  function placeImages() {
+    if (!imgs) return;
+    measure(); zone();
+    var sp = spots(), size = LEN * 1.15;
+    imgs.list.forEach(function (im, i) {
+      var s = im.style;
+      s.width = s.height = size.toFixed(1) + 'px';
+      s.left = zx(sp[i][0]).toFixed(1) + 'px'; s.top = zy(sp[i][1]).toFixed(1) + 'px';
+      s.transform = 'translate(-47%, -56%)' + (sp[i][2] > 0 ? '' : ' scaleX(-1)'); // the sprites face right; mirror to face left
+    });
+  }
+  function fadeImages(T) {
+    if (!imgs) return;
+    var a = alphaOf(T);
+    imgs.box.style.opacity = a.toFixed(3);
+    imgs.box.style.visibility = a < 0.01 ? 'hidden' : '';
+  }
+
+  if (!THREE || !THREE.WebGLRenderer) { stillImages(); return; }
 
   /* ---------------- overlay, renderer, camera (1 css px = 1 unit, y down = -y) ---------------- */
   var canvas = doc.createElement('canvas');
   canvas.className = 'bees-gl';
   canvas.setAttribute('aria-hidden', 'true');
-  var front = doc.createElement('div');
-  front.className = 'bees-front';
-  front.setAttribute('aria-hidden', 'true');
   doc.body.appendChild(canvas);
-  doc.body.appendChild(front);
   var renderer = null;
   try { renderer = new THREE.WebGLRenderer({ canvas: canvas, alpha: true, antialias: true }); } catch (e) { renderer = null; }
-  if (!renderer || !renderer.getContext()) { canvas.parentNode.removeChild(canvas); front.parentNode.removeChild(front); return; }
+  if (!renderer || !renderer.getContext()) { canvas.parentNode.removeChild(canvas); stillImages(); return; }
   renderer.setPixelRatio(Math.min(win.devicePixelRatio || 1, 1.5));
   renderer.setClearColor(0x000000, 0);
   if (THREE.sRGBEncoding) renderer.outputEncoding = THREE.sRGBEncoding;
@@ -62,190 +143,14 @@
   var key = new THREE.DirectionalLight(0xFFE9C2, 1.45); key.position.set(-7, 9, 9); scene.add(key);
   var rim = new THREE.DirectionalLight(0xF5A623, 1.3); rim.position.set(9, -3, -7); scene.add(rim);
   var fill = new THREE.DirectionalLight(0x9AA6B8, 0.35); fill.position.set(6, 2, 10); scene.add(fill);
-
-  /* ---------------- sizes ---------------- */
-  var W = 1, H = 1, SY = 0, LEN = 150, BH = 100, N = 5;
-  var MLEN = 0.885, MHT = 0.62; // model length / height in model units (measured when the GLB loads)
   function sizes() {
-    W = win.innerWidth || doc.documentElement.clientWidth || 1;
-    H = win.innerHeight || doc.documentElement.clientHeight || 1;
-    // about the size of the old hero bee (the job it carries is part of the model, so it scales with it)
-    LEN = Math.min(clamp(H * 0.09, 60, 100), W * 0.12);
-    BH = LEN * MHT / MLEN;
-    N = W < 760 ? 3 : 8;
+    measure();
     renderer.setSize(W, H, false);
     cam.left = 0; cam.right = W; cam.top = 0; cam.bottom = -H;
     cam.updateProjectionMatrix();
+    zone();
   }
   sizes();
-
-  /* ---------------- page layout: headline glyphs, places to visit, text to keep clear of ---------------- */
-  var L = { heads: [], pois: [], avoid: [], res: {}, ox: 0, oy: 0, next: 0 };
-  var HEAD_SEL = ['.hero-title', '.final-title'];
-  var POI_SEL = [
-    ['.chapter .tone b, .chapter-in .tone b', 'perch'],
-    ['.step h3', 'perch'],
-    ['.numbers h2 b, .facts h2 b, .parts h2 b, .next h2 b', 'perch'],
-    ['#giant-num', 'perch'],
-    ['.bar-t', 'bar'],
-    ['.stat .num', 'perch'],
-    ['.grid3 .tone b', 'perch'],
-    ['.part .mini', 'inspect'],
-    ['.roadmap h3', 'perch'],
-    ['.footer-mark span', 'perch']
-  ];
-  // body text and controls a bee must never rest on
-  var AVOID_SEL = '.hero-sub, .hero-cta, .chapter .tone, .chapter-in .tone, .step p, .step h3, .step-n, .numbers h2, .facts h2, .parts h2, .next h2, ' +
-    '.giant, .giant-label, .tabs-line, .bar-l, .bar-v, .bench-note, .stat dd, .stat dt, .grid3 .tone, .part h3, .part p, .mini, ' +
-    '.roadmap h3, .roadmap p, .final-title, .final-cta, .footer-top, .footer-base, .hero-title';
-  var mctx = doc.createElement('canvas').getContext('2d');
-
-  function dRect(r) { return { l: r.left, t: r.top + SY, r: r.right, b: r.bottom + SY, w: r.width, h: r.height }; }
-  function firstText(el) {
-    var tw = doc.createTreeWalker(el, NodeFilter.SHOW_TEXT, null), n;
-    while ((n = tw.nextNode())) if (/\S/.test(n.data)) return n;
-    return null;
-  }
-  // the first line of an element's text, as a document rect
-  function firstLine(el) {
-    var tn = firstText(el);
-    if (!tn) return null;
-    var rg = doc.createRange(); rg.selectNodeContents(tn);
-    var rs = rg.getClientRects();
-    for (var i = 0; i < rs.length; i++) if (rs[i].width > 2) return { r: dRect(rs[i]), node: tn };
-    return null;
-  }
-  // where the ink of `ch` starts (document y) in a text box: canvas font metrics, with a plain fallback
-  function inkTop(node, r, ch) {
-    var cs = win.getComputedStyle(node.parentElement);
-    mctx.font = cs.fontStyle + ' ' + cs.fontWeight + ' ' + cs.fontSize + ' ' + cs.fontFamily;
-    var m = mctx.measureText(ch || 'H');
-    if (m.fontBoundingBoxAscent == null || m.actualBoundingBoxAscent == null) return r.t + r.h * 0.21;
-    var base = r.t + (r.h - (m.fontBoundingBoxAscent + m.fontBoundingBoxDescent)) / 2 + m.fontBoundingBoxAscent;
-    return base - m.actualBoundingBoxAscent;
-  }
-
-  // headlines: one copy per glyph above the overlay (hidden until a bee passes behind that letter)
-  function buildHead(h) {
-    h.lines.forEach(function (ln) { ln.chars.forEach(function (c) { if (c.sp.parentNode) c.sp.parentNode.removeChild(c.sp); }); });
-    h.lines = [];
-    var lns = h.el.querySelectorAll('.ln');
-    if (!lns.length) lns = [h.el];
-    var rg = doc.createRange();
-    Array.prototype.forEach.call(lns, function (ln) {
-      var chars = [], words = [], wi = 0, gap = false, tw = doc.createTreeWalker(ln, NodeFilter.SHOW_TEXT, null), n;
-      while ((n = tw.nextNode())) {
-        var cs = win.getComputedStyle(n.parentElement);
-        for (var k = 0; k < n.data.length; k++) {
-          var ch = n.data.charAt(k);
-          if (!/\S/.test(ch)) { gap = true; continue; }
-          if (gap && chars.length) wi++;
-          gap = false;
-          rg.setStart(n, k); rg.setEnd(n, k + 1);
-          var cr = rg.getBoundingClientRect();
-          if (!cr.width || !cr.height) continue;
-          var r = dRect(cr);
-          var sp = doc.createElement('span');
-          sp.textContent = ch;
-          var s = sp.style;
-          s.left = (r.l - L.ox) + 'px'; s.top = (r.t - L.oy) + 'px';
-          s.height = r.h + 'px'; s.lineHeight = r.h + 'px';
-          s.fontFamily = cs.fontFamily; s.fontSize = cs.fontSize; s.fontWeight = cs.fontWeight; s.fontStyle = cs.fontStyle;
-          s.fontStretch = cs.fontStretch; s.color = cs.color;
-          if (cs.fontVariationSettings) s.fontVariationSettings = cs.fontVariationSettings;
-          if (cs.fontOpticalSizing) s.fontOpticalSizing = cs.fontOpticalSizing;
-          front.appendChild(sp);
-          var top = inkTop(n, r, ch);
-          chars.push({ sp: sp, l: r.l, r: r.r, t: r.t, b: r.b, cx: (r.l + r.r) / 2, top: top,
-            tall: top < r.t + r.h * 0.45 && /[A-Za-z0-9]/.test(ch), on: false });
-          var w = words[wi] || (words[wi] = { chars: [], l: 1e9, r: -1e9, t: 1e9, b: -1e9, want: false });
-          w.chars.push(chars[chars.length - 1]);
-          w.l = Math.min(w.l, r.l); w.r = Math.max(w.r, r.r); w.t = Math.min(w.t, r.t); w.b = Math.max(w.b, r.b);
-        }
-      }
-      if (!chars.length) return;
-      var l = 1e9, rr = -1e9, t = 1e9, b = -1e9, top = 1e9;
-      chars.forEach(function (c) { l = Math.min(l, c.l); rr = Math.max(rr, c.r); t = Math.min(t, c.t); b = Math.max(b, c.b); top = Math.min(top, c.top); });
-      words = words.filter(Boolean);
-      h.lines.push({ chars: chars, words: words, l: l, r: rr, t: t, b: b, h: b - t, top: top, cy: lerp(top, b, 0.42), key: h.key + ':' + h.lines.length });
-    });
-    h.sig = sigOf(h.el);
-    h.ready = h.lines.length > 0;
-  }
-  function sigOf(el) { var r = el.getBoundingClientRect(); return Math.round(r.left) + ',' + Math.round(r.top + SY) + ',' + Math.round(r.width) + ',' + Math.round(r.height); }
-
-  function layout(force) {
-    SY = win.scrollY || win.pageYOffset || 0;
-    var fr = front.getBoundingClientRect();
-    L.ox = fr.left; L.oy = fr.top + SY;
-    var t = lastT > 0 ? lastT : performance.now() / 1000;
-    // headlines: measured once their line reveal has finished
-    if (!L.heads.length) HEAD_SEL.forEach(function (sel, i) { var el = doc.querySelector(sel); if (el) L.heads.push({ el: el, key: 'h' + i, lines: [], ready: false, inAt: 0, sig: '' }); });
-    L.heads.forEach(function (h) {
-      var shown = reduced || h.el.classList.contains('in');
-      if (!shown) return;
-      if (!h.inAt) h.inAt = t;
-      if (t - h.inAt < 1.4 && !reduced) return;
-      // the line reveal must really be over (its transform gone), or the copies would sit off the glyphs
-      var moving = Array.prototype.some.call(h.el.querySelectorAll('.ln > span'), function (s) { var tf = win.getComputedStyle(s).transform; return tf && tf !== 'none' && tf !== 'matrix(1, 0, 0, 1, 0, 0)'; });
-      if (moving) { h.inAt = t - 1.0; return; }
-      if (force || !h.ready || sigOf(h.el) !== h.sig) buildHead(h);
-    });
-    // places to visit
-    var pois = [];
-    POI_SEL.forEach(function (d) {
-      doc.querySelectorAll(d[0]).forEach(function (el) {
-        var p = poiSpot(el, d[1]);
-        if (p) { p.key = 'p' + pois.length; pois.push(p); }
-      });
-    });
-    L.pois = pois;
-    // text to keep clear of
-    var av = [];
-    doc.querySelectorAll(AVOID_SEL).forEach(function (el) {
-      var r = el.getBoundingClientRect();
-      if (r.width && r.height) { var d = dRect(r); d.el = el; av.push(d); }
-    });
-    L.avoid = av;
-    L.pois = L.pois.filter(function (p) { return clearAt(p.x0, p.y, p.el) || clearAt(p.x1, p.y, p.el); });
-    L.next = t + 2.5;
-  }
-  function poiSpot(el, kind) {
-    var r, fl;
-    if (kind === 'bar') {
-      var tr = el.getBoundingClientRect(), fillEl = el.querySelector('i');
-      if (!tr.width) return null;
-      r = dRect(tr);
-      var fw = fillEl ? fillEl.getBoundingClientRect().width : r.w * 0.5;
-      var x = r.l + Math.max(LEN * 0.3, fw);
-      return { el: el, kind: 'perch', group: 'bars', x0: x, x1: x, y: r.t - BH * 0.34, lx: x + 100, ly: r.t };
-    }
-    if (kind === 'inspect') {
-      var ir = el.getBoundingClientRect();
-      if (!ir.width) return null;
-      r = dRect(ir);
-      var right = r.r + LEN * 0.7 < W - 8;
-      var sx = right ? r.r + LEN * 0.32 : r.l + r.w * 0.72, sy = right ? r.t + r.h * 0.25 : r.t - BH * 0.55;
-      return { el: el, kind: 'inspect', x0: sx, x1: sx, y: sy, lx: r.l + r.w * 0.5, ly: r.t + r.h * 0.5 };
-    }
-    fl = firstLine(el);
-    if (!fl) return null;
-    r = fl.r;
-    var top = inkTop(fl.node, r, 'H');
-    var x0 = r.l + Math.min(LEN * 0.35, r.w / 2), x1 = r.r - Math.min(LEN * 0.35, r.w / 2);
-    return { el: el, kind: 'perch', x0: x0, x1: Math.max(x0, x1), y: top - BH * 0.34, lx: (r.l + r.r) / 2, ly: top };
-  }
-  // is a resting bee at (x, y) clear of body text and controls? `except` is the element it perches on
-  function clearAt(x, y, except) {
-    var hw = LEN * 0.4, ht = BH * 0.42, hb = BH * 0.3;
-    for (var i = 0; i < L.avoid.length; i++) {
-      var a = L.avoid[i];
-      if (except && (a.el === except || a.el.contains(except) || except.contains(a.el))) continue;
-      if (x + hw > a.l && x - hw < a.r && y + hb > a.t && y - ht < a.b) return false;
-    }
-    return true;
-  }
-  function onScreenY(y, m) { var s = y - SY; return s > 92 + (m || 0) && s < H - 50 - (m || 0); }
 
   /* ---------------- the look: the 3D Buzz (with expressions) or the flat sprite ---------------- */
   var YAW = 0.5; // ~29 degrees toward the camera, so the visor reads
@@ -422,655 +327,256 @@
   var SLOTS = [{ x: 0.84, y: 0.32 }, { x: 0.12, y: 0.6 }, { x: 0.74, y: 0.74 }];
   var P = { x: 0, y: 0 }, P2 = { x: 0, y: 0 };
 
+  /* ---------------- the bees ---------------- */
+  var bees = [], ST = { x: 0, y: 0, z: 1, k: 1, face: 1, pitch: 0, roll: 0, carry: false, jet: 0, t: 0, mood: 'neutral', blink: 0, headRoll: 0, headNod: 0, snap: false };
+  var visit = { next: 0 }; // when the next cell visit may start (one bee at a time)
+  var CP = { x: 0, y: 0 };
+
   function newBee(look, i) {
-    return { look: look, i: i, x: W + LEN * (1 + i * 0.5), y: SY + H * (0.25 + 0.12 * i), z: 1, tz: 1, vx: -120, vy: 0, ax: 0, ay: 0,
-      tx: 0, ty: 0, maxV: 300, maxA: 1500, gain: 5, slowR: 140, hold: false,
-      face: -1, faceT: -1, pitch: 0, roll: 0, bob: 0, ry: 0, jet: 0.5, ph: Math.random() * 6.283,
-      task: null, last: '', base: 'neutral', mood: 'neutral', moodT: '', moodUntil: 0,
-      blinkAt: rnd(1, 4), blinkT: -9, look2: null, lx: 0, ly: 0, pitchBias: 0, headRoll: 0, carry: false,
-      chase: 0, hitCd: 0, noticeCd: 0, peeled: -9, slot: -1 };
+    return { look: look, i: i, x: 0, y: 0, vx: 0, vy: 0, ax: 0, ay: 0, tx: 0, ty: 0, maxV: 150,
+      hx: 0, hy: 0, moveAt: 0, task: 'hover', cell: -1, phase: '', until: 0, flashed: false, hold: false,
+      face: -1, faceT: -1, pitch: 0, roll: 0, bob: 0, ry: 0, jet: 0.5, ph: Math.random() * 6.283, ph2: Math.random() * 6.283,
+      mood: 'neutral', moodUntil: 0, moodT: 'neutral', blinkAt: rnd(1, 4), blinkT: -9, headRoll: 0, glanceAt: rnd(3, 7), shown: false };
   }
-  function speedScale() { return Math.sqrt(LEN / 150); } // smaller bees fly a little slower, not half as fast
-  function setMood(b, m, dur, t) {
-    if (b.moodT === 'angry' && t < b.moodUntil && m !== 'angry') return;
-    b.moodT = m; b.moodUntil = t + dur;
-  }
-  function release(b) {
-    var tk = b.task;
-    if (!tk) return;
-    if (tk.res) delete L.res[tk.res];
-    var c = HIVE.comb;
-    if (c && tk.cells) tk.cells.forEach(function (i) { c.busy(i, false); });
-    b.carry = false; b.hold = false; b.pitchBias = 0; b.headRoll = 0; b.look2 = null; b.slot = -1;
-    b.task = null;
-  }
-  function setTask(b, tk, t) {
-    release(b);
-    if (!tk) return;
-    tk.t0 = t; tk.phase = tk.phase || 'go';
-    b.task = tk; b.last = tk.kind;
-    if (tk.res) L.res[tk.res] = b;
-  }
-  // is a spot free of other bees (their targets and their bodies)?
-  function spotFree(x, y, self) {
-    for (var i = 0; i < bees.length; i++) {
-      var o = bees[i];
-      if (o === self) continue;
-      if (hyp(o.tx - x, o.ty - y) < LEN * 0.95) return false;
-      if (o.hold && hyp(o.x - x, o.y - y) < LEN * 0.95) return false;
+  function speedScale() { return Math.sqrt(LEN / 150); }
+  function setMood(b, m, dur, t) { b.moodT = m; b.moodUntil = t + dur; }
+  function home(b) { var s = spots()[b.i]; b.hx = zx(s[0]); b.hy = zy(s[1]); }
+  // a new spot near the bee's own home share, clear of the other bees
+  function relocate(b, t) {
+    var s = spots()[b.i];
+    for (var k = 0; k < 8; k++) {
+      var x = zx(clamp(s[0] + rnd(-0.14, 0.14), 0.04, 0.96)), y = zy(clamp(s[1] + rnd(-0.18, 0.18), 0.04, 0.96)), ok = true;
+      for (var j = 0; j < bees.length; j++) if (bees[j] !== b && hyp(bees[j].hx - x, bees[j].hy - y) < LEN * 1.5) { ok = false; break; }
+      if (ok) { b.hx = x; b.hy = y; break; }
     }
-    return true;
+    b.moveAt = t + rnd(4.5, 8.5);
   }
 
-  /* ---- comb helpers (the comb lives in home.js and shares a small API as HIVE.comb) ---- */
-  var combRect = null;
-  function combOn() { var c = HIVE.comb; return !!(c && c.live()); }
-  function cellDoc(i, out) { HIVE.comb.screen(i, out, combRect); out.y += SY; return out; }
-  function inCombZone(sx, sy) { return sx > HIVE.comb.edge() * W + LEN * 0.55 && sx < W - LEN * 0.45 && sy > H * 0.2 && sy < H * 0.86; }
-  function freeCells() {
-    var c = HIVE.comb, out = [];
-    for (var i = 0; i < c.count; i++) {
+  /* ---- the comb (HIVE.comb from home.js): a cell inside the zone a bee can settle on ---- */
+  function comb() { var c = HIVE.comb; return c && c.live && c.live() ? c : null; }
+  function pickCell(b) {
+    var c = comb();
+    if (!c) return -1;
+    var r = c.rect(), best = -1, bd = 1e9;
+    for (var k = 0; k < 40; k++) {
+      var i = Math.floor(Math.random() * c.count);
       if (!c.free(i)) continue;
-      c.screen(i, P, combRect);
-      if (inCombZone(P.x, P.y)) out.push({ i: i, x: P.x, y: P.y });
+      c.screen(i, CP, r);
+      if (!inZone(CP.x, CP.y - BH * 0.4, LEN * 0.4)) continue;
+      var d = hyp(CP.x - b.x, CP.y - b.y);
+      if (d > LEN * 1.2 && d < bd) { bd = d; best = i; }
     }
-    return out;
+    return best;
+  }
+  function endVisit(b, t) {
+    var c = HIVE.comb;
+    if (b.cell >= 0 && c && c.busy) c.busy(b.cell, false);
+    b.task = 'hover'; b.cell = -1; b.phase = ''; b.hold = false;
+    visit.next = t + rnd(3.5, 7);
+    relocate(b, t);
   }
 
-  /* ---- task builders: each returns a task or null ---- */
-  function mkCarry(b) {
-    if (!combOn() || HIVE.comb.T() > 3.3) return null;
-    var n = 0; bees.forEach(function (o) { if (o.task && o.task.kind === 'carry') n++; });
-    if (n >= 2) return null;
-    var list = freeCells();
-    if (list.length < 2) return null;
-    var a = pick(list), bs = list.filter(function (c) { var d = hyp(c.x - a.x, c.y - a.y); return c !== a && d > LEN * 1.1 && d < LEN * 4.2; });
-    if (!bs.length) return null;
-    var z = pick(bs);
-    HIVE.comb.busy(a.i, true); HIVE.comb.busy(z.i, true);
-    return { kind: 'carry', a: a.i, b: z.i, cells: [a.i, z.i], phase: 'toA' };
-  }
-  function mkCell(b) {
-    if (!combOn() || HIVE.comb.T() > 6.6) return null;
-    if (bees.filter(function (o) { return o.task && o.task.kind === 'cell'; }).length >= 3) return null;
-    var list = freeCells().filter(function (c) { return spotFree(c.x, c.y + SY - BH, b); });
-    if (!list.length) return null;
-    var c = pick(list);
-    HIVE.comb.busy(c.i, true);
-    var side = Math.random() < 0.5 ? -1 : 1;
-    return { kind: 'cell', i: c.i, cells: [c.i], side: side, dur: rnd(2.2, 3.6) };
-  }
-  function linesInView() {
-    var out = [];
-    L.heads.forEach(function (h) { if (h.ready) h.lines.forEach(function (ln, li) { if (onScreenY(ln.t, 10) && onScreenY(ln.b, 10)) out.push({ h: h, ln: ln, li: li }); }); });
-    return out;
-  }
-  function mkWeave(b) {
-    var n = 0; bees.forEach(function (o) { if (o.task && o.task.kind === 'weave') n++; });
-    if (n >= 2) return null;
-    var ls = linesInView().filter(function (o) { return !L.res['w' + o.ln.key]; });
-    if (!ls.length) return null;
-    var o = pick(ls), dir = b.x < (o.ln.l + o.ln.r) / 2 ? 1 : -1;
-    var x0 = dir > 0 ? o.ln.l - LEN * 0.75 : o.ln.r + LEN * 0.75, x1 = dir > 0 ? o.ln.r + LEN * 0.75 : o.ln.l - LEN * 0.75;
-    // per word: does the bee pass behind it or in front of it (alternating), and through the line, above it or below it
-    var par = Math.random() < 0.5 ? 0 : 1, lanes = [], behind = [], through = 0;
-    o.ln.words.forEach(function (w, i) {
-      behind.push((i + par) % 2 === 0);
-      var r = Math.random(), lane = r < 0.62 ? 0 : r < 0.84 ? -1 : (o.li === 0 && o.h.lines.length > 1 ? -1 : 1);
-      lanes.push(lane); if (!lane) through++;
-    });
-    if (!through && lanes.length) lanes[Math.floor(Math.random() * lanes.length)] = 0; // it always threads at least one word
-    return { kind: 'weave', ln: o.ln, x0: x0, x1: x1, u: 0, ph: rnd(0, 6.28), behind: behind, lanes: lanes, res: 'w' + o.ln.key, phase: 'in' };
-  }
-  function mkPerchLetter(b) {
-    var cands = [];
-    linesInView().forEach(function (o) {
-      if (o.li !== 0) return; // only the top line: a bee sitting on a lower line would cover the line above
-      for (var r in L.res) if (r.indexOf('c' + o.ln.key + ':') === 0) return; // one bee per line, never a row of them
-      o.ln.chars.forEach(function (c, ci) {
-        var y = c.top - BH * 0.34, key = 'c' + o.ln.key + ':' + ci;
-        if (c.tall && !L.res[key] && spotFree(c.cx, y, b) && onScreenY(y - BH * 0.4, 0)) cands.push({ c: c, y: y, key: key });
-      });
-    });
-    if (!cands.length) return null;
-    var p = pick(cands);
-    return { kind: 'visit', mode: 'perch', x: p.c.cx, y: p.y, lx: p.c.cx + 160 * (Math.random() < 0.5 ? -1 : 1), ly: p.y, res: p.key, dur: rnd(2.4, 5) };
-  }
-  function mkPoi(b, filter) {
-    var cands = [];
-    L.pois.forEach(function (p) {
-      if (L.res[p.key] || !onScreenY(p.y - BH * 0.45, 0) || !onScreenY(p.y + BH * 0.3, 0)) return;
-      if (filter && !filter(p)) return;
-      if (p.group && bees.some(function (o) { return o.task && o.task.group === p.group; })) return; // one bee on the bars at a time
-      var x = rnd(p.x0, p.x1);
-      if (x < LEN * 0.4 || x > W - LEN * 0.4 || !spotFree(x, p.y, b)) return;
-      var d = hyp(x - b.x, p.y - b.y);
-      cands.push({ p: p, x: x, w: 1 / (1 + d / 500) });
-    });
-    if (!cands.length) return null;
-    var sum = 0; cands.forEach(function (c) { sum += c.w; });
-    var r = Math.random() * sum, c = cands[0];
-    for (var i = 0; i < cands.length; i++) { r -= cands[i].w; if (r <= 0) { c = cands[i]; break; } }
-    return { kind: 'visit', mode: c.p.kind, x: c.x, y: c.p.y, lx: c.p.kind === 'inspect' ? c.p.lx : c.x + 160 * (Math.random() < 0.5 ? -1 : 1), ly: c.p.ly, res: c.p.key, group: c.p.group, dur: c.p.kind === 'inspect' ? rnd(2, 3.4) : rnd(2.6, 5.2) };
-  }
-  function mkWander(b) {
-    for (var k = 0; k < 14; k++) {
-      var x = W * rnd(0.06, 0.94), y = SY + H * rnd(0.2, 0.82);
-      if (clearAt(x, y, null) && spotFree(x, y, b)) return { kind: 'visit', mode: 'hover', x: x, y: y, lx: x + (Math.random() < 0.5 ? -1 : 1) * 200, ly: y, dur: rnd(1.4, 2.8) };
-    }
-    return { kind: 'visit', mode: 'hover', x: clamp(b.x, LEN, W - LEN), y: clamp(b.y, SY + H * 0.2, SY + H * 0.8), lx: b.x + 100, ly: b.y, dur: 1.2 };
-  }
-  function pickTask(b, t) {
-    var opts = [['carry', 3.2, mkCarry], ['cell', 1.1, mkCell], ['weave', 1.7, mkWeave], ['letter', 1.3, mkPerchLetter], ['poi', 2.6, mkPoi], ['wander', 0.6, mkWander]];
-    while (opts.length) {
-      var sum = 0, i;
-      for (i = 0; i < opts.length; i++) sum += opts[i][1] * (opts[i][0] === b.lastPick ? 0.4 : 1);
-      var r = Math.random() * sum, o = opts[0], oi = 0;
-      for (i = 0; i < opts.length; i++) { r -= opts[i][1] * (opts[i][0] === b.lastPick ? 0.4 : 1); if (r <= 0) { o = opts[i]; oi = i; break; } }
-      var tk = o[2](b);
-      if (tk) { b.lastPick = o[0]; setTask(b, tk, t); return; }
-      opts.splice(oi, 1);
-    }
-    setTask(b, mkWander(b), t);
-  }
-
-  /* ---- running a task: sets the steering target, speed, depth, look and mood; false = finished ---- */
-  function hoverDefaults(b) {
+  /* ---- one bee's step: where it wants to be ---- */
+  function think(b, t, out) {
     var s = speedScale();
-    b.maxV = 300 * s; b.maxA = 1500 * s; b.gain = 5; b.slowR = Math.max(120, LEN); b.tz = 1; b.hold = false; b.look2 = null; b.pitchBias = 0; b.headRoll = 0; b.base = 'neutral';
-  }
-  function runTask(b, t, dt) {
-    var tk = b.task, p, d;
-    hoverDefaults(b);
-    switch (tk.kind) {
-      case 'wait':
-        b.tx = b.x; b.ty = b.y; b.maxV = 0;
-        return t - tk.t0 < tk.dur;
-
-      case 'carry': {
-        if (!combOn()) return false;
-        var A = cellDoc(tk.a, P), above = BH * 0.52 + 6;
-        if (tk.phase === 'toA') {
-          b.tx = A.x; b.ty = A.y - above;
-          if (!inCombZone(A.x, A.y - SY)) return false;
-          if (hyp(b.tx - b.x, b.ty - b.y) < 14) { tk.phase = 'pick'; tk.t0 = t; }
-        } else if (tk.phase === 'pick' || tk.phase === 'drop') {
-          var C = tk.phase === 'pick' ? A : cellDoc(tk.b, P2);
-          p = clamp((t - tk.t0) / 0.7, 0, 1);
-          b.tx = C.x; b.ty = C.y - above + 16 * Math.sin(Math.PI * p); b.hold = true; b.slowR = 40;
-          b.pitchBias = -0.18 * Math.sin(Math.PI * p);
-          if (tk.phase === 'pick' && p > 0.5 && !b.carry) { b.carry = true; HIVE.comb.flash(tk.a, 0.45); }
-          if (tk.phase === 'drop' && p > 0.5 && b.carry) { b.carry = false; HIVE.comb.flash(tk.b, 1); setMood(b, 'happy', 1.8, t); }
-          if (p >= 1) { if (tk.phase === 'drop') return false; tk.phase = 'toB'; tk.t0 = t; }
-        } else { // toB, carrying
-          var B = cellDoc(tk.b, P2);
-          if (!inCombZone(B.x, B.y - SY)) return false;
-          b.tx = B.x; b.ty = B.y - above; b.maxV *= 0.8;
-          if (hyp(b.tx - b.x, b.ty - b.y) < 14) { tk.phase = 'drop'; tk.t0 = t; }
-        }
-        return true;
-      }
-
-      case 'cell': {
-        if (!combOn()) return false;
-        var Cc = cellDoc(tk.i, P);
-        b.tx = Cc.x + tk.side * LEN * 0.32; b.ty = Cc.y - BH * 0.62;
-        b.look2 = true; b.lx = Cc.x; b.ly = Cc.y;
-        if (tk.phase === 'go') {
-          if (hyp(b.tx - b.x, b.ty - b.y) < 16) { tk.phase = 'stay'; tk.t0 = t; HIVE.comb.flash(tk.i, 0.3); }
-        } else {
-          p = (t - tk.t0) / tk.dur;
-          b.hold = true; b.slowR = 60;
-          b.tx += Math.sin(t * 0.9 + b.ph) * 4; b.ty += Math.cos(t * 1.3 + b.ph) * 3;
-          b.pitchBias = -0.32; b.base = p < 0.5 ? 'curious' : 'think';
-          if (p >= 1) { setMood(b, Math.random() < 0.5 ? 'happy' : 'neutral', 1, t); return false; }
-        }
-        return true;
-      }
-
-      case 'weave': {
-        var ln = tk.ln, span = Math.abs(tk.x1 - tk.x0);
-        b.base = 'happy';
-        if (tk.phase === 'in') {
-          laneAt(tk, tk.x0 < tk.x1 ? -1e9 : 1e9); b.tx = tk.x0; b.ty = WV.y; b.tz = 1;
-          if (!onScreenY(ln.t, 0)) return false;
-          if (hyp(b.tx - b.x, b.ty - b.y) < 26) { tk.phase = 'thread'; tk.t0 = t; }
-        } else if (tk.phase === 'thread') {
-          tk.u += dt * 150 * speedScale() / span;
-          var u = clamp(tk.u, 0, 1);
-          b.tx = lerp(tk.x0, tk.x1, u);
-          laneAt(tk, b.tx);
-          b.ty = WV.y + Math.sin(u * Math.PI * 2.2 + tk.ph) * ln.h * 0.06;
-          b.maxV = 380 * speedScale(); b.slowR = 50; b.gain = 7;
-          // depth follows whole words: fully behind one word, fully in front of the next (only shading/scale here;
-          // which glyphs cover the bee is decided per word in frontLetters)
-          b.tz = WV.z;
-          if (u >= 1) { tk.phase = 'out'; tk.t0 = t; }
-        } else {
-          b.tx = tk.x1 + (tk.x1 > tk.x0 ? 1 : -1) * 40; b.ty = ln.cy - 30; b.tz = 1;
-          if (t - tk.t0 > 0.7) return false;
-        }
-        return true;
-      }
-
-      case 'visit': {
-        b.tx = tk.x; b.ty = tk.y; b.look2 = null;
-        if (tk.phase === 'go') {
-          d = hyp(tk.x - b.x, tk.y - b.y);
-          if (tk.mode === 'perch' && d > 70) b.ty = tk.y - 26; // land from just above
-          b.slowR = Math.max(110, LEN * 0.8);
-          if (d < 9 && hyp(b.vx, b.vy) < 70) {
-            tk.phase = 'stay'; tk.t0 = t;
-            tk.mood = tk.mode === 'inspect' ? 'curious' : tk.mode === 'hover' ? 'neutral' : pick(['neutral', 'happy', 'think', 'neutral']);
-            tk.glance = t + rnd(0.8, 1.8);
-          }
-          if (t - tk.t0 > 7) return false; // could not get there
-        } else if (tk.phase === 'stay') {
-          p = (t - tk.t0) / tk.dur;
-          b.hold = true; b.slowR = 40;
-          if (tk.mode !== 'perch') { b.tx += Math.sin(t * 0.9 + b.ph) * 4; b.ty += Math.cos(t * 1.3 + b.ph) * 3; }
-          if (tk.mode === 'inspect') { b.look2 = true; b.lx = tk.lx; b.ly = tk.ly; b.pitchBias = -0.28; b.base = p < 0.55 ? 'curious' : 'think'; }
-          else {
-            b.base = tk.mood;
-            if (t > tk.glance) { tk.glance = t + rnd(1.1, 2.6); tk.side = -(tk.side || 1); }
-            b.look2 = true; b.lx = tk.x + (tk.side || 1) * 200; b.ly = tk.y + rnd(-2, 2);
-          }
-          if (p >= 1) { tk.phase = 'leave'; tk.t0 = t; }
-          // the page scrolled the spot up under the header: leave once the scroll settles
-          var sy0 = tk.y - SY;
-          if (sy0 > -BH && sy0 < 84 + BH * 0.3 && t - scr.at > 0.5) { tk.phase = 'leave'; tk.t0 = t; }
-        } else {
-          b.ty = tk.y - BH * 0.6;
-          if (t - tk.t0 > 0.45) return false;
-        }
-        return true;
-      }
-
-      case 'follow': {
-        var sl = SLOTS[b.slot >= 0 ? b.slot : 0];
-        b.tx = W * sl.x + Math.sin(t * 0.7 + b.ph) * 24;
-        b.ty = SY + H * sl.y + Math.cos(t * 0.9 + b.ph) * 16;
-        b.maxV = Math.max(300 * speedScale(), Math.abs(scr.v) * 1.25 + 160);
-        b.maxA = 3600 * speedScale(); b.gain = 6;
-        return t - scr.at < 0.75;
-      }
-
-      case 'cursor': {
-        var px = ptr.x, py = ptr.y + SY;
-        b.look2 = true; b.lx = px; b.ly = py; b.base = 'curious';
-        if (tk.phase === 'go') { // noticed: stop, turn, a little start
-          b.tx = b.x; b.ty = b.y; b.hold = true; b.slowR = 30;
-          if (t - tk.t0 < 0.3) b.base = 'surprised';
-          if (t - tk.t0 > 0.55) { tk.phase = 'follow'; tk.t0 = t; }
-        } else {
-          var dx = b.x - px, dy = b.y - py, dd = hyp(dx, dy) || 1, keep = LEN * 0.95;
-          b.tx = px + dx / dd * keep; b.ty = py + dy / dd * keep;
-          b.maxV = 420 * speedScale(); b.gain = 4;
-          if (t - tk.t0 > tk.dur || t - ptr.t > 2.5) { setMood(b, 'happy', 0.9, t); return false; }
-        }
-        return true;
-      }
-
-      case 'flee': {
-        b.base = 'angry';
-        if (tk.phase === 'go') { // fuming: a little shake, glaring at the pointer
-          b.look2 = true; b.lx = ptr.x; b.ly = ptr.y + SY;
-          b.tx = tk.x + Math.sin(t * 46) * 4; b.ty = tk.y + Math.cos(t * 39) * 2; b.hold = true; b.slowR = 20; b.gain = 12;
-          if (t - tk.t0 > 0.8) {
-            tk.phase = 'dart'; tk.t0 = t;
-            tk.x = ptr.x < W / 2 ? W - LEN * 0.7 : LEN * 0.7; tk.y = SY + (ptr.y < H / 2 ? H * 0.78 : H * 0.28);
-          }
-        } else if (tk.phase === 'dart') {
-          b.tx = tk.x; b.ty = tk.y; b.maxV = 1150 * speedScale(); b.maxA = 5200 * speedScale(); b.gain = 8; b.slowR = 160;
-          if (hyp(tk.x - b.x, tk.y - b.y) < 30 || t - tk.t0 > 1.6) { tk.phase = 'sulk'; tk.t0 = t; }
-        } else {
-          b.tx = tk.x; b.ty = tk.y; b.hold = true; b.slowR = 60;
-          if (t - tk.t0 > 1.5) { b.chase = 0; b.noticeCd = t + 25; return false; }
-        }
-        return true;
+    if (b.task === 'visit') {
+      var c = comb();
+      if (!c || out > 0.02 || t > b.until) endVisit(b, t);
+      else {
+        c.screen(b.cell, CP, c.rect());
+        b.tx = CP.x; b.ty = CP.y - BH * 0.42; // standing on the cell's top face
+        var d = hyp(b.tx - b.x, b.ty - b.y);
+        if (b.phase === 'go' && d < LEN * 0.2) { b.phase = 'land'; b.until = t + rnd(2.4, 3.4); b.hold = true; }
+        if (b.phase === 'land' && !b.flashed) { b.flashed = true; c.flash(b.cell, 1); setMood(b, 'happy', 2.2, t); }
+        if (b.phase === 'land' && t > b.until - 0.3) endVisit(b, t);
+        b.maxV = (b.phase === 'go' ? 220 : 90) * s;
+        if (b.task === 'visit') return;
       }
     }
-    return false;
-  }
-
-  /* ---- weave lanes: for x on a line, the height to fly at (through / above / below each word) and the depth ---- */
-  var WV = { y: 0, z: 1 };
-  function laneY(ln, lane) { return lane < 0 ? ln.top - BH * 0.42 : lane > 0 ? ln.b + BH * 0.3 : ln.cy; }
-  function laneZ(tk, i) { return tk.lanes[i] ? 0.4 : tk.behind[i] ? -0.6 : 0.85; }
-  function laneAt(tk, x) {
-    var ws = tk.ln.words, n = ws.length, i;
-    if (!n || x <= ws[0].l) { WV.y = n ? laneY(tk.ln, tk.lanes[0]) : tk.ln.cy; WV.z = n ? laneZ(tk, 0) : 1; return; }
-    for (i = 0; i < n; i++) {
-      var w = ws[i];
-      if (x <= w.r) { WV.y = laneY(tk.ln, tk.lanes[i]); WV.z = laneZ(tk, i); return; }
-      if (i + 1 < n && x < ws[i + 1].l) { // in the gap: ease from this word's lane to the next one's
-        var k = smooth01((x - w.r) / Math.max(1, ws[i + 1].l - w.r));
-        WV.y = lerp(laneY(tk.ln, tk.lanes[i]), laneY(tk.ln, tk.lanes[i + 1]), k);
-        WV.z = lerp(laneZ(tk, i), laneZ(tk, i + 1), k);
-        return;
-      }
+    // hovering: a slow figure around the home spot, the buzz
+    if (t > b.moveAt) relocate(b, t);
+    b.tx = b.hx + Math.sin(t * 0.55 + b.ph) * LEN * 0.45 + Math.sin(t * 1.3 + b.ph2) * LEN * 0.12;
+    b.ty = b.hy + Math.sin(t * 0.8 + b.ph2) * BH * 0.35;
+    b.maxV = 150 * s;
+    // now and then a look around
+    if (t > b.glanceAt) { setMood(b, Math.random() < 0.5 ? 'curious' : 'think', rnd(1.2, 2.2), t); b.glanceAt = t + rnd(5, 10); }
+    // one visit at a time, only while the bees are fully in the hero
+    if (out < 0.01 && t > visit.next && !bees.some(function (o) { return o.task === 'visit'; }) && Math.random() < 0.02) {
+      var i = pickCell(b);
+      if (i >= 0) { b.task = 'visit'; b.cell = i; b.phase = 'go'; b.flashed = false; b.until = t + 6; HIVE.comb.busy(i, true); }
+      else visit.next = t + 2;
     }
-    WV.y = laneY(tk.ln, tk.lanes[n - 1]); WV.z = laneZ(tk, n - 1);
   }
-  function smooth01(v) { v = clamp(v, 0, 1); return v * v * (3 - 2 * v); }
 
   /* ---- steering: arrive + separation, acceleration-limited ---- */
-  function steer(b, dt) {
-    var dx = b.tx - b.x, dy = b.ty - b.y, d = hyp(dx, dy);
-    var sp = b.maxV * Math.min(1, d / b.slowR);
+  function steer(b, dt, out) {
+    var tx = b.tx + out * (W * 0.42 + LEN * 2.5), ty = b.ty - out * H * 0.06; // flying out to the right
+    var dx = tx - b.x, dy = ty - b.y, d = hyp(dx, dy), slowR = LEN * 1.2;
+    var maxV = out > 0.01 ? Math.max(b.maxV, 420 * speedScale()) : b.maxV;
+    var sp = maxV * Math.min(1, d / slowR);
     var wx = d > 0.01 ? dx / d * sp : 0, wy = d > 0.01 ? dy / d * sp : 0;
-    var R = LEN * 0.95, sx = 0, sy = 0;
+    var R = LEN * 1.05, sx = 0, sy = 0;
     for (var i = 0; i < bees.length; i++) {
       var o = bees[i];
       if (o === b) continue;
       var ox = b.x - o.x, oy = b.y - o.y, od = hyp(ox, oy);
       if (od < R && od > 0.001) { var f = (R - od) / R; sx += ox / od * f; sy += oy / od * f; }
     }
-    var sepK = (b.hold ? 70 : 240) * speedScale();
+    var sepK = (b.hold ? 40 : 200) * speedScale();
     wx += sx * sepK; wy += sy * sepK;
-    var ax = (wx - b.vx) * b.gain, ay = (wy - b.vy) * b.gain, am = hyp(ax, ay);
-    if (am > b.maxA) { ax *= b.maxA / am; ay *= b.maxA / am; }
+    var maxA = 900 * speedScale() * (out > 0.01 ? 2 : 1);
+    var ax = (wx - b.vx) * 4, ay = (wy - b.vy) * 4, am = hyp(ax, ay);
+    if (am > maxA) { ax *= maxA / am; ay *= maxA / am; }
     b.vx += ax * dt; b.vy += ay * dt;
     b.x += b.vx * dt; b.y += b.vy * dt;
     var k = damp(7, dt);
     b.ax += (ax - b.ax) * k; b.ay += (ay - b.ay) * k;
   }
 
-  /* ---- facing, pitch, bank, bob, depth, blink ---- */
+  /* ---- facing, pitch, bank, bob, jets, blink ---- */
   function orient(b, t, dt) {
     var v = hyp(b.vx, b.vy), s = speedScale();
-    if (b.look2) { var lx = b.lx - b.x; if (Math.abs(lx) > 24) b.faceT = lx > 0 ? 1 : -1; }
-    else if (Math.abs(b.vx) > 28 * s) b.faceT = b.vx > 0 ? 1 : -1;
-    b.face += (b.faceT - b.face) * damp(6.5, dt);
-    var pt = 0;
-    if (v > 30 * s && !b.hold) pt = clamp(Math.atan2(-b.vy, Math.abs(b.vx) + 60 * s), -0.75, 0.75) * 0.6;
-    else if (b.look2) pt = clamp(Math.atan2(-(b.ly - b.y), Math.abs(b.lx - b.x) + 80), -0.5, 0.5) * 0.45;
-    pt += b.pitchBias;
+    if (b.hold) b.faceT = b.x > (Z.l + Z.r) / 2 ? -1 : 1; // settled on a cell: turned to the comb's middle
+    else if (Math.abs(b.vx) > 26 * s) b.faceT = b.vx > 0 ? 1 : -1;
+    b.face += (b.faceT - b.face) * damp(6, dt);
+    var pt = v > 30 * s && !b.hold ? clamp(Math.atan2(-b.vy, Math.abs(b.vx) + 60 * s), -0.75, 0.75) * 0.55 : (b.hold ? 0.08 : 0);
     b.pitch += (pt - b.pitch) * damp(6, dt);
-    // banking: roll about the body with the turn (lateral acceleration), so it shows its back or belly
     var lat = v > 1 ? (b.vx * b.ay - b.vy * b.ax) / v : 0;
-    var rt = clamp(lat / (2600 * s), -0.42, 0.42) + (b.task && b.task.kind === 'flee' && b.task.phase === 'go' ? Math.sin(t * 52) * 0.08 : 0);
-    b.roll += (rt - b.roll) * damp(5, dt);
-    b.z += (b.tz - b.z) * damp(b.task && b.task.kind === 'weave' ? 5 : 3, dt);
-    var perched = b.hold && b.task && b.task.kind === 'visit' && b.task.mode === 'perch';
-    var amp = (perched ? 0.8 : 5 * (1 - 0.5 * clamp(v / (300 * s), 0, 1))) * s;
+    b.roll += (clamp(lat / (2600 * s), -0.4, 0.4) - b.roll) * damp(5, dt);
+    var amp = (b.hold ? 0.9 : 5 * (1 - 0.5 * clamp(v / (300 * s), 0, 1))) * s;
     b.bob += (amp - b.bob) * damp(4, dt);
-    b.ry = b.y + Math.sin(t * 2.4 + b.ph) * b.bob;
-    b.jet += (clamp(v / (320 * s) + hyp(b.ax, b.ay) / (2500 * s), perched ? 0.08 : 0.25, 1) - b.jet) * damp(6, dt);
-    // blinks: random, sometimes double
+    b.ry = b.y + Math.sin(t * 2.4 + b.ph) * b.bob + Math.sin(t * 23 + b.ph2) * 0.45 * s; // the slow bob and the buzz
+    b.jet += (clamp(v / (320 * s) + hyp(b.ax, b.ay) / (2500 * s), b.hold ? 0.08 : 0.28, 1) - b.jet) * damp(6, dt);
+    b.headRoll += ((b.hold ? 0 : Math.sin(t * 0.9 + b.ph) * 0.06) - b.headRoll) * damp(3, dt);
     if (t > b.blinkAt) { b.blinkT = t; b.blinkAt = t + (Math.random() < 0.2 ? 0.28 : rnd(2.2, 6)); }
   }
   function blinkOf(b, t) { var a = (t - b.blinkT) / 0.15; return a < 0 || a > 1 ? 0 : 1 - Math.abs(a * 2 - 1); }
 
-  /* ---- headline depth, whole words at a time: while a bee threads a line, every word it passes BEHIND has
-     its glyph copies shown above the overlay (covering the bee); every other word stays under the bee.
-     The bee never changes depth inside a word, only in the gaps between words. ---- */
-  function frontLetters() {
-    var h, ln, w, i, j, k, c;
-    for (i = 0; i < L.heads.length; i++) { h = L.heads[i]; for (j = 0; j < h.lines.length; j++) { ln = h.lines[j]; for (k = 0; k < ln.words.length; k++) ln.words[k].want = false; } }
-    for (var n = 0; n < bees.length; n++) {
-      var b = bees[n], tk = b.task;
-      if (!tk || tk.kind !== 'weave' || !tk.ln || !tk.ln.words) continue;
-      var kz = 0.93 + 0.07 * b.z, hw = LEN * 0.46 * kz, ht = BH * 0.48 * kz, hb = BH * 0.42 * kz;
-      ln = tk.ln;
-      for (k = 0; k < ln.words.length; k++) {
-        w = ln.words[k];
-        if (tk.behind[k] && !tk.lanes[k] && b.x + hw > w.l && b.x - hw < w.r && b.ry + hb > w.t && b.ry - ht < w.b) w.want = true;
-      }
-    }
-    for (i = 0; i < L.heads.length; i++) { h = L.heads[i]; for (j = 0; j < h.lines.length; j++) { ln = h.lines[j]; for (k = 0; k < ln.words.length; k++) {
-      w = ln.words[k];
-      if (w.want === w.on) continue;
-      w.on = w.want;
-      for (c = 0; c < w.chars.length; c++) w.chars[c].sp.style.visibility = w.on ? 'visible' : 'hidden';
-    } } }
-  }
-
-  /* ---- the visitor: scroll (follow / peel off / fly in) and the pointer (notice / chase) ---- */
-  function scrollTrack(t, dt) {
-    scr.d = SY - scr.last;
-    var raw = dt > 0 ? scr.d / dt : 0;
-    scr.last = SY;
-    if (Math.abs(raw) > 30) scr.at = t;
-    scr.v += (raw - scr.v) * damp(9, dt);
-  }
-  function near(b) { return (b.y > SY - H * 0.15 && b.y < SY + H * 1.15) || (b.task && b.ty > SY - H * 0.1 && b.ty < SY + H * 1.1); }
-  function visible(b) { var s = b.y - SY; return s > -BH && s < H + BH && b.x > -LEN && b.x < W + LEN; }
-  function busyKind(b) { var k = b.task && b.task.kind; return k === 'carry' || k === 'cursor' || k === 'flee' || k === 'wait'; }
-
-  function manage(t) {
-    var scrolling = t - scr.at < 0.3, i, b, followers = 0;
-    for (i = 0; i < bees.length; i++) if (bees[i].task && bees[i].task.kind === 'follow') followers++;
-
-    // fast scroll: a start of surprise from the bees on screen
-    if (Math.abs(scr.v) > 2300 && t - scr.surp > 1.4) {
-      scr.surp = t;
-      bees.forEach(function (o) { if (visible(o)) setMood(o, 'surprised', 0.9, t); });
-    }
-    // a few bees follow the visitor down (or up) the page
-    if (scrolling && t > mgr.recruit) {
-      mgr.recruit = t + 0.28;
-      var want = Math.min(Math.abs(scr.v) > 900 ? 3 : 2, N - 1);
-      if (followers < want) {
-        var best = null, bd = 1e9;
-        for (i = 0; i < bees.length; i++) {
-          b = bees[i];
-          if (busyKind(b) || (b.task && b.task.kind === 'follow') || t - b.peeled < 3.5) continue;
-          if (b.hold && b.task && b.task.kind === 'visit' && b.ph > 3.6) continue; // some stay where they sit
-          var dd = Math.abs(b.y - (SY + H / 2)) + Math.abs(b.x - W / 2) * 0.3;
-          if (dd < bd) { bd = dd; best = b; }
-        }
-        if (best && bd < H * 1.2) {
-          var used = {}; bees.forEach(function (o) { if (o.slot >= 0) used[o.slot] = 1; });
-          var sl = 0; while (used[sl] && sl < SLOTS.length - 1) sl++;
-          setTask(best, { kind: 'follow' }, t); best.slot = sl;
-        }
-      }
-    }
-    // on the way, one of them peels off to something in the section coming into view
-    if (scrolling && followers > 0 && t > mgr.peel) {
-      mgr.peel = t + 0.65;
-      if (Math.random() < 0.45) {
-        var dir = scr.v >= 0 ? 1 : -1, fs = bees.filter(function (o) { return o.task && o.task.kind === 'follow'; }), f = pick(fs);
-        var tk = mkPoi(f, function (p) { var s = p.y - SY; return dir > 0 ? s > H * 0.5 : s < H * 0.5; });
-        if (tk) { setTask(f, tk, t); f.peeled = t; }
-      }
-    }
-    // always a few bees around: one far behind is quietly brought back, flying in from off-screen
-    if (t > mgr.recycle) {
-      var present = 0, seen = 0, far = null, fd = 0;
-      for (i = 0; i < bees.length; i++) {
-        b = bees[i];
-        if (near(b)) present++;
-        if (visible(b)) seen++;
-        var away = b.y < SY - H * 0.5 ? SY - b.y : b.y > SY + H * 1.5 ? b.y - SY - H : 0;
-        if (away > fd && !visible(b) && (!b.task || b.task.kind !== 'flee')) { fd = away; far = b; }
-      }
-      mgr.recycle = t + (seen < 3 ? 0.18 : 0.45); // hurry when the screen is nearly empty
-      if (present < bees.length && far) respawn(far, t, scrolling);
-    }
-    // the pointer: now and then a nearby bee notices it
-    if (fine && t > mgr.notice) {
-      mgr.notice = t + 0.4;
-      if (t > mgr.noticeCd && t - ptr.t < 1.5 && Math.random() < 0.14) {
-        var nb = null, nd = Math.max(LEN * 2.4, 260);
-        for (i = 0; i < bees.length; i++) {
-          b = bees[i];
-          if (busyKind(b) || t < b.noticeCd || (b.task && b.task.kind === 'follow' && scrolling)) continue;
-          var pd = hyp(b.x - ptr.x, b.ry - SY - ptr.y);
-          if (pd < nd) { nd = pd; nb = b; }
-        }
-        if (nb) {
-          setTask(nb, { kind: 'cursor', dur: rnd(2, 4) }, t);
-          mgr.noticeCd = t + rnd(7, 13); nb.noticeCd = t + 18;
-        }
-      }
-    }
-  }
-  function respawn(b, t, scrolling) {
-    release(b);
-    var dir = scr.v >= 0 ? 1 : -1, s = speedScale();
-    if (Math.random() < 0.6 || Math.abs(scr.v) < 100) {
-      var left = Math.random() < 0.5;
-      b.x = left ? -LEN : W + LEN; b.y = SY + H * rnd(0.28, 0.72); b.vx = (left ? 260 : -260) * s; b.vy = 0;
-    } else {
-      b.x = W * rnd(0.15, 0.85); b.y = dir > 0 ? SY + H + BH : SY - BH; b.vx = 0; b.vy = -dir * 260 * s;
-    }
-    b.z = b.tz = 1; b.face = b.faceT = b.vx < 0 ? -1 : 1; b.chase = 0;
-    var followers = bees.filter(function (o) { return o.task && o.task.kind === 'follow'; }).length;
-    if (scrolling && followers < 3) {
-      var used = {}; bees.forEach(function (o) { if (o.slot >= 0) used[o.slot] = 1; });
-      var sl = 0; while (used[sl] && sl < SLOTS.length - 1) sl++;
-      setTask(b, { kind: 'follow' }, t); b.slot = sl;
-    } else pickTask(b, t);
-  }
-  // a pointer rushing at a bee: it dodges; chased again and again, it gets angry and darts away
-  function chase(t, dt) {
-    var ps = hyp(ptr.vx, ptr.vy);
-    for (var i = 0; i < bees.length; i++) {
-      var b = bees[i];
-      b.chase = Math.max(0, b.chase - dt * 0.2);
-      if (!fine || t - ptr.t > 0.2 || ps < 450 || t < b.hitCd) continue;
-      var dx = b.x - ptr.x, dy = b.ry - SY - ptr.y, d = hyp(dx, dy);
-      if (d > LEN * 0.8 || ptr.vx * dx + ptr.vy * dy <= 0) continue;
-      b.hitCd = t + 0.5; b.chase += 1;
-      var s = speedScale();
-      b.vx += dx / (d || 1) * 460 * s; b.vy += dy / (d || 1) * 460 * s;
-      setMood(b, 'surprised', 0.7, t);
-      if (b.chase >= 3 && (!b.task || b.task.kind !== 'flee')) {
-        setTask(b, { kind: 'flee', x: b.x, y: b.y }, t);
-        setMood(b, 'angry', 3.4, t);
-      }
-    }
-  }
-
   /* ---------------- frame ---------------- */
-  var raf = 0, lastT = -1, built = false, drawnEmpty = false;
-  function frame(ts, manual) {
-    if (!manual) raf = 0;
-    if (HIVE.bees && HIVE.bees.paused && !manual) { SY = win.scrollY || 0; draw(lastT, false); schedule(); return; }
+  var raf = 0, lastT = -1, built = false, dead = false, drawnEmpty = false, alpha = 1, mode = 'loading';
+  function onScreen(b) { return b.x > -LEN && b.x < W + LEN && b.ry > -BH && b.ry < H + BH; }
+  function fade(T) {
+    alpha = alphaOf(T);
+    canvas.style.opacity = alpha.toFixed(3);
+    canvas.style.visibility = alpha < 0.01 ? 'hidden' : '';
+  }
+  function wanted() { return built && !dead && !doc.hidden && alpha >= 0.01; }
+  function step(t, dt) {
+    var out = outOf(storyT());
+    for (var i = 0; i < bees.length; i++) { think(bees[i], t, out); steer(bees[i], dt, out); orient(bees[i], t, dt); }
+  }
+  function frame(ts) {
+    raf = 0;
+    if (!wanted()) { lastT = -1; return; } // gone (past the hero, or the tab is hidden): the loop stops
     var t = ts / 1000, dt = lastT < 0 ? 0.016 : clamp(t - lastT, 0, 0.05);
     lastT = t;
-    SY = win.scrollY || win.pageYOffset || 0;
-    try {
-      if (t > L.next) layout(false);
-      scrollTrack(t, dt);
-      combRect = combOn() ? HIVE.comb.rect() : null;
-      manage(t);
-      chase(t, dt);
-      for (var i = 0; i < bees.length; i++) {
-        var b = bees[i];
-        if (!b.task) pickTask(b, t);
-        if (!runTask(b, t, dt)) { release(b); pickTask(b, t); runTask(b, t, dt); }
-        // followers ride most of the scroll with the visitor (and steer the rest), so even a fast fling keeps them close
-        if (b.task.kind === 'follow' && scr.d) b.y += clamp(scr.d, -H * 0.5, H * 0.5) * 0.85;
-        steer(b, dt);
-        orient(b, t, dt);
-      }
-      frontLetters();
-      draw(t, false);
-    } catch (e) { warn(e); }
-    if (!manual) schedule();
+    try { step(t, dt); draw(t, false); } catch (e) { warn(e); }
+    schedule();
   }
   function draw(t, snap) {
     var any = false;
     for (var i = 0; i < bees.length; i++) {
-      var b = bees[i], st = ST;
-      var vis = visible(b);
+      var b = bees[i], st = ST, vis = onScreen(b);
+      b.shown = vis;
       b.look.obj.visible = vis;
       if (!vis) continue;
       any = true;
-      st.x = b.x; st.y = b.ry - SY; st.z = b.z; st.k = (0.93 + 0.07 * b.z) * (HIVE.bees && HIVE.bees.zoom || 1);
+      st.x = b.x; st.y = b.ry; st.z = 1; st.k = 1;
       st.face = b.face; st.pitch = b.pitch * b.face; st.roll = b.roll * (b.face >= 0 ? 1 : -1);
-      st.carry = b.carry; st.jet = b.jet; st.t = t; st.snap = snap;
-      st.mood = t < b.moodUntil ? b.moodT : b.base;
+      st.carry = false; st.jet = b.jet; st.t = t; st.snap = snap;
+      st.mood = t < b.moodUntil ? b.moodT : b.mood;
       st.blink = reduced ? 0 : blinkOf(b, t);
       st.headRoll = b.headRoll; st.headNod = 0;
       b.look.set(st);
     }
     if (any || !drawnEmpty) { renderer.render(scene, cam); drawnEmpty = !any; }
   }
-  function schedule() { if (!raf && !doc.hidden && !reduced) raf = requestAnimationFrame(frame); }
+  function schedule() { if (!raf && !reduced && wanted()) raf = requestAnimationFrame(frame); }
 
-  /* ---------------- reduced motion: a few still bees, perched, moving only with the page ---------------- */
+  /* ---------------- reduced motion: four still bees in the zone ---------------- */
   function placeStill() {
-    layout(true);
-    var spots = [];
-    L.heads.forEach(function (h) { if (h.ready && h.lines[0]) { var cs = h.lines[0].chars.filter(function (c) { return c.tall; }); if (cs.length) { var c = cs[Math.floor(cs.length * 0.62)]; spots.push({ x: c.cx, y: c.top - BH * 0.34, f: -1 }); } } });
-    ['#giant-num', '.stat .num', '.roadmap h3', '.footer-mark span'].forEach(function (sel) {
-      var p = L.pois.filter(function (q) { return q.el.matches(sel); })[0];
-      if (p) spots.push({ x: (p.x0 + p.x1) / 2, y: p.y, f: 1 });
-    });
-    bees.forEach(function (b, i) {
-      var s = spots[i];
-      b.look.obj.visible = !!s;
-      if (!s) { b.y = -1e5; return; }
-      b.x = s.x; b.y = b.ry = s.y; b.z = 1; b.face = b.faceT = s.f; b.base = 'neutral';
+    zone();
+    bees.forEach(function (b) {
+      var s = spots()[b.i];
+      b.x = zx(s[0]); b.y = b.ry = zy(s[1]); b.face = b.faceT = s[2]; b.pitch = b.roll = 0; b.jet = 0.3; b.headRoll = 0;
     });
   }
   var still = 0;
   function drawStill() {
-    if (still) return;
-    still = requestAnimationFrame(function () { still = 0; SY = win.scrollY || win.pageYOffset || 0; draw(performance.now() / 1000, true); });
+    if (still || dead) return;
+    still = requestAnimationFrame(function () { still = 0; if (alpha >= 0.01) draw(performance.now() / 1000, true); });
   }
 
   /* ---------------- boot ---------------- */
+  function onStory(T) {
+    var was = alpha >= 0.01;
+    fade(T);
+    if (!built) return;
+    if (reduced) { if (alpha >= 0.01 && !was) drawStill(); return; }
+    schedule();
+  }
   function build(make) {
     sizes();
-    var n = reduced ? Math.min(N, 5) : N;
-    for (var i = 0; i < n; i++) {
+    for (var i = 0; i < COUNT; i++) {
       var look = make();
       scene.add(look.obj);
-      var b = newBee(look, i);
-      bees.push(b);
+      bees.push(newBee(look, i));
     }
     built = true;
-    // for debugging in the console (advance(s) runs the simulation s seconds at 60 fps, e.g. in a hidden tab)
-    HIVE.bees = { list: bees, layout: L, ptr: ptr, now: function () { return lastT; }, size: function () { return { LEN: LEN, BH: BH, MLEN: MLEN, MHT: MHT }; },
-      advance: function (s) { var ts = lastT < 0 ? performance.now() : lastT * 1000; for (var k = 0; k < s * 60; k++) { ts += 1000 / 60; frame(ts, true); } } };
-    layout(true);
-    if (reduced) { placeStill(); drawStill(); win.addEventListener('scroll', drawStill, { passive: true }); return; }
-    // the landing: the bees arrive from the right, one after another
     var t = performance.now() / 1000;
-    bees.forEach(function (b, i) { b.x = W + LEN * (0.8 + i * 0.25); b.y = SY + H * (0.2 + (i % 5) * 0.14 + (i > 4 ? 0.07 : 0)); setTask(b, { kind: 'wait', dur: 0.3 + i * 0.26 }, t); });
-    scr.last = SY;
+    // for checks in the console (advance(s) runs the bees s seconds at 60 fps, e.g. in a hidden tab)
+    HIVE.bees = { list: bees, zone: function () { return Z; }, mode: function () { return mode; },
+      size: function () { return { LEN: LEN, BH: BH }; },
+      visible: function () { return alpha < 0.01 ? 0 : bees.filter(function (b) { return b.shown; }).length; },
+      advance: function (s) {
+        var ts = lastT < 0 ? performance.now() : lastT * 1000;
+        for (var k = 0; k < s * 60; k++) { ts += 1000 / 60; var tt = ts / 1000; step(tt, 1 / 60); lastT = tt; }
+        draw(lastT, false);
+      } };
+    fade(storyT());
+    if (reduced) { placeStill(); drawStill(); return; }
+    // the landing: the bees arrive from the right, one after another, each to its home spot
+    bees.forEach(function (b, k) {
+      home(b); b.moveAt = t + rnd(5, 9);
+      b.x = W + LEN * (0.8 + k * 0.6); b.y = b.hy + rnd(-BH, BH); b.vx = -260 * speedScale();
+    });
+    visit.next = t + rnd(2.5, 4);
     schedule();
   }
   function start() {
-    var LOOK = { make: null };
-    modelLook.load(function () { LOOK.make = modelLook.make; build(LOOK.make); },
-      function () { if (LOOK.make) return; spriteLook.load(function () { LOOK.make = spriteLook.make; build(LOOK.make); }); });
+    var made = false;
+    modelLook.load(function () { if (made) return; made = true; mode = 'model'; build(modelLook.make); },
+      function () { if (made) return; spriteLook.load(function () { if (made) return; made = true; mode = 'sprite'; build(spriteLook.make); }); });
   }
 
-  win.addEventListener('pointermove', function (e) {
-    if (e.pointerType && e.pointerType !== 'mouse') return;
-    var t = performance.now() / 1000, dt = Math.max(0.008, t - ptr.lt);
-    var vx = (e.clientX - ptr.lx) / dt, vy = (e.clientY - ptr.ly) / dt;
-    if (t - ptr.lt > 0.25) { vx = 0; vy = 0; }
-    ptr.vx += (vx - ptr.vx) * 0.5; ptr.vy += (vy - ptr.vy) * 0.5;
-    ptr.lx = ptr.x = e.clientX; ptr.ly = ptr.y = e.clientY; ptr.lt = ptr.t = t;
-  }, { passive: true });
-  doc.addEventListener('mouseleave', function () { ptr.t = -9; });
+  if (HIVE.story && HIVE.story.subs) HIVE.story.subs.push(onStory);
+  else win.addEventListener('scroll', function () { onStory(storyT()); }, { passive: true });
+  fade(storyT());
   doc.addEventListener('visibilitychange', function () {
-    if (doc.hidden) { cancelAnimationFrame(raf); raf = 0; }
-    else { lastT = -1; scr.last = win.scrollY || 0; if (built) schedule(); }
+    if (doc.hidden) { cancelAnimationFrame(raf); raf = 0; } else { lastT = -1; schedule(); }
   });
   var rt = 0;
-  win.addEventListener('resize', function () {
+  function onResize() {
     clearTimeout(rt);
     rt = setTimeout(function () {
+      if (dead) return;
       sizes(); // (setSize clears the canvas: draw again at once, so there is no blank frame)
       if (!built) return;
-      layout(true);
-      if (reduced) { placeStill(); drawStill(); } else { drawnEmpty = false; draw(lastT > 0 ? lastT : performance.now() / 1000, false); }
+      if (reduced) { placeStill(); drawStill(); return; }
+      var t = performance.now() / 1000;
+      bees.forEach(function (b) { if (b.task === 'visit') endVisit(b, t); home(b); });
+      drawnEmpty = false;
+      if (alpha >= 0.01) draw(lastT > 0 ? lastT : t, false);
     }, 150);
-  });
-  win.addEventListener('load', function () { if (built) layout(true); });
-  if (doc.fonts && doc.fonts.ready) doc.fonts.ready.then(function () { if (built) layout(true); });
+  }
+  win.addEventListener('resize', onResize);
+  win.addEventListener('load', onResize);
+  if (doc.fonts && doc.fonts.ready) doc.fonts.ready.then(onResize);
   canvas.addEventListener('webglcontextlost', function (e) {
     e.preventDefault();
-    cancelAnimationFrame(raf); raf = 0; reduced = true; // stops the loop for good
-    canvas.style.display = 'none'; front.style.display = 'none';
+    dead = true; cancelAnimationFrame(raf); raf = 0;
+    canvas.style.display = 'none';
+    mode = 'images'; stillImages(); // the still images take over
   });
   try { start(); } catch (e) { warn(e); }
 })();
