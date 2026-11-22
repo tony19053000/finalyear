@@ -10,8 +10,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,300;12..96,400;12..96,500;12..96,600;12..96,700&family=Geist:wght@300;400;500;600&family=Geist+Mono:wght@400;500;700&family=Instrument+Serif:ital@1&display=swap">
-  <link rel="stylesheet" href="assets/css/site.css?v=20261122g">
-  <link rel="stylesheet" href="assets/css/pages.css?v=20261122g">
+  <link rel="stylesheet" href="assets/css/site.css?v=20261122h">
+  <link rel="stylesheet" href="assets/css/pages.css?v=20261122h">
   <script>document.documentElement.classList.add('js');</script>
 </head>
 <body>
@@ -104,24 +104,7 @@
 
         <!-- ===== Linux ===== -->
         <div class="panel" role="tabpanel" id="linux" aria-labelledby="tab-linux" tabindex="0" hidden>
-          <div class="dl-grid two">
-            <article class="dl-card card hero-dl" id="linux-agent">
-              <div class="dl-card-top">
-                <div>
-                  <span class="eyebrow">Every laptop that shares</span>
-                  <h2>Agent</h2>
-                  <p class="muted">Shares this computer's CPU/GPU with a fabric.</p>
-                </div>
-                <span class="ver-pill">Ubuntu 22.04 / 24.04</span>
-              </div>
-              <div class="file-row">
-                <span class="file mono">meshforge-agent_0.17.5-1_amd64.deb</span>
-                <a class="btn btn-honey" id="download-linux-agent" data-dl="agentDeb" href="https://github.com/tony19053000/finalyear/releases/download/v0.17.5/meshforge-agent_0.17.5-1_amd64.deb">Download .deb</a>
-              </div>
-              <div class="cmd" data-label="agent install command"><pre><code><span class="p">$ </span>sudo apt install ./meshforge-agent_0.17.5-1_amd64.deb</code></pre></div>
-              <p class="fine">Next: open Hive from the app menu and join. <a href="docs.html#join-a-laptop">Join a laptop &rarr;</a></p>
-            </article>
-
+          <div class="dl-grid two dl-split">
             <article class="dl-card card hero-dl ctrl-card" id="linux-controller">
               <div class="dl-card-top">
                 <div>
@@ -137,6 +120,23 @@
               </div>
               <div class="cmd" data-label="controller install command"><pre><code><span class="p">$ </span>sudo apt install ./meshforge-controller_0.17.5-1_amd64.deb</code></pre></div>
               <p class="fine">Next: <a href="docs.html#create-a-fabric">Create a fabric &rarr;</a></p>
+            </article>
+
+            <article class="dl-card card hero-dl" id="linux-agent">
+              <div class="dl-card-top">
+                <div>
+                  <span class="eyebrow">Every laptop that shares</span>
+                  <h2>Agent</h2>
+                  <p class="muted">Shares this computer's CPU/GPU with a fabric.</p>
+                </div>
+                <span class="ver-pill">Ubuntu 22.04 / 24.04</span>
+              </div>
+              <div class="file-row">
+                <span class="file mono">meshforge-agent_0.17.5-1_amd64.deb</span>
+                <a class="btn btn-honey" id="download-linux-agent" data-dl="agentDeb" href="https://github.com/tony19053000/finalyear/releases/download/v0.17.5/meshforge-agent_0.17.5-1_amd64.deb">Download .deb</a>
+              </div>
+              <div class="cmd" data-label="agent install command"><pre><code><span class="p">$ </span>sudo apt install ./meshforge-agent_0.17.5-1_amd64.deb</code></pre></div>
+              <p class="fine">Next: open Hive from the app menu and join. <a href="docs.html#join-a-laptop">Join a laptop &rarr;</a></p>
             </article>
           </div>
         </div>
@@ -196,7 +196,7 @@
     <div class="footer-mark" aria-hidden="true"><span>hive<i>.</i></span></div>
   </footer>
 
-  <script src="assets/js/site.js?v=20261122g"></script>
+  <script src="assets/js/site.js?v=20261122h"></script>
   <script>
     /* OS tabs: auto-select by OS, #windows / #linux in the URL win, arrow keys move between tabs. */
     (function () {
