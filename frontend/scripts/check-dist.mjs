@@ -9,6 +9,11 @@
 // split per route (app/App.tsx, React.lazy), so a big chunk means a heavy
 // dependency slipped into a shared or entry chunk.
 //
+// C4 fix: the built CSS must also contain the "hive." wordmark utilities
+// (app/Wordmark.tsx). Both the dashboard and the agent console render it, and
+// the console build once shipped without them (Tailwind scanned only the Vite
+// root src/agentConsole; styles/index.css now has `@source "../"`).
+//
 //   node scripts/check-dist.mjs [DIST_DIR]
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, join, relative } from "node:path";
@@ -100,11 +105,39 @@ for (const file of files) {
   }
 }
 
+/*
+ * Selectors (as escaped in the built CSS) that app/Wordmark.tsx needs: the bar
+ * and login sizes, the word's type, and the honey-hex dot. If a shared file's
+ * classes stop being scanned for a build, these go missing first.
+ */
+const REQUIRED_SELECTORS = [
+  String.raw`.text-\[34px\]{`,
+  String.raw`.text-\[40px\]{`,
+  String.raw`.font-display{`,
+  String.raw`.tracking-\[-0\.045em\]{`,
+  String.raw`.ml-\[0\.06em\]{`,
+  String.raw`.h-\[0\.34em\]{`,
+  String.raw`.w-\[0\.3em\]{`,
+  String.raw`.bg-accent{`,
+  String.raw`.\[clip-path\:polygon\(`,
+];
+const css = files
+  .filter((f) => f.endsWith(".css"))
+  .map((f) => readFileSync(f, "utf8"))
+  .join("\n");
+for (const selector of REQUIRED_SELECTORS) {
+  if (!css.includes(selector)) {
+    findings.push(
+      `CSS is missing ${selector.replace(/\{$/, "")} (wordmark, app/Wordmark.tsx) - is styles/index.css still scanning all of src (@source)?`,
+    );
+  }
+}
+
 if (findings.length > 0) {
-  console.error("check-dist: the build would break the dashboard CSP or its chunk budget:");
+  console.error("check-dist: the build would break the dashboard CSP, its chunk budget or its styles:");
   for (const finding of findings) console.error(`  ${finding}`);
   process.exit(1);
 }
 console.log(
-  `check-dist: ${files.length} files OK (CSP-safe: no inline style/script, no CDN; every JS chunk <= ${String(MAX_CHUNK_BYTES / 1000)} kB)`,
+  `check-dist: ${files.length} files OK (CSP-safe: no inline style/script, no CDN; every JS chunk <= ${String(MAX_CHUNK_BYTES / 1000)} kB; wordmark styles present)`,
 );

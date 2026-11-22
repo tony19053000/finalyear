@@ -3,6 +3,16 @@
 @import "./tokens.css";
 
 /*
+ * Scan ALL of frontend/src for class names, whatever the Vite root is. Tailwind
+ * v4 auto-detects sources from the Vite root, and the agent console build
+ * (`vite build --mode console`) has root src/agentConsole - so without this,
+ * classes used only in shared files outside it (app/Wordmark.tsx, components/,
+ * lib/) were silently missing from the console CSS. Path is relative to this
+ * file. scripts/check-dist.mjs guards the console output.
+ */
+@source "../";
+
+/*
  * Tailwind theme = the tokens in tokens.css (D175). The default palette is
  * removed (`--color-*: initial`) so only token colours exist as utilities:
  * bg-bg, bg-surface, text-fg, text-fg-muted, border-border, bg-accent,
