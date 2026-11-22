@@ -115,3 +115,8 @@ commands: HUMAN joined in Hive console (code typed by human, never seen by agent
 result: take 1 joined node_01M81JE9JRJ7BGYYDZH2WKTM3V 17:47 (video not good, identity reset -> needs LEAD revoke);
     take 2 joined node_01M81K4K8DGSYFMT04YRQWGD5H, enrolled True, cert until 2026-12-22T12:25Z, session ONLINE (hello_accepted), service Running.
     Video Desktop\presentation\L2-join.mp4 (9.4 MB). Note: after a service restart the console link shows "not signed in" - open Hive from Start menu.
+
+### V-3 - Policy after re-join (console screenshot) - OK
+when: 2026-11-22 18:20 (local)
+result: Hive console "What this laptop shares" on node_01M81K4K8DGSYFMT04YRQWGD5H: run jobs ON, CPU limit none, RAM limit none, jobs at once 1,
+    GPU jobs ON, share GPU (Mode 2/4) OFF, VRAM limit none, without container ON, network OFF, pause benchmarks OFF -> same as team setup.
