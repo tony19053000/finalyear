@@ -10,8 +10,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,300;12..96,400;12..96,500;12..96,600;12..96,700&family=Geist:wght@300;400;500;600&family=Geist+Mono:wght@400;500;700&family=Instrument+Serif:ital@1&display=swap">
-  <link rel="stylesheet" href="assets/css/site.css?v=20261122e">
-  <link rel="stylesheet" href="assets/css/pages.css?v=20261122e">
+  <link rel="stylesheet" href="assets/css/site.css?v=20261122f">
+  <link rel="stylesheet" href="assets/css/pages.css?v=20261122f">
   <script>document.documentElement.classList.add('js');</script>
 </head>
 <body>
@@ -62,20 +62,20 @@
             <article class="dl-card card hero-dl">
               <div class="dl-card-top">
                 <div>
-                  <span class="eyebrow">Laptop app &middot; agent</span>
+                  <span class="eyebrow">Every Windows laptop that shares</span>
                   <h2>hive for Windows</h2>
-                  <p class="muted">Shares this laptop's CPU, and its GPU if you allow it. Starts with Windows.</p>
+                  <p class="muted">Shares this laptop's CPU, and its GPU if you allow it.</p>
                 </div>
-                <span class="ver-pill">v<span data-version>0.17.5</span> &middot; x64</span>
+                <span class="ver-pill">Windows 10 (22H2) / 11 &middot; x64</span>
               </div>
               <div class="file-row">
-                <span class="file mono">hive-Setup-0.17.5.exe</span>
-                <a class="btn btn-honey btn-lg" id="download-windows" data-dl="windows" href="#download-windows">
+                <span class="file mono">MeshForge-Agent-Setup-0.17.5-1.exe</span>
+                <a class="btn btn-honey btn-lg" id="download-windows" data-dl="windows" href="https://github.com/tony19053000/finalyear/releases/download/v0.17.5/MeshForge-Agent-Setup-0.17.5-1.exe">
                   <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M10 2.5v10M5.5 8.5 10 13l4.5-4.5M3 16.5h14" stroke-linecap="round" stroke-linejoin="round"/></svg>
                   Download installer
                 </a>
               </div>
-              <p class="fine">The installer still carries the old name. You do <strong>not</strong> need Python, a terminal or WSL.</p>
+              <p class="fine">Next: run it, then join with your fabric's code. <a href="docs.html#install-windows">Install on Windows &rarr;</a></p>
             </article>
 
             <aside class="dl-card card req">
@@ -92,10 +92,10 @@
           <div class="install-steps reveal">
             <h3 class="mini-h">Install in five steps</h3>
             <ol class="numbered">
-              <li><b>Download</b> <code>hive-Setup-0.17.5.exe</code> from your team's release page or the person running the fabric.</li>
-              <li><b>Run it.</b> If Windows says <em>"Windows protected your PC"</em>: the installer is not signed yet. Click <b>More info</b>, check the app name is <code>hive-Setup-...</code>, then <b>Run anyway</b>. Click <b>Yes</b> when Windows asks whether the app may make changes.</li>
-              <li><b>Follow the pages.</b> Accept the licence and keep the suggested folder (<code>C:\Program Files\hive</code>). After install the laptop runs <strong>nobody's jobs</strong> until you allow it.</li>
-              <li><b>Wait for "hive setup finished".</b> The installer checks that it really runs (up to a minute). Leave <b>Open hive</b> ticked and click <b>Finish</b>.</li>
+              <li><b>Download</b> <code>MeshForge-Agent-Setup-0.17.5-1.exe</code> (button above).</li>
+              <li><b>Run it.</b> If Windows says <em>"Windows protected your PC"</em>: the installer is not signed yet. Click <b>More info</b>, check the app name is <code>MeshForge-Agent-Setup-...</code>, then <b>Run anyway</b>. Click <b>Yes</b> when Windows asks whether the app may make changes.</li>
+              <li><b>Follow the pages.</b> Accept the licence and keep the suggested folder (<code>C:\Program Files\MeshForge</code>). After install the laptop runs <strong>nobody's jobs</strong> until you allow it.</li>
+              <li><b>Wait for "Hive setup finished".</b> The installer checks that it really runs (up to a minute). Leave <b>Open Hive</b> ticked and click <b>Finish</b>.</li>
               <li><b>Join.</b> A page served by the laptop itself opens. Paste the <code>mf1-...</code> code, or scan the dashboard's QR code with the webcam. <a href="docs.html#join-a-laptop">Join a laptop &rarr;</a></li>
             </ol>
             <p class="note">The controller runs on Ubuntu 24.04 only. To start a new fabric, see the <a href="#linux" data-tab-link="linux">Ubuntu tab</a>.</p>
@@ -110,17 +110,16 @@
                 <div>
                   <span class="eyebrow">Every laptop that shares</span>
                   <h2>Agent</h2>
-                  <p class="muted">Shares this computer's CPU/GPU with a fabric. Runs as the system service <code>hive-agent</code>.</p>
+                  <p class="muted">Shares this computer's CPU/GPU with a fabric.</p>
                 </div>
                 <span class="ver-pill">Ubuntu 22.04 / 24.04</span>
               </div>
               <div class="file-row">
-                <span class="file mono">hive-agent_0.17.5_amd64.deb</span>
-                <a class="btn btn-honey" id="download-linux-agent" data-dl="agentDeb" href="#download-linux-agent">Download .deb</a>
+                <span class="file mono">meshforge-agent_0.17.5-1_amd64.deb</span>
+                <a class="btn btn-honey" id="download-linux-agent" data-dl="agentDeb" href="https://github.com/tony19053000/finalyear/releases/download/v0.17.5/meshforge-agent_0.17.5-1_amd64.deb">Download .deb</a>
               </div>
-              <p class="cmd-label">Then, in the download folder:</p>
-              <div class="cmd" data-label="agent install command"><pre><code><span class="p">$ </span>sudo apt install ./hive-agent_0.17.5_amd64.deb</code></pre></div>
-              <p class="fine"><code>apt</code> needs the <code>./</code>: it means "this file", not a package from the internet. Next, open the agent's page from the app menu (or run <code>hive-console-open</code>) and join.</p>
+              <div class="cmd" data-label="agent install command"><pre><code><span class="p">$ </span>sudo apt install ./meshforge-agent_0.17.5-1_amd64.deb</code></pre></div>
+              <p class="fine">Next: open Hive from the app menu and join. <a href="docs.html#join-a-laptop">Join a laptop &rarr;</a></p>
             </article>
 
             <article class="dl-card card hero-dl ctrl-card" id="linux-controller">
@@ -128,35 +127,34 @@
                 <div>
                   <span class="eyebrow">One per fabric</span>
                   <h2>Controller</h2>
-                  <p class="muted">Runs the fabric: dashboard, database, join codes. Install it once, on a computer that stays on.</p>
+                  <p class="muted">Runs the fabric. Install it once, on a computer that stays on.</p>
                 </div>
                 <span class="ver-pill honey-pill">Ubuntu 24.04 only</span>
               </div>
               <div class="file-row">
-                <span class="file mono">hive-controller_0.17.5_amd64.deb</span>
-                <a class="btn btn-honey" id="download-linux-controller" data-dl="controllerDeb" href="#download-linux-controller">Download .deb</a>
+                <span class="file mono">meshforge-controller_0.17.5-1_amd64.deb</span>
+                <a class="btn btn-honey" id="download-linux-controller" data-dl="controllerDeb" href="https://github.com/tony19053000/finalyear/releases/download/v0.17.5/meshforge-controller_0.17.5-1_amd64.deb">Download .deb</a>
               </div>
-              <p class="cmd-label">Then, in the download folder:</p>
-              <div class="cmd" data-label="controller install command"><pre><code><span class="p">$ </span>sudo apt install ./hive-controller_0.17.5_amd64.deb</code></pre></div>
-              <p class="fine">It ends by telling you to run <code>sudo hive-controller setup url</code>. Continue with <a href="docs.html#create-a-fabric">Create a fabric &rarr;</a></p>
+              <div class="cmd" data-label="controller install command"><pre><code><span class="p">$ </span>sudo apt install ./meshforge-controller_0.17.5-1_amd64.deb</code></pre></div>
+              <p class="fine">Next: <a href="docs.html#create-a-fabric">Create a fabric &rarr;</a></p>
             </article>
           </div>
 
           <div class="linux-more">
             <div class="reveal">
               <h3 class="mini-h">Check a download <span class="muted">(optional)</span></h3>
-              <p class="muted">In the download folder, with <a href="#download-sha256sums" id="download-sha256sums" data-dl="sums"><code>SHA256SUMS</code></a> next to the files, this must say <code>OK</code>:</p>
+              <p class="muted">In the download folder, with <a href="https://github.com/tony19053000/finalyear/releases/download/v0.17.5/SHA256SUMS" id="download-sha256sums" data-dl="sums"><code>SHA256SUMS</code></a> next to the files, this must say <code>OK</code>:</p>
               <div class="cmd" data-label="checksum command"><pre><code><span class="p">$ </span>sha256sum -c SHA256SUMS --ignore-missing</code></pre></div>
             </div>
             <div class="reveal" style="--d:.08s">
               <h3 class="mini-h">Is it running?</h3>
-              <div class="cmd" data-label="status commands"><pre><code>systemctl status hive-agent          <span class="c"># or hive-controller</span>
-hive-agent doctor                    <span class="c"># version, joined or not, last upgrade, Docker/GPU/disk checks</span>
-sudo hive-controller doctor          <span class="c"># the controller's own checks</span>
-journalctl -u hive-agent -n 50       <span class="c"># the agent's recent log</span></code></pre></div>
+              <div class="cmd" data-label="status commands"><pre><code>systemctl status meshforge-agent     <span class="c"># or meshforge-controller</span>
+meshforge-agent doctor               <span class="c"># version, joined or not, last upgrade, Docker/GPU/disk checks</span>
+sudo meshforge-controller doctor     <span class="c"># the controller's own checks</span>
+journalctl -u meshforge-agent -n 50  <span class="c"># the agent's recent log</span></code></pre></div>
             </div>
           </div>
-          <p class="note reveal">One computer may have both packages: the controller can share its own CPU too. You do <strong>not</strong> need Python, Docker, PostgreSQL or a source checkout. Only Ubuntu 22.04/24.04 packages are built and tested; on other distributions the bundle <code>hive-0.17.5-linux-x86_64.tar.xz</code> can be run by hand, but that path is not tested.</p>
+          <p class="note reveal">One computer may have both packages: the controller can share its own CPU too. You do <strong>not</strong> need Python, Docker, PostgreSQL or a source checkout. Only Ubuntu 22.04/24.04 packages are built and tested.</p>
         </div>
       </div>
     </section>
@@ -188,9 +186,9 @@ journalctl -u hive-agent -n 50       <span class="c"># the agent's recent log</s
         </div>
         <div class="reveal" style="--d:.08s">
           <p class="cmd-label">Remove, keeping the data (default)</p>
-          <div class="cmd" data-label="uninstall command"><pre><code><span class="p">$ </span>sudo apt remove hive-agent</code></pre></div>
+          <div class="cmd" data-label="uninstall command"><pre><code><span class="p">$ </span>sudo apt remove meshforge-agent</code></pre></div>
           <p class="cmd-label sp">Windows</p>
-          <p class="muted small">Settings &rarr; Apps &rarr; Installed apps &rarr; hive Agent &rarr; Uninstall. Answer <b>No</b> to <em>also remove all hive data?</em> to keep the same node.</p>
+          <p class="muted small">Settings &rarr; Apps &rarr; Installed apps &rarr; Hive Agent &rarr; Uninstall. Answer <b>No</b> to <em>Also remove all Hive data from this computer?</em> to keep the same node.</p>
         </div>
       </div>
     </section>
@@ -214,7 +212,7 @@ journalctl -u hive-agent -n 50       <span class="c"># the agent's recent log</s
     <div class="footer-mark" aria-hidden="true"><span>hive<i>.</i></span></div>
   </footer>
 
-  <script src="assets/js/site.js?v=20261122e"></script>
+  <script src="assets/js/site.js?v=20261122f"></script>
   <script>
     /* OS tabs: auto-select by OS, #windows / #linux in the URL win, arrow keys move between tabs. */
     (function () {

@@ -1,5 +1,5 @@
 /* hive. — shared behaviour: OS detection, copy buttons, reveal-on-scroll,
-   header, mobile menu, mesh texture, placeholder download links. */
+   header, mobile menu, mesh texture, download links. */
 (function () {
   'use strict';
   var doc = document;
@@ -10,13 +10,15 @@
   HIVE.version = '0.17.5';
   HIVE.reduced = mq.matches;
 
-  /* Download links. The docs do not publish real download URLs yet, so these are
-     placeholders. Replace each value with the real URL when the release page exists. */
+  /* Download links: the assets of the v0.17.5 GitHub release (published by
+     .github/workflows/release.yml). Bump the tag and file names together with
+     HIVE.version and the file names shown in download.html. */
+  var REL = 'https://github.com/tony19053000/finalyear/releases/download/v0.17.5/';
   HIVE.downloads = {
-    windows: '#download-windows',          // hive-Setup-0.17.5.exe
-    agentDeb: '#download-linux-agent',     // hive-agent_0.17.5_amd64.deb
-    controllerDeb: '#download-linux-controller', // hive-controller_0.17.5_amd64.deb
-    sums: '#download-sha256sums'           // SHA256SUMS
+    windows: REL + 'MeshForge-Agent-Setup-0.17.5-1.exe',
+    agentDeb: REL + 'meshforge-agent_0.17.5-1_amd64.deb',
+    controllerDeb: REL + 'meshforge-controller_0.17.5-1_amd64.deb',
+    sums: REL + 'SHA256SUMS'
   };
 
   /* ---------- OS detection ---------- */
@@ -112,7 +114,7 @@
   }
   HIVE.addCopyButtons = addCopyButtons;
 
-  /* ---------- placeholder download links ---------- */
+  /* ---------- download links (a '#' link means not published yet) ---------- */
   function wireDownloads() {
     doc.querySelectorAll('[data-dl]').forEach(function (a) {
       var key = a.getAttribute('data-dl');

@@ -10,8 +10,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,300;12..96,400;12..96,500;12..96,600;12..96,700&family=Geist:wght@300;400;500;600&family=Geist+Mono:wght@400;500;700&family=Instrument+Serif:ital@1&display=swap">
-  <link rel="stylesheet" href="assets/css/site.css?v=20261122e">
-  <link rel="stylesheet" href="assets/css/pages.css?v=20261122e">
+  <link rel="stylesheet" href="assets/css/site.css?v=20261122f">
+  <link rel="stylesheet" href="assets/css/pages.css?v=20261122f">
   <script>document.documentElement.classList.add('js');</script>
 </head>
 <body>
@@ -45,7 +45,7 @@
         </div>
         <aside class="tip card reveal" style="--d:.15s" aria-label="First step">
           <span class="eyebrow">First step</span>
-          <p>Run <code>hive-agent doctor</code> on the laptop, <code>sudo hive-controller doctor</code> on the controller. They change nothing.</p>
+          <p>Run <code>meshforge-agent doctor</code> on the laptop, <code>sudo meshforge-controller doctor</code> on the controller. They change nothing.</p>
           <a class="text-link" href="docs.html#troubleshooting">Find your error code &rarr;</a>
         </aside>
       </div>
@@ -102,7 +102,7 @@
           </details>
           <details>
             <summary>Windows says "Windows protected your PC". Is that expected?</summary>
-            <div class="ans"><p>Yes, the installer is not signed yet. Click <b>More info</b>, check that the app name is <code>hive-Setup-...</code>, then <b>Run anyway</b>.</p></div>
+            <div class="ans"><p>Yes, the installer is not signed yet. Click <b>More info</b>, check that the app name is <code>MeshForge-Agent-Setup-...</code>, then <b>Run anyway</b>.</p></div>
           </details>
           <details>
             <summary>Where do I get a join code, and how long does it work?</summary>
@@ -110,7 +110,7 @@
           </details>
           <details>
             <summary>Can the controller computer share its own CPU too?</summary>
-            <div class="ans"><p>Yes. One Ubuntu 24.04 computer may have both packages: <code>hive-controller</code> and <code>hive-agent</code>.</p></div>
+            <div class="ans"><p>Yes. One Ubuntu 24.04 computer may have both packages: <code>meshforge-controller</code> and <code>meshforge-agent</code>.</p></div>
           </details>
           <details>
             <summary>How does splitting a job across laptops work?</summary>
@@ -126,7 +126,7 @@
           </details>
           <details>
             <summary>If I uninstall, is my data gone?</summary>
-            <div class="ans"><p>Not by default. <code>sudo apt remove hive-agent</code> (or answering <b>No</b> to <em>also remove all hive data?</em> on Windows) keeps the laptop's identity, so it comes back as the same node. Only <code>apt purge</code>, or <b>Yes</b> on Windows, removes everything; <code>sudo apt purge hive-controller</code> deletes the fabric.</p></div>
+            <div class="ans"><p>Not by default. <code>sudo apt remove meshforge-agent</code> (or answering <b>No</b> to <em>Also remove all Hive data from this computer?</em> on Windows) keeps the laptop's identity, so it comes back as the same node. Only <code>apt purge</code>, or <b>Yes</b> on Windows, removes everything; <code>sudo apt purge meshforge-controller</code> deletes the fabric.</p></div>
           </details>
         </div>
       </div>
@@ -138,9 +138,9 @@
           <div>
             <h2 id="stuck-title">Still stuck?</h2>
             <p class="muted">Collect the checks, the last 80 log lines and the installer's output, and send them to the team running your fabric.</p>
-            <div class="cmd" data-label="diagnostic commands"><pre><code>hive-agent doctor                       <span class="c"># on the laptop (Windows: administrator PowerShell)</span>
-sudo hive-controller doctor             <span class="c"># on the controller</span>
-journalctl -u hive-agent -n 80          <span class="c"># the agent's recent log (Ubuntu)</span></code></pre></div>
+            <div class="cmd" data-label="diagnostic commands"><pre><code>meshforge-agent doctor                  <span class="c"># on the laptop (Windows: administrator PowerShell)</span>
+sudo meshforge-controller doctor        <span class="c"># on the controller</span>
+journalctl -u meshforge-agent -n 80     <span class="c"># the agent's recent log (Ubuntu)</span></code></pre></div>
           </div>
         </div>
       </div>
@@ -166,6 +166,6 @@ journalctl -u hive-agent -n 80          <span class="c"># the agent's recent log
     <div class="footer-mark" aria-hidden="true"><span>hive<i>.</i></span></div>
   </footer>
 
-  <script src="assets/js/site.js?v=20261122e"></script>
+  <script src="assets/js/site.js?v=20261122f"></script>
 </body>
 </html>

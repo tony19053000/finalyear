@@ -10,8 +10,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,300;12..96,400;12..96,500;12..96,600;12..96,700&family=Geist:wght@300;400;500;600&family=Geist+Mono:wght@400;500;700&family=Instrument+Serif:ital@1&display=swap">
-  <link rel="stylesheet" href="assets/css/site.css?v=20261122e">
-  <link rel="stylesheet" href="assets/css/pages.css?v=20261122e">
+  <link rel="stylesheet" href="assets/css/site.css?v=20261122f">
+  <link rel="stylesheet" href="assets/css/pages.css?v=20261122f">
   <script>document.documentElement.classList.add('js');</script>
 </head>
 <body class="docs-page">
@@ -112,9 +112,9 @@
         <h2>Install on a Windows laptop</h2>
         <p>You need: a Windows 10 (version 22H2) or Windows 11 laptop with a 64-bit Intel or AMD processor, an administrator's password (yours, if you are an administrator), and a <b>join code</b> from whoever runs the fabric's controller. You do <b>not</b> need Python, a terminal or WSL.</p>
         <ol class="steps-list">
-          <li><b>Download</b> <code>hive-Setup-0.17.5.exe</code> (from the team's release page or the person running the fabric). <a href="download.html#windows">Download page</a></li>
-          <li><b>Run it.</b> Windows may say <em>"Windows protected your PC"</em>: the installer is not signed yet. Click <b>More info</b>, check that the app name is <code>hive-Setup-...</code>, then <b>Run anyway</b>. Windows then asks whether the app may make changes: click <b>Yes</b> (or type an administrator's password).</li>
-          <li><b>Follow the pages.</b> Accept the licence and keep the suggested folder (<code>C:\Program Files\hive</code>). The page <em>What this computer will share</em> explains what happens: it runs in the background, starts with Windows, keeps running when you sign out, and runs <b>nobody's jobs</b> until you allow it.</li>
+          <li><b>Download</b> <code>MeshForge-Agent-Setup-0.17.5-1.exe</code> (from the team's release page or the person running the fabric). <a href="download.html#windows">Download page</a></li>
+          <li><b>Run it.</b> Windows may say <em>"Windows protected your PC"</em>: the installer is not signed yet. Click <b>More info</b>, check that the app name is <code>MeshForge-Agent-Setup-...</code>, then <b>Run anyway</b>. Windows then asks whether the app may make changes: click <b>Yes</b> (or type an administrator's password).</li>
+          <li><b>Follow the pages.</b> Accept the licence and keep the suggested folder (<code>C:\Program Files\MeshForge</code>). The page <em>What this computer will share</em> explains what happens: it runs in the background, starts with Windows, keeps running when you sign out, and runs <b>nobody's jobs</b> until you allow it.</li>
           <li><b>Wait for "hive setup finished".</b> The installer starts the agent and checks that it really runs (up to a minute). The last page says either <em>"hive is installed and running"</em> or exactly what is wrong and what to do. Leave <b>Open hive</b> ticked and click <b>Finish</b>.</li>
           <li><b>Join.</b> A browser page opens. It is served by the laptop itself and cannot be reached from the network. Paste the <code>mf1-...</code> code (or scan the QR code on the dashboard with the webcam), then choose what the laptop shares and look at the checks. The rest is the same as <a href="#join-a-laptop">Join a laptop</a>.</li>
         </ol>
@@ -128,13 +128,13 @@
 
         <h3 id="windows-other-user">Another user of this laptop</h3>
         <p>Only the person who installed it (and administrators) may open its page. Anyone else who opens <b>hive</b> from the Start menu is asked whether to request access; an administrator approves it in the Windows prompt. An administrator can also do it directly, in an elevated PowerShell (<code>remove</code> takes it back):</p>
-        <div class="cmd" data-label="console access command"><pre><code><span class="p">PS&gt; </span>hive-agent console-access add --user &lt;their Windows user name&gt;</code></pre></div>
+        <div class="cmd" data-label="console access command"><pre><code><span class="p">PS&gt; </span>meshforge-agent console-access add --user &lt;their Windows user name&gt;</code></pre></div>
 
         <h3 id="windows-public-network">The network says "Public"</h3>
         <p>On a network Windows calls <em>Public</em> (cafés, hotels) other laptops cannot fetch files from this one; jobs still run. On your home or team network, set it to <em>Private</em>: <b>Settings &rarr; Network &amp; internet &rarr; (your Wi-Fi or Ethernet) &rarr; Network profile type &rarr; Private</b>. The agent never opens a port on Public networks.</p>
 
         <h3 id="windows-dev-laptop">A laptop that already ran the agent for development</h3>
-        <p>If this laptop ran the agent from a source checkout (the <em>HiveAgent</em> scheduled task), the installer stops and disables that task and moves its identity to the new service, so the laptop stays the <b>same node</b> in the dashboard. If it finds more than one identity, it installs but does not start, and the last page names the folders and the command to choose one.</p>
+        <p>If this laptop ran the agent from a source checkout (the <em>MeshForgeAgent</em> scheduled task), the installer stops and disables that task and moves its identity to the new service, so the laptop stays the <b>same node</b> in the dashboard. If it finds more than one identity, it installs but does not start, and the last page names the folders and the command to choose one.</p>
       </section>
 
       <!-- ===== Install Ubuntu ===== -->
@@ -145,8 +145,8 @@
           <table>
             <thead><tr><th>Package</th><th>What it is</th><th>Ubuntu</th></tr></thead>
             <tbody>
-              <tr><td><code>hive-agent_0.17.5_amd64.deb</code></td><td>shares this computer's CPU/GPU with a fabric</td><td>22.04 or 24.04</td></tr>
-              <tr><td><code>hive-controller_0.17.5_amd64.deb</code></td><td>runs the fabric itself (one per fabric)</td><td>24.04 only</td></tr>
+              <tr><td><code>meshforge-agent_0.17.5-1_amd64.deb</code></td><td>shares this computer's CPU/GPU with a fabric</td><td>22.04 or 24.04</td></tr>
+              <tr><td><code>meshforge-controller_0.17.5-1_amd64.deb</code></td><td>runs the fabric itself (one per fabric)</td><td>24.04 only</td></tr>
             </tbody>
           </table>
         </div>
@@ -155,26 +155,26 @@
         <div class="cmd" data-label="checksum command"><pre><code><span class="p">$ </span>sha256sum -c SHA256SUMS --ignore-missing</code></pre></div>
 
         <h3 id="ubuntu-agent">The agent (every laptop that shares)</h3>
-        <div class="cmd" data-label="agent install command"><pre><code><span class="p">$ </span>sudo apt install ./hive-agent_0.17.5_amd64.deb</code></pre></div>
-        <p><code>apt</code> needs the <code>./</code> (it means "this file", not a package from the internet). The last lines say whether the service <code>hive-agent</code> is running and that the laptop has not joined a fabric yet. It now runs in the background: it starts with the computer, keeps running when you log out, and runs <b>nobody's jobs</b> until you allow it.</p>
-        <p>Next: open <b>the agent's page from the app menu</b> (or run <code>hive-console-open</code>) and <a href="#join-a-laptop">join</a>. The person who ran <code>sudo apt install</code> may open that page. To let another user open it (they log out and in once):</p>
-        <div class="cmd" data-label="group command"><pre><code><span class="p">$ </span>sudo usermod -aG hive-admin &lt;user&gt;</code></pre></div>
+        <div class="cmd" data-label="agent install command"><pre><code><span class="p">$ </span>sudo apt install ./meshforge-agent_0.17.5-1_amd64.deb</code></pre></div>
+        <p><code>apt</code> needs the <code>./</code> (it means "this file", not a package from the internet). The last lines say whether the service <code>meshforge-agent</code> is running and that the laptop has not joined a fabric yet. It now runs in the background: it starts with the computer, keeps running when you log out, and runs <b>nobody's jobs</b> until you allow it.</p>
+        <p>Next: open <b>the agent's page from the app menu</b> (or run <code>meshforge-console-open</code>) and <a href="#join-a-laptop">join</a>. The person who ran <code>sudo apt install</code> may open that page. To let another user open it (they log out and in once):</p>
+        <div class="cmd" data-label="group command"><pre><code><span class="p">$ </span>sudo usermod -aG meshforge-admin &lt;user&gt;</code></pre></div>
         <p><b>Docker</b> (optional): Docker access equals administrator rights, so it is off until you choose it: app menu &rarr; hive &rarr; <b>Give Docker access</b>. See <a href="#owner-settings">What your laptop shares</a>.</p>
 
         <h3 id="ubuntu-controller">The controller (one per fabric)</h3>
         <p>Ubuntu <b>24.04</b> only (22.04 is refused: <code>apt</code> says <code>Depends: libc6 (&gt;= 2.36)</code>).</p>
-        <div class="cmd" data-label="controller install command"><pre><code><span class="p">$ </span>sudo apt install ./hive-controller_0.17.5_amd64.deb</code></pre></div>
-        <p>It writes its settings to <code>/etc/hive/controller.toml</code> (listening on this computer's network address), starts its own database and the controller, and ends by telling you to run <code>sudo hive-controller setup url</code> and open the link in a browser <b>on this computer</b>. Continue with <a href="#create-a-fabric">Create a fabric</a>.</p>
-        <p>On a computer with only the controller package, the <code>compute</code> command is <code>/opt/hive/controller/current/bin/compute</code> (the agent package puts <code>compute</code> on the PATH).</p>
+        <div class="cmd" data-label="controller install command"><pre><code><span class="p">$ </span>sudo apt install ./meshforge-controller_0.17.5-1_amd64.deb</code></pre></div>
+        <p>It writes its settings to <code>/etc/meshforge/controller.toml</code> (listening on this computer's network address), starts its own database and the controller, and ends by telling you to run <code>sudo meshforge-controller setup url</code> and open the link in a browser <b>on this computer</b>. Continue with <a href="#create-a-fabric">Create a fabric</a>.</p>
+        <p>On a computer with only the controller package, the <code>compute</code> command is <code>/opt/meshforge/controller/current/bin/compute</code> (the agent package puts <code>compute</code> on the PATH).</p>
 
         <h3 id="ubuntu-running">Is it running?</h3>
-        <div class="cmd" data-label="status commands"><pre><code>systemctl status hive-agent          <span class="c"># or hive-controller</span>
-hive-agent doctor                    <span class="c"># version, joined or not, last upgrade, Docker/GPU/disk checks</span>
-sudo hive-controller doctor          <span class="c"># the controller's own checks</span>
-journalctl -u hive-agent -n 50       <span class="c"># the agent's recent log</span></code></pre></div>
+        <div class="cmd" data-label="status commands"><pre><code>systemctl status meshforge-agent     <span class="c"># or meshforge-controller</span>
+meshforge-agent doctor               <span class="c"># version, joined or not, last upgrade, Docker/GPU/disk checks</span>
+sudo meshforge-controller doctor     <span class="c"># the controller's own checks</span>
+journalctl -u meshforge-agent -n 50  <span class="c"># the agent's recent log</span></code></pre></div>
 
         <h3 id="ubuntu-other">Other Linux distributions</h3>
-        <p>Only Ubuntu 22.04/24.04 <code>.deb</code> packages are built and tested. On another distribution you can unpack the bundle archive (<code>hive-0.17.5-linux-x86_64.tar.xz</code>) and run it by hand as described in the operations runbook (<code>docs/OPERATIONS.md</code> in the source); that path is not tested.</p>
+        <p>Only Ubuntu 22.04/24.04 <code>.deb</code> packages are built and tested. On another distribution you can unpack the bundle archive (<code>meshforge-0.17.5-linux-x86_64.tar.xz</code>, built from the source) and run it by hand as described in the operations runbook (<code>docs/OPERATIONS.md</code> in the source); that path is not tested.</p>
       </section>
 
       <!-- ===== Create a fabric ===== -->
@@ -184,20 +184,20 @@ journalctl -u hive-agent -n 50       <span class="c"># the agent's recent log</s
         <p>You need the controller package installed on an Ubuntu 24.04 computer (<a href="#ubuntu-controller">above</a>). This is done <b>once per fabric</b>.</p>
 
         <h3 id="setup-link">1. Open the setup link, on the controller computer</h3>
-        <div class="cmd" data-label="setup command"><pre><code><span class="p">$ </span>sudo hive-controller setup url</code></pre></div>
+        <div class="cmd" data-label="setup command"><pre><code><span class="p">$ </span>sudo meshforge-controller setup url</code></pre></div>
         <p>It prints a link like <code>http://127.0.0.1:47110/setup#token=...</code>. Open it in a browser <b>on that same computer</b>. The link works once, and only from that computer (the admin password must not cross the network before the fabric's encryption exists).</p>
         <p>Working from another computer? Forward the port first, then open the same link there:</p>
         <div class="cmd" data-label="ssh port forward command"><pre><code><span class="p">$ </span>ssh -L 47110:127.0.0.1:47110 &lt;user&gt;@&lt;controller&gt;</code></pre></div>
 
         <h3 id="first-admin">2. Create the first admin</h3>
         <p>The page shows the checks first (database, disk, the network address laptops will use). Then, under <b>The first admin</b>: an <b>Admin user name</b> (3 characters or more) and a <b>Password</b> (12 characters or more, not too simple), <b>Repeat the password</b>, and <b>Create the fabric</b>.</p>
-        <div class="callout">If the page warns that laptops would join at <code>127.0.0.1</code>: no network address was found when the package was installed. Put this computer's LAN address in the three <code>*bind</code> lines of <code>/etc/hive/controller.toml</code>, run <code>sudo systemctl restart hive-controller</code>, and open a new setup link.</div>
+        <div class="callout">If the page warns that laptops would join at <code>127.0.0.1</code>: no network address was found when the package was installed. Put this computer's LAN address in the three <code>*bind</code> lines of <code>/etc/meshforge/controller.toml</code>, run <code>sudo systemctl restart meshforge-controller</code>, and open a new setup link.</div>
 
         <h3 id="fabric-ready">3. Your fabric is ready</h3>
         <ul>
           <li><b>Join code, shown only now:</b> the first <code>mf1-...</code> code (and its QR code) for your first laptop. It works once, for a limited time.</li>
           <li><b>Dashboard:</b> <code>https://&lt;this computer's address&gt;:47110/</code></li>
-          <li><b>CA fingerprint:</b> the fabric's own certificate. Browsers do not know it yet, so they warn the first time. <code>hive-controller ca trust-helper</code> prints how to make your browser trust it (and the fingerprint to compare).</li>
+          <li><b>CA fingerprint:</b> the fabric's own certificate. Browsers do not know it yet, so they warn the first time. <code>meshforge-controller ca trust-helper</code> prints how to make your browser trust it (and the fingerprint to compare).</li>
         </ul>
         <p>The controller restarts itself with encryption on; the setup link never works again.</p>
 
@@ -210,8 +210,8 @@ compute nodes                  <span class="c"># the laptops that joined; CONN "
 
         <h3 id="keep-safe">Keep your fabric safe</h3>
         <ul>
-          <li>The controller's database is backed up automatically before every upgrade. Take your own copy any time with <code>sudo hive-controller db backup</code> (keep the file private: it is the whole fabric).</li>
-          <li><code>apt remove hive-controller</code> keeps the fabric; only <code>apt purge</code> deletes it (<a href="#uninstall">Uninstall</a>).</li>
+          <li>The controller's database is backed up automatically before every upgrade. Take your own copy any time with <code>sudo meshforge-controller db backup</code> (keep the file private: it is the whole fabric).</li>
+          <li><code>apt remove meshforge-controller</code> keeps the fabric; only <code>apt purge</code> deletes it (<a href="#uninstall">Uninstall</a>).</li>
         </ul>
       </section>
 
@@ -256,7 +256,7 @@ compute nodes                  <span class="c"># the laptops that joined; CONN "
         <p>A job that is already running is not stopped when you tighten a limit; the next one follows the new rules.</p>
         <p><b>Run jobs off</b> means: your laptop is part of the fabric and says what it <em>could</em> run, but nobody's job is downloaded, prepared or run on it. The agent only looks: it checks whether Docker and a graphics card are there, without starting anything in Docker and without changing system settings. <b>The first time you turn Run jobs on</b>, it finishes setting up (this can start one short check in Docker and set up its CPU limit) and reconnects to the fabric by itself within seconds. After that, turning Run jobs off and on takes effect at once.</p>
         <p><b>Docker.</b> Jobs run safest in Docker containers. Docker access is the same as full admin rights on the laptop, so the agent never takes it by itself: right-click <b>hive</b> in the app menu and choose <b>Give Docker access</b> (asks for your password), or on Ubuntu run:</p>
-        <div class="cmd" data-label="Docker access command"><pre><code><span class="p">$ </span>sudo usermod -aG docker hive &amp;&amp; sudo systemctl restart hive-agent</code></pre></div>
+        <div class="cmd" data-label="Docker access command"><pre><code><span class="p">$ </span>sudo usermod -aG docker meshforge &amp;&amp; sudo systemctl restart meshforge-agent</code></pre></div>
       </section>
 
       <!-- ===== Run a workload ===== -->
@@ -404,14 +404,14 @@ print("total =", result["total"])</code></pre></div>
         <h3 id="upgrade-how">Upgrade</h3>
         <p>Install the new version over the old one, the same way you installed it. Settings, the laptop's identity (it stays the same node), the owner settings and the controller's database are kept.</p>
         <ul>
-          <li><b>Ubuntu:</b> <code>sudo apt install ./hive-agent_&lt;new&gt;_amd64.deb</code> (or <code>hive-controller_...</code>).</li>
-          <li><b>Windows:</b> run the new <code>hive-Setup-&lt;new&gt;.exe</code>.</li>
+          <li><b>Ubuntu:</b> <code>sudo apt install ./meshforge-agent_&lt;new&gt;_amd64.deb</code> (or <code>meshforge-controller_...</code>).</li>
+          <li><b>Windows:</b> run the new <code>MeshForge-Agent-Setup-&lt;new&gt;.exe</code>.</li>
         </ul>
         <p>The running version is kept aside, the controller backs up its database, and the new version must be <b>healthy</b> within about a minute. Healthy: the old copy is removed.</p>
 
         <h3 id="rollback">If the new version does not start</h3>
         <p>hive switches back to the version that ran before, by itself, and says so (<code>UPGRADE FAILED</code> / <code>ROLLED BACK</code>; on Windows: <em>"The new version did not start; the previous version runs again."</em>). For the controller, the database is first restored from the backup taken before the upgrade. The laptop keeps working. Fix the cause the message names, then install again (Ubuntu: <code>sudo apt install --reinstall ./&lt;new&gt;.deb</code>).</p>
-        <p>If an upgrade was cut off (power loss, a killed installer): on Ubuntu, install the new package again, <code>sudo dpkg -i ./hive-agent_&lt;new&gt;_amd64.deb</code> (then <code>sudo apt --fix-broken install</code> if apt asks), or <code>sudo dpkg --configure -a</code> if it was cut off after the switch. On Windows, run the installer again.</p>
+        <p>If an upgrade was cut off (power loss, a killed installer): on Ubuntu, install the new package again, <code>sudo dpkg -i ./meshforge-agent_&lt;new&gt;_amd64.deb</code> (then <code>sudo apt --fix-broken install</code> if apt asks), or <code>sudo dpkg --configure -a</code> if it was cut off after the switch. On Windows, run the installer again.</p>
 
         <h3 id="uninstall">Uninstall</h3>
         <p>By default an uninstall <b>keeps your data</b> (the laptop's identity, so it comes back as the same node; the controller's fabric and database). Remove everything only if you mean it.</p>
@@ -419,9 +419,9 @@ print("total =", result["total"])</code></pre></div>
           <table>
             <thead><tr><th></th><th>Keep the data (default)</th><th>Remove everything</th></tr></thead>
             <tbody>
-              <tr><td>Ubuntu agent</td><td><code>sudo apt remove hive-agent</code></td><td><code>sudo apt purge hive-agent</code></td></tr>
-              <tr><td>Ubuntu controller</td><td><code>sudo apt remove hive-controller</code></td><td><code>sudo apt purge hive-controller</code> (deletes the fabric!)</td></tr>
-              <tr><td>Windows</td><td>Settings &rarr; Apps &rarr; hive Agent &rarr; Uninstall &rarr; <em>also remove all data?</em> <b>No</b></td><td>the same, answer <b>Yes</b></td></tr>
+              <tr><td>Ubuntu agent</td><td><code>sudo apt remove meshforge-agent</code></td><td><code>sudo apt purge meshforge-agent</code></td></tr>
+              <tr><td>Ubuntu controller</td><td><code>sudo apt remove meshforge-controller</code></td><td><code>sudo apt purge meshforge-controller</code> (deletes the fabric!)</td></tr>
+              <tr><td>Windows</td><td>Settings &rarr; Apps &rarr; Hive Agent &rarr; Uninstall &rarr; <em>Also remove all Hive data from this computer?</em> <b>No</b></td><td>the same, answer <b>Yes</b></td></tr>
             </tbody>
           </table>
         </div>
@@ -434,19 +434,19 @@ python lab\verify_uninstall.py --os windows                      <span class="c"
       <!-- ===== Troubleshooting ===== -->
       <section class="doc-sec" id="troubleshooting">
         <h2>Troubleshooting</h2>
-        <p>Each entry starts with what you see. Where hive shows a <b>code</b> (on the laptop's page, in <code>hive-agent doctor</code>, on the installer's last page, or in a command's output), search this page for it.</p>
-        <div class="callout"><b>First step for almost anything:</b> <code>hive-agent doctor</code> on the laptop (Ubuntu: any terminal; Windows: an administrator PowerShell) and, on the controller, <code>sudo hive-controller doctor</code>. They change nothing and say what is wrong.</div>
+        <p>Each entry starts with what you see. Where hive shows a <b>code</b> (on the laptop's page, in <code>meshforge-agent doctor</code>, on the installer's last page, or in a command's output), search this page for it.</p>
+        <div class="callout"><b>First step for almost anything:</b> <code>meshforge-agent doctor</code> on the laptop (Ubuntu: any terminal; Windows: an administrator PowerShell) and, on the controller, <code>sudo meshforge-controller doctor</code>. They change nothing and say what is wrong.</div>
 
         <h3 id="ts-installing">Installing</h3>
         <dl class="ts">
           <dt>"Windows protected your PC" (SmartScreen)</dt>
-          <dd>The installer is not signed yet. Click <b>More info</b>, check the name <code>hive-Setup-...</code>, click <b>Run anyway</b>.</dd>
+          <dd>The installer is not signed yet. Click <b>More info</b>, check the name <code>MeshForge-Agent-Setup-...</code>, click <b>Run anyway</b>.</dd>
           <dt><code>apt</code> refuses the controller: <code>Depends: libc6 (&gt;= 2.36)</code></dt>
           <dd>The controller needs Ubuntu 24.04. The agent package works on 22.04 too.</dd>
           <dt>Installer's last page: "installed but NOT running yet" <span class="code-tag">needs_attention</span></dt>
           <dd>It stopped on purpose: usually it found two older identities on this computer (two users ran it before) and will not guess which one is this laptop. The page names both folders and the command to pick one.</dd>
           <dt>Installer's last page: "installed but NOT running" <span class="code-tag">failed</span></dt>
-          <dd>The service did not start and could not be brought back. Restart the computer and run the installer again; if it repeats, send <code>C:\ProgramData\hive\logs\setup-result.json</code> to the team.</dd>
+          <dd>The service did not start and could not be brought back. Restart the computer and run the installer again; if it repeats, send <code>C:\ProgramData\MeshForge\logs\setup-result.json</code> to the team.</dd>
         </dl>
 
         <h3 id="ts-upgrading">Upgrading</h3>
@@ -458,7 +458,7 @@ python lab\verify_uninstall.py --os windows                      <span class="c"
           <dt>Controller: "the database was restored from the backup taken before it" <span class="code-tag">upgrade_rolled_back</span></dt>
           <dd>The new controller did not start after updating its database, so the database was put back and the previous version started again on it. Laptops reconnect by themselves.</dd>
           <dt>Controller: <code>db status</code> says ROLLBACK FAILED <span class="code-tag">rollback_failed</span></dt>
-          <dd><code>sudo hive-controller db status</code> names the backup; restore it with <code>sudo hive-controller db restore &lt;backup&gt; --yes</code>, then <code>sudo systemctl start hive-controller</code>.</dd>
+          <dd><code>sudo meshforge-controller db status</code> names the backup; restore it with <code>sudo meshforge-controller db restore &lt;backup&gt; --yes</code>, then <code>sudo systemctl start meshforge-controller</code>.</dd>
         </dl>
 
         <h3 id="ts-joining">Joining a fabric</h3>
@@ -482,7 +482,7 @@ python lab\verify_uninstall.py --os windows                      <span class="c"
           <dt>"Joined, but this laptop could not save its certificate." <span class="code-tag">storage</span></dt>
           <dd>Usually a full disk. Free some space, then join again with a new code.</dd>
           <dt>"The controller refused to let this laptop join." <span class="code-tag">refused</span></dt>
-          <dd>Ask the fabric admin to look at the controller's log (<code>journalctl -u hive-controller</code>).</dd>
+          <dd>Ask the fabric admin to look at the controller's log (<code>journalctl -u meshforge-controller</code>).</dd>
         </dl>
 
         <h3 id="ts-stopped">The agent stopped on this laptop</h3>
@@ -491,14 +491,14 @@ python lab\verify_uninstall.py --os windows                      <span class="c"
           <dd><b>Too old:</b> install the newer version on this laptop. <b>"newer than controller":</b> the fabric admin upgrades the controller first. Then press <b>Restart</b> on the page.</dd>
           <dt>"this node was revoked" <span class="code-tag">revoked</span></dt>
           <dd>The admin removed this laptop. To come back: <b>Leave the fabric</b>, then join with a new code.</dd>
-          <dt>"another hive-agent with node_id ... connected" <span class="code-tag">conflict</span></dt>
-          <dd>Two agents use the same identity, typically an old developer copy (<code>hive-agent run</code> in a terminal, or the old Windows scheduled task) next to the installed service. Stop the other one, then press <b>Restart</b>.</dd>
+          <dt>"another meshforge-agent with node_id ... connected" <span class="code-tag">conflict</span></dt>
+          <dd>Two agents use the same identity, typically an old developer copy (<code>meshforge-agent run</code> in a terminal, or the old Windows scheduled task) next to the installed service. Stop the other one, then press <b>Restart</b>.</dd>
           <dt>A setting is named as wrong <span class="code-tag">config</span> <span class="code-tag">config_reload</span></dt>
           <dd>It refuses a configuration value it cannot use and names it (and the file). Fix it, then press <b>Restart</b>.</dd>
           <dt>"leaving failed: ..." <span class="code-tag">identity</span></dt>
-          <dd>See the <b>Logs</b> page; run <code>hive-agent doctor</code>.</dd>
+          <dd>See the <b>Logs</b> page; run <code>meshforge-agent doctor</code>.</dd>
           <dt>"the fabric connection ended" or another error <span class="code-tag">ended</span> <span class="code-tag">error</span></dt>
-          <dd>Press <b>Restart</b>. If it stops again, the <b>Logs</b> page (or <code>journalctl -u hive-agent</code>) has the reason.</dd>
+          <dd>Press <b>Restart</b>. If it stops again, the <b>Logs</b> page (or <code>journalctl -u meshforge-agent</code>) has the reason.</dd>
         </dl>
 
         <h3 id="ts-network">Docker, GPU and network</h3>
@@ -512,41 +512,41 @@ python lab\verify_uninstall.py --os windows                      <span class="c"
           <dt>Joined, but the laptop never connects: the log repeats <code>agent.discovery.none</code> / <code>controller_not_found</code></dt>
           <dd>
             <p>The laptop finds its controller by mDNS (multicast on UDP port 5353), which some Wi-Fi adapters, routers or firewalls drop. Check from the laptop that the session port answers: <code>Test-NetConnection &lt;controller-ip&gt; -Port 47100</code> (Windows) or <code>nc -vz &lt;controller-ip&gt; 47100</code> (Ubuntu).</p>
-            <p>Workaround: tell the laptop where the controller is. In the configuration file (Windows: <code>C:\ProgramData\hive\config\config.toml</code>, edited in an administrator editor; Ubuntu: <code>/etc/hive/config.toml</code> with <code>sudo</code>; create it if it does not exist) put this in the <code>[agent]</code> section, then press <b>Restart</b>:</p>
+            <p>Workaround: tell the laptop where the controller is. In the configuration file (Windows: <code>C:\ProgramData\MeshForge\config\config.toml</code>, edited in an administrator editor; Ubuntu: <code>/etc/meshforge/config.toml</code> with <code>sudo</code>; create it if it does not exist) put this in the <code>[agent]</code> section, then press <b>Restart</b>:</p>
             <div class="cmd" data-label="config lines"><pre><code>[agent]
 controller_address = "192.168.31.13:47100"   <span class="c"># the controller's LAN IP : session port (default 47100)</span></code></pre></div>
             <p>Use port <b>47100</b> (the session port), <b>not 47101</b> (the join port). With an address set the laptop no longer uses mDNS, so give the controller a fixed address (a DHCP reservation in the router).</p>
           </dd>
           <dt>The dashboard's Live CPU looks wrong while a job runs</dt>
-          <dd>Run <code>hive-agent doctor cpu --seconds 30</code> on the laptop while the job runs (Windows: an administrator PowerShell). It prints the CPU cap a job gets on this laptop, then one line per second. It changes nothing.</dd>
+          <dd>Run <code>meshforge-agent doctor cpu --seconds 30</code> on the laptop while the job runs (Windows: an administrator PowerShell). It prints the CPU cap a job gets on this laptop, then one line per second. It changes nothing.</dd>
           <dt>"needs an elevated prompt" / "only administrators may change" (Windows)</dt>
-          <dd><code>hive-agent</code> commands that change the service need an administrator PowerShell (right-click &rarr; Run as administrator). For everyday things use the page from the Start menu.</dd>
+          <dd><code>meshforge-agent</code> commands that change the service need an administrator PowerShell (right-click &rarr; Run as administrator). For everyday things use the page from the Start menu.</dd>
           <dt>"cannot listen on 127.0.0.1:47130 for the local console ..."</dt>
           <dd>Another program (often a second agent) uses the console's port. Stop the other agent.</dd>
           <dt>A job fails with "... refused this laptop's certificate - wrong fabric or expired certificate?"</dt>
-          <dd>Run <code>hive-agent identity show</code>: if the fabric is not the one this controller runs, or the certificate has expired, <b>Leave the fabric</b> and join again with a new code. If it looks right, retry the job and check <code>journalctl -u hive-controller</code>.</dd>
+          <dd>Run <code>meshforge-agent identity show</code>: if the fabric is not the one this controller runs, or the certificate has expired, <b>Leave the fabric</b> and join again with a new code. If it looks right, retry the job and check <code>journalctl -u meshforge-controller</code>.</dd>
         </dl>
 
         <h3 id="ts-database">The controller's database</h3>
-        <p><code>sudo hive-controller doctor</code> and <code>journalctl -u hive-controller -n 80</code> show these codes.</p>
+        <p><code>sudo meshforge-controller doctor</code> and <code>journalctl -u meshforge-controller -n 80</code> show these codes.</p>
         <div class="table-wrap">
           <table>
             <thead><tr><th>Code</th><th>What it means</th><th>What to do</th></tr></thead>
             <tbody>
-              <tr><td><code>port_in_use</code></td><td>another program uses the database port (47150)</td><td>stop it, or set <code>[controller.db] port</code> in <code>/etc/hive/controller.toml</code></td></tr>
+              <tr><td><code>port_in_use</code></td><td>another program uses the database port (47150)</td><td>stop it, or set <code>[controller.db] port</code> in <code>/etc/meshforge/controller.toml</code></td></tr>
               <tr><td><code>binaries_missing</code>, <code>binaries_unusable</code></td><td>the bundled PostgreSQL is missing or cannot run (wrong Ubuntu)</td><td>reinstall the package; the controller needs Ubuntu 24.04</td></tr>
               <tr><td><code>version_mismatch</code></td><td>the database was made by another PostgreSQL major version</td><td>restore a backup made by this version, or ask the team</td></tr>
-              <tr><td><code>data_dir_invalid</code>, <code>path_invalid</code></td><td><code>/var/lib/hive/db</code> is not a database folder, or a path PostgreSQL cannot use</td><td>do not edit that folder by hand; restore from a backup</td></tr>
+              <tr><td><code>data_dir_invalid</code>, <code>path_invalid</code></td><td><code>/var/lib/meshforge/db</code> is not a database folder, or a path PostgreSQL cannot use</td><td>do not edit that folder by hand; restore from a backup</td></tr>
               <tr><td><code>locked</code></td><td>another controller already uses this database</td><td>stop the other one</td></tr>
-              <tr><td><code>initdb_failed</code>, <code>start_failed</code>, <code>start_timeout</code></td><td>the database could not be created or did not start (in time)</td><td><code>journalctl -u hive-controller -n 80</code> names the log file; often a full disk</td></tr>
+              <tr><td><code>initdb_failed</code>, <code>start_failed</code>, <code>start_timeout</code></td><td>the database could not be created or did not start (in time)</td><td><code>journalctl -u meshforge-controller -n 80</code> names the log file; often a full disk</td></tr>
               <tr><td><code>stop_failed</code>, <code>orphan_stop_failed</code></td><td>an old database process would not stop</td><td>restart the computer</td></tr>
-              <tr><td><code>not_running</code></td><td>a <code>db</code> command needs the database, which is not running</td><td><code>sudo systemctl start hive-controller</code></td></tr>
-              <tr><td><code>in_use</code></td><td><code>db restore</code> while the controller runs</td><td><code>sudo systemctl stop hive-controller</code> first</td></tr>
+              <tr><td><code>not_running</code></td><td>a <code>db</code> command needs the database, which is not running</td><td><code>sudo systemctl start meshforge-controller</code></td></tr>
+              <tr><td><code>in_use</code></td><td><code>db restore</code> while the controller runs</td><td><code>sudo systemctl stop meshforge-controller</code> first</td></tr>
               <tr><td><code>dump_failed</code>, <code>restore_failed</code></td><td>a backup or a restore did not work (nothing was changed)</td><td>check the free disk space, then try again</td></tr>
             </tbody>
           </table>
         </div>
-        <p>Still stuck? Collect <code>hive-agent doctor</code> (and <code>sudo hive-controller doctor</code>), the last 80 log lines, and the installer's output, and send them to the team. More answers on the <a href="support.html">support page</a>.</p>
+        <p>Still stuck? Collect <code>meshforge-agent doctor</code> (and <code>sudo meshforge-controller doctor</code>), the last 80 log lines, and the installer's output, and send them to the team. More answers on the <a href="support.html">support page</a>.</p>
       </section>
 
       <nav class="doc-next" aria-label="Next steps">
@@ -581,7 +581,7 @@ controller_address = "192.168.31.13:47100"   <span class="c"># the controller's 
     <div class="footer-mark" aria-hidden="true"><span>hive<i>.</i></span></div>
   </footer>
 
-  <script src="assets/js/site.js?v=20261122e"></script>
-  <script src="assets/js/docs.js?v=20261122e"></script>
+  <script src="assets/js/site.js?v=20261122f"></script>
+  <script src="assets/js/docs.js?v=20261122f"></script>
 </body>
 </html>

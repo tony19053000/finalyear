@@ -821,8 +821,10 @@
     var bar = doc.getElementById('invite-bar'), time = doc.getElementById('invite-time');
     var LIFE = 900, left = LIFE, timer = 0, ticks = 0;
     function fresh() {
-      var abc = 'abcdefghjkmnpqrstuvwxyz23456789', s = 'hv-';
-      for (var i = 0; i < 10; i++) s += abc[Math.floor(Math.random() * abc.length)];
+      // real shape (common/join_code.py): mf1- + lower-case base32 in groups of five; shortened here
+      var abc = 'abcdefghijklmnopqrstuvwxyz234567', s = 'mf1';
+      for (var i = 0; i < 10; i++) s += (i % 5 ? '' : '-') + abc[Math.floor(Math.random() * abc.length)];
+      s += '-…';
       codeEl.textContent = s;
       codeEl.classList.remove('flip'); void codeEl.offsetWidth; codeEl.classList.add('flip');
       left = LIFE; tick();
