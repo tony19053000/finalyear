@@ -9,6 +9,11 @@
 // split per route (app/App.tsx, React.lazy), so a big chunk means a heavy
 // dependency slipped into a shared or entry chunk.
 //
+// C4 fix: the built CSS must also contain the "hive." wordmark utilities
+// (app/Wordmark.tsx). Both the dashboard and the agent console render it, and
+// the console build once shipped without them (Tailwind scanned only the Vite
+// root src/agentConsole; styles/index.css now has `@source "../"`).
+//
 //   node scripts/check-dist.mjs [DIST_DIR]
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, join, relative } from "node:path";
@@ -18,12 +23,45 @@ const dist =
   process.argv[2] ??
   fileURLToPath(new URL("../../src/meshforge/controller/web/dist", import.meta.url));
 
+/** A file or directory vanished between listing and reading it (a concurrent build/clean). */
+const isEnoent = (err) => typeof err === "object" && err !== null && "code" in err && err.code === "ENOENT";
+
+/** stat(), or null when the entry vanished meanwhile (a concurrent build/clean). */
+function statOrNull(path) {
+  try {
+    return statSync(path);
+  } catch (err) {
+    if (isEnoent(err)) return null;
+    throw err;
+  }
+}
+
 /** @returns {string[]} */
-function walk(dir) {
-  return readdirSync(dir).flatMap((name) => {
+function walk(dir, top = true) {
+  let names;
+  try {
+    names = readdirSync(dir);
+  } catch (err) {
+    // A sub-directory removed mid-walk is skipped; the dist root missing is fatal.
+    if (!top && isEnoent(err)) return [];
+    throw err;
+  }
+  return names.flatMap((name) => {
     const path = join(dir, name);
-    return statSync(path).isDirectory() ? walk(path) : [path];
+    const st = statOrNull(path);
+    if (st === null) return [];
+    return st.isDirectory() ? walk(path, false) : [path];
   });
+}
+
+/** File text, or null when it vanished after the walk listed it. */
+function readOrNull(path) {
+  try {
+    return readFileSync(path, "utf8");
+  } catch (err) {
+    if (isEnoent(err)) return null;
+    throw err;
+  }
 }
 
 /** [extension regex, rule regex, message] */
@@ -79,14 +117,14 @@ function withoutKnownDeadCode(file, text) {
 const findings = [];
 for (const file of files) {
   if (/\.(js|mjs)$/.test(file)) {
-    const size = statSync(file).size;
+    const size = statOrNull(file)?.size ?? 0;
     if (size > MAX_CHUNK_BYTES) {
       findings.push(
         `${relative(dist, file)}: JavaScript chunk of ${String(size)} bytes is over ${String(MAX_CHUNK_BYTES)} - split it (route-level React.lazy)`,
       );
     }
   }
-  const raw = /\.(html|css|js|mjs)$/.test(file) ? readFileSync(file, "utf8") : null;
+  const raw = /\.(html|css|js|mjs)$/.test(file) ? readOrNull(file) : null;
   const text = raw === null ? null : withoutKnownDeadCode(file, raw);
   if (text === null) continue;
   for (const [ext, rule, message] of RULES) {
@@ -100,11 +138,43 @@ for (const file of files) {
   }
 }
 
+/*
+ * Selectors (as escaped in the built CSS) that app/Wordmark.tsx needs: the bar
+ * and login sizes, the word's type, and the honey-hex dot. If a shared file's
+ * classes stop being scanned for a build, these go missing first. Each must
+ * appear as a whole selector: followed by `{` or `,` (optional whitespace), so
+ * `.font-display` is not satisfied by `.font-display-x{` and a grouped rule
+ * (`.a,.font-display{`) or a non-minified build still counts.
+ */
+const REQUIRED_SELECTORS = [
+  String.raw`.text-\[34px\]`,
+  String.raw`.text-\[40px\]`,
+  String.raw`.font-display`,
+  String.raw`.tracking-\[-0\.045em\]`,
+  String.raw`.ml-\[0\.06em\]`,
+  String.raw`.h-\[0\.34em\]`,
+  String.raw`.w-\[0\.3em\]`,
+  String.raw`.bg-accent`,
+  String.raw`.\[clip-path\:polygon\(50\%_0\,100\%_25\%\,100\%_75\%\,50\%_100\%\,0_75\%\,0_25\%\)\]`,
+];
+const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const css = files
+  .filter((f) => f.endsWith(".css"))
+  .map((f) => readOrNull(f) ?? "")
+  .join("\n");
+for (const selector of REQUIRED_SELECTORS) {
+  if (!new RegExp(`${escapeRegExp(selector)}\\s*[{,]`).test(css)) {
+    findings.push(
+      `CSS is missing ${selector} (wordmark, app/Wordmark.tsx) - is styles/index.css still scanning all of src (@source)?`,
+    );
+  }
+}
+
 if (findings.length > 0) {
-  console.error("check-dist: the build would break the dashboard CSP or its chunk budget:");
+  console.error("check-dist: the build would break the dashboard CSP, its chunk budget or its styles:");
   for (const finding of findings) console.error(`  ${finding}`);
   process.exit(1);
 }
 console.log(
-  `check-dist: ${files.length} files OK (CSP-safe: no inline style/script, no CDN; every JS chunk <= ${String(MAX_CHUNK_BYTES / 1000)} kB)`,
+  `check-dist: ${files.length} files OK (CSP-safe: no inline style/script, no CDN; every JS chunk <= ${String(MAX_CHUNK_BYTES / 1000)} kB; wordmark styles present)`,
 );

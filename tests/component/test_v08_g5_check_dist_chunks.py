@@ -6,11 +6,10 @@ build, not the evaluation laptop's first load."""
 from __future__ import annotations
 
 import re
-import shutil
-import subprocess
 from pathlib import Path
 
 import pytest
+from mf_check_dist import run_check_dist, write_wordmark_css
 
 pytestmark = pytest.mark.component
 
@@ -21,27 +20,14 @@ HTML = (
     '<!doctype html><html><head></head><body><div id="root"></div>'
     '<script type="module" src="/assets/a.js"></script></body></html>'
 )
-
-
-def _run(dist: Path) -> subprocess.CompletedProcess[str]:
-    node = shutil.which("node")
-    if node is None:
-        pytest.skip("node is not installed")
-    return subprocess.run(
-        [node, "scripts/check-dist.mjs", str(dist)],
-        cwd=FRONTEND,
-        capture_output=True,
-        text=True,
-        timeout=60,
-        check=False,
-    )
+_run = run_check_dist
 
 
 def _dist(tmp: Path, js_bytes: int) -> Path:
     (tmp / "assets").mkdir()
     (tmp / "index.html").write_text(HTML)
     (tmp / "assets" / "a.js").write_text("x" * js_bytes)
-    return tmp
+    return write_wordmark_css(tmp)
 
 
 def test_a_chunk_at_the_limit_passes(tmp_path: Path) -> None:
@@ -52,7 +38,7 @@ def test_a_chunk_at_the_limit_passes(tmp_path: Path) -> None:
 def test_a_chunk_over_the_limit_fails_and_says_what_to_do(tmp_path: Path) -> None:
     done = _run(_dist(tmp_path, LIMIT + 1))
     assert done.returncode == 1
-    assert "assets/a.js" in done.stderr
+    assert "assets/a.js" in done.stderr.replace("\\", "/")  # Windows: assets\a.js
     assert "React.lazy" in done.stderr
 
 
@@ -65,7 +51,7 @@ def _dist_js(tmp: Path, js: str, name: str = QR_CHUNK) -> Path:
     (tmp / "assets").mkdir()
     (tmp / "index.html").write_text(HTML)
     (tmp / "assets" / name).write_text(js)
-    return tmp
+    return write_wordmark_css(tmp)
 
 
 def test_the_qr_librarys_dead_table_builder_is_the_only_exception(
