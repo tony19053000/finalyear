@@ -1,9 +1,10 @@
 /* hive. — home page
    - smooth scroll (Lenis, optional), line reveals, magnetic buttons
    - one sticky three.js honeycomb tells the opening story, scrubbed by scroll (reversible):
-       the hive -> laptops drift apart (dark) -> a thin honey network links them all -> a job rides the links
-       (stay local / hand off) -> split: the laptops pack into one big comb, a job breaks into pieces that fly
-       out to twelve cells and come home as one answer -> the comb glows as one locked hive -> it sinks away
+       the hive -> laptops drift apart (dark) -> a thin honey network links them all -> stay local: the laptops
+       pack into one big comb and only your cell works -> hand off: they spread back into the network and a job
+       rides the links -> split: they pack again, a job breaks into pieces that fly out to twelve cells and come
+       home as one answer -> the comb glows as one locked hive -> it sinks away
    - benchmark bars, count-up stats, live mini-UIs for the four parts
    The bees (Buzz) live in assets/js/bees.js on their own overlay; the comb shares a small API (HIVE.comb).
    (bees.js is not loaded for now; HIVE.comb stays, unused, so the bees can come back unchanged.)
@@ -22,7 +23,8 @@
      resting hive and as it locks (T = 7). Every laptop is dark then: no honey cells, no warm light, a cool
      dim edge light. On T = 1 there is nothing else; from T = 2 the thin honey network between the laptops
      is lit (see linksOf). Through the decisions only the laptops doing a job light up (their own honey
-     glow, never the shared lights; the split's packed comb is dark honey and gets back some warm edge light).
+     glow, never the shared lights; the packed comb of stay local and split is dark honey and gets back some
+     warm edge light).
      The warm light comes back as the hive locks. */
   function idleOf(T) { return smooth(0.45, 0.85, T) * (1 - smooth(6.3, 6.75, T)); }
   /* the decisions' framing (T = 3..6): the field spreads wider across the page, reaching in under the text
@@ -30,13 +32,18 @@
   function wideOf(T) { return smooth(2.45, 2.95, T) * (1 - smooth(6.3, 6.8, T)); }
   /* how far the text column's dark veil eases off: only under the short step texts (T = 4..6) */
   function veilOf(T) { return 1 - 0.3 * smooth(3.35, 3.75, T) * (1 - smooth(6.3, 6.7, T)); }
+  /* stay local (T = 4) packs every laptop into one big comb (only your cell works) and opens out into
+     the network again for the hand-off (T = 5) */
+  function localPackOf(T) { return smooth(3.3, 3.62, T) * (1 - smooth(4.38, 4.68, T)); }
   /* the network: thin honey links between every laptop. Drawn outward as T = 2 arrives (over about
-     half a beat), carried through the three decisions (the jobs ride them), gone as the hive locks. */
-  function linksOf(T) { return clamp((T - 1.5) / 0.5, 0, 1) * (1 - smooth(5.42, 5.68, T)); }
+     half a beat), drawn back in as stay local packs the comb and out again as the hand-off spreads it,
+     gone again as the split packs it, and for good as the hive locks. */
+  function linksOf(T) { return clamp((T - 1.5) / 0.5, 0, 1) * (1 - localPackOf(T)) * (1 - smooth(5.42, 5.68, T)); }
   /* the split (T = 6) packs every laptop back into one tight comb: from the end of the hand-off the
      spread network closes in (the links shrink and fade as neighbours touch) and the comb is framed big,
-     filling most of the screen. It stays packed into the lock (T = 7), which only lights it up. */
-  function packOf(T) { return smooth(5.4, 5.75, T); }
+     filling most of the screen. It stays packed into the lock (T = 7), which only lights it up.
+     Stay local (T = 4) uses the same packed, big comb (see localPackOf). */
+  function packOf(T) { return Math.max(localPackOf(T), smooth(5.4, 5.75, T)); }
   function whenVisible(el, onShow, onHide, threshold) {
     if (!hasIO) { onShow(); return null; }
     var io = new IntersectionObserver(function (en) {
@@ -504,20 +511,23 @@
 
       var cy = cells[you];
       var u1 = clamp(T - 3.5, 0, 1), u2 = clamp(T - 4.5, 0, 1), u3 = clamp(T - 5.5, 0, 1);
-      if (T > 3.5 && T < 4.5) { // stay local: one job drops onto your laptop, runs there (only that cell glows), finishes
+      if (T > 3.5 && T < 4.5) { // stay local, on the packed comb: one job drops onto your laptop, runs there
+        // (only that cell glows honey), finishes with a warm pulse
         var d1 = ease(clamp((u1 - 0.1) / 0.3, 0, 1));
         putChunk(0, cy.px, cy.top + lerp(3, 0.04, d1), cy.pz, smooth(0.06, 0.14, u1) * (1 - smooth(0.38, 0.46, u1))); // sinks into the top face
         var run = smooth(0.36, 0.44, u1) * (1 - smooth(0.66, 0.71, u1));
-        var fin = smooth(0.66, 0.7, u1) * (1 - smooth(0.73, 0.86, u1)); // the finish: one bright pulse
+        var fin = smooth(0.66, 0.7, u1) * (1 - smooth(0.73, 0.86, u1)); // the finish: one warm honey pulse
         g[you] = Math.max(run * (0.8 + (reduced ? 0 : 0.12 * Math.sin(t * 3.2))), fin, 0.3 * smooth(0.72, 0.84, u1)); // then softly lit
-        fl[you] = fin;
+        am[you] = 0.35 * run + 0.5 * fin; // deeper honey while it works and as it pulses: warm, never a white pillar
+        fl[you] = 0.1 * fin;
       } else if (T >= 4.5 && T < 5.5) { // hand off: along the links to another laptop, and back
-        var pe = sendPE, go = clamp((u2 - 0.08) / 0.38, 0, 1), back = clamp((u2 - 0.7) / 0.24, 0, 1);
-        g[you] = 0.3 * (1 - smooth(0.1, 0.2, u2)) + smooth(0.9, 0.97, u2) * 0.9 * (1 - smooth(0.98, 1, u2));
-        if (u2 < 0.5) { var pA = alongPath(sendPath, go); putChunk(0, pA[0], pA[1], pA[2], smooth(0, 0.08, u2) * (1 - smooth(0.46, 0.5, u2))); }
+        // (it sets off once the comb has opened back out into the network, about u2 = 0.18)
+        var pe = sendPE, go = clamp((u2 - 0.18) / 0.29, 0, 1), back = clamp((u2 - 0.7) / 0.24, 0, 1);
+        g[you] = 0.3 * (1 - smooth(0.14, 0.24, u2)) + smooth(0.9, 0.97, u2) * 0.9 * (1 - smooth(0.98, 1, u2));
+        if (u2 < 0.5) { var pA = alongPath(sendPath, go); putChunk(0, pA[0], pA[1], pA[2], smooth(0.1, 0.18, u2) * (1 - smooth(0.46, 0.5, u2))); }
         g[sendTo] = smooth(0.44, 0.52, u2) * (1 - smooth(0.72, 0.8, u2));
         if (u2 > 0.7 && u2 < 0.95) { var pB = alongPath(sendRev, back); putChunk(1, pB[0], pB[1], pB[2], 0.65); }
-        for (k = 0; k < pe.length; k++) hot[pe[k]] = Math.max(smooth(0.05, 0.15, u2) * (1 - smooth(0.5, 0.6, u2)), smooth(0.68, 0.75, u2) * (1 - smooth(0.94, 1, u2)));
+        for (k = 0; k < pe.length; k++) hot[pe[k]] = Math.max(smooth(0.14, 0.22, u2) * (1 - smooth(0.5, 0.6, u2)), smooth(0.68, 0.75, u2) * (1 - smooth(0.94, 1, u2)));
       } else if (T >= 5.5 && T < 7.1) { // split, on the packed comb: one big job breaks into pieces that fly out
         // at once to twelve cells, which light up while they work; the pieces fly home and merge into one answer
         var v3 = T - 5.5; // runs on past 1, so your cell hands its glow over to the lock smoothly
@@ -535,11 +545,13 @@
           am[tgt] = busy * 0.85; // a deeper honey while working, so it stays warm (not lemon) under the text veil
           fl[tgt] = Math.max(fl[tgt], 0.1 * busy * (reduced ? 1 : 0.5 + 0.5 * Math.sin(t * 4.1 + cells[tgt].phase * 5))); // warm highlights
         }
-        // the rest of the packed comb: dark honey, not black (it is one hive again, just not working)
-        for (k = 0; k < COUNT; k++) g[k] = Math.max(g[k], 0.16 * K);
-        fl[you] = 0.35 * smooth(0.84, 0.87, u3) * (1 - smooth(0.9, 1.0, v3)); // the one answer: a bright flash at your cell
+        var ans = smooth(0.84, 0.87, u3) * (1 - smooth(0.9, 1.0, v3)); // the one answer: a warm honey pulse at your cell
+        fl[you] = 0.1 * ans;
+        am[you] = 0.5 * ans;
         g[you] = Math.max(g[you], smooth(0.84, 0.88, u3) * (1 - 0.3 * smooth(0.92, 1.1, v3)) * (1 - smooth(1.35, 1.6, v3)));
       }
+      // the rest of a packed comb (stay local, split): dark honey, not black (it is one hive again, just not working)
+      if (K > 0) for (k = 0; k < COUNT; k++) g[k] = Math.max(g[k], 0.16 * K);
       // resting hive: a slow wave of honey light rolls across it, always
       if (!reduced) { var rest = (1 - S) * (1 - exitP) * warm; for (k = 0; k < COUNT; k++) g[k] = Math.max(g[k], rest * 0.22 * Math.pow(Math.max(0, Math.sin(t * 0.45 - cells[k].x * 0.55 - cells[k].z * 0.25)), 8)); }
       // together: every cell lights as the hive locks
