@@ -101,3 +101,9 @@ result: armed 23:46:09.554; stopping 23:51:00.057; Stopped 23:51:02.912; startin
     "ready" sent 23:46:24. Stop/start times were NOT sent to L1 at the time (sent now). Job result: see L1 report.
 
 STOPPED 2026-11-22 17:34 (human "stop") - last step R2A-2; open: LEAD ML per-part gate task (new session, not this one)
+
+### V-1 - Video join scene: identity reset - OK
+when: 2026-11-22 17:37 (local)
+commands: HUMAN-approved UAC (Admin): meshforge-agent identity reset (refused without --yes); identity reset --yes; identity show; Get-Service
+result: old revoked node_01M7Z6SD26ZBNYKR65JB9YDFPB removed; new local node_01M81JE9JRJ7BGYYDZH2WKTM3V, enrolled False, service Running.
+    Cue lab/chat/20261122-173534-LEAD-to-L2.md. Next: human opens Hive join screen + recorder, then join on Aayush's GO.
