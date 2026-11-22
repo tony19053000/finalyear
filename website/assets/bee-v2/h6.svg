@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="hive bee H6 Glyph">
+<title>hive bee H6 Glyph</title>
+<!-- H6 Glyph: three honeycomb cells - body/face cell + two wing cells -->
+<defs><linearGradient id="g6" gradientUnits="userSpaceOnUse" x1="0" y1="10" x2="0" y2="50"><stop offset="0" stop-color="#F2EDE4" stop-opacity="0.6"/><stop offset="1" stop-color="#F2EDE4" stop-opacity="0.15"/></linearGradient></defs>
+<g transform="translate(0 7)">
+<polygon points="39.2,11.1 54.8,20.1 54.8,38.1 39.2,47.1 23.6,38.1 23.6,20.1" fill="url(#g6)" stroke="#F2EDE4" stroke-width="3" stroke-linejoin="round"/>
+<polygon points="39.2,29.1 23.6,38.1 23.6,20.1 39.2,11.1" fill="#F2EDE4" fill-opacity=".5"/>
+<polygon points="88.8,11.1 104.4,20.1 104.4,38.1 88.8,47.1 73.2,38.1 73.2,20.1" fill="url(#g6)" stroke="#F2EDE4" stroke-width="3" stroke-linejoin="round"/>
+<polygon points="88.8,29.1 88.8,11.1 104.4,20.1 104.4,38.1" fill="#F2EDE4" fill-opacity=".5"/>
+<polyline points="60.5,41 58.5,29" fill="none" stroke="#F2EDE4" stroke-width="2.6" stroke-linejoin="miter" stroke-linecap="square"/>
+<polygon points="58.2,22.8 61,24.4 61,27.6 58.2,29.2 55.4,27.6 55.4,24.4" fill="#FFC93C"/>
+<polyline points="67.5,41 69.5,29" fill="none" stroke="#F2EDE4" stroke-width="2.6" stroke-linejoin="miter" stroke-linecap="square"/>
+<polygon points="69.8,22.8 67,24.4 67,27.6 69.8,29.2 72.6,27.6 72.6,24.4" fill="#FFC93C"/>
+<polygon points="64,38 64,77 34.6,77 34.6,55" fill="#FFC93C"/>
+<polygon points="64,38 93.4,55 93.4,77 64,77" fill="#F5A623"/>
+<polygon points="64,92 39.8,92 34.6,89 34.6,83.5 64,83.5" fill="#FFC93C"/>
+<polygon points="93.4,83.5 93.4,89 88.2,92 64,92 64,83.5" fill="#F5A623"/>
+<polygon points="64,106 51,98.5 64,98.5" fill="#FFC93C"/>
+<polygon points="77,98.5 64,106 64,98.5" fill="#F5A623"/>
+<polygon points="52.5,54.4 58.2,57.7 58.2,64.3 52.5,67.6 46.8,64.3 46.8,57.7" fill="#16140F"/>
+<polygon points="54.6,56.8 56.3,57.8 56.3,59.7 54.6,60.7 52.9,59.7 52.9,57.8" fill="#F2EDE4"/>
+<polygon points="75.5,54.4 81.2,57.7 81.2,64.3 75.5,67.6 69.8,64.3 69.8,57.7" fill="#16140F"/>
+<polygon points="77.6,56.8 79.3,57.8 79.3,59.7 77.6,60.7 75.9,59.7 75.9,57.8" fill="#F2EDE4"/>
+</g>
+</svg>
