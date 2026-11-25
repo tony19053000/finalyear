@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 200" width="520" height="200">
+  <defs>
+    <linearGradient id="core" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FFD166"/>
+      <stop offset="1" stop-color="#F77F00"/>
+    </linearGradient>
+    <radialGradient id="glow">
+      <stop offset="0" stop-color="#FFB703" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#FFB703" stop-opacity="0"/>
+    </radialGradient>
+    <polygon id="cell" points="0,-18 15.59,-9 15.59,9 0,18 -15.59,9 -15.59,-9"/>
+  </defs>
+
+  <rect width="520" height="200" rx="24" fill="#0E1116"/>
+
+  <!-- mark: 7-cell hive; each outer cell = one machine, core = the planner -->
+  <g transform="translate(110,100) scale(1.6)">
+    <circle r="40" fill="url(#glow)"/>
+    <!-- links: work flowing from the core to each machine -->
+    <g stroke="#FFB703" stroke-width="1.2" stroke-linecap="round" opacity="0.7">
+      <line x1="0" y1="0" x2="34.64" y2="0"/>
+      <line x1="0" y1="0" x2="17.32" y2="30"/>
+      <line x1="0" y1="0" x2="-17.32" y2="30"/>
+      <line x1="0" y1="0" x2="-34.64" y2="0"/>
+      <line x1="0" y1="0" x2="-17.32" y2="-30"/>
+      <line x1="0" y1="0" x2="17.32" y2="-30"/>
+    </g>
+    <!-- outer cells: different fills = heterogeneous devices -->
+    <g stroke="#FFB703" stroke-width="2" stroke-linejoin="round">
+      <use href="#cell" x="34.64"  y="0"   fill="#FFB703" fill-opacity="0.85"/>
+      <use href="#cell" x="17.32"  y="30"  fill="#0E1116"/>
+      <use href="#cell" x="-17.32" y="30"  fill="#FFB703" fill-opacity="0.35"/>
+      <use href="#cell" x="-34.64" y="0"   fill="#0E1116"/>
+      <use href="#cell" x="-17.32" y="-30" fill="#FFB703" fill-opacity="0.6"/>
+      <use href="#cell" x="17.32"  y="-30" fill="#0E1116"/>
+    </g>
+    <!-- core -->
+    <use href="#cell" fill="url(#core)" stroke="#FFD166" stroke-width="2"/>
+    <circle r="4" fill="#0E1116"/>
+  </g>
+
+  <!-- wordmark -->
+  <text x="215" y="118" font-family="Poppins, 'Segoe UI', Helvetica, Arial, sans-serif"
+        font-size="76" font-weight="700" letter-spacing="6" fill="#F5F5F5">hive</text>
+  <text x="219" y="148" font-family="Poppins, 'Segoe UI', Helvetica, Arial, sans-serif"
+        font-size="14" letter-spacing="4.5" fill="#FFB703">MANY DEVICES · ONE MIND</text>
+</svg>

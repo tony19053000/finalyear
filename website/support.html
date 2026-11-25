@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>hive. support · FAQ</title>
+  <meta name="description" content="Answers to common questions about hive: safety, networks, requirements, join codes, upgrades, and what to do when you are stuck.">
+  <meta name="theme-color" content="#0B0A08">
+  <link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,300;12..96,400;12..96,500;12..96,600;12..96,700&family=Geist:wght@300;400;500;600&family=Geist+Mono:wght@400;500;700&family=Instrument+Serif:ital@1&display=swap">
+  <link rel="stylesheet" href="assets/css/site.css?v=20261122i">
+  <link rel="stylesheet" href="assets/css/pages.css?v=20261122i">
+  <script>document.documentElement.classList.add('js');</script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header">
+    <div class="wrap">
+      <a class="brand" href="index.html" aria-label="Hive home">
+        <span class="wordmark">hive<span class="dot"></span></span>
+      </a>
+      <nav class="site-nav" aria-label="Main">
+        <a href="index.html#how">How it decides</a>
+        <a href="index.html#numbers">Numbers</a>
+        <a href="download.html">Download</a>
+        <a href="docs.html">Docs</a>
+        <a href="support.html" aria-current="page">Support</a>
+      </nav>
+      <a class="btn btn-honey btn-small header-cta" href="download.html">Download</a>
+      <button class="menu-btn" type="button" aria-label="Open menu" aria-expanded="false"><span></span><span></span><span></span></button>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="page-hero support-hero">
+      <div class="comb-bg" aria-hidden="true"></div>
+      <div class="wrap">
+        <div>
+          <span class="eyebrow reveal">Support</span>
+          <h1 class="reveal" style="--d:.05s">How can we <span class="serif honey">help?</span></h1>
+          <p class="lead reveal" style="--d:.1s">Short answers first. Every error code has its own entry in the guide.</p>
+        </div>
+        <aside class="tip card reveal" style="--d:.15s" aria-label="First step">
+          <span class="eyebrow">First step</span>
+          <p>Run <code>meshforge-agent doctor</code> on the laptop, <code>sudo meshforge-controller doctor</code> on the controller. They change nothing.</p>
+          <a class="text-link" href="docs.html#troubleshooting">Find your error code &rarr;</a>
+        </aside>
+      </div>
+    </section>
+
+    <section aria-label="Where to go">
+      <div class="wrap">
+        <div class="help-cards">
+          <a class="help-card card reveal" href="docs.html#start">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H11v16H5.5A1.5 1.5 0 0 1 4 18.5zM20 5.5A1.5 1.5 0 0 0 18.5 4H13v16h5.5a1.5 1.5 0 0 0 1.5-1.5z"/></svg>
+            <h2>Read the guide</h2>
+            <p>Install, create a fabric, join a laptop and run a first job, step by step.</p>
+          </a>
+          <a class="help-card card reveal" style="--d:.08s" href="docs.html#troubleshooting">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4M11 8v3.5M11 14h.01" stroke-linecap="round"/></svg>
+            <h2>Look up an error</h2>
+            <p>Search the troubleshooting page for the message or the code you see, like <code>expired</code> or <code>unreachable</code>.</p>
+          </a>
+          <a class="help-card card reveal" style="--d:.16s" href="download.html">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M12 4v11m-4.5-4.5L12 15l4.5-4.5M5 19.5h14" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <h2>Get the files</h2>
+            <p>Windows installer, Ubuntu packages for laptops and the controller, and requirements.</p>
+          </a>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" aria-labelledby="faq-title">
+      <div class="wrap">
+        <div class="section-head reveal">
+          <span class="eyebrow">FAQ</span>
+          <h2 id="faq-title">Questions people <span class="serif">ask.</span></h2>
+        </div>
+        <div class="faq reveal">
+          <details>
+            <summary>What is hive?</summary>
+            <div class="ans"><p>hive joins the laptops you already have into one shared computer. One computer runs the <b>controller</b>, which coordinates the fabric and serves a web dashboard. Every laptop that shares its CPU or GPU runs the <b>agent</b>. You send a program, and hive decides where it runs best: on your laptop, on another one, or split across several.</p></div>
+          </details>
+          <details>
+            <summary>Can other people run things on my laptop without asking?</summary>
+            <div class="ans"><p>No. After install a laptop joins but runs <b>nobody's jobs</b> until its owner turns on <em>Run jobs from the fabric on this laptop</em>. The owner, not the fabric's admin, also sets how much CPU and memory one job may use, whether the GPU is shared, and whether jobs may use the network. <a href="docs.html#owner-settings">What your laptop shares</a></p></div>
+          </details>
+          <details>
+            <summary>Does it work over the internet?</summary>
+            <div class="ans"><p>No. All laptops must be on the same network: home or team Wi-Fi, or Ethernet. On Windows, set your own network's profile to <em>Private</em>; on a network Windows calls <em>Public</em>, other laptops cannot fetch files from yours (jobs still run).</p></div>
+          </details>
+          <details>
+            <summary>Which systems are supported?</summary>
+            <div class="ans"><p><b>Controller:</b> Ubuntu 24.04, 64-bit. <b>Laptops:</b> Windows 10 (22H2) or 11, 64-bit, or Ubuntu 22.04 / 24.04, 64-bit. Docker and an NVIDIA GPU are optional; without them a laptop still shares its processor. There are no macOS packages.</p></div>
+          </details>
+          <details>
+            <summary>Do I need Python, Docker or WSL?</summary>
+            <div class="ans"><p>Not to install. The Windows installer needs no Python, terminal or WSL; each Ubuntu package brings everything it needs. Your <em>jobs</em> run your own program, so the laptops that run them need what that program needs (for a Python job, Python). Docker is optional and lets jobs run in containers; giving the agent Docker access equals administrator rights, so it stays off until you choose it.</p></div>
+          </details>
+          <details>
+            <summary>Windows says "Windows protected your PC". Is that expected?</summary>
+            <div class="ans"><p>Yes, the installer is not signed yet. Click <b>More info</b>, check that the app name is <code>MeshForge-Agent-Setup-...</code>, then <b>Run anyway</b>.</p></div>
+          </details>
+          <details>
+            <summary>Where do I get a join code, and how long does it work?</summary>
+            <div class="ans"><p>The fabric admin makes one on the dashboard: <b>Settings &gt; Invites &gt; New invite</b> (or <code>compute fabric invite</code> in a terminal). A code starts with <code>mf1-</code>, works <b>once</b>, and only for a limited time (15 minutes by default). If it expired or was already used, ask for a new one.</p></div>
+          </details>
+          <details>
+            <summary>Can the controller computer share its own CPU too?</summary>
+            <div class="ans"><p>Yes. One Ubuntu 24.04 computer may have both packages: <code>meshforge-controller</code> and <code>meshforge-agent</code>.</p></div>
+          </details>
+          <details>
+            <summary>How does splitting a job across laptops work?</summary>
+            <div class="ans"><p>Add a <code>split:</code> section to <code>compute.yaml</code>. hive cuts the list of items into pieces, laptops pull pieces until all are done, and the results are joined in order. If splitting would be slower than one laptop, it runs on one and <code>compute explain</code> says why. <a href="docs.html#split">Split one big job</a></p></div>
+          </details>
+          <details>
+            <summary>Can my program use another laptop's GPU directly?</summary>
+            <div class="ans"><p>Not from inside your running program yet: the Python library for Remote GPU / Combined GPU comes with a later version. Today a job that needs a GPU (<code>resources: gpu: required</code>) runs on a laptop whose owner shares its GPU.</p></div>
+          </details>
+          <details>
+            <summary>How do I upgrade?</summary>
+            <div class="ans"><p>Upgrade the controller first, then the laptops: install the new version over the old one, the same way you installed it. Settings and identity are kept, and if the new version does not start, hive switches back to the previous one by itself. <a href="docs.html#upgrade">Upgrade &amp; uninstall</a></p></div>
+          </details>
+          <details>
+            <summary>If I uninstall, is my data gone?</summary>
+            <div class="ans"><p>Not by default. <code>sudo apt remove meshforge-agent</code> (or answering <b>No</b> to <em>Also remove all Hive data from this computer?</em> on Windows) keeps the laptop's identity, so it comes back as the same node. Only <code>apt purge</code>, or <b>Yes</b> on Windows, removes everything; <code>sudo apt purge meshforge-controller</code> deletes the fabric.</p></div>
+          </details>
+        </div>
+      </div>
+    </section>
+
+    <section class="stuck" aria-labelledby="stuck-title">
+      <div class="wrap">
+        <div class="stuck-card card reveal">
+          <div>
+            <h2 id="stuck-title">Still stuck?</h2>
+            <p class="muted">Collect the checks, the last 80 log lines and the installer's output, and send them to the team running your fabric.</p>
+            <div class="cmd" data-label="diagnostic commands"><pre><code>meshforge-agent doctor                  <span class="c"># on the laptop (Windows: administrator PowerShell)</span>
+sudo meshforge-controller doctor        <span class="c"># on the controller</span>
+journalctl -u meshforge-agent -n 80     <span class="c"># the agent's recent log (Ubuntu)</span></code></pre></div>
+          </div>
+        </div>
+      </div>
+    </section>
+    <div style="height: clamp(60px, 9vw, 120px)"></div>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap">
+      <div class="footer-top">
+        <div class="footer-about">
+          <a class="brand" href="index.html" aria-label="Hive home">
+            <span class="wordmark">hive<span class="dot"></span></span>
+          </a>
+          <p>A final-year project. Tested on 4 laptops: Linux and Windows, 3 NVIDIA GPUs.</p>
+        </div>
+        <div><h3>Product</h3><ul><li><a href="index.html#how">How it decides</a></li><li><a href="index.html#numbers">Numbers</a></li><li><a href="index.html#parts">The parts</a></li><li><a href="download.html">Download</a></li></ul></div>
+        <div><h3>Guides</h3><ul><li><a href="docs.html#install-windows">Install on Windows</a></li><li><a href="docs.html#install-ubuntu">Install on Ubuntu</a></li><li><a href="docs.html#join-a-laptop">Join a laptop</a></li><li><a href="docs.html#run-a-workload">Run a workload</a></li></ul></div>
+        <div><h3>Help</h3><ul><li><a href="support.html">FAQ &amp; support</a></li><li><a href="docs.html#troubleshooting">Troubleshooting</a></li><li><a href="docs.html#upgrade">Upgrade &amp; uninstall</a></li></ul></div>
+      </div>
+      <div class="footer-base"><span>hive. &middot; a final-year project</span><span class="ver">v<span data-version>0.17.5</span></span></div>
+    </div>
+    <div class="footer-mark" aria-hidden="true"><span>hive<i>.</i></span></div>
+  </footer>
+
+  <script src="assets/js/site.js?v=20261122i"></script>
+</body>
+</html>
