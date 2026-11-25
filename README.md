@@ -1,3 +1,5 @@
+> **Picking this project up again? Read [CONTINUE_HERE.md](CONTINUE_HERE.md) first** — full handover: what Hive is, naming, results, open items, where everything is, how to resume.
+
 # MeshForge
 
 > Working title. The final project name is not yet decided.
